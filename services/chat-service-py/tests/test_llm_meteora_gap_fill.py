@@ -60,7 +60,7 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
         pytest.skip(f"chat-service ulaşılamıyor: {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
@@ -140,7 +140,7 @@ class StreamResult:
         return len(self.text.strip()) >= min_chars
 
 
-# ─── Yardımcılar ─────────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def triggered(r: StreamResult, t: str, msg: str = ""):
     assert t in r.types(), (
@@ -150,7 +150,7 @@ def triggered(r: StreamResult, t: str, msg: str = ""):
 
 def not_triggered(r: StreamResult, t: str, msg: str = ""):
     assert t not in r.types(), (
-        f"İstenmeyen '{t}' tetiklendi.\nLLM: {r.text[:300]}\n{msg}"
+        f"Unwanted '{t}' was triggered.\nLLM: {r.text[:300]}\n{msg}"
     )
 
 
@@ -161,29 +161,29 @@ def has_param(r: StreamResult, action: str, key: str, contains: str | None = Non
             assert key in p, f"[{action}] '{key}' eksik. Params: {p}\n{msg}"
             if contains:
                 assert contains.lower() in str(p[key]).lower(), (
-                    f"[{action}] '{key}'={p[key]!r} içinde '{contains}' yok\n{msg}"
+                    f"[{action}] '{key}'={p[key]!r} does not contain '{contains}'\n{msg}"
                 )
             return
-    pytest.fail(f"[{action}] hiç tetiklenmedi. Tetiklenenler: {r.types()}")
+    pytest.fail(f"[{action}] never triggered. Triggered: {r.types()}")
 
 
 def no_raw_json(r: StreamResult, msg: str = ""):
     t = r.text
     assert not (t.count("{") + t.count("}") > 10 and t.count('"') > 20), (
-        f"LLM ham JSON döktü.\n{t[:500]}\n{msg}"
+        f"LLM dumped raw JSON.\n{t[:500]}\n{msg}"
     )
 
 
 def has_number(r: StreamResult, msg: str = ""):
     assert re.search(r"\d[\d,.]*", r.text), (
-        f"LLM yanıtında sayı yok.\n{r.text[:400]}\n{msg}"
+        f"No number in the LLM response.\n{r.text[:400]}\n{msg}"
     )
 
 
 def mentions(r: StreamResult, kws: list[str], min_hits: int = 1, msg: str = ""):
     hits = [k for k in kws if k.lower() in r.tl()]
     assert len(hits) >= min_hits, (
-        f"LLM şunlardan hiçbirini söylemiyor: {kws}\nMetin: {r.text[:400]}\n{msg}"
+        f"LLM says none of: {kws}\nText: {r.text[:400]}\n{msg}"
     )
 
 
@@ -191,7 +191,7 @@ def no_hallucination(r: StreamResult, msg: str = ""):
     bad = ["gerçek zamanlı veriye erişimim yok", "i don't have access to real-time",
            "as of my knowledge cutoff", "i cannot access live"]
     for b in bad:
-        assert b not in r.tl(), f"Halüsinasyon: '{b}'\nMetin: {r.text[:400]}\n{msg}"
+        assert b not in r.tl(), f"Hallucination: '{b}'\nText: {r.text[:400]}\n{msg}"
 
 
 def explains_error(r: StreamResult, msg: str = ""):

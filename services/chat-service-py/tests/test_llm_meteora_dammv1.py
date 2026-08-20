@@ -1,30 +1,32 @@
 """
-Meteora DAMM v1 — Kapsamlı LLM Kalite Testi
+Meteora DAMM v1 — comprehensive LLM quality suite
 
-Bu testler yalnızca action routing'i değil, LLM'in:
-  - Kullanıcı sorgularından doğru parametreleri çıkarıp çıkarmadığını
-  - Filtreleme/sıralama parametrelerini doğru iletip iletmediğini
-  - Ham JSON dökmeyip anlamlı metin üretip üretmediğini
-  - Hataları/eksik parametreleri kullanıcıya nazikçe iletip iletmediğini
-  - DAMM v1 ile DLMM/v2 arasındaki ayrımı doğru yapıp yapmadığını
-  - Belirsiz sorgularda doğru yönlendirme yapıp yapmadığını
-kontrol eder.
+These tests check more than action routing. They check whether the LLM:
+  - extracts the right parameters from the user's question
+  - passes filter/sort parameters through correctly
+  - produces prose rather than dumping raw JSON
+  - reports errors and missing parameters to the user gracefully
+  - keeps DAMM v1 distinct from DLMM and v2
+  - routes ambiguous questions to the right place
 
-Test sınıfları:
-  TestDV1GetPools             — 18 test (liste, pool_type, isMonitoring, hideLowTvl)
-  TestDV1SearchPools          — 16 test (filter, sortKey, orderBy, sayfalama, yorum kalitesi)
-  TestDV1GetFarms             — 10 test (parametresiz çağrı, farm yorumu)
-  TestDV1GetPoolsMetrics      — 10 test (aggregate stats, parametresiz, yorum)
-  TestDV1GetAlphaVaults       — 14 test (vault/pool/baseMint filtre, yorum)
-  TestDV1GetAlphaVaultConfigs — 8 test  (config liste, parametresiz)
-  TestDV1GetPoolConfigs       — 8 test  (fee tiers, parametresiz)
-  TestDV1GetFeeConfig         — 10 test (adres gerektiren, eksik param)
-  TestDV1Routing              — 16 test (DLMM vs v1, v2 vs v1, belirsiz)
-  TestDV1ErrorHandling        — 12 test (geçersiz adres, eksik zorunlu param)
-  TestDV1UserGuidance         — 12 test (clarification, yönlendirme, uyarı)
-  TestDV1InterpretationDepth  — 12 test (analiz, karşılaştırma, kullanıcı yararı)
+The user-facing prompts are deliberately written in Turkish: this suite doubles
+as the regression net for Turkish-language intent handling.
 
-Toplam: ~146 test
+Test classes:
+  TestDV1GetPools             — 18 tests (listing, pool_type, isMonitoring, hideLowTvl)
+  TestDV1SearchPools          — 16 tests (filter, sortKey, orderBy, paging, interpretation)
+  TestDV1GetFarms             — 10 tests (no-arg call, farm interpretation)
+  TestDV1GetPoolsMetrics      — 10 tests (aggregate stats, no-arg, interpretation)
+  TestDV1GetAlphaVaults       — 14 tests (vault/pool/baseMint filter, interpretation)
+  TestDV1GetAlphaVaultConfigs — 8 tests  (config listing, no-arg)
+  TestDV1GetPoolConfigs       — 8 tests  (fee tiers, no-arg)
+  TestDV1GetFeeConfig         — 10 tests (requires an address, missing param)
+  TestDV1Routing              — 16 tests (DLMM vs v1, v2 vs v1, ambiguous)
+  TestDV1ErrorHandling        — 12 tests (invalid address, missing required param)
+  TestDV1UserGuidance         — 12 tests (clarification, routing, warnings)
+  TestDV1InterpretationDepth  — 12 tests (analysis, comparison, user benefit)
+
+Total: ~146 tests
 """
 
 from __future__ import annotations
@@ -37,13 +39,13 @@ import uuid
 import httpx
 import pytest
 
-# ─── Servis yapılandırması ─────────────────────────────────────────────────
+# ─── Service configuration ─────────────────────────────────────────────────
 
 CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# Bilinen DAMM v1 havuz adresleri (mainnet, gerçek)
+# Known DAMM v1 pool addresses (real, mainnet)
 DV1_SOL_USDC  = "HcjZvfeSNJbNkfLD4eEcVBr987W65zqKvvcaYkM7SkAs"
 DV1_SOL_USDT  = "32D4zRxNc1EssbJieVHfPhZM3rH6CzfUPrWTTkjHdgLw"
 DV1_BONK_SOL  = "5rJhDkDQMmNn8D6mcGbFBq4dG7TSGcLFGMaqMJFJnygE"
@@ -67,9 +69,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -86,7 +88,7 @@ def _session_id() -> str:
     return f"local:{uuid.uuid4()}"
 
 
-# ─── SSE stream ayrıştırıcı ───────────────────────────────────────────────
+# ─── SSE stream parser ────────────────────────────────────────────────────
 
 class StreamResult:
     def __init__(self):
@@ -153,7 +155,7 @@ def _chat(client: httpx.Client, message: str) -> StreamResult:
     return StreamResult.parse(body)
 
 
-# ─── Doğrulama yardımcıları ───────────────────────────────────────────────
+# ─── Assertion helpers ────────────────────────────────────────────────────
 
 def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
     triggered = result.all_triggered_types()
@@ -168,7 +170,7 @@ def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
 def assert_not_triggered(result: StreamResult, unwanted: str, msg: str = ""):
     triggered = result.all_triggered_types()
     assert unwanted not in triggered, (
-        f"İstenmeyen '{unwanted}' tetiklendi.\n"
+        f"Unwanted '{unwanted}' was triggered.\n"
         f"Tetiklenenler: {triggered}\n"
         f"LLM metni: {result.text[:300]}\n{msg}"
     )
@@ -186,11 +188,11 @@ def assert_param_present(
             )
             if contains:
                 assert contains.lower() in str(p[key]).lower(), (
-                    f"[{action}] '{key}'={p[key]!r} içinde '{contains}' bulunamadı.\n{msg}"
+                    f"[{action}] '{key}'={p[key]!r} does not contain '{contains}'.\n{msg}"
                 )
             return
     pytest.fail(
-        f"[{action}] hiç tetiklenmedi.\n"
+        f"[{action}] never triggered.\n"
         f"Tetiklenenler: {result.all_triggered_types()}\n{msg}"
     )
 
@@ -198,7 +200,7 @@ def assert_param_present(
 def assert_param_absent(result: StreamResult, action: str, key: str, msg: str = ""):
     p = result.params_for(action)
     assert key not in p or p[key] is None, (
-        f"[{action}] '{key}' gönderilmemeli ama gönderildi: {p[key]!r}\n{msg}"
+        f"[{action}] '{key}' should not have been sent, but was: {p[key]!r}\n{msg}"
     )
 
 
@@ -207,13 +209,13 @@ def assert_no_raw_json(result: StreamResult, msg: str = ""):
     brace_count = t.count("{") + t.count("}")
     quote_count = t.count('"')
     assert not (brace_count > 10 and quote_count > 20), (
-        f"LLM ham JSON içeriği döktü.\nMetin: {t[:600]}\n{msg}"
+        f"LLM dumped raw JSON content.\nText: {t[:600]}\n{msg}"
     )
 
 
 def assert_text_not_empty(result: StreamResult, msg: str = "", min_chars: int = 40):
     assert len(result.text.strip()) >= min_chars, (
-        f"LLM yanıtı çok kısa ({len(result.text)} karakter).\n"
+        f"LLM response too short ({len(result.text)} chars).\n"
         f"Metin: {result.text!r}\n{msg}"
     )
 
@@ -221,7 +223,7 @@ def assert_text_not_empty(result: StreamResult, msg: str = "", min_chars: int = 
 def assert_has_number(result: StreamResult, msg: str = ""):
     has_num = bool(re.search(r"\d[\d,.]*", result.text))
     assert has_num, (
-        f"LLM yanıtında hiç sayı yok.\nMetin: {result.text[:400]}\n{msg}"
+        f"No number at all in the LLM response.\nText: {result.text[:400]}\n{msg}"
     )
 
 
@@ -229,7 +231,7 @@ def assert_mentions(result: StreamResult, keywords: list[str], msg: str = "", mi
     lower = result.text_lower()
     hits = [kw for kw in keywords if kw.lower() in lower]
     assert len(hits) >= min_hits, (
-        f"LLM metni şunlardan hiçbirini içermiyor: {keywords}\n"
+        f"LLM text contains none of: {keywords}\n"
         f"Metin: {result.text[:500]}\n{msg}"
     )
 
@@ -242,14 +244,14 @@ def assert_explains_error(result: StreamResult, msg: str = ""):
     lower = result.text_lower()
     found = any(kw in lower for kw in error_keywords)
     assert found or result.asked_clarification(), (
-        f"Hata durumunda LLM açıklayıcı metin üretmedi.\n"
+        f"LLM produced no explanatory text on error.\n"
         f"Metin: {result.text[:400]}\n{msg}"
     )
 
 
 def assert_asks_for_missing_param(result: StreamResult, msg: str = ""):
     assert result.asked_clarification() or result.has_text_content(), (
-        f"Eksik parametre için LLM ne soru sordu ne de açıklama yaptı.\n"
+        f"For the missing parameter the LLM neither asked nor explained.\n"
         f"Metin: {result.text[:300]}\n{msg}"
     )
 
@@ -265,7 +267,7 @@ def assert_does_not_hallucinate_data(result: StreamResult, msg: str = ""):
     lower = result.text_lower()
     for phrase in hallucination_phrases:
         assert phrase not in lower, (
-            f"LLM veri çekmeden 'erişimim yok' yanıtı verdi (hallucination).\n"
+            f"LLM answered 'I have no access' without fetching data (hallucination).\n"
             f"Metin: {result.text[:400]}\n{msg}"
         )
 
@@ -275,7 +277,7 @@ def assert_valid_pool_type_sent(result: StreamResult, action: str, msg: str = ""
     if "poolType" in p and p["poolType"]:
         pt = str(p["poolType"]).lower()
         assert pt in VALID_POOL_TYPES, (
-            f"[{action}] Geçersiz poolType='{pt}'. Geçerliler: {VALID_POOL_TYPES}\n{msg}"
+            f"[{action}] invalid poolType='{pt}'. Valid: {VALID_POOL_TYPES}\n{msg}"
         )
 
 
@@ -284,7 +286,7 @@ def assert_valid_sort_key_sent(result: StreamResult, action: str, msg: str = "")
     if "sortKey" in p and p["sortKey"]:
         sk = str(p["sortKey"]).lower()
         assert sk in VALID_SORT_KEYS, (
-            f"[{action}] Geçersiz sortKey='{sk}'. Geçerliler: {VALID_SORT_KEYS}\n{msg}"
+            f"[{action}] invalid sortKey='{sk}'. Valid: {VALID_SORT_KEYS}\n{msg}"
         )
 
 
@@ -296,7 +298,7 @@ def assert_pagination_params_present(result: StreamResult, action: str, msg: str
         assert int(p["page"]) >= 0, f"[{action}] page < 0\n{msg}"
         assert int(p["size"]) > 0,  f"[{action}] size <= 0\n{msg}"
     except (ValueError, TypeError):
-        pytest.fail(f"[{action}] page/size sayısal değil: {p}\n{msg}")
+        pytest.fail(f"[{action}] page/size is not numeric: {p}\n{msg}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -488,7 +490,7 @@ class TestDV1SearchPools:
         assert_action_triggered(r, "meteora_dammv1_search_pools", msg)
         p = r.params_for("meteora_dammv1_search_pools")
         assert_pagination_params_present(r, "meteora_dammv1_search_pools", msg)
-        assert int(p.get("size", 0)) > 0, f"size pozitif olmalı: {p}\n{msg}"
+        assert int(p.get("size", 0)) > 0, f"size must be positive: {p}\n{msg}"
 
     def test_asc_siralama(self, chat_client):
         msg = "Meteora Dynamic AMM havuzlarını TVL'ye göre küçükten büyüğe sırala"
@@ -543,9 +545,9 @@ class TestDV1SearchPools:
         assert_action_triggered(r, "meteora_dammv1_search_pools", msg)
         p = r.params_for("meteora_dammv1_search_pools")
         assert_pagination_params_present(r, "meteora_dammv1_search_pools", msg)
-        # LLM size=10 veya makul bir değer göndermeli
+        # The LLM should send size=10, or something reasonable
         size = int(p.get("size", 0))
-        assert 5 <= size <= 50, f"size={size} beklenenden uzak (10 civarı bekleniyor)\n{msg}"
+        assert 5 <= size <= 50, f"size={size} is far from expected (around 10)\n{msg}"
 
     def test_arama_yorum_anlam_yuk(self, chat_client):
         msg = "Meteora Dynamic AMM'de en çok hacim yapan havuz hangisi? Ara ve bana açıkla"
@@ -576,15 +578,15 @@ class TestDV1GetFarms:
         assert_text_not_empty(r, msg)
 
     def test_farms_parametresiz_cagri(self, chat_client):
-        """Farms endpoint param almaz — LLM ekstra param göndermemeli"""
+        """The farms endpoint takes no params — the LLM must not send extras."""
         msg = "Meteora DAMM v1 yield farming fırsatlarını listele"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dammv1_get_farms", msg)
         p = r.params_for("meteora_dammv1_get_farms")
-        # Boş veya yalnızca anlamsız opsiyonel alanlar olabilir
+        # Empty, or only harmless optional fields, is acceptable
         essential_wrong = [k for k in p if k in ("pool_address", "poolAddress")]
         assert not essential_wrong, (
-            f"Farms endpoint params almaz ama şunlar gönderildi: {essential_wrong}\nParams: {p}\n{msg}"
+            f"The farms endpoint takes no params, but got: {essential_wrong}\nParams: {p}\n{msg}"
         )
 
     def test_farms_yorum_kalitesi(self, chat_client):
@@ -665,7 +667,7 @@ class TestDV1GetPoolsMetrics:
         p = r.params_for("meteora_dammv1_get_pools_metrics")
         wrong = [k for k in p if k in ("poolAddresses", "pool_addresses")]
         assert not wrong, (
-            f"Metrics endpoint params almaz ama şunlar gönderildi: {wrong}\nParams: {p}\n{msg}"
+            f"The metrics endpoint takes no params, but got: {wrong}\nParams: {p}\n{msg}"
         )
 
     def test_metrics_yorum_kalitesi(self, chat_client):
@@ -788,7 +790,7 @@ class TestDV1GetAlphaVaults:
         assert_does_not_hallucinate_data(r, msg)
 
     def test_alpha_vault_configs_ayrimi(self, chat_client):
-        """Alpha vault listesi ile config presetleri karıştırılmamalı"""
+        """The alpha-vault listing must not be confused with the config presets."""
         msg = "Meteora Alpha Vault'larının tümünü listele (config değil, vault listesi)"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -807,8 +809,8 @@ class TestDV1GetAlphaVaults:
     def test_alpha_vault_vault_adresiyle(self, chat_client):
         msg = "Meteora Alpha Vault'unda belirli bir vault adresi ile filtrele"
         r = _chat(chat_client, msg)
-        # LLM clarification isteyebilir (adres belirtilmediği için)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        # The LLM may ask for clarification, since no address was given
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_alpha_vault_anlam_yorumu_dolu(self, chat_client):
         msg = "Meteora Alpha Vault'ları hakkında bilgi ver ve mevcut fırsatları göster"
@@ -848,7 +850,7 @@ class TestDV1GetAlphaVaultConfigs:
         assert_action_triggered(r, "meteora_dammv1_get_alpha_vault_configs", msg)
         p = r.params_for("meteora_dammv1_get_alpha_vault_configs")
         assert p == {} or all(v is None for v in p.values()), (
-            f"Alpha vault configs param almaz ama gönderildi: {p}\n{msg}"
+            f"Alpha-vault configs takes no params, but got: {p}\n{msg}"
         )
 
     def test_config_yorum_kalitesi(self, chat_client):
@@ -859,7 +861,7 @@ class TestDV1GetAlphaVaultConfigs:
         assert_no_raw_json(r, msg)
 
     def test_config_not_confused_with_pool_configs(self, chat_client):
-        """Alpha vault configs ile pool configs karışmamalı"""
+        """Alpha-vault configs must not be confused with pool configs."""
         msg = "Meteora Alpha Vault'un konfigürasyon seçenekleri"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -912,7 +914,7 @@ class TestDV1GetPoolConfigs:
         assert_action_triggered(r, "meteora_dammv1_get_pool_configs", msg)
         p = r.params_for("meteora_dammv1_get_pool_configs")
         assert p == {} or all(v is None for v in p.values()), (
-            f"Pool configs param almaz ama gönderildi: {p}\n{msg}"
+            f"Pool configs takes no params, but got: {p}\n{msg}"
         )
 
     def test_pool_config_anlam_yorumu(self, chat_client):
@@ -999,12 +1001,12 @@ class TestDV1Routing:
     def test_pools_search_vs_get_pools(self, chat_client):
         msg = "Meteora DAMM v1'de BONK kelimesiyle havuz ara"
         r = _chat(chat_client, msg)
-        # search_pools bekleniyor, get_pools değil
+        # search_pools is expected here, not get_pools
         assert_action_triggered(r, "meteora_dammv1_search_pools", msg)
         assert_param_present(r, "meteora_dammv1_search_pools", "filter", "BONK", msg)
 
     def test_farms_vs_get_pools_farms_type(self, chat_client):
-        """'farms' kelimesi kullanıcı farm endpoint'ini mi yoksa get_pools?farms tipini mi istiyor?"""
+        """Does "farms" mean the farms endpoint, or the get_pools farms pool_type?"""
         msg = "Meteora DAMM v1 farm programlarını getir (yield farming)"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dammv1_get_farms", msg)
@@ -1060,13 +1062,13 @@ class TestDV1Routing:
             f"dammv1 eylemi tetiklenmedi. Tetiklenenler: {triggered}\n{msg}"
         )
         assert not any("dlmm" in t for t in triggered), (
-            f"DLMM eylemi yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"The DLMM action was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_search_with_sort_not_get_pools(self, chat_client):
         msg = "Meteora DAMM v1 havuzlarını TVL'ye göre sıralı listele (ilk 10)"
         r = _chat(chat_client, msg)
-        # Sıralama + liste → search_pools bekleniyor
+        # Sorting + listing -> search_pools is expected
         assert_action_triggered(r, "meteora_dammv1_search_pools", msg)
 
     def test_general_meteora_query_v1_context(self, chat_client):
@@ -1097,27 +1099,27 @@ class TestDV1ErrorHandling:
     def test_yanlis_pool_type(self, chat_client):
         msg = "Meteora DAMM v1'de 'perpetual' tipindeki havuzları göster"
         r = _chat(chat_client, msg)
-        # LLM ya clarify ister ya da geçerli bir tür ile devam eder
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        # The LLM either clarifies or proceeds with a valid type
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_search_pools_filter_yok_page_sorulur(self, chat_client):
         msg = "Meteora DAMM v1 havuzlarını ara"
         r = _chat(chat_client, msg)
-        # filter belirtilmedi, LLM filtre sormalı ya da genel arama yapmalı
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        # No filter was given: the LLM should ask for one or search broadly
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_fee_config_adres_eksik(self, chat_client):
         msg = "Meteora DAMM v1 fee config bilgisini göster"
         r = _chat(chat_client, msg)
-        # Adres olmadan fee config yapılamaz, LLM clarify isteyebilir
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        # A fee config needs an address; the LLM may ask for clarification
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_search_sort_invalid_key(self, chat_client):
         msg = "Meteora DAMM v1 havuzlarını 'popularity'ye göre sırala"
         r = _chat(chat_client, msg)
-        # LLM geçerli bir sort key seçmeli veya kullanıcıya sorumlu
+        # The LLM should pick a valid sort key, or ask the user
         triggered = r.all_triggered_types()
         if "meteora_dammv1_search_pools" in triggered:
             assert_valid_sort_key_sent(r, "meteora_dammv1_search_pools", msg)
@@ -1134,11 +1136,11 @@ class TestDV1ErrorHandling:
     def test_search_pools_negatif_sayfa(self, chat_client):
         msg = "Meteora DAMM v1 havuzlarının -1. sayfasını göster"
         r = _chat(chat_client, msg)
-        # LLM 0 veya 1'den başlamalı
+        # The LLM should start from 0 or 1
         if "meteora_dammv1_search_pools" in r.all_triggered_types():
             p = r.params_for("meteora_dammv1_search_pools")
             page = int(p.get("page", 0))
-            assert page >= 0, f"Negatif page gönderildi: page={page}\n{msg}"
+            assert page >= 0, f"A negative page was sent: page={page}\n{msg}"
 
     def test_api_hata_yumusak_yanit(self, chat_client):
         msg = f"Meteora DAMM v1 havuzu hakkında bilgi ver: {GARBAGE_ADDR}"
@@ -1149,7 +1151,7 @@ class TestDV1ErrorHandling:
     def test_anlamsiz_pool_type_filtreleme(self, chat_client):
         msg = "Meteora DAMM v1'de 'nft_pool' tipindeki havuzları listele"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_search_cok_buyuk_size(self, chat_client):
@@ -1159,8 +1161,8 @@ class TestDV1ErrorHandling:
         if "meteora_dammv1_search_pools" in triggered:
             p = r.params_for("meteora_dammv1_search_pools")
             size = int(p.get("size", 0))
-            # LLM mantıklı bir sınır koymalı
-            assert size <= 1000, f"Aşırı büyük size gönderildi: {size}\n{msg}"
+            # The LLM should cap this sensibly
+            assert size <= 1000, f"An absurdly large size was sent: {size}\n{msg}"
 
     def test_farms_type_confusion(self, chat_client):
         msg = "Meteora DAMM v1 farms endpoint'ini çağır"
@@ -1174,7 +1176,7 @@ class TestDV1ErrorHandling:
         assert_action_triggered(r, "meteora_dammv1_get_pools_metrics", msg)
         p = r.params_for("meteora_dammv1_get_pools_metrics")
         bad = [k for k in p if p[k] is not None and k in ("poolAddresses", "pool_addresses")]
-        assert not bad, f"Metrics endpoint param almaz ama gönderildi: {bad}\n{msg}"
+        assert not bad, f"The metrics endpoint takes no params, but got: {bad}\n{msg}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1231,7 +1233,7 @@ class TestDV1UserGuidance:
         msg = "Meteora'da havuz nerede?"
         r = _chat(chat_client, msg)
         # LLM ya clarify ister ya da genel bilgi verir
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_tvl_yorum_ve_oneri(self, chat_client):

@@ -75,7 +75,7 @@ def html_quality_score(html: str) -> dict:
     return details
 
 
-# ─── Test yapısı ─────────────────────────────────────────────────────────────
+# ─── Test scaffolding ────────────────────────────────────────────────────────
 
 @dataclass
 class TestCase:
@@ -480,7 +480,7 @@ ALL_CASES: list[TestCase] = [
 ]
 
 
-# ─── Test koşucusu ───────────────────────────────────────────────────────────
+# ─── Test runner ─────────────────────────────────────────────────────────────
 
 async def run_single(case: TestCase, query_fn) -> TestResult:
     t0 = time.time()
@@ -600,7 +600,7 @@ async def run_all(
     results: list[TestResult] = []
 
     for i, case in enumerate(cases, 1):
-        print(f"\n[{i}/{len(cases)}] {case.id} çalıştırılıyor...", flush=True)
+        print(f"\n[{i}/{len(cases)}] running {case.id}...", flush=True)
         r = await run_single(case, _query)
         results.append(r)
         print_result(r, print_html=print_html, verbose=verbose)
@@ -628,12 +628,12 @@ async def run_all(
     insight_pass   = sum(1 for r in insight_checks if r.quality.get("has_insight_box"))
 
     print(f"\n{'═'*72}")
-    print(f"GENEL SONUÇ")
+    print(f"OVERALL RESULT")
     print(f"{'═'*72}")
-    print(f"  ✅ Başarılı   : {passed}/{total} ({passed/total*100:.0f}%)")
+    print(f"  ✅ Passed     : {passed}/{total} ({passed/total*100:.0f}%)")
     print(f"  ❌ Hata       : {errors}")
     print(f"  📊 Ort kalite : {avg_q:.0f}/100")
-    print(f"  ⏱ Ort süre   : {avg_d:.1f}s")
+    print(f"  ⏱ Avg time  : {avg_d:.1f}s")
     print(f"  📄 Ort HTML   : {avg_l:,.0f} chars")
     if pct_checks:
         print(f"  📈 % gösterim : {pct_pass}/{len(pct_checks)} ({pct_pass/len(pct_checks)*100:.0f}%)")
@@ -646,7 +646,7 @@ async def run_all(
     print("BAŞARISIZ:")
     failed = [r for r in results if not r.passed]
     if not failed:
-        print("  Hepsi geçti! 🎉")
+        print("  All passed! 🎉")
     else:
         for r in failed:
             reason = r.error or f"Beklenen: {r.case.expected_tools}, Gelen: {r.tools_called}"

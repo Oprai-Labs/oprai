@@ -30,7 +30,7 @@ import uuid
 import httpx
 import pytest
 
-# ─── Servis yapılandırması ─────────────────────────────────────────────────
+# ─── Service configuration ─────────────────────────────────────────────────
 
 CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
@@ -53,9 +53,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -72,7 +72,7 @@ def _session_id() -> str:
     return f"local:{uuid.uuid4()}"
 
 
-# ─── SSE stream ayrıştırıcı ───────────────────────────────────────────────
+# ─── SSE stream parser ────────────────────────────────────────────────────
 
 class StreamResult:
     def __init__(self):
@@ -137,7 +137,7 @@ def _chat(client: httpx.Client, message: str) -> StreamResult:
     return StreamResult.parse(body)
 
 
-# ─── Yardımcılar ─────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────
 
 def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
     triggered = result.all_triggered_types()
@@ -151,7 +151,7 @@ def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
 def assert_not_triggered(result: StreamResult, unwanted: str, msg: str = ""):
     triggered = result.all_triggered_types()
     assert unwanted not in triggered, (
-        f"İstenmeyen '{unwanted}' tetiklendi.\n"
+        f"Unwanted '{unwanted}' was triggered.\n"
         f"Tetiklenenler: {triggered}\n"
         f"LLM metni: {result.text[:300]}\n{msg}"
     )
@@ -167,7 +167,7 @@ def assert_param_present(
             assert key in p, f"[{action}] '{key}' eksik.\nParams: {p}\n{msg}"
             if contains:
                 assert contains.lower() in str(p[key]).lower(), (
-                    f"[{action}] '{key}'={p[key]!r} içinde '{contains}' bulunamadı.\n{msg}"
+                    f"[{action}] '{key}'={p[key]!r} does not contain '{contains}'.\n{msg}"
                 )
             return
     pytest.fail(
@@ -178,13 +178,13 @@ def assert_param_present(
 def assert_no_raw_json(result: StreamResult, msg: str = ""):
     t = result.text
     assert not (t.count("{") + t.count("}") > 10 and t.count('"') > 20), (
-        f"LLM ham JSON döktü.\nMetin: {t[:600]}\n{msg}"
+        f"LLM dumped raw JSON.\nText: {t[:600]}\n{msg}"
     )
 
 
 def assert_text_not_empty(result: StreamResult, msg: str = "", min_chars: int = 40):
     assert len(result.text.strip()) >= min_chars, (
-        f"Yanıt çok kısa ({len(result.text)} karakter).\nMetin: {result.text!r}\n{msg}"
+        f"Response too short ({len(result.text)} chars).\nText: {result.text!r}\n{msg}"
     )
 
 
@@ -192,7 +192,7 @@ def assert_mentions(result: StreamResult, keywords: list[str], msg: str = "", mi
     lower = result.text_lower()
     hits = [kw for kw in keywords if kw.lower() in lower]
     assert len(hits) >= min_hits, (
-        f"LLM şunlardan hiçbirini söylemedi: {keywords}\nMetin: {result.text[:500]}\n{msg}"
+        f"LLM said none of: {keywords}\nText: {result.text[:500]}\n{msg}"
     )
 
 
@@ -201,7 +201,7 @@ def assert_explains_error(result: StreamResult, msg: str = ""):
            "unable", "cannot", "üzgün", "maalesef", "sorry"]
     lower = result.text_lower()
     assert any(k in lower for k in kws) or result.asked_clarification(), (
-        f"Hata durumunda açıklayıcı metin yok.\nMetin: {result.text[:400]}\n{msg}"
+        f"No explanatory text on error.\nText: {result.text[:400]}\n{msg}"
     )
 
 
@@ -280,7 +280,7 @@ class TestS2EGetAnalytics:
         assert_action_triggered(r, "meteora_s2e_get_analytics", msg)
         p = r.params_for("meteora_s2e_get_analytics")
         assert p == {} or all(v is None for v in p.values()), (
-            f"Analytics param almaz ama gönderildi: {p}\n{msg}"
+            f"Analytics takes no params but got: {p}\n{msg}"
         )
 
     def test_yorum_kalitesi_anlamli_metin(self, chat_client):
@@ -316,7 +316,7 @@ class TestS2EGetAnalytics:
         assert_action_triggered(r, "meteora_s2e_get_analytics", msg)
         triggered = r.all_triggered_types()
         assert not any("dlmm" in t for t in triggered), (
-            f"DLMM eylemi yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"The DLMM action was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_fee_vault_aciklamasi(self, chat_client):
@@ -373,7 +373,7 @@ class TestS2EGetAllVaults:
         assert_action_triggered(r, "meteora_s2e_get_all_vaults", msg)
         p = r.params_for("meteora_s2e_get_all_vaults")
         assert p == {} or all(v is None for v in p.values()), (
-            f"get_all_vaults param almaz ama gönderildi: {p}\n{msg}"
+            f"get_all_vaults takes no params but got: {p}\n{msg}"
         )
 
     def test_yorum_no_raw_json(self, chat_client):
@@ -490,7 +490,7 @@ class TestS2EFilterVaults:
             assert_no_wrong_filter_param(r, msg)
         else:
             # get_all_vaults tetiklenmiş olabilir — bu da kabul edilebilir
-            assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+            assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_filter_parametresiz_cagri(self, chat_client):
         """poolAddress vermeden çağrı da geçerli — tüm vault'ları döner"""
@@ -609,7 +609,7 @@ class TestS2EGetVault:
             )
         else:
             # LLM adres soruyor olmalı
-            assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+            assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_vault_yorum_no_raw_json(self, chat_client):
         msg = f"Meteora Stake2Earn vault {S2E_BONK_VAULT} hakkında bilgi ver"
@@ -647,7 +647,7 @@ class TestS2EGetVault:
         msg = f"Meteora Stake2Earn vault '{GARBAGE_ADDR}' bilgisi"
         r = _chat(chat_client, msg)
         # LLM geçersiz adres tespit edip clarify isteyebilir ya da hata açıklayabilir
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_vault_not_analytics(self, chat_client):
@@ -681,7 +681,7 @@ class TestS2EGetVault:
         """Adres belirtilmeden spesifik vault sorusu — LLM clarify isteyebilir"""
         msg = "Meteora Stake2Earn'deki tek bir vault'un detaylarını göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_vault_response_quality(self, chat_client):
@@ -731,7 +731,7 @@ class TestS2ERouting:
             f"S2E eylemi tetiklenmedi. Tetiklenenler: {triggered}\n{msg}"
         )
         assert not any("dlmm" in t for t in triggered), (
-            f"DLMM yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"DLMM was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_s2e_vs_dammv1_routing(self, chat_client):
@@ -742,7 +742,7 @@ class TestS2ERouting:
             f"S2E eylemi tetiklenmedi. Tetiklenenler: {triggered}\n{msg}"
         )
         assert not any("dammv1" in t for t in triggered), (
-            f"DAMM v1 yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"DAMM v1 was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_dlmm_sorusu_s2e_tetiklememeli(self, chat_client):
@@ -831,7 +831,7 @@ class TestS2EErrorHandling:
     def test_get_vault_garbage_address(self, chat_client):
         msg = f"Meteora Stake2Earn vault '{GARBAGE_ADDR}' detayı"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_filter_garbage_pool_address(self, chat_client):
@@ -844,7 +844,7 @@ class TestS2EErrorHandling:
     def test_get_vault_no_address_clarify(self, chat_client):
         msg = "Meteora Stake2Earn vault detayını getir"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
         # Adres sormalı ya da get_all_vaults tetiklemeli
         triggered = r.all_triggered_types()
@@ -859,7 +859,7 @@ class TestS2EErrorHandling:
         msg = f"Meteora Stake2Earn'de şu 101 pool adresini filtrele: {addrs[:200]}..."
         r = _chat(chat_client, msg)
         # LLM ya uyarı vermeli ya da makul bir alt küme göndermeli
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_analytics_extra_param_yok(self, chat_client):
         msg = "Meteora Stake2Earn analytics verisi (adres filtresiyle)"
@@ -867,7 +867,7 @@ class TestS2EErrorHandling:
         assert_action_triggered(r, "meteora_s2e_get_analytics", msg)
         p = r.params_for("meteora_s2e_get_analytics")
         assert p == {} or all(v is None for v in p.values()), (
-            f"Analytics param almaz ama gönderildi: {p}\n{msg}"
+            f"Analytics takes no params but got: {p}\n{msg}"
         )
 
     def test_get_all_vaults_extra_param_yok(self, chat_client):
@@ -877,7 +877,7 @@ class TestS2EErrorHandling:
         if "meteora_s2e_get_all_vaults" in triggered:
             p = r.params_for("meteora_s2e_get_all_vaults")
             assert p == {} or all(v is None for v in p.values()), (
-                f"get_all_vaults param almaz ama gönderildi: {p}\n{msg}"
+                f"get_all_vaults takes no params but got: {p}\n{msg}"
             )
 
     def test_filter_eski_sort_key_yok(self, chat_client):
@@ -896,7 +896,7 @@ class TestS2EErrorHandling:
     def test_filter_vault_boluk_adres(self, chat_client):
         msg = "Meteora Stake2Earn vault filtrele — pool adresi: (boş)"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_analytics_hata_yumusak_yanit(self, chat_client):
         msg = "Meteora Stake2Earn analytics verisini API'dan çek"
@@ -908,7 +908,7 @@ class TestS2EErrorHandling:
     def test_get_vault_kisa_adres(self, chat_client):
         msg = "Meteora Stake2Earn vault abc'yi göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_filter_eski_offset_limit_yok(self, chat_client):
@@ -943,7 +943,7 @@ class TestS2EUserGuidance:
         assert_text_not_empty(r, msg, min_chars=80)
         assert_no_raw_json(r, msg)
         # LLM get_all_vaults önerebilir ya da hemen çalıştırabilir
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_cooldown_aciklamasi(self, chat_client):
         msg = "Meteora Stake2Earn'de unstake sonrasında ne oluyor? Cooldown var mı?"
@@ -966,7 +966,7 @@ class TestS2EUserGuidance:
     def test_hangi_token_stake_edilebilir(self, chat_client):
         msg = "Meteora Stake2Earn'de hangi tokenları stake edebilirim?"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_vault_bul_ve_stake_rehberi(self, chat_client):

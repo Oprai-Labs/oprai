@@ -1,14 +1,17 @@
 """
 LLM End-to-End Jupiter Tool Tests
 ──────────────────────────────────
-Tüm Jupiter GET tool'larını tüm parametre kombinasyonları ile LLM üzerinden test eder.
-Uç case'ler, hata senaryoları ve yanıt kalitesi analizi dahil.
+Exercises every Jupiter GET tool through the LLM, across every parameter
+combination — including edge cases, error paths and response-quality analysis.
 
-Çalıştır:
+The `query` fields are deliberately written in Turkish: this suite doubles as
+the regression net for Turkish-language intent handling.
+
+Run:
   cd services/defi-query-service
   OPRAI_OPENAI_API_KEY=sk-... python3 tests/e2e_llm_jupiter.py
   OPRAI_OPENAI_API_KEY=sk-... python3 tests/e2e_llm_jupiter.py --tool jup_trending
-  OPRAI_OPENAI_API_KEY=sk-... python3 tests/e2e_llm_jupiter.py --fast   (özet rapor)
+  OPRAI_OPENAI_API_KEY=sk-... python3 tests/e2e_llm_jupiter.py --fast   (summary report)
 """
 
 import asyncio
@@ -37,29 +40,29 @@ FARTCOIN = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
 POPCAT   = "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
 BOME     = "ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82"
 TRUMP    = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN"
-FAKE     = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"  # geçersiz mint
+FAKE     = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"  # invalid mint
 
 
-# ─── Yanıt analiz yardımcıları ───────────────────────────────────────────────
+# ─── Response-analysis helpers ───────────────────────────────────────────────
 
 def html_has(html: str, *keywords: str) -> dict[str, bool]:
-    """HTML içinde anahtar kelime kontrolleri."""
+    """Keyword checks against the rendered HTML."""
     plain = re.sub(r"<[^>]+>", "", html).lower()
     return {kw: kw.lower() in plain for kw in keywords}
 
 
 def check_price_format(html: str) -> bool:
-    """$X.XX veya $X.XXXX formatı var mı?"""
+    """Is there a $X.XX / $X.XXXX formatted price?"""
     return bool(re.search(r"\$[\d,]+\.[\d]+", html))
 
 
 def check_has_percentage(html: str) -> bool:
-    """Yüzde değeri (↑/↓ veya %) var mı?"""
+    """Is there a percentage value (↑/↓ or %)?"""
     return bool(re.search(r"[↑↓%][^\w]?\s*[\d.]+|[\d.]+\s*%", html))
 
 
 def check_html_structure(html: str) -> dict:
-    """HTML yapı kalitesi kontrolleri."""
+    """Structural-quality checks on the HTML."""
     return {
         "has_wrapper":      "font-family" in html,
         "has_insight_box":  "💡" in html or "insight" in html.lower(),
@@ -72,14 +75,14 @@ def check_html_structure(html: str) -> dict:
 
 
 def analyze_interpretation(html: str, expected_fields: list[str]) -> dict:
-    """LLM'in beklenen alanları yorumlayıp yorumlamadığını kontrol et."""
+    """Check whether the LLM actually interpreted the expected fields."""
     plain = re.sub(r"<[^>]+>", "", html).lower()
     found = {f: f.lower() in plain for f in expected_fields}
     coverage = sum(found.values()) / len(found) if found else 0
     return {"field_coverage": coverage, "found_fields": found}
 
 
-# ─── Test case yapısı ────────────────────────────────────────────────────────
+# ─── Test-case scaffolding ───────────────────────────────────────────────────
 
 @dataclass
 class TestCase:
@@ -131,7 +134,7 @@ ALL_CASES: list[TestCase] = [
     # ═══════════════════════════════════════════════════════════════
     # JUP_PRICES — Price API v3
     # Parametreler: mints (string, max 50 comma-separated)
-    # Dönen alanlar: usdPrice, priceChange24h, liquidity, decimals, blockId, createdAt
+    # Returned fields: usdPrice, priceChange24h, liquidity, decimals, blockId, createdAt
     # ═══════════════════════════════════════════════════════════════
 
     TestCase(
@@ -141,7 +144,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["sol", "solana", "$"],
         check_fields=["usdPrice", "priceChange", "liquidity"],
-        description="Tek token — SOL fiyatı",
+        description="Single token — the SOL price",
     ),
     TestCase(
         id="price_02_single_bonk",
@@ -159,7 +162,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["sol", "bonk", "jup", "wif"],
         check_fields=["usdPrice", "priceChange"],
-        description="Batch — 5 token aynı anda",
+        description="Batch — 5 tokens at once",
     ),
     TestCase(
         id="price_04_stablecoins",
@@ -168,7 +171,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["usdc", "usdt", "$1"],
         check_fields=["usdPrice", "liquidity"],
-        description="Stablecoin — peg kontrolü",
+        description="Stablecoin — peg check",
     ),
     TestCase(
         id="price_05_lsts",
@@ -177,7 +180,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["jitosol", "msol", "sol", "premium"],
         check_fields=["usdPrice", "liquidity"],
-        description="LST fiyatları + SOL premium hesabı",
+        description="LST prices plus the SOL premium",
     ),
     TestCase(
         id="price_06_meme_coins",
@@ -186,7 +189,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["fartcoin", "popcat", "bome"],
         check_fields=["usdPrice", "priceChange"],
-        description="Meme coin batch karşılaştırma",
+        description="Meme coins compared in one batch",
     ),
     TestCase(
         id="price_07_missing_token",
@@ -195,7 +198,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices", "jup_search"],
         check_html=[],
         check_fields=[],
-        description="Geçersiz mint — yanıt nasıl işleniyor",
+        description="Invalid mint — how the response is handled",
     ),
     TestCase(
         id="price_08_liquidity_focus",
@@ -204,7 +207,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["jup", "ray", "likidite", "slippage"],
         check_fields=["liquidity", "usdPrice"],
-        description="Likidite odaklı analiz",
+        description="Liquidity-focused analysis",
     ),
     TestCase(
         id="price_09_24h_change_focus",
@@ -213,13 +216,13 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices"],
         check_html=["24", "%", "sol", "jup", "bonk"],
         check_fields=["priceChange24h"],
-        description="24h değişim odaklı",
+        description="Focused on the 24h change",
     ),
 
     # ═══════════════════════════════════════════════════════════════
     # JUP_SEARCH — Token arama v2
-    # Parametreler: query (string — isim, sembol veya virgülle ayrılmış max 100 mint)
-    # Dönen alanlar: id, name, symbol, usdPrice, mcap, fdv, holderCount, liquidity,
+    # Parameters: query (string — name, symbol, or up to 100 comma-separated mints)
+    # Returned fields: id, name, symbol, usdPrice, mcap, fdv, holderCount, liquidity,
     #   circSupply, totalSupply, stats5m/1h/6h/24h (SwapStats), audit (isSus,
     #   mintAuthorityDisabled, freezeAuthorityDisabled, topHoldersPercentage,
     #   devBalancePercentage, devMints), organicScore, organicScoreLabel,
@@ -242,7 +245,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["jupiter", "jup"],
         check_fields=["organicScore", "isVerified"],
-        description="Mint adresiyle doğrudan arama",
+        description="Searching directly by mint address",
     ),
     TestCase(
         id="search_03_audit_focus",
@@ -252,7 +255,7 @@ ALL_CASES: list[TestCase] = [
         check_html=["mint", "freeze", "authority", "wif"],
         check_fields=["mintAuthorityDisabled", "freezeAuthorityDisabled", "topHoldersPercentage", "isSus"],
         must_warn=False,
-        description="Audit alanlarına odaklı güvenlik sorgusu",
+        description="Security question focused on the audit fields",
     ),
     TestCase(
         id="search_04_holder_distribution",
@@ -261,7 +264,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["holder", "bonk", "%"],
         check_fields=["holderCount", "topHoldersPercentage", "devBalancePercentage"],
-        description="Holder dağılımı ve konsantrasyon analizi",
+        description="Holder distribution and concentration analysis",
     ),
     TestCase(
         id="search_05_organic_score",
@@ -270,7 +273,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["organik", "jup", "bot"],
         check_fields=["organicScore", "organicScoreLabel", "numOrganicBuyers"],
-        description="Organik skor odaklı sorgu",
+        description="Question focused on the organic score",
     ),
     TestCase(
         id="search_06_supply_analysis",
@@ -279,7 +282,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["jup", "fdv", "mcap", "arz"],
         check_fields=["circSupply", "totalSupply", "fdv", "mcap"],
-        description="Arz analizi — FDV vs mcap dilüsyon riski",
+        description="Supply analysis — FDV vs mcap dilution risk",
     ),
     TestCase(
         id="search_07_social_links",
@@ -306,7 +309,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["5", "1", "6", "24", "bonk", "alış", "satış"],
         check_fields=["stats5m", "stats1h", "stats6h", "stats24h", "buyVolume", "sellVolume"],
-        description="Çoklu zaman dilimi SwapStats karşılaştırması",
+        description="SwapStats compared across several intervals",
     ),
     TestCase(
         id="search_10_buy_sell_pressure",
@@ -315,7 +318,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["alış", "satış", "sol"],
         check_fields=["buyVolume", "sellVolume", "numOrganicBuyers", "numNetBuyers", "numBuys", "numSells"],
-        description="Alış/satış baskısı ve organik akış analizi",
+        description="Buy/sell pressure and organic-flow analysis",
     ),
     TestCase(
         id="search_11_batch_mints",
@@ -324,7 +327,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["sol", "bonk", "jup"],
         check_fields=["usdPrice", "organicScore"],
-        description="Çoklu mint batch sorgusu",
+        description="Multi-mint batch query",
     ),
     TestCase(
         id="search_12_dev_wallet",
@@ -342,7 +345,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=["bonk", "pool", "havuz"],
         check_fields=["firstPool", "createdAt"],
-        description="Token yaşı ve ilk pool tarihi",
+        description="Token age and first-pool date",
     ),
     TestCase(
         id="search_14_risky_new_token",
@@ -361,13 +364,13 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=[],
         check_fields=[],
-        description="Olmayan token araması — uç case",
+        description="Searching for a non-existent token — edge case",
     ),
 
     # ═══════════════════════════════════════════════════════════════
-    # JUP_RECENT — Son çıkan tokenlar
-    # Parametreler: YOK (API her zaman 30 token döner)
-    # Dönen alanlar: id, name, symbol, decimals, usdPrice, liquidity, holderCount,
+    # JUP_RECENT — recently launched tokens
+    # Parameters: none (the API always returns 30 tokens)
+    # Returned fields: id, name, symbol, decimals, usdPrice, liquidity, holderCount,
     #   organicScore, organicScoreLabel, isVerified, firstPool.id, firstPool.createdAt
     # ═══════════════════════════════════════════════════════════════
 
@@ -379,7 +382,7 @@ ALL_CASES: list[TestCase] = [
         check_html=["yeni", "token"],
         check_fields=["firstPool", "organicScore", "isVerified"],
         must_warn=True,
-        description="Yeni token listesi — risk uyarısı bekleniyor",
+        description="New-token listing — a risk warning is expected",
     ),
     TestCase(
         id="recent_02_launch_date",
@@ -388,7 +391,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_recent"],
         check_html=["saat", "dakika", "pool", "havuz"],
         check_fields=["firstPool", "createdAt"],
-        description="firstPool.createdAt yorumlama — ne zaman çıktı",
+        description="Reading firstPool.createdAt — when did it launch",
     ),
     TestCase(
         id="recent_03_organic_filter",
@@ -397,7 +400,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_recent"],
         check_html=["organik", "skor"],
         check_fields=["organicScore", "organicScoreLabel"],
-        description="Yeni tokenlar arasında organik filtresi",
+        description="Organic filter across new tokens",
     ),
     TestCase(
         id="recent_04_liquidity_safety",
@@ -407,7 +410,7 @@ ALL_CASES: list[TestCase] = [
         check_html=["likidite", "10", "$"],
         check_fields=["liquidity"],
         must_warn=True,
-        description="Likidite eşiği filtresi + rug risk uyarısı",
+        description="Liquidity-threshold filter plus a rug-risk warning",
     ),
     TestCase(
         id="recent_05_pump_fun_detection",
@@ -427,16 +430,16 @@ ALL_CASES: list[TestCase] = [
         check_html=["holder", "100"],
         check_fields=["holderCount"],
         must_warn=True,
-        description="Holder sayısı filtresi — düşük holder = yüksek risk",
+        description="Holder-count filter — few holders means high risk",
     ),
 
     # ═══════════════════════════════════════════════════════════════
-    # JUP_TRENDING — Kategori/interval bazlı trending
+    # JUP_TRENDING — trending by category and interval
     # Parametreler:
     #   category: toptrending | toptraded | toporganicscore (zorunlu)
     #   interval: 5m | 1h | 6h | 24h (zorunlu)
     #   limit: 1-100 (opsiyonel, default 50)
-    # Dönen alanlar: Tam MintInformation — usdPrice, stats{interval}, organicScore,
+    # Returned fields: the full MintInformation — usdPrice, stats{interval}, organicScore,
     #   audit, isVerified, launchpad, graduatedPool, mcap, holderCount
     # ═══════════════════════════════════════════════════════════════
 
@@ -486,7 +489,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["hacim", "işlem", "token"],
         check_fields=["buyVolume", "sellVolume", "numBuys", "numSells"],
-        description="toptraded — 5 dakika, hacim odaklı",
+        description="toptraded — 5 minutes, volume-focused",
     ),
     TestCase(
         id="trend_06_traded_1h",
@@ -562,7 +565,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["trend"],
         check_fields=["organicScore", "usdPrice"],
-        description="limit=3 — az sonuç",
+        description="limit=3 — few results",
     ),
     TestCase(
         id="trend_14_limit_50",
@@ -571,10 +574,10 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["token", "hacim"],
         check_fields=["buyVolume", "sellVolume"],
-        description="limit=50 — varsayılan limit",
+        description="limit=50 — the default limit",
     ),
 
-    # Karmaşık: kategori seçim mantığı
+    # Harder: how the category is chosen
     TestCase(
         id="trend_15_compare_categories",
         tool="jup_trending",
@@ -582,7 +585,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["trend", "hacim"],
         check_fields=["organicScore", "buyVolume"],
-        description="İki kategori karşılaştırması — her ikisi için ayrı API çağrısı yapmalı",
+        description="Two categories compared — must make a separate API call for each",
     ),
     TestCase(
         id="trend_16_audit_in_trending",
@@ -610,13 +613,13 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["organik", "hacim"],
         check_fields=["organicScore", "buyVolume", "numOrganicBuyers"],
-        description="Organik vs Traded karşılaştırması",
+        description="Organic versus Traded compared",
     ),
 
     # ═══════════════════════════════════════════════════════════════
-    # JUP_TOKENS_TAG — Tag bazlı token listesi
+    # JUP_TOKENS_TAG — token listing by tag
     # Parametreler: query ('lst' veya 'verified'), limit (opsiyonel)
-    # Dönen alanlar: Tam MintInformation + apy (sadece lst için)
+    # Returned fields: the full MintInformation plus apy (lst only)
     # ═══════════════════════════════════════════════════════════════
 
     TestCase(
@@ -635,7 +638,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_tokens_tag"],
         check_html=["apy", "jitosol", "msol"],
         check_fields=["apy"],
-        description="LST APY karşılaştırması",
+        description="LST APYs compared",
     ),
     TestCase(
         id="tag_03_lst_vs_sol_price",
@@ -644,7 +647,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_tokens_tag", "jup_prices"],
         check_html=["sol", "lst", "premium", "staking"],
         check_fields=["usdPrice", "apy"],
-        description="LST fiyat — SOL premium hesabı",
+        description="LST price — computing the SOL premium",
     ),
     TestCase(
         id="tag_04_lst_liquidity",
@@ -653,7 +656,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_tokens_tag"],
         check_html=["likidite", "lst"],
         check_fields=["liquidity", "usdPrice"],
-        description="LST likidite karşılaştırması",
+        description="LST liquidity compared",
     ),
     TestCase(
         id="tag_05_lst_organic_score",
@@ -689,13 +692,13 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_tokens_tag"],
         check_html=["mcap", "market cap", "doğrulanmış"],
         check_fields=["mcap", "fdv", "usdPrice"],
-        description="Verified market cap sıralaması",
+        description="Verified tokens ranked by market cap",
     ),
 
     # ═══════════════════════════════════════════════════════════════
-    # JUP_VERIFY_ELIGIBILITY — Token doğrulama uygunluk kontrolü
+    # JUP_VERIFY_ELIGIBILITY — token verification eligibility
     # Parametreler: token_id (mint adresi, zorunlu)
-    # Dönen alanlar: tokenExists, isVerified, canVerify, canMetadata,
+    # Returned fields: tokenExists, isVerified, canVerify, canMetadata,
     #   verificationError, metadataError
     # NOT: JUPITER_API_KEY gerektirir
     # ═══════════════════════════════════════════════════════════════
@@ -716,7 +719,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_verify_eligibility", "jup_search"],
         check_html=["wif", "verify", "doğrulama"],
         check_fields=["tokenExists", "canVerify", "canMetadata"],
-        description="WIF verification uygunluk kontrolü",
+        description="WIF verification eligibility check",
     ),
     TestCase(
         id="verify_03_error_message",
@@ -725,11 +728,11 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_verify_eligibility", "jup_search"],
         check_html=["hata", "bulunamadı", "geçersiz"],
         check_fields=["tokenExists", "verificationError"],
-        description="Geçersiz mint — verificationError yorumlama",
+        description="Invalid mint — reading verificationError",
     ),
 
     # ═══════════════════════════════════════════════════════════════
-    # UÇ CASE'LER — LLM tool seçim ve yorum mantığı testi
+    # EDGE CASES — exercising tool selection and interpretation
     # ═══════════════════════════════════════════════════════════════
 
     TestCase(
@@ -739,7 +742,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_prices", "jup_search"],
         check_html=["bonk", "$"],
         check_fields=["usdPrice"],
-        description="Muğlak fiyat sorgusu — hangi tool seçilir?",
+        description="Vague price question — which tool gets picked?",
     ),
     TestCase(
         id="edge_02_chain_search_and_price",
@@ -748,7 +751,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search", "jup_prices"],
         check_html=["sol", "jup", "güvenli"],
         check_fields=["audit", "usdPrice", "organicScore"],
-        description="Multi-tool zincirleme — güvenlik + fiyat",
+        description="Multi-tool chain — security plus price",
     ),
     TestCase(
         id="edge_03_trending_vs_organic",
@@ -757,7 +760,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["organik", "bot", "trend"],
         check_fields=["organicScore", "organicScoreLabel", "numOrganicBuyers"],
-        description="Trending kalitesi — bot vs organik ayırımı",
+        description="Trending quality — telling bots from organic",
     ),
     TestCase(
         id="edge_04_new_token_full_risk",
@@ -767,7 +770,7 @@ ALL_CASES: list[TestCase] = [
         check_html=["risk", "rug", "güvenli"],
         check_fields=["liquidity", "holderCount", "organicScore", "isVerified"],
         must_warn=True,
-        description="En yeni token — tam risk değerlendirmesi",
+        description="Newest token — full risk assessment",
     ),
     TestCase(
         id="edge_05_lst_vs_direct_staking",
@@ -776,7 +779,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_tokens_tag"],
         check_html=["apy", "staking", "sol", "lst"],
         check_fields=["apy", "usdPrice"],
-        description="LST vs doğrudan staking karşılaştırması",
+        description="LST versus staking directly",
     ),
     TestCase(
         id="edge_06_search_nonexistent",
@@ -785,7 +788,7 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_search"],
         check_html=[],
         check_fields=[],
-        description="Olmayan token — LLM nasıl cevaplıyor?",
+        description="Non-existent token — how does the LLM answer?",
     ),
     TestCase(
         id="edge_07_many_tokens_price",
@@ -803,12 +806,12 @@ ALL_CASES: list[TestCase] = [
         expected_tools=["jup_trending"],
         check_html=["audit", "holder", "güvenli"],
         check_fields=["mintAuthorityDisabled", "topHoldersPercentage", "organicScore"],
-        description="Trending + güvenlik filtresi zincirleme",
+        description="Trending chained with a security filter",
     ),
 ]
 
 
-# ─── Test koşucusu ───────────────────────────────────────────────────────────
+# ─── Test runner ─────────────────────────────────────────────────────────────
 
 async def run_single(case: TestCase, query_fn, fast: bool = False) -> TestResult:
     t0 = time.time()
@@ -846,7 +849,7 @@ def print_result(r: TestResult, fast: bool = False):
     print(f"{status} [{r.case.id}] {r.case.description}")
     print(f"   Sorgu    : {r.case.query[:80]}{'...' if len(r.case.query)>80 else ''}")
     print(f"   Tools    : {r.tools_called}  {tool_ok}")
-    print(f"   Süre     : {r.duration:.1f}s  |  HTML: {len(r.html)} karakter")
+    print(f"   Time     : {r.duration:.1f}s  |  HTML: {len(r.html)} chars")
 
     if r.error:
         print(f"   HATA     : {r.error}")
@@ -882,14 +885,14 @@ def print_result(r: TestResult, fast: bool = False):
             if missing_fields: print(f"  ✗ {missing_fields}")
             else: print()
 
-        # Warning kontrolü
+        # Warning check
         if r.case.must_warn:
             has_warn = struct["has_warning_box"] or "risk" in r.plain.lower() or "uyarı" in r.plain.lower() or "rug" in r.plain.lower()
             print(f"   Risk uyar: {'✅ VAR' if has_warn else '❌ YOK (OLMALI)'}")
 
-        # Yanıt özeti (ilk 250 karakter)
+        # Response excerpt (first 250 chars)
         excerpt = r.plain[:250].strip().replace("\n", " ")
-        print(f"   Yanıt    : {excerpt}...")
+        print(f"   Response : {excerpt}...")
 
 
 async def run_all(tool_filter: str | None, fast: bool):
@@ -907,15 +910,15 @@ async def run_all(tool_filter: str | None, fast: bool):
 
     results: list[TestResult] = []
     for i, case in enumerate(cases, 1):
-        print(f"\n[{i}/{len(cases)}] {case.id} çalıştırılıyor...", end="", flush=True)
+        print(f"\n[{i}/{len(cases)}] running {case.id}...", end="", flush=True)
         r = await run_single(case, query, fast)
         results.append(r)
         print_result(r, fast)
-        # Rate limit: API çağrıları arasında 1.5s bekle
+        # Rate limit: wait 1.5s between API calls
         if i < len(cases):
             await asyncio.sleep(1.5)
 
-    # ── Özet rapor ──────────────────────────────────────────────────────────
+    # ── Summary report ──────────────────────────────────────────────────────
     total = len(results)
     passed = sum(1 for r in results if r.passed)
     tool_ok = sum(1 for r in results if r.tool_ok)
@@ -923,7 +926,7 @@ async def run_all(tool_filter: str | None, fast: bool):
     avg_duration = sum(r.duration for r in results) / total if total else 0
     avg_html = sum(len(r.html) for r in results if r.html) / max(1, total - errors)
 
-    # Field coverage ortalaması
+    # Mean field coverage
     coverage_vals = []
     for r in results:
         if r.case.check_fields and not r.error:
@@ -932,28 +935,28 @@ async def run_all(tool_filter: str | None, fast: bool):
     avg_coverage = sum(coverage_vals) / len(coverage_vals) if coverage_vals else 0
 
     print(f"\n{'═'*70}")
-    print(f"GENEL SONUÇ")
+    print(f"OVERALL RESULT")
     print(f"{'═'*70}")
     print(f"  Toplam test   : {total}")
-    print(f"  ✅ Başarılı   : {passed}/{total} ({passed/total*100:.0f}%)")
-    print(f"  🎯 Doğru tool : {tool_ok}/{total} ({tool_ok/total*100:.0f}%)")
+    print(f"  ✅ Passed     : {passed}/{total} ({passed/total*100:.0f}%)")
+    print(f"  🎯 Right tool : {tool_ok}/{total} ({tool_ok/total*100:.0f}%)")
     print(f"  ❌ Hata       : {errors}")
-    print(f"  ⏱ Ort süre   : {avg_duration:.1f}s/test")
+    print(f"  ⏱ Avg time  : {avg_duration:.1f}s/test")
     print(f"  📄 Ort HTML   : {avg_html:.0f} karakter")
     print(f"  📊 Yorum kap. : {avg_coverage*100:.0f}%")
 
     print(f"\n{'─'*70}")
-    print("BAŞARISIZ TESTLER:")
+    print("FAILED TESTS:")
     failed = [r for r in results if not r.passed]
     if not failed:
-        print("  Hepsi geçti! 🎉")
+        print("  All passed! 🎉")
     else:
         for r in failed:
             reason = r.error or f"Beklenen: {r.case.expected_tools}, Gelen: {r.tools_called}"
             print(f"  ✗ {r.case.id}: {reason[:100]}")
 
     print(f"\n{'─'*70}")
-    print("TOOL BAZLI ÖZET:")
+    print("PER-TOOL SUMMARY:")
     from collections import defaultdict
     by_tool: dict[str, list[TestResult]] = defaultdict(list)
     for r in results:
@@ -968,8 +971,8 @@ async def run_all(tool_filter: str | None, fast: bool):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", help="Sadece belirli bir tool'u test et (örn: jup_trending)")
-    parser.add_argument("--fast", action="store_true", help="Kısa çıktı")
+    parser.add_argument("--tool", help="Test only this tool (e.g. jup_trending)")
+    parser.add_argument("--fast", action="store_true", help="Short output")
     parser.add_argument("--id", help="Belirli bir test ID'si")
     args = parser.parse_args()
 

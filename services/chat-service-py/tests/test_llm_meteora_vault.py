@@ -34,7 +34,7 @@ import uuid
 import httpx
 import pytest
 
-# ─── Servis yapılandırması ─────────────────────────────────────────────────
+# ─── Service configuration ─────────────────────────────────────────────────
 
 CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
@@ -67,9 +67,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -86,7 +86,7 @@ def _session_id() -> str:
     return f"local:{uuid.uuid4()}"
 
 
-# ─── SSE stream ayrıştırıcı ───────────────────────────────────────────────
+# ─── SSE stream parser ────────────────────────────────────────────────────
 
 class StreamResult:
     def __init__(self):
@@ -151,7 +151,7 @@ def _chat(client: httpx.Client, message: str) -> StreamResult:
     return StreamResult.parse(body)
 
 
-# ─── Yardımcılar ─────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────
 
 def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
     triggered = result.all_triggered_types()
@@ -165,7 +165,7 @@ def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
 def assert_not_triggered(result: StreamResult, unwanted: str, msg: str = ""):
     triggered = result.all_triggered_types()
     assert unwanted not in triggered, (
-        f"İstenmeyen '{unwanted}' tetiklendi.\n"
+        f"Unwanted '{unwanted}' was triggered.\n"
         f"Tetiklenenler: {triggered}\n"
         f"LLM metni: {result.text[:300]}\n{msg}"
     )
@@ -192,13 +192,13 @@ def assert_param_present(
 def assert_no_raw_json(result: StreamResult, msg: str = ""):
     t = result.text
     assert not (t.count("{") + t.count("}") > 10 and t.count('"') > 20), (
-        f"LLM ham JSON döktü.\nMetin: {t[:600]}\n{msg}"
+        f"LLM dumped raw JSON.\nText: {t[:600]}\n{msg}"
     )
 
 
 def assert_text_not_empty(result: StreamResult, msg: str = "", min_chars: int = 40):
     assert len(result.text.strip()) >= min_chars, (
-        f"Yanıt çok kısa ({len(result.text)} karakter).\nMetin: {result.text!r}\n{msg}"
+        f"Response too short ({len(result.text)} chars).\nText: {result.text!r}\n{msg}"
     )
 
 
@@ -206,7 +206,7 @@ def assert_mentions(result: StreamResult, keywords: list[str], msg: str = "", mi
     lower = result.text_lower()
     hits = [kw for kw in keywords if kw.lower() in lower]
     assert len(hits) >= min_hits, (
-        f"LLM şunlardan hiçbirini söylemedi: {keywords}\nMetin: {result.text[:500]}\n{msg}"
+        f"LLM said none of: {keywords}\nText: {result.text[:500]}\n{msg}"
     )
 
 
@@ -215,7 +215,7 @@ def assert_explains_error(result: StreamResult, msg: str = ""):
            "unable", "cannot", "üzgün", "maalesef", "sorry"]
     lower = result.text_lower()
     assert any(k in lower for k in kws) or result.asked_clarification(), (
-        f"Hata durumunda açıklayıcı metin yok.\nMetin: {result.text[:400]}\n{msg}"
+        f"No explanatory text on error.\nText: {result.text[:400]}\n{msg}"
     )
 
 
@@ -340,7 +340,7 @@ class TestVaultGetInfo:
         assert_action_triggered(r, "meteora_vault_get_info", msg)
         triggered = r.all_triggered_types()
         assert not any("s2e" in t for t in triggered), (
-            f"S2E yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"S2E was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_vault_info_yorum_kalitesi(self, chat_client):
@@ -382,7 +382,7 @@ class TestVaultGetAddresses:
         assert_action_triggered(r, "meteora_vault_get_addresses", msg)
         p = r.params_for("meteora_vault_get_addresses")
         assert p == {} or all(v is None for v in p.values()), (
-            f"get_addresses param almaz ama gönderildi: {p}\n{msg}"
+            f"get_addresses takes no params but got: {p}\n{msg}"
         )
 
     def test_lp_mint_adresi_sorusu(self, chat_client):
@@ -427,7 +427,7 @@ class TestVaultGetAddresses:
         assert_action_triggered(r, "meteora_vault_get_addresses", msg)
         triggered = r.all_triggered_types()
         assert not any("s2e" in t for t in triggered), (
-            f"S2E yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"S2E was triggered by mistake: {triggered}\n{msg}"
         )
 
 
@@ -477,12 +477,12 @@ class TestVaultGetState:
     def test_token_mint_eksik_clarification(self, chat_client):
         msg = "Meteora vault durumunu göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
         if "meteora_vault_get_state" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_state")
             assert "tokenMint" in p and p["tokenMint"], (
-                f"tokenMint zorunlu ama boş: {p}\n{msg}"
+                f"tokenMint is required but empty: {p}\n{msg}"
             )
 
     def test_likidite_durumu_yorumu(self, chat_client):
@@ -599,11 +599,11 @@ class TestVaultGetApy:
     def test_token_mint_eksik_clarification(self, chat_client):
         msg = "Meteora vault APY'sini göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         if "meteora_vault_get_apy" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_apy")
             assert "tokenMint" in p and p["tokenMint"], (
-                f"tokenMint zorunlu ama boş: {p}\n{msg}"
+                f"tokenMint is required but empty: {p}\n{msg}"
             )
 
     def test_yield_kelimesiyle_routing(self, chat_client):
@@ -727,11 +727,11 @@ class TestVaultGetApyHistory:
     def test_token_mint_eksik_clarification(self, chat_client):
         msg = "Meteora vault APY geçmişi, son 7 gün"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         if "meteora_vault_get_apy_history" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_apy_history")
             assert "tokenMint" in p and p["tokenMint"], (
-                f"tokenMint zorunlu ama boş: {p}\n{msg}"
+                f"tokenMint is required but empty: {p}\n{msg}"
             )
 
     def test_start_gte_end_hata(self, chat_client):
@@ -784,7 +784,7 @@ class TestVaultGetApyHistory:
     def test_tarih_araligi_no_timestamp_yoksa(self, chat_client):
         msg = "Meteora USDC vault APY geçmişi göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         # Tarih belirtilmedi — LLM clarify isteyebilir ya da makul varsayılan kullanır
         if "meteora_vault_get_apy_history" in r.all_triggered_types():
             assert_start_before_end(r, "meteora_vault_get_apy_history", msg)
@@ -814,7 +814,7 @@ class TestVaultGetVirtualPrice:
         """Strategy adresi olmadan virtual price çağrılamaz"""
         msg = "Meteora USDC vault virtual price'ını göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
         if "meteora_vault_get_virtual_price" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_virtual_price")
@@ -825,11 +825,11 @@ class TestVaultGetVirtualPrice:
     def test_token_mint_eksik_clarification(self, chat_client):
         msg = f"Meteora vault virtual price: strategy={USDC_STRATEGY}"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         if "meteora_vault_get_virtual_price" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_virtual_price")
             assert "tokenMint" in p and p["tokenMint"], (
-                f"tokenMint zorunlu ama boş: {p}\n{msg}"
+                f"tokenMint is required but empty: {p}\n{msg}"
             )
 
     def test_garbage_token_mint(self, chat_client):
@@ -968,7 +968,7 @@ class TestVaultRouting:
             f"vault eylemi tetiklenmedi: {triggered}\n{msg}"
         )
         assert not any("s2e" in t for t in triggered), (
-            f"S2E yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"S2E was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_s2e_vault_dynamic_vault_ile_karismasin(self, chat_client):
@@ -984,7 +984,7 @@ class TestVaultRouting:
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
         assert not any("dlmm" in t for t in triggered), (
-            f"DLMM yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"DLMM was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_virtual_price_vs_apy_routing(self, chat_client):
@@ -1015,7 +1015,7 @@ class TestVaultRouting:
         assert_action_triggered(r, "meteora_vault_get_addresses", msg)
         triggered = r.all_triggered_types()
         assert not any("dammv1" in t for t in triggered), (
-            f"DAMM v1 yanlışlıkla tetiklendi: {triggered}\n{msg}"
+            f"DAMM v1 was triggered by mistake: {triggered}\n{msg}"
         )
 
     def test_apy_history_two_params(self, chat_client):
@@ -1037,7 +1037,7 @@ class TestVaultRouting:
         msg = "Meteora USDC vault'un virtual price'ını görmek istiyorum"
         r = _chat(chat_client, msg)
         # Strateji bilinmiyor — LLM vault_info önermeli ya da clarify isteyebilir
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1077,12 +1077,12 @@ class TestVaultErrorHandling:
     def test_virtual_price_her_iki_param_eksik(self, chat_client):
         msg = "Meteora vault virtual price göster"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_apy_history_missing_token(self, chat_client):
         msg = f"Meteora vault APY history: startTimestamp={WEEK_AGO_TS} endTimestamp={NOW_TS}"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         if "meteora_vault_get_apy_history" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_apy_history")
             if not p.get("tokenMint"):
@@ -1091,7 +1091,7 @@ class TestVaultErrorHandling:
     def test_state_empty_mint(self, chat_client):
         msg = "Meteora vault state getir, token mint adresi ="
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
 
     def test_virtual_price_garbage_both(self, chat_client):
         msg = f"Meteora vault virtual price: tokenMint={GARBAGE_ADDR} strategy={GARBAGE_ADDR}"
@@ -1111,7 +1111,7 @@ class TestVaultErrorHandling:
     def test_apy_token_sembol_olmayan(self, chat_client):
         msg = "Meteora XYZ123 vault APY'si"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_state_kisa_mint(self, chat_client):
@@ -1123,7 +1123,7 @@ class TestVaultErrorHandling:
     def test_virtual_price_only_mint_no_strategy(self, chat_client):
         msg = f"Meteora vault virtual price: tokenMint={USDC_MINT}"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_addresses_no_extra_param(self, chat_client):
@@ -1132,7 +1132,7 @@ class TestVaultErrorHandling:
         if "meteora_vault_get_addresses" in r.all_triggered_types():
             p = r.params_for("meteora_vault_get_addresses")
             assert p == {} or all(v is None for v in p.values()), (
-                f"get_addresses param almaz ama gönderildi: {p}\n{msg}"
+                f"get_addresses takes no params but got: {p}\n{msg}"
             )
 
 
@@ -1185,7 +1185,7 @@ class TestVaultUserGuidance:
     def test_hangi_token_destekleniyor(self, chat_client):
         msg = "Meteora Dynamic Vault hangi tokenleri destekliyor?"
         r = _chat(chat_client, msg)
-        assert result_has_response(r), f"LLM yanıt vermedi.\n{msg}"
+        assert result_has_response(r), f"LLM returned no response.\n{msg}"
         assert_no_raw_json(r, msg)
 
     def test_timestamp_nasil_hesaplanir(self, chat_client):

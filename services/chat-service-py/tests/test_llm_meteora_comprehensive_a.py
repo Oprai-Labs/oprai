@@ -80,9 +80,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -166,7 +166,7 @@ def _chat(client: httpx.Client, message: str) -> StreamResult:
     return StreamResult.parse(body)
 
 
-# ─── Yardımcılar ─────────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def assert_triggered(r: StreamResult, t: str, msg: str = ""):
     assert t in r.all_triggered_types(), (
@@ -177,7 +177,7 @@ def assert_triggered(r: StreamResult, t: str, msg: str = ""):
 
 def assert_not_triggered(r: StreamResult, t: str, msg: str = ""):
     assert t not in r.all_triggered_types(), (
-        f"İstenmeyen '{t}' tetiklendi.\nLLM: {r.text[:300]}\n{msg}"
+        f"Unwanted '{t}' was triggered.\nLLM: {r.text[:300]}\n{msg}"
     )
 
 
@@ -188,29 +188,29 @@ def assert_param(r: StreamResult, action: str, key: str, contains: str | None = 
             assert key in p, f"[{action}] '{key}' eksik. Params: {p}\n{msg}"
             if contains:
                 assert contains.lower() in str(p[key]).lower(), (
-                    f"[{action}] '{key}'={p[key]!r} içinde '{contains}' yok\n{msg}"
+                    f"[{action}] '{key}'={p[key]!r} does not contain '{contains}'\n{msg}"
                 )
             return
-    pytest.fail(f"[{action}] hiç tetiklenmedi. Tetiklenenler: {r.all_triggered_types()}\n{msg}")
+    pytest.fail(f"[{action}] never triggered. Triggered: {r.all_triggered_types()}\n{msg}")
 
 
 def assert_param_absent(r: StreamResult, action: str, key: str, msg: str = ""):
     p = r.params_for(action)
     assert key not in p or p[key] is None, (
-        f"[{action}] '{key}' gönderilmemeli: {p[key]!r}\n{msg}"
+        f"[{action}] '{key}' should not have been sent: {p[key]!r}\n{msg}"
     )
 
 
 def assert_no_raw_json(r: StreamResult, msg: str = ""):
     t = r.text
     assert not (t.count("{") + t.count("}") > 10 and t.count('"') > 20), (
-        f"LLM ham JSON döktü.\n{t[:500]}\n{msg}"
+        f"LLM dumped raw JSON.\n{t[:500]}\n{msg}"
     )
 
 
 def assert_has_number(r: StreamResult, msg: str = ""):
     assert re.search(r"\d[\d,.]*", r.text), (
-        f"LLM yanıtında sayı yok.\n{r.text[:400]}\n{msg}"
+        f"No number in the LLM response.\n{r.text[:400]}\n{msg}"
     )
 
 
@@ -218,7 +218,7 @@ def assert_mentions(r: StreamResult, keywords: list[str], min_hits: int = 1, msg
     lower = r.text_lower()
     hits = [kw for kw in keywords if kw.lower() in lower]
     assert len(hits) >= min_hits, (
-        f"LLM şunlardan hiçbirini içermiyor: {keywords}\nMetin: {r.text[:400]}\n{msg}"
+        f"LLM contains none of: {keywords}\nText: {r.text[:400]}\n{msg}"
     )
 
 
@@ -238,7 +238,7 @@ def assert_explains_error(r: StreamResult, msg: str = ""):
     kws = ["hata", "geçersiz", "bulunamadı", "error", "invalid", "not found", "sorry", "üzgün"]
     lower = r.text_lower()
     assert any(k in lower for k in kws) or r.asked_clarification(), (
-        f"Hata için açıklama yok.\nMetin: {r.text[:400]}\n{msg}"
+        f"No explanation for the error.\nText: {r.text[:400]}\n{msg}"
     )
 
 
@@ -515,7 +515,7 @@ class TestDLMMGetPoolGroups:
         assert_triggered(r, "DLMM_GET_POOL_GROUPS")
         p = r.params_for("DLMM_GET_POOL_GROUPS")
         assert int(p.get("page", 0)) >= 3 or int(p.get("size", p.get("limit", 0))) == 15, (
-            f"Sayfalama yanlış. Params: {p}"
+            f"Pagination is wrong. Params: {p}"
         )
 
     def test_response_structure_quality(self, chat_client):
@@ -765,7 +765,7 @@ class TestDLMMGetProtocolStats:
         assert_triggered(r, "DLMM_GET_PROTOCOL_STATS")
         p = r.params_for("DLMM_GET_PROTOCOL_STATS")
         assert len(p) == 0 or all(v is None for v in p.values()), (
-            f"Bu endpoint param almaz ama gönderildi: {p}"
+            f"This endpoint takes no params but got: {p}"
         )
 
     def test_growth_trend_response(self, chat_client):
@@ -805,7 +805,7 @@ class TestDAMMv2GetPools:
         p = r.params_for("DAMMV2_GET_POOLS")
         page = int(p.get("page", 0))
         size = int(p.get("pageSize", p.get("size", p.get("limit", 0))))
-        assert page >= 2 or size == 25, f"Sayfalama yanlış. Params: {p}"
+        assert page >= 2 or size == 25, f"Pagination is wrong. Params: {p}"
 
     def test_high_tvl_v2_pools(self, chat_client):
         r = _chat(chat_client, "DAMM v2'de en yüksek TVL'ye sahip havuzları listele")
@@ -859,7 +859,7 @@ class TestDAMMv2GetPoolGroups:
         assert_triggered(r, "DAMMV2_GET_POOL_GROUPS")
         p = r.params_for("DAMMV2_GET_POOL_GROUPS")
         assert int(p.get("page", 0)) >= 2 or int(p.get("size", p.get("limit", 0))) == 20, (
-            f"Sayfalama yanlış. Params: {p}"
+            f"Pagination is wrong. Params: {p}"
         )
 
     def test_group_tvl_sorted(self, chat_client):
@@ -1131,7 +1131,7 @@ class TestDAMMv2GetProtocolMetrics:
         assert_triggered(r, "DAMMV2_GET_PROTOCOL_METRICS")
         p = r.params_for("DAMMV2_GET_PROTOCOL_METRICS")
         assert len(p) == 0 or all(v is None for v in p.values()), (
-            f"Bu endpoint param almaz ama gönderildi: {p}"
+            f"This endpoint takes no params but got: {p}"
         )
 
     def test_pool_count_response(self, chat_client):

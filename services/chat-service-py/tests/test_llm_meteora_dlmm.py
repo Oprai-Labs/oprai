@@ -1,33 +1,35 @@
 """
 LLM conversation tests for Meteora DLMM endpoints.
 
-Bu testler gerçek LLM ile konuşarak:
-1. Doğal dildeki kullanıcı sorgularının doğru action'ı tetikleyip tetiklemediğini
-2. Doğru parametrelerin çıkarıldığını
-3. LLM'in ham JSON yerine anlamlı bir yorum yapıp yapmadığını
-kontrol eder.
+These tests talk to a real LLM and check that:
+1. natural-language questions trigger the right action
+2. the right parameters are extracted
+3. the LLM interprets the result instead of dumping raw JSON
 
-Gereksinimler:
+The user-facing prompts are deliberately written in Turkish: this suite doubles
+as the regression net for Turkish-language intent handling.
+
+Requirements:
   - Chat service: localhost:3020
   - Solana service: localhost:3030
-  - DATABASE_URL, OPRAI_INTERNAL_API_KEY, OPRAI_OPENAI_API_KEY ortam değişkenleri
+  - DATABASE_URL, OPRAI_INTERNAL_API_KEY, OPRAI_OPENAI_API_KEY in the environment
 
-Service yoksa testler otomatik skip edilir.
+The tests skip themselves if a service is unavailable.
 
-Test sınıfları:
-  TestLLMDlmmGetPairs           — 15 test (havuz listesi)
-  TestLLMDlmmGetPoolGroups      — 10 test (token çifti grupları)
-  TestLLMDlmmGetPoolGroup       —  8 test (belirli çiftin tüm havuzları)
-  TestLLMDlmmGetActiveBin       —  6 test (aktif bin / güncel fiyat)
-  TestLLMDlmmGetPair            —  6 test (tekil havuz detayı)
-  TestLLMDlmmGetPoolOhlcv       — 12 test (fiyat grafikleri)
-  TestLLMDlmmGetPoolVolHistory  — 12 test (hacim geçmişi)
-  TestLLMDlmmGetProtocolStats   —  8 test (protokol geneli istatistikler)
-  TestLLMActionRouting          — 15 test (doğru endpoint seçimi)
-  TestLLMNegative               —  8 test (ilgisiz/hatalı sorgular)
-  TestLLMInterpretationQuality  — 10 test (yorum kalitesi)
+Test classes:
+  TestLLMDlmmGetPairs           — 15 tests (pool listing)
+  TestLLMDlmmGetPoolGroups      — 10 tests (token-pair groups)
+  TestLLMDlmmGetPoolGroup       —  8 tests (every pool for one pair)
+  TestLLMDlmmGetActiveBin       —  6 tests (active bin / spot price)
+  TestLLMDlmmGetPair            —  6 tests (single pool detail)
+  TestLLMDlmmGetPoolOhlcv       — 12 tests (price charts)
+  TestLLMDlmmGetPoolVolHistory  — 12 tests (volume history)
+  TestLLMDlmmGetProtocolStats   —  8 tests (protocol-wide statistics)
+  TestLLMActionRouting          — 15 tests (picking the right endpoint)
+  TestLLMNegative               —  8 tests (irrelevant or malformed questions)
+  TestLLMInterpretationQuality  — 10 tests (interpretation quality)
 
-Toplam: ~110 test case
+Total: ~110 test cases
 """
 
 from __future__ import annotations
@@ -54,7 +56,7 @@ USDC_MINT         = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 USDT_MINT         = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 BONK_MINT         = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 
-# Geçersiz adres (bilerek yanlış)
+# Invalid address (deliberately wrong)
 INVALID_ADDR = "not-a-real-solana-address-xyz"
 SHORT_ADDR   = "abc123"
 
@@ -66,9 +68,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service sağlık kontrolü başarısız: {r.status_code}")
+            pytest.skip(f"chat-service health check failed: {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=90.0) as c:
         yield c
 
@@ -85,7 +87,7 @@ def _session_id() -> str:
     return f"local:{uuid.uuid4()}"
 
 
-# ─── SSE ayrıştırıcı ──────────────────────────────────────────────────────
+# ─── SSE parser ───────────────────────────────────────────────────────────
 
 class StreamResult:
     def __init__(self):
@@ -148,7 +150,7 @@ def _chat(client: httpx.Client, message: str) -> StreamResult:
     return StreamResult.parse(body)
 
 
-# ─── Yardımcı doğrulayıcılar ──────────────────────────────────────────────
+# ─── Assertion helpers ────────────────────────────────────────────────────
 
 def assert_action_triggered(result: StreamResult, expected_type: str, msg: str = ""):
     triggered = result.all_triggered_types()
@@ -171,22 +173,22 @@ def assert_param_present(result: StreamResult, action_type: str, param_key: str,
             if expected_value is not None:
                 assert expected_value.lower() in str(params[param_key]).lower(), (
                     f"[{action_type}] '{param_key}'={params[param_key]!r}, "
-                    f"beklenen '{expected_value}' içermiyor.\n{msg}"
+                    f"does not contain the expected '{expected_value}'.\n{msg}"
                 )
             return
-    pytest.fail(f"[{action_type}] hiç tetiklenmedi.\n{msg}")
+    pytest.fail(f"[{action_type}] never triggered.\n{msg}")
 
 
 def assert_no_raw_json(result: StreamResult, msg: str = ""):
     text = result.text
     assert not (text.count('"') > 20 and text.count("{") > 5), (
-        f"LLM ham JSON döktü.\nMetin: {text[:500]}\n{msg}"
+        f"LLM dumped raw JSON.\nText: {text[:500]}\n{msg}"
     )
 
 
 def assert_text_not_empty(result: StreamResult, msg: str = ""):
     assert len(result.text.strip()) > 20, (
-        f"LLM yeterince metin üretmedi.\nMetin: {result.text!r}\n{msg}"
+        f"LLM did not produce enough text.\nText: {result.text!r}\n{msg}"
     )
 
 
@@ -194,14 +196,14 @@ def assert_mentions(result: StreamResult, keywords: list[str], msg: str = ""):
     lower = result.text.lower()
     found = [kw for kw in keywords if kw.lower() in lower]
     assert found, (
-        f"LLM metni şunlardan hiçbirini içermiyor: {keywords}\n"
+        f"LLM text contains none of: {keywords}\n"
         f"Metin: {result.text[:500]}\n{msg}"
     )
 
 
 def assert_has_number(result: StreamResult, msg: str = ""):
     assert any(c.isdigit() for c in result.text), (
-        f"LLM yanıtında sayısal değer yok.\nMetin: {result.text[:400]}\n{msg}"
+        f"No numeric value in the LLM response.\nText: {result.text[:400]}\n{msg}"
     )
 
 
@@ -210,7 +212,7 @@ def assert_valid_timeframe(result: StreamResult, action_type: str, msg: str = ""
     params = result.params_for(action_type)
     if "timeframe" in params:
         tf = params["timeframe"]
-        assert tf in valid, f"Geçersiz timeframe gönderildi: {tf!r} (geçerliler: {valid})\n{msg}"
+        assert tf in valid, f"An invalid timeframe was sent: {tf!r} (valid: {valid})\n{msg}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -232,7 +234,7 @@ class TestLLMDlmmGetPairs:
         assert_action_triggered(r, "meteora_dlmm_get_pairs", msg)
         p = r.params_for("meteora_dlmm_get_pairs")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
-        assert "volume" in sort_val, f"sortBy volume içermeli, geldi: {sort_val!r}"
+        assert "volume" in sort_val, f"sortBy should contain volume, got: {sort_val!r}"
         assert_no_raw_json(r, msg)
 
     def test_tvl_sirali(self, chat_client):
@@ -241,7 +243,7 @@ class TestLLMDlmmGetPairs:
         assert_action_triggered(r, "meteora_dlmm_get_pairs", msg)
         p = r.params_for("meteora_dlmm_get_pairs")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
-        assert "tvl" in sort_val, f"sortBy tvl içermeli, geldi: {sort_val!r}"
+        assert "tvl" in sort_val, f"sortBy should contain tvl, got: {sort_val!r}"
         assert_no_raw_json(r, msg)
 
     def test_sol_iceren_havuzlar(self, chat_client):
@@ -539,12 +541,12 @@ class TestLLMDlmmGetActiveBin:
         assert_no_raw_json(r, msg)
 
     def test_fiyat_vs_ohlcv_routing(self, chat_client):
-        """Anlık fiyat sorusu active_bin veya get_pair tetiklemeli, ohlcv değil."""
+        """A spot-price question should trigger active_bin or get_pair, not ohlcv."""
         msg = f"Meteora DLMM pool {METEORA_SOL_USDC} şu anki spot fiyatı kaç dolar?"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
         assert "meteora_dlmm_get_active_bin" in triggered or "meteora_dlmm_get_pair" in triggered, (
-            f"Anlık fiyat active_bin veya get_pair tetiklemeli. Tetiklenenler: {triggered}"
+            f"A spot price should trigger active_bin or get_pair. Triggered: {triggered}"
         )
         assert_no_raw_json(r, msg)
 
@@ -669,11 +671,11 @@ class TestLLMDlmmGetPoolOhlcv:
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dlmm_get_pool_ohlcv", msg)
         assert_param_present(r, "meteora_dlmm_get_pool_ohlcv", "address", METEORA_SOL_USDC, msg)
-        # startTime/endTime isteğe bağlı — gönderilmeyebilir
+        # startTime/endTime are optional and may be omitted
         assert_no_raw_json(r, msg)
 
     def test_gecersiz_timeframe_duzeltme(self, chat_client):
-        """LLM geçersiz timeframe (3d) için geçerli bir değer seçmeli."""
+        """For an invalid timeframe (3d) the LLM should pick a valid one."""
         msg = f"Pool {METEORA_SOL_USDC} için 3 günlük mumları göster"
         r = _chat(chat_client, msg)
         if "meteora_dlmm_get_pool_ohlcv" in r.all_triggered_types():
@@ -741,7 +743,7 @@ class TestLLMDlmmGetPoolVolHistory:
         assert_action_triggered(r, "meteora_dlmm_get_pool_volume_history", msg)
         p = r.params_for("meteora_dlmm_get_pool_volume_history")
         tf = p.get("timeframe", "24h")
-        assert tf in ("24h", "12h", "1h"), f"Günlük için 24h/12h/1h beklendi: {tf!r}"
+        assert tf in ("24h", "12h", "1h"), f"Expected 24h/12h/1h for a daily view: {tf!r}"
         assert_no_raw_json(r, msg)
 
     def test_7_gunluk_trend(self, chat_client):
@@ -750,7 +752,7 @@ class TestLLMDlmmGetPoolVolHistory:
         assert_action_triggered(r, "meteora_dlmm_get_pool_volume_history", msg)
         assert_param_present(r, "meteora_dlmm_get_pool_volume_history", "address",
                              METEORA_SOL_USDC, msg)
-        # startTime/endTime isteğe bağlı
+        # startTime/endTime are optional
         assert_no_raw_json(r, msg)
         assert_text_not_empty(r, msg)
 
@@ -886,7 +888,7 @@ class TestLLMDlmmGetProtocolStats:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 9. Routing doğruluğu — 15 test
+# 9. Routing correctness — 15 tests
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestLLMActionRouting:
@@ -929,16 +931,16 @@ class TestLLMActionRouting:
         msg = "Meteora'da SOL ile en fazla havuzu olan token çifti hangisi?"
         r = _chat(chat_client, msg)
         assert "meteora_dlmm_get_pool_groups" in r.all_triggered_types(), (
-            f"Çift grubu sorusu pool_groups tetiklemeli. Tetiklenenler: {r.all_triggered_types()}"
+            f"A pair-group question should trigger pool_groups. Triggered: {r.all_triggered_types()}"
         )
         assert_no_raw_json(r, msg)
 
-    def test_anlık_fiyat_active_bin(self, chat_client):
+    def test_spot_price_uses_active_bin(self, chat_client):
         msg = f"Meteora pool {METEORA_SOL_USDC} şu an ne fiyattan işlem görüyor?"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
         assert "meteora_dlmm_get_active_bin" in triggered or "meteora_dlmm_get_pair" in triggered, (
-            f"Anlık fiyat active_bin veya get_pair tetiklemeli. Tetiklenenler: {triggered}"
+            f"A spot price should trigger active_bin or get_pair. Triggered: {triggered}"
         )
         assert_no_raw_json(r, msg)
 
@@ -954,7 +956,7 @@ class TestLLMActionRouting:
         assert_no_raw_json(r, msg)
 
     def test_ohlcv_vs_volume_ayirt(self, chat_client):
-        """Fiyat grafik sorusu → ohlcv; volume_history değil."""
+        """A price-chart question -> ohlcv, not volume_history."""
         msg = f"Meteora DLMM pool {METEORA_SOL_USDC} için saatlik candlestick chart göster"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -966,7 +968,7 @@ class TestLLMActionRouting:
         )
 
     def test_hacim_vs_fiyat_ayirt(self, chat_client):
-        """Hacim sorusu → volume_history; ohlcv değil."""
+        """A volume question -> volume_history, not ohlcv."""
         msg = f"Meteora DLMM pool {METEORA_SOL_USDC}'ın toplam işlem hacmi ne kadar?"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -989,19 +991,19 @@ class TestLLMActionRouting:
         msg = "Meteora'da yeni açılan DLMM havuzları var mı?"
         r = _chat(chat_client, msg)
         assert "meteora_dlmm_get_pairs" in r.all_triggered_types(), (
-            f"Yeni havuz keşfi get_pairs tetiklemeli. Tetiklenenler: {r.all_triggered_types()}"
+            f"Discovering new pools should trigger get_pairs. Triggered: {r.all_triggered_types()}"
         )
         assert_no_raw_json(r, msg)
 
     def test_dogru_adres_parametresi(self, chat_client):
-        """LLM mesajdaki adresi doğru şekilde parametre olarak geçirmeli."""
+        """The LLM should pass the address from the message through as a parameter."""
         msg = f"Meteora pool {METEORA_BONK_SOL} için saatlik fiyat grafiği"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dlmm_get_pool_ohlcv", msg)
         assert_param_present(r, "meteora_dlmm_get_pool_ohlcv", "address", METEORA_BONK_SOL, msg)
 
     def test_birden_fazla_pool_adres_ilki_alir(self, chat_client):
-        """Mesajda iki adres verilirse LLM ilkini kullanmalı."""
+        """Given two addresses in one message, the LLM should use the first."""
         msg = (
             f"Pool {METEORA_SOL_USDC} ve pool {METEORA_SOL_USDT} — "
             f"ilkinin OHLCV verisi"
@@ -1022,13 +1024,13 @@ class TestLLMActionRouting:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 9. Negatif / hatalı sorgular — 8 test
+# 9. Negative and malformed questions — 8 tests
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestLLMNegative:
 
     def test_ilgisiz_soru_hava_durumu(self, chat_client):
-        """DeFi dışı soru → Meteora action tetiklememeli."""
+        """A non-DeFi question must not trigger a Meteora action."""
         msg = "Bugün hava nasıl İstanbul'da?"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -1036,24 +1038,24 @@ class TestLLMNegative:
         assert not meteora_triggered, f"Hava durumu sorusu Meteora action tetiklememeli: {meteora_triggered}"
         assert_text_not_empty(r, msg)
 
-    def test_geçersiz_adres_graceful(self, chat_client):
-        """Geçersiz adresle OHLCV sorgusu — LLM graceful hata vermeli."""
+    def test_invalid_address_is_graceful(self, chat_client):
+        """An OHLCV question with an invalid address — the LLM should fail gracefully."""
         msg = f"Pool {INVALID_ADDR} için saatlik fiyat grafiği"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
-        # LLM ya hata açıklamalı ya da clarify sormalı
+        # The LLM should either explain the error or ask for clarification
         has_error = bool(r.errors) or bool(r.clarify)
         has_explanation = len(r.text.strip()) > 20
-        assert has_error or has_explanation, "Geçersiz adres için graceful yanıt beklendi"
+        assert has_error or has_explanation, "Expected a graceful response for an invalid address"
 
-    def test_kısa_geçersiz_adres(self, chat_client):
-        """Çok kısa adres — LLM geçersiz olduğunu belirtmeli."""
+    def test_too_short_address(self, chat_client):
+        """An address that is far too short — the LLM should say it is invalid."""
         msg = f"Pool {SHORT_ADDR} OHLCV verisi"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
 
     def test_sadece_swap_sorusu_meteora_action_yok(self, chat_client):
-        """Swap isteği → swap action tetiklemeli, get_pairs değil."""
+        """A swap request -> the swap action, not get_pairs."""
         msg = "1 SOL'u USDC'ye swap et Meteora'da"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
@@ -1061,19 +1063,19 @@ class TestLLMNegative:
             "meteora_dlmm_get_pairs", "meteora_dlmm_get_pool_groups",
             "meteora_dlmm_get_pool_ohlcv", "meteora_dlmm_get_pool_volume_history",
         )]
-        assert not get_actions, f"Swap sorusu veri çekme action tetiklememeli: {get_actions}"
+        assert not get_actions, f"A swap question must not trigger a data-fetch action: {get_actions}"
 
     def test_adres_olmadan_ohlcv(self, chat_client):
-        """Pool adresi olmadan OHLCV — LLM clarify sormalı."""
+        """OHLCV without a pool address — the LLM should ask for clarification."""
         msg = "Meteora'daki bir havuzun OHLCV verisi"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
-        # clarify sormalı veya genel liste dönmeli
+        # Should ask for clarification, or return the general listing
         has_action_or_clarify = bool(r.all_triggered_types()) or bool(r.clarify) or len(r.text) > 20
-        assert has_action_or_clarify, "LLM yeterli yanıt vermedi"
+        assert has_action_or_clarify, "The LLM did not respond adequately"
 
     def test_adres_olmadan_volume(self, chat_client):
-        """Pool adresi olmadan volume history — LLM clarify sormalı."""
+        """Volume history without a pool address — the LLM should ask for clarification."""
         msg = "Bir Meteora pool'unun hacim geçmişini göster"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
@@ -1088,7 +1090,7 @@ class TestLLMNegative:
         assert_text_not_empty(r, msg)
 
     def test_cok_uzun_istek(self, chat_client):
-        """Çok uzun mesaj bile işlenmeli."""
+        """Even a very long message must be handled."""
         base_msg = f"Meteora DLMM havuz {METEORA_SOL_USDC} için saatlik OHLCV verisi istiyorum. "
         msg = base_msg + ("Detaylı bilgi ver. " * 20)
         r = _chat(chat_client, msg)
@@ -1157,15 +1159,15 @@ class TestLLMInterpretationQuality:
         assert_no_raw_json(r, msg)
 
     def test_yorum_ozet_cumleler(self, chat_client):
-        """LLM 2-5 cümlelik özet vermeli, liste dump etmemeli."""
+        """The LLM should give a 2-5 sentence summary, not dump a list."""
         msg = f"Meteora pool {METEORA_SOL_USDC} için saatlik OHLCV'yi yorumla"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dlmm_get_pool_ohlcv", msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # Makul uzunlukta yorum: 50-2000 karakter arası
+        # A reasonable interpretation runs 50-2000 characters
         text_len = len(r.text.strip())
-        assert 50 < text_len < 3000, f"Yorum uzunluğu beklenen aralıkta değil: {text_len}"
+        assert 50 < text_len < 3000, f"Interpretation length outside the expected range: {text_len}"
 
     def test_ingilizce_yorum_kalitesi(self, chat_client):
         msg = f"Summarize the recent price action for Meteora pool {METEORA_SOL_USDC}"

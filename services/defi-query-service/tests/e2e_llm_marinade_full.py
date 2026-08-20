@@ -772,10 +772,10 @@ async def run_all(cases: list[Case], print_html: bool = False):
     print(f"\n{'═'*70}")
     print(f"ÖZET")
     print(f"{'═'*70}")
-    print(f"  ✅ Başarılı   : {passed}/{total} ({passed/total*100:.0f}%)")
+    print(f"  ✅ Passed     : {passed}/{total} ({passed/total*100:.0f}%)")
     print(f"  ❌ Hata       : {errors}")
     print(f"  📊 Ort kalite : {avg_q:.0f}/100")
-    print(f"  ⏱ Ort süre   : {avg_d:.1f}s")
+    print(f"  ⏱ Avg time  : {avg_d:.1f}s")
     print(f"  📄 Ort HTML   : {avg_l:,.0f} chars")
     if pct_req:
         ok = sum(1 for r in pct_req if r.q.get("percent"))
@@ -791,7 +791,7 @@ async def run_all(cases: list[Case], print_html: bool = False):
     print("BAŞARISIZLAR:")
     failed = [r for r in results if not r.passed]
     if not failed:
-        print("  Hepsi geçti! 🎉")
+        print("  All passed! 🎉")
     else:
         for r in failed:
             msg = r.err or f"beklenen:{r.case.expected} gelen:{r.tools}"

@@ -53,9 +53,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -152,11 +152,11 @@ def param_eq(r: StreamResult, action: str, key: str, val: str, case_insensitive=
     actual = str(params.get(key, ""))
     if case_insensitive:
         assert actual.lower() == val.lower(), (
-            f"{action}.{key}: beklenen='{val}', gerçek='{actual}'\nParams: {params}"
+            f"{action}.{key}: expected='{val}', actual='{actual}'\nParams: {params}"
         )
     else:
         assert actual == val, (
-            f"{action}.{key}: beklenen='{val}', gerçek='{actual}'\nParams: {params}"
+            f"{action}.{key}: expected='{val}', actual='{actual}'\nParams: {params}"
         )
 
 
@@ -210,7 +210,7 @@ class TestTransfer:
         param_eq(r, "transfer", "token", "USDC")
         params = r.params_for("transfer")
         assert str(params.get("amount", "")).lower() == "all", (
-            f"amount 'all' olmalı, gerçek: {params.get('amount')}"
+            f"amount should be 'all', actual: {params.get('amount')}"
         )
 
     def test_hepsini_gonder_turkish(self, chat_client):
@@ -218,7 +218,7 @@ class TestTransfer:
         triggered(r, "transfer")
         params = r.params_for("transfer")
         assert str(params.get("amount", "")).lower() == "all", (
-            f"amount 'all' olmalı, gerçek: {params.get('amount')}"
+            f"amount should be 'all', actual: {params.get('amount')}"
         )
 
     def test_missing_recipient_asks_clarification(self, chat_client):

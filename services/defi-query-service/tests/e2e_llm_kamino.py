@@ -58,7 +58,7 @@ def analyze_interpretation(html: str, expected_fields: list[str]) -> dict:
     coverage = sum(found.values()) / len(found) if found else 0
     return {"field_coverage": coverage, "found_fields": found}
 
-# ─── Test yapısı ─────────────────────────────────────────────────────────────
+# ─── Test scaffolding ────────────────────────────────────────────────────────
 
 @dataclass
 class TestCase:
@@ -591,7 +591,7 @@ ALL_CASES: list[TestCase] = [
 ]
 
 
-# ─── Test koşucusu ───────────────────────────────────────────────────────────
+# ─── Test runner ─────────────────────────────────────────────────────────────
 
 async def run_single(case: TestCase, query_fn) -> TestResult:
     t0 = time.time()
@@ -629,7 +629,7 @@ def print_result(r: TestResult, fast: bool = False):
     print(f"{status} [{r.case.id}] {r.case.description}")
     print(f"   Sorgu    : {r.case.query[:90]}{'...' if len(r.case.query)>90 else ''}")
     print(f"   Tools    : {r.tools_called}  {tool_ok}")
-    print(f"   Süre     : {r.duration:.1f}s  |  HTML: {len(r.html)} karakter")
+    print(f"   Time     : {r.duration:.1f}s  |  HTML: {len(r.html)} chars")
 
     if r.error:
         print(f"   HATA     : {r.error[:150]}")
@@ -667,7 +667,7 @@ def print_result(r: TestResult, fast: bool = False):
 
     # İlk 200 karakter plain text
     plain_preview = re.sub(r"\s+", " ", r.plain[:200]).strip()
-    print(f"   Yanıt    : {plain_preview}")
+    print(f"   Response : {plain_preview}")
 
 
 async def run_all(filter_val: Optional[str] = None, fast: bool = False):
@@ -687,7 +687,7 @@ async def run_all(filter_val: Optional[str] = None, fast: bool = False):
     results: list[TestResult] = []
 
     for i, case in enumerate(cases, 1):
-        print(f"\n[{i}/{len(cases)}] {case.id} çalıştırılıyor...", flush=True)
+        print(f"\n[{i}/{len(cases)}] running {case.id}...", flush=True)
         r = await run_single(case, _query)
         results.append(r)
         print_result(r, fast)
@@ -707,28 +707,28 @@ async def run_all(filter_val: Optional[str] = None, fast: bool = False):
     avg_cov  = sum(cov_vals) / len(cov_vals) if cov_vals else 0
 
     print(f"\n{'═'*70}")
-    print(f"GENEL SONUÇ")
+    print(f"OVERALL RESULT")
     print(f"{'═'*70}")
     print(f"  Toplam test   : {total}")
-    print(f"  ✅ Başarılı   : {passed}/{total} ({passed/total*100:.0f}%)")
-    print(f"  🎯 Doğru tool : {tool_ok}/{total} ({tool_ok/total*100:.0f}%)")
+    print(f"  ✅ Passed     : {passed}/{total} ({passed/total*100:.0f}%)")
+    print(f"  🎯 Right tool : {tool_ok}/{total} ({tool_ok/total*100:.0f}%)")
     print(f"  ❌ Hata       : {errors}")
-    print(f"  ⏱ Ort süre   : {avg_dur:.1f}s/test")
+    print(f"  ⏱ Avg time  : {avg_dur:.1f}s/test")
     print(f"  📄 Ort HTML   : {avg_html:.0f} karakter")
     print(f"  📊 Yorum kap. : {avg_cov*100:.0f}%")
 
     print(f"\n{'─'*70}")
-    print("BAŞARISIZ TESTLER:")
+    print("FAILED TESTS:")
     failed = [r for r in results if not r.passed]
     if not failed:
-        print("  Hepsi geçti! 🎉")
+        print("  All passed! 🎉")
     else:
         for r in failed:
             reason = r.error or f"Beklenen: {r.case.expected_tools}, Gelen: {r.tools_called}"
             print(f"  ✗ {r.case.id}: {reason[:120]}")
 
     print(f"\n{'─'*70}")
-    print("TOOL BAZLI ÖZET:")
+    print("PER-TOOL SUMMARY:")
     from collections import defaultdict
     by_tool: dict[str, list[TestResult]] = defaultdict(list)
     for r in results:
@@ -745,7 +745,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tool", help="Sadece belirli bir tool (ör: kamino_market_reserves)")
     parser.add_argument("--id",   help="Belirli bir test ID'si")
-    parser.add_argument("--fast", action="store_true", help="Kısa çıktı")
+    parser.add_argument("--fast", action="store_true", help="Short output")
     args = parser.parse_args()
 
     asyncio.run(run_all(args.id or args.tool, args.fast))

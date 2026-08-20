@@ -1,29 +1,31 @@
 """
-Meteora DAMM v2 — Kapsamlı LLM Kalite Testi
+Meteora DAMM v2 — comprehensive LLM quality suite
 
-Bu testler yalnızca action routing'i değil, LLM'in:
-  - Veriyi anlamlı şekilde yorumlayıp yorumlamadığını
-  - Sayısal değerleri doğru raporladığını
-  - Hataları kullanıcıya nazikçe iletip iletmediğini
-  - Belirsiz sorgularda doğru yönlendirme yapıp yapmadığını
-  - Parametreleri eksiksiz ve doğru çıkarıp çıkarmadığını
-  - Ham JSON dökmeyip anlamlı metin üretip üretmediğini
-kontrol eder.
+These tests check more than action routing. They check whether the LLM:
+  - interprets the data instead of restating it
+  - reports numeric values correctly
+  - reports errors to the user gracefully
+  - routes ambiguous questions to the right place
+  - extracts every parameter, and extracts them correctly
+  - produces prose rather than dumping raw JSON
 
-Test sınıfları:
-  TestDV2GetPools             — 18 test  (liste, sıralama, filtreleme, yorum kalitesi)
-  TestDV2GetPoolGroups        — 16 test  (token çifti grupları, parametreler, yorum)
-  TestDV2GetPoolGroup         — 12 test  (belirli çift, mint ayrıştırma, hata)
-  TestDV2GetPool              — 14 test  (tekil havuz, TVL/fiyat/APR yorumu, hata)
-  TestDV2GetPoolOhlcv         — 18 test  (timeframe, timestamp yasağı, yorum kalitesi)
-  TestDV2GetPoolVolHistory    — 16 test  (hacim trendi, timeframe, yorum)
-  TestDV2GetProtocolMetrics   — 12 test  (global stats, yorum, parametresiz çağrı)
-  TestDV2Routing              — 16 test  (DLMM vs v2, v1 vs v2, belirsiz)
-  TestDV2ErrorHandling        — 14 test  (geçersiz adres, eksik param, hizmet hatası)
-  TestDV2UserGuidance         — 14 test  (clarification, yönlendirme, uyarı)
-  TestDV2InterpretationDepth  — 14 test  (analiz, karşılaştırma, trend yorumu)
+The user-facing prompts are deliberately written in Turkish: this suite doubles
+as the regression net for Turkish-language intent handling.
 
-Toplam: ~164 test
+Test classes:
+  TestDV2GetPools             — 18 tests (listing, sorting, filtering, interpretation)
+  TestDV2GetPoolGroups        — 16 tests (token-pair groups, parameters, interpretation)
+  TestDV2GetPoolGroup         — 12 tests (a specific pair, mint parsing, errors)
+  TestDV2GetPool              — 14 tests (single pool, TVL/price/APR reading, errors)
+  TestDV2GetPoolOhlcv         — 18 tests (timeframe, timestamp ban, interpretation)
+  TestDV2GetPoolVolHistory    — 16 tests (volume trend, timeframe, interpretation)
+  TestDV2GetProtocolMetrics   — 12 tests (global stats, interpretation, no-arg call)
+  TestDV2Routing              — 16 tests (DLMM vs v2, v1 vs v2, ambiguous)
+  TestDV2ErrorHandling        — 14 tests (invalid address, missing param, service error)
+  TestDV2UserGuidance         — 14 tests (clarification, routing, warnings)
+  TestDV2InterpretationDepth  — 14 tests (analysis, comparison, trend reading)
+
+Total: ~164 tests
 """
 
 from __future__ import annotations
@@ -36,13 +38,13 @@ import uuid
 import httpx
 import pytest
 
-# ─── Servis yapılandırması ─────────────────────────────────────────────────
+# ─── Service configuration ─────────────────────────────────────────────────
 
 CHAT_URL     = os.getenv("CHAT_SERVICE_URL", "http://localhost:3020")
 INTERNAL_KEY = os.getenv("OPRAI_INTERNAL_API_KEY", "")
 TEST_WALLET  = "HwMBvLQKr1uqHNZ9v6bRX5GsKBLfNbpTDFTRDMkqmHa"
 
-# Bilinen DAMM v2 havuz adresleri (mainnet, gerçek)
+# Known DAMM v2 pool addresses (real, mainnet)
 DV2_SOL_USDC  = "9TtTGp8JeYmLBsMCJfQCdMScGsEMmhqPWGDykELMPMv6"
 DV2_SOL_USDT  = "FoSDw2L5DmTuQTFe55gTtzxXdUznxRoaSET5sD3W6wmn"
 DV2_BONK_SOL  = "BmReo2dJHGHEFNfwM3WGzBmGHScqBPYg39r3VGexdNFH"
@@ -52,7 +54,7 @@ USDC_MINT  = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 USDT_MINT  = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 BONK_MINT  = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 
-# Bilerek yanlış adresler
+# Deliberately invalid addresses
 FAKE_ADDR    = "FakeAddr111111111111111111111111111111111111"
 GARBAGE_ADDR = "not-a-solana-address"
 SHORT_ADDR   = "abc"
@@ -67,9 +69,9 @@ def chat_client():
     try:
         r = httpx.get(f"{CHAT_URL}/health", timeout=3.0)
         if r.status_code not in (200, 204):
-            pytest.skip(f"chat-service yanıt vermedi: HTTP {r.status_code}")
+            pytest.skip(f"chat-service did not respond: HTTP {r.status_code}")
     except Exception as exc:
-        pytest.skip(f"chat-service ulaşılamıyor ({CHAT_URL}): {exc}")
+        pytest.skip(f"chat-service unreachable ({CHAT_URL}): {exc}")
     with httpx.Client(base_url=CHAT_URL, timeout=120.0) as c:
         yield c
 
@@ -86,7 +88,7 @@ def _session_id() -> str:
     return f"local:{uuid.uuid4()}"
 
 
-# ─── SSE stream ayrıştırıcı ───────────────────────────────────────────────
+# ─── SSE stream parser ────────────────────────────────────────────────────
 
 class StreamResult:
     def __init__(self):
@@ -153,7 +155,7 @@ def _chat(client: httpx.Client, message: str) -> StreamResult:
     return StreamResult.parse(body)
 
 
-# ─── Doğrulama yardımcıları ───────────────────────────────────────────────
+# ─── Assertion helpers ────────────────────────────────────────────────────
 
 def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
     triggered = result.all_triggered_types()
@@ -168,7 +170,7 @@ def assert_action_triggered(result: StreamResult, expected: str, msg: str = ""):
 def assert_not_triggered(result: StreamResult, unwanted: str, msg: str = ""):
     triggered = result.all_triggered_types()
     assert unwanted not in triggered, (
-        f"İstenmeyen '{unwanted}' tetiklendi.\n"
+        f"Unwanted '{unwanted}' was triggered.\n"
         f"Tetiklenenler: {triggered}\n"
         f"LLM metni: {result.text[:300]}\n{msg}"
     )
@@ -186,11 +188,11 @@ def assert_param_present(
             )
             if contains:
                 assert contains.lower() in str(p[key]).lower(), (
-                    f"[{action}] '{key}'={p[key]!r} içinde '{contains}' bulunamadı.\n{msg}"
+                    f"[{action}] '{key}'={p[key]!r} does not contain '{contains}'.\n{msg}"
                 )
             return
     pytest.fail(
-        f"[{action}] hiç tetiklenmedi.\n"
+        f"[{action}] never triggered.\n"
         f"Tetiklenenler: {result.all_triggered_types()}\n{msg}"
     )
 
@@ -200,13 +202,13 @@ def assert_no_raw_json(result: StreamResult, msg: str = ""):
     brace_count = t.count("{") + t.count("}")
     quote_count = t.count('"')
     assert not (brace_count > 10 and quote_count > 20), (
-        f"LLM ham JSON içeriği döktü.\nMetin: {t[:600]}\n{msg}"
+        f"LLM dumped raw JSON content.\nText: {t[:600]}\n{msg}"
     )
 
 
 def assert_text_not_empty(result: StreamResult, msg: str = "", min_chars: int = 40):
     assert len(result.text.strip()) >= min_chars, (
-        f"LLM yanıtı çok kısa ({len(result.text)} karakter).\n"
+        f"LLM response too short ({len(result.text)} chars).\n"
         f"Metin: {result.text!r}\n{msg}"
     )
 
@@ -214,7 +216,7 @@ def assert_text_not_empty(result: StreamResult, msg: str = "", min_chars: int = 
 def assert_has_number(result: StreamResult, msg: str = ""):
     has_num = bool(re.search(r"\d[\d,.]*", result.text))
     assert has_num, (
-        f"LLM yanıtında hiç sayı yok.\nMetin: {result.text[:400]}\n{msg}"
+        f"No number at all in the LLM response.\nText: {result.text[:400]}\n{msg}"
     )
 
 
@@ -222,7 +224,7 @@ def assert_mentions(result: StreamResult, keywords: list[str], msg: str = "", mi
     lower = result.text_lower()
     hits = [kw for kw in keywords if kw.lower() in lower]
     assert len(hits) >= min_hits, (
-        f"LLM metni şunlardan hiçbirini içermiyor: {keywords}\n"
+        f"LLM text contains none of: {keywords}\n"
         f"Metin: {result.text[:500]}\n{msg}"
     )
 
@@ -232,7 +234,7 @@ def assert_valid_timeframe(result: StreamResult, action: str, msg: str = ""):
     if "timeframe" in p:
         tf = p["timeframe"]
         assert tf in VALID_TIMEFRAMES, (
-            f"Geçersiz timeframe '{tf}' gönderildi. Geçerliler: {VALID_TIMEFRAMES}\n{msg}"
+            f"Invalid timeframe '{tf}' was sent. Valid: {VALID_TIMEFRAMES}\n{msg}"
         )
 
 
@@ -240,20 +242,20 @@ def assert_no_timestamp_sent(result: StreamResult, action: str, msg: str = ""):
     p = result.params_for(action)
     bad = [k for k in ("startTime", "endTime", "start_time", "end_time") if k in p]
     assert not bad, (
-        f"[{action}] prompt timestamp göndermemeyi yasakladığı hâlde "
-        f"{bad} parametreleri gönderildi.\nParams: {p}\n{msg}"
+        f"[{action}] the prompt forbids sending timestamps, yet "
+        f"{bad} were sent.\nParams: {p}\n{msg}"
     )
 
 
 def assert_no_query_onchain(result: StreamResult, msg: str = ""):
     triggered = result.all_triggered_types()
     assert "query_onchain" not in triggered, (
-        f"query_onchain tetiklendi (timestamp için). Tetiklenenler: {triggered}\n{msg}"
+        f"query_onchain was triggered (for a timestamp). Triggered: {triggered}\n{msg}"
     )
 
 
 def assert_explains_error(result: StreamResult, msg: str = ""):
-    """LLM hata durumunda kullanıcıya açıklayıcı metin verdi mi?"""
+    """Did the LLM explain the error to the user in prose?"""
     error_keywords = [
         "hata", "bulunamadı", "geçersiz", "error", "invalid", "not found",
         "unable", "cannot", "üzgün", "maalesef", "sorry"
@@ -261,21 +263,21 @@ def assert_explains_error(result: StreamResult, msg: str = ""):
     lower = result.text_lower()
     found = any(kw in lower for kw in error_keywords)
     assert found or result.asked_clarification(), (
-        f"Hata durumunda LLM açıklayıcı metin üretmedi.\n"
+        f"LLM produced no explanatory text on error.\n"
         f"Metin: {result.text[:400]}\n{msg}"
     )
 
 
 def assert_asks_for_missing_param(result: StreamResult, msg: str = ""):
-    """LLM eksik zorunlu parametre için clarification istedi mi?"""
+    """Did the LLM ask for clarification about the missing required parameter?"""
     assert result.asked_clarification() or result.has_text_content(), (
-        f"Eksik parametre için LLM ne soru sordu ne de açıklama yaptı.\n"
+        f"For the missing parameter the LLM neither asked nor explained.\n"
         f"Metin: {result.text[:300]}\n{msg}"
     )
 
 
 def assert_does_not_hallucinate_data(result: StreamResult, msg: str = ""):
-    """LLM 'gerçek zamanlı veriye erişemiyorum' deyip veri çekmeden cevap verdi mi?"""
+    """Did the LLM claim it has no real-time access instead of fetching data?"""
     hallucination_phrases = [
         "gerçek zamanlı veriye erişimim yok",
         "güncel veriye sahip değilim",
@@ -286,7 +288,7 @@ def assert_does_not_hallucinate_data(result: StreamResult, msg: str = ""):
     lower = result.text_lower()
     for phrase in hallucination_phrases:
         assert phrase not in lower, (
-            f"LLM veri çekmeden 'erişimim yok' yanıtı verdi (hallucination).\n"
+            f"LLM answered 'I have no access' without fetching data (hallucination).\n"
             f"Metin: {result.text[:400]}\n{msg}"
         )
 
@@ -340,7 +342,7 @@ class TestDV2GetPools:
         p = r.params_for("meteora_dammv2_get_pools")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
         assert "volume" in sort_val or "desc" in sort_val, (
-            f"sortBy volume:desc içermeli, geldi: {sort_val!r}"
+            f"sortBy should contain volume:desc, got: {sort_val!r}"
         )
 
     def test_tvl_sirali_param_dogrulama(self, chat_client):
@@ -349,7 +351,7 @@ class TestDV2GetPools:
         assert_action_triggered(r, "meteora_dammv2_get_pools", msg)
         p = r.params_for("meteora_dammv2_get_pools")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
-        assert "tvl" in sort_val, f"sortBy tvl içermeli, geldi: {sort_val!r}"
+        assert "tvl" in sort_val, f"sortBy should contain tvl, got: {sort_val!r}"
 
     def test_sayfalama_param(self, chat_client):
         msg = "Meteora DAMM v2 havuzları 2. sayfayı göster"
@@ -364,7 +366,7 @@ class TestDV2GetPools:
         assert_action_triggered(r, "meteora_dammv2_get_pools", msg)
         assert_text_not_empty(r, msg, min_chars=60)
         assert_no_raw_json(r, msg)
-        # LLM token adlarını yanıta yansıtmalı
+        # The LLM should surface the token names in its answer
         assert_mentions(r, ["sol", "usdc", "usdt", "bonk", "jup", "/", "-"], msg)
 
     def test_yorum_tvl_sayisal_deger(self, chat_client):
@@ -374,7 +376,7 @@ class TestDV2GetPools:
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
         assert_has_number(r, msg)
-        # LLM TVL'yi dolar cinsinden ya da sayısal olarak belirtmeli
+        # The LLM should state the TVL, in dollars or as a number
         assert_mentions(r, ["$", "tvl", "milyon", "million", "usd", "m"], msg)
 
     def test_yorum_volume_dolar_degeri(self, chat_client):
@@ -422,7 +424,7 @@ class TestDV2GetPools:
         assert_action_triggered(r, "meteora_dammv2_get_pools", msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # Sonuç yok → LLM bunu belirtmeli ya da genel liste döndürmeli
+        # No results -> the LLM should say so, or fall back to the general list
 
     def test_populer_havuzlar_ingilizce_yorum(self, chat_client):
         msg = "What are the most popular Meteora DAMM v2 pools right now? Explain briefly."
@@ -438,7 +440,7 @@ class TestDV2GetPools:
         assert_action_triggered(r, "meteora_dammv2_get_pools", msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM DAMM v2'yi açıklamalı
+        # The LLM should explain DAMM v2
         assert_mentions(r, ["damm", "dynamic", "amm", "v2", "meteora"], msg)
 
 
@@ -461,7 +463,7 @@ class TestDV2GetPoolGroups:
         assert_action_triggered(r, "meteora_dammv2_get_pool_groups", msg)
         p = r.params_for("meteora_dammv2_get_pool_groups")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
-        assert "volume" in sort_val, f"sortBy volume içermeli: {sort_val!r}"
+        assert "volume" in sort_val, f"sortBy should contain volume: {sort_val!r}"
 
     def test_tvl_sirali_param(self, chat_client):
         msg = "Meteora DAMM v2 pool groups sorted by TVL descending"
@@ -469,7 +471,7 @@ class TestDV2GetPoolGroups:
         assert_action_triggered(r, "meteora_dammv2_get_pool_groups", msg)
         p = r.params_for("meteora_dammv2_get_pool_groups")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
-        assert "tvl" in sort_val, f"sortBy tvl içermeli: {sort_val!r}"
+        assert "tvl" in sort_val, f"sortBy should contain tvl: {sort_val!r}"
 
     def test_sayfalama_param(self, chat_client):
         msg = "Meteora DAMM v2 pool group 2. sayfa"
@@ -504,7 +506,7 @@ class TestDV2GetPoolGroups:
         assert_action_triggered(r, "meteora_dammv2_get_pool_groups", msg)
         assert_text_not_empty(r, msg, min_chars=60)
         assert_no_raw_json(r, msg)
-        # LLM token çifti adlarını listelemiş olmalı
+        # The LLM should have listed the token-pair names
         assert_mentions(r, ["sol", "usdc", "usdt", "bonk", "jup", "/", "-"], msg)
 
     def test_yorum_pool_count(self, chat_client):
@@ -624,7 +626,7 @@ class TestDV2GetPoolGroup:
         assert_action_triggered(r, "meteora_dammv2_get_pool_group", msg)
         p = r.params_for("meteora_dammv2_get_pool_group")
         sort_val = str(p.get("sortBy", p.get("sort_by", ""))).lower()
-        assert "volume" in sort_val or sort_val == "", msg  # sort gönderilmiş olabilir
+        assert "volume" in sort_val or sort_val == "", msg  # a sort may or may not have been sent
 
     def test_sayfa_param_grupta(self, chat_client):
         mints = f"{SOL_MINT}-{USDC_MINT}"
@@ -640,18 +642,18 @@ class TestDV2GetPoolGroup:
         if "meteora_dammv2_get_pool_group" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_group")
             assert p.get("lexicalOrderMints"), (
-                f"lexicalOrderMints boş olamaz ama geldi: {p}"
+                f"lexicalOrderMints must not be empty, got: {p}"
             )
 
     def test_mint_olmadan_clarify_beklenir(self, chat_client):
         msg = "Meteora DAMM v2 SOL-USDC grubundaki havuzları listele"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
-        # Token isimlerini mint adreste çeviremiyorsa clarify veya genel liste olabilir
-        # Önemli olan: geçersiz/boş lexicalOrderMints ile çağrı yapılmaması
+        # If it cannot resolve the names to mints, clarifying or listing is acceptable
+        # What matters: no call with an empty or invalid lexicalOrderMints
         if "meteora_dammv2_get_pool_group" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_group")
-            assert p.get("lexicalOrderMints"), "lexicalOrderMints boş olamaz"
+            assert p.get("lexicalOrderMints"), "lexicalOrderMints must not be empty"
 
     def test_ingilizce_group(self, chat_client):
         mints = f"{SOL_MINT}-{USDC_MINT}"
@@ -724,7 +726,7 @@ class TestDV2GetPool:
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
         assert_has_number(r, msg)
-        # LLM fiyat bilgisini yanıtlamalı
+        # The LLM should answer with the price
 
     def test_yorum_farm_apr(self, chat_client):
         msg = f"Meteora DAMM v2 {DV2_SOL_USDC} havuzunda farm APR'ı var mı? Varsa ne kadar?"
@@ -757,7 +759,7 @@ class TestDV2GetPool:
         assert_action_triggered(r, "meteora_dammv2_get_pool", msg)
         assert_text_not_empty(r, msg, min_chars=80)
         assert_no_raw_json(r, msg)
-        # LLM gerçek veri çekip analiz etmeli
+        # The LLM should fetch real data and analyse it
         assert_does_not_hallucinate_data(r, msg)
 
     def test_ingilizce_pool_detail(self, chat_client):
@@ -771,10 +773,10 @@ class TestDV2GetPool:
     def test_gecersiz_adres_graceful(self, chat_client):
         msg = f"Meteora DAMM v2 pool bilgisi: {GARBAGE_ADDR}"
         r = _chat(chat_client, msg)
-        # LLM ya adresi geçersiz görmeli ya da API hatası dönmüş olmalı
+        # Either the LLM rejects the address, or the API returned an error
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # Hata durumunda kullanıcıya açıklama yapılmalı
+        # On error the user must get an explanation
         assert_explains_error(r, msg)
 
     def test_adres_olmadan_clarify(self, chat_client):
@@ -783,7 +785,7 @@ class TestDV2GetPool:
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool" in triggered:
             p = r.params_for("meteora_dammv2_get_pool")
-            assert p.get("address"), f"Adressiz pool çağrısı yapıldı: {p}"
+            assert p.get("address"), f"Pool call made without an address: {p}"
 
     def test_hallucination_yok(self, chat_client):
         msg = f"Meteora DAMM v2 pool {DV2_SOL_USDC} hakkında bilgi ver"
@@ -797,7 +799,7 @@ class TestDV2GetPool:
         assert_action_triggered(r, "meteora_dammv2_get_pool", msg)
         p = r.params_for("meteora_dammv2_get_pool")
         assert p.get("address") == DV2_BONK_SOL, (
-            f"Adres tam eşleşmeli. Beklenen: {DV2_BONK_SOL}, geldi: {p.get('address')!r}"
+            f"Address must match exactly. Expected: {DV2_BONK_SOL}, got: {p.get('address')!r}"
         )
 
 
@@ -851,7 +853,7 @@ class TestDV2GetPoolOhlcv:
         assert_action_triggered(r, "meteora_dammv2_get_pool_ohlcv", msg)
         p = r.params_for("meteora_dammv2_get_pool_ohlcv")
         tf = p.get("timeframe", "24h")
-        assert tf in VALID_TIMEFRAMES, f"Geçersiz timeframe: {tf!r}"
+        assert tf in VALID_TIMEFRAMES, f"Invalid timeframe: {tf!r}"
 
     def test_timestamp_kesinlikle_gonderilmemeli(self, chat_client):
         msg = f"Meteora DAMM v2 pool {DV2_SOL_USDC} son OHLCV verilerini getir"
@@ -884,7 +886,7 @@ class TestDV2GetPoolOhlcv:
         assert_text_not_empty(r, msg, min_chars=60)
         assert_no_raw_json(r, msg)
         assert_does_not_hallucinate_data(r, msg)
-        # LLM fiyat yönü veya değerleri hakkında yorum yapmalı
+        # The LLM should comment on the price direction or the values
         assert_mentions(r, ["open", "close", "high", "low", "fiyat", "price", "yüksel", "düş", "artış", "azal"], msg)
 
     def test_yorum_ohlcv_sayisal_degerler(self, chat_client):
@@ -914,7 +916,7 @@ class TestDV2GetPoolOhlcv:
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool_ohlcv" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_ohlcv")
-            assert p.get("address"), f"Adressiz OHLCV çağrısı yapıldı: {p}"
+            assert p.get("address"), f"OHLCV call made without an address: {p}"
 
     def test_bonk_sol_ohlcv(self, chat_client):
         msg = f"Meteora DAMM v2 BONK-SOL pool {DV2_BONK_SOL} 4 saatlik fiyat grafiği"
@@ -962,7 +964,7 @@ class TestDV2GetPoolVolHistory:
         assert_action_triggered(r, "meteora_dammv2_get_pool_volume_history", msg)
         p = r.params_for("meteora_dammv2_get_pool_volume_history")
         tf = p.get("timeframe", "24h")
-        assert tf in VALID_TIMEFRAMES, f"Geçersiz timeframe: {tf!r}"
+        assert tf in VALID_TIMEFRAMES, f"Invalid timeframe: {tf!r}"
 
     def test_4h_timeframe_param(self, chat_client):
         msg = f"Meteora DAMM v2 {DV2_SOL_USDC} 4 saatlik trading volume history"
@@ -1036,7 +1038,7 @@ class TestDV2GetPoolVolHistory:
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool_volume_history" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_volume_history")
-            assert p.get("address"), f"Adressiz volume history çağrısı: {p}"
+            assert p.get("address"), f"Volume-history call without an address: {p}"
 
     def test_hallucination_yok(self, chat_client):
         msg = f"Meteora DAMM v2 {DV2_SOL_USDC} hacim verilerini analiz et"
@@ -1098,7 +1100,7 @@ class TestDV2GetProtocolMetrics:
         assert_text_not_empty(r, msg, min_chars=100)
         assert_no_raw_json(r, msg)
         assert_has_number(r, msg)
-        # Tüm ana metrikleri kapsamalı
+        # Should cover every headline metric
         assert_mentions(r, ["tvl", "volume", "fee", "pool", "havuz"], msg, min_hits=3)
 
     def test_parametresiz_cagrilmali(self, chat_client):
@@ -1106,7 +1108,7 @@ class TestDV2GetProtocolMetrics:
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dammv2_get_protocol_metrics", msg)
         p = r.params_for("meteora_dammv2_get_protocol_metrics")
-        assert not p, f"Protocol metrics parametresiz çağrılmalı, geldi: {p}"
+        assert not p, f"Protocol metrics must be called with no params, got: {p}"
 
     def test_ingilizce_kapsamli(self, chat_client):
         msg = "What is the total TVL, 24h volume, and fee generated by Meteora DAMM v2 protocol?"
@@ -1264,7 +1266,7 @@ class TestDV2Routing:
         msg = "Hem DLMM hem DAMM v2 havuzlarında SOL içerenleri bul"
         r = _chat(chat_client, msg)
         triggered = r.all_triggered_types()
-        # LLM her iki protocol için de sorgu yapabilir ya da birini seçebilir
+        # The LLM may query both protocols or pick one
         assert any("meteora" in t for t in triggered), (
             f"Meteora endpoint beklendi. Tetiklenenler: {triggered}"
         )
@@ -1296,14 +1298,14 @@ class TestDV2ErrorHandling:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM ya "bulunamadı" demeli ya da servisten gelen hatayı kullanıcıya iletmeli
+        # The LLM should either say it found nothing, or relay the service error
         assert_explains_error(r, msg)
 
     def test_gecersiz_timeframe_ohlcv(self, chat_client):
         msg = f"Meteora DAMM v2 {DV2_SOL_USDC} için yıllık OHLCV (1y timeframe)"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dammv2_get_pool_ohlcv", msg)
-        # LLM geçersiz timeframe'i geçerliyle değiştirmeli
+        # The LLM should substitute a valid timeframe
         assert_valid_timeframe(r, "meteora_dammv2_get_pool_ohlcv", msg)
 
     def test_gecersiz_timeframe_volume_history(self, chat_client):
@@ -1325,10 +1327,10 @@ class TestDV2ErrorHandling:
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool_group" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_group")
-            assert p.get("lexicalOrderMints"), "Boş lexicalOrderMints ile çağrı yapıldı"
+            assert p.get("lexicalOrderMints"), "Called with an empty lexicalOrderMints"
 
     def test_api_hatasi_graceful_yonetimi(self, chat_client):
-        # Geçerli format ama var olmayan adres → API 404 dönebilir
+        # Valid format but a non-existent address -> the API may return 404
         nonexistent = "A" * 44
         msg = f"Meteora DAMM v2 pool {nonexistent}"
         r = _chat(chat_client, msg)
@@ -1341,12 +1343,12 @@ class TestDV2ErrorHandling:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM limit order'ın desteklenmediğini belirtmeli
+        # The LLM should state that limit orders are unsupported
         lower = r.text_lower()
         assert any(kw in lower for kw in [
             "desteklenmez", "mevcut değil", "not supported", "limit order",
             "swap", "jupiter", "alternatif"
-        ]), f"LLM desteklenmeyen işlem için açıklama yapmadı.\nMetin: {r.text[:400]}"
+        ]), f"LLM gave no explanation for the unsupported operation.\nText: {r.text[:400]}"
 
     def test_yetersiz_parametre_ohlcv_adressiz(self, chat_client):
         msg = "Meteora DAMM v2 1h OHLCV verisini göster"
@@ -1354,23 +1356,23 @@ class TestDV2ErrorHandling:
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool_ohlcv" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_ohlcv")
-            assert p.get("address"), f"Adressiz OHLCV çağrısı: {p}"
+            assert p.get("address"), f"OHLCV call without an address: {p}"
         else:
             # LLM clarify istedi — bu da kabul edilir
             assert_asks_for_missing_param(r, msg)
 
     def test_group_endpoint_url_injection_korunma(self, chat_client):
-        # LexicalOrderMints içine özel karakter girmeye çalışmak
+        # Attempt to smuggle special characters into lexicalOrderMints
         msg = "Meteora DAMM v2 pool group: ../../../etc/passwd-USDC"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM bu girdiyi doğrudan göndermemeli
+        # The LLM must not forward this input verbatim
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool_group" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_group")
             mints = p.get("lexicalOrderMints", "")
-            assert "../" not in mints, f"Path traversal karakteri lexicalOrderMints'e geçti: {mints}"
+            assert "../" not in mints, f"Path-traversal characters reached lexicalOrderMints: {mints}"
 
     def test_sayisal_olmayan_sayfa_numarasi(self, chat_client):
         msg = "Meteora DAMM v2 havuzları sayfaNumber=abc göster"
@@ -1390,7 +1392,7 @@ class TestDV2ErrorHandling:
         assert_action_triggered(r, "meteora_dammv2_get_pool_ohlcv", msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # API'dan dönen veri yorumlanmış olmalı
+        # The data returned by the API should be interpreted
         assert_does_not_hallucinate_data(r, msg)
 
 
@@ -1403,13 +1405,13 @@ class TestDV2UserGuidance:
     def test_adres_isteme_ohlcv_icin(self, chat_client):
         msg = "Meteora DAMM v2 mum grafiğini göster"
         r = _chat(chat_client, msg)
-        # LLM ya adres isteyecek ya da açıklayıcı metin üretecek
+        # The LLM will either ask for an address or produce an explanation
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool_ohlcv" in triggered:
             p = r.params_for("meteora_dammv2_get_pool_ohlcv")
-            assert p.get("address"), "Adressiz OHLCV çağrısı"
+            assert p.get("address"), "OHLCV call without an address"
 
     def test_adres_isteme_pool_icin(self, chat_client):
         msg = "Meteora DAMM v2 havuzunun detaylarını ver"
@@ -1419,20 +1421,20 @@ class TestDV2UserGuidance:
         triggered = r.all_triggered_types()
         if "meteora_dammv2_get_pool" in triggered:
             p = r.params_for("meteora_dammv2_get_pool")
-            assert p.get("address"), "Adressiz pool detay çağrısı"
+            assert p.get("address"), "Pool-detail call without an address"
 
-    def test_swap_icin_doğru_yonlendirme(self, chat_client):
+    def test_swap_routes_correctly(self, chat_client):
         msg = "Meteora DAMM v2'de SOL karşılığında USDC almak istiyorum"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM swap için yönlendirme yapmalı
+        # The LLM should route the user for the swap
         triggered = r.all_triggered_types()
         text_lower = r.text_lower()
         is_swap = "meteora_dammv2_swap" in triggered
         mentions_swap = any(kw in text_lower for kw in ["swap", "takas", "değiştir", "exchange"])
         assert is_swap or mentions_swap, (
-            f"Swap sorusu için yönlendirme yok.\nMetin: {r.text[:300]}"
+            f"No routing offered for the swap question.\nText: {r.text[:300]}"
         )
 
     def test_likidite_ekleme_yonlendirme(self, chat_client):
@@ -1447,7 +1449,7 @@ class TestDV2UserGuidance:
             "likidite", "liquidity", "ekle", "add", "amount", "miktar"
         ])
         assert is_add_liq or mentions_liq, (
-            f"Likidite ekleme yönlendirmesi yok.\nMetin: {r.text[:300]}"
+            f"No routing offered for adding liquidity.\nText: {r.text[:300]}"
         )
 
     def test_likidite_cekme_yonlendirme(self, chat_client):
@@ -1468,11 +1470,11 @@ class TestDV2UserGuidance:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM geçerli timeframe seçeneklerini belirtmeli
+        # The LLM should state the valid timeframe options
         lower = r.text_lower()
         valid_mentioned = any(tf in lower for tf in ["5m", "30m", "1h", "4h", "12h", "24h"])
         assert valid_mentioned, (
-            f"LLM geçerli timeframe seçeneklerini belirtmedi.\nMetin: {r.text[:400]}"
+            f"LLM did not state the valid timeframe options.\nText: {r.text[:400]}"
         )
 
     def test_hangi_protokol_secmeli_sorusu(self, chat_client):
@@ -1480,7 +1482,7 @@ class TestDV2UserGuidance:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg, min_chars=100)
         assert_no_raw_json(r, msg)
-        # LLM her iki protokolü açıklamalı
+        # The LLM should explain both protocols
         assert_mentions(r, ["dlmm", "damm", "v2", "likidite", "liquidity"], msg)
 
     def test_mint_adresi_gerekmesini_aciklama(self, chat_client):
@@ -1502,36 +1504,36 @@ class TestDV2UserGuidance:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM ya Meteora DAMM v2'ye yönlendirmeli ya da Raydium'u açıklamalı
+        # The LLM should either route to Meteora DAMM v2 or explain Raydium
         lower = r.text_lower()
         assert any(kw in lower for kw in [
             "meteora", "raydium", "farklı", "different", "protocol"
-        ]), f"LLM protocol karışıklığını ele almadı.\nMetin: {r.text[:300]}"
+        ]), f"LLM did not address the protocol mix-up.\nText: {r.text[:300]}"
 
     def test_sorguyu_soyutlayip_dogrulama(self, chat_client):
         msg = "Hangi Meteora DAMM v2 havuzunda likidite eklemek daha mantıklı?"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM veri çekip yorum yapmalı ya da clarify istemeli
+        # The LLM should fetch and interpret, or ask for clarification
         triggered = r.all_triggered_types()
         has_data = any("dammv2" in t for t in triggered)
         has_guidance = r.has_text_content()
-        assert has_data or has_guidance, "LLM ne veri çekti ne de yönlendirme yaptı"
+        assert has_data or has_guidance, "LLM neither fetched data nor offered guidance"
 
     def test_cok_eski_tarih_icin_yonlendirme(self, chat_client):
         msg = f"Meteora DAMM v2 {DV2_SOL_USDC} 2020 yılındaki fiyat grafiği"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # Protocol 2020'de yoktu ya da veri yok — LLM bunu ele almalı
+        # The protocol did not exist in 2020, or there is no data — the LLM must handle it
 
     def test_fee_geliri_hesaplama_sorgusu(self, chat_client):
         msg = f"Meteora DAMM v2 pool {DV2_SOL_USDC}'ye 10.000 dolar koyarsam ne kadar fee kazanırım?"
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM pool verisini çekip tahmin yapmalı veya açıklamalı
+        # The LLM should fetch pool data and either estimate or explain
         triggered = r.all_triggered_types()
         assert any("dammv2" in t for t in triggered) or r.has_text_content()
 
@@ -1540,11 +1542,11 @@ class TestDV2UserGuidance:
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg)
         assert_no_raw_json(r, msg)
-        # LLM yönlendirme yapmalı (pool groups veya pools listesi ile)
+        # The LLM should route the user (via pool groups or the pools listing)
         lower = r.text_lower()
         assert any(kw in lower for kw in [
             "meteora", "pool", "group", "liste", "list", "address", "adres"
-        ]), f"LLM pool adresi bulma konusunda yardım etmedi.\nMetin: {r.text[:300]}"
+        ]), f"LLM did not help with finding a pool address.\nText: {r.text[:300]}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1553,7 +1555,7 @@ class TestDV2UserGuidance:
 
 class TestDV2InterpretationDepth:
 
-    def test_pools_liste_anlamlı_ozet(self, chat_client):
+    def test_pools_listing_is_summarised(self, chat_client):
         msg = "Meteora DAMM v2'deki en iyi 5 havuzu listele ve kısaca açıkla"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dammv2_get_pools", msg)
@@ -1581,7 +1583,7 @@ class TestDV2InterpretationDepth:
         assert_does_not_hallucinate_data(r, msg)
         assert_has_number(r, msg)
 
-    def test_ohlcv_yükseliş_dusus_yorumu(self, chat_client):
+    def test_ohlcv_up_down_interpretation(self, chat_client):
         msg = f"Meteora DAMM v2 {DV2_SOL_USDC} son 4 saatlik fiyat hareketini yorumla: yükseliş mi düşüş mü?"
         r = _chat(chat_client, msg)
         assert_action_triggered(r, "meteora_dammv2_get_pool_ohlcv", msg)
@@ -1653,7 +1655,7 @@ class TestDV2InterpretationDepth:
         assert_text_not_empty(r, msg, min_chars=100)
         assert_no_raw_json(r, msg)
         triggered = r.all_triggered_types()
-        # LLM veri çekip strateji önerisi yapmalı
+        # The LLM should fetch data and suggest a strategy
         has_data = any("dammv2" in t for t in triggered)
         has_text = r.has_text_content()
         assert has_data or has_text
