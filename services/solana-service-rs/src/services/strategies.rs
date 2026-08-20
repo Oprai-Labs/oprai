@@ -827,7 +827,7 @@ mod entry_cost_tests {
             .await
             .expect("SOL price");
         eprintln!(
-            "USDC ${usdc_price:.4} / {usdc_dec} ondalık   SOL ${sol_price:.2} / {sol_dec} ondalık"
+            "USDC ${usdc_price:.4} / {usdc_dec} decimals   SOL ${sol_price:.2} / {sol_dec} decimals"
         );
         assert_eq!(usdc_dec, 6, "USDC has six decimals");
         assert_eq!(sol_dec, 9, "SOL has nine");
@@ -848,7 +848,7 @@ mod entry_cost_tests {
             .await
             .expect("entry cost for a $5000 USDC position");
         eprintln!(
-            "2500$ USDC → SOL girisi: %{cost:.4} (etki + komisyon, pozisyonun tamamına oranla)"
+            "USDC → SOL entry: {cost:.4}% (impact + fee, as a share of the whole position)"
         );
         assert!(cost >= 0.0, "a cost cannot be negative");
         // USDC/SOL is one of the deepest pairs on Solana; anything above this
