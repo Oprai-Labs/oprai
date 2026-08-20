@@ -1660,7 +1660,12 @@ async def stream_chat_response(
                 _bal_dict[str(label)] = float(amount)
         except Exception:
             pass
-        precomputed_facts = await precompute_facts(user_content or "", _bal_dict)
+        precomputed_facts = await precompute_facts(
+            user_content or "", _bal_dict,
+            wants_price=intent_result.wants_price,
+            wants_balance=intent_result.wants_balance,
+            compare_tokens=intent_result.compare_tokens,
+        )
         if precomputed_facts:
             _log.info("precomputed_facts built chars=%d", len(precomputed_facts))
         _log_turn("precompute_done",
@@ -3155,6 +3160,9 @@ async def stream_chat_response(
                     token_category=(
                         None if intent_result.wants_venues else intent_result.token_category
                     ),
+                    wants_price=intent_result.wants_price,
+                    wants_balance=intent_result.wants_balance,
+                    compare_tokens=intent_result.compare_tokens,
                 )
                 if _override:
                     _log.info(

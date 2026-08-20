@@ -221,6 +221,18 @@ class IntentResult:
     # the token registry and the memory snippets, which together cost ~26K
     # tokens the model would never read.
     is_chitchat: bool = False
+    # True when the user is asking what something costs. Gates a live price
+    # pre-fetch, so the model is handed the number instead of chaining a
+    # tool call for it.
+    wants_price: bool = False
+    # True when the user is asking how much of something THEY hold. Gates
+    # projecting the already-loaded wallet balances back into context.
+    wants_balance: bool = False
+    # Ticker symbols the user is comparing, when the turn is a comparison
+    # ("USDS vs USDC", "compare mSOL and jitoSOL"). Empty when it is not.
+    # Verbatim as the user wrote them — resolution to mints happens later,
+    # and a symbol we cannot resolve is still worth naming in the answer.
+    compare_tokens: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -377,8 +389,21 @@ answerable from data, it is FALSE. Being wrong here is asymmetric: a FALSE on
 a greeting wastes tokens, a TRUE on a real question strips the context the
 answer needed — so when in doubt, answer FALSE.
 
+`wants_price` — TRUE when the user is asking what something costs, in any
+phrasing or language.
+
+`wants_balance` — TRUE when the user is asking how much of something THEY hold,
+as opposed to what it costs. "How much SOL do I have" is TRUE; "how much is
+SOL" is wants_price, not this.
+
+`compare_tokens` — when the turn compares two or more assets, the ticker
+symbols being compared, verbatim as the user wrote them (["USDS","USDC"]).
+Empty list when the turn is not a comparison. Include a symbol even if you do
+not recognise it — naming an unknown token back to the user is useful, and
+guessing a familiar one in its place is not.
+
 Respond with ONLY a single-line JSON object, no other text:
-{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>, "token_category": <"stable"|"lst"|"blue_chip"|"memecoin"|null>, "wants_venues": <true|false>, "is_chitchat": <true|false>}\
+{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>, "token_category": <"stable"|"lst"|"blue_chip"|"memecoin"|null>, "wants_venues": <true|false>, "is_chitchat": <true|false>, "wants_price": <true|false>, "wants_balance": <true|false>, "compare_tokens": ["..."]}\
 """
 
 
@@ -607,9 +632,20 @@ class IntentRouter:
             # classifier said — those need the full context by definition.
             is_chitchat = bool(data.get("is_chitchat", False)) and intent not in ("action", "query")
 
+            wants_price = bool(data.get("wants_price", False))
+            wants_balance = bool(data.get("wants_balance", False))
+            _raw_cmp = data.get("compare_tokens") or []
+            compare_tokens = tuple(
+                t.strip().upper() for t in _raw_cmp
+                if isinstance(t, str) and 1 <= len(t.strip()) <= 20
+            )[:4]
+            if len(compare_tokens) < 2:
+                compare_tokens = ()
+
             result = IntentResult(
                 intent, confidence, protocols, "model", is_category,
                 token_category, wants_venues, is_chitchat,
+                wants_price, wants_balance, compare_tokens,
             )
             _cache_set(key, result)
             logger.info(

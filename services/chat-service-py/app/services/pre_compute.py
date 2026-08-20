@@ -42,34 +42,10 @@ logger = logging.getLogger(__name__)
 # Domains end in .sol; the SNS registry resolves a-z0-9-_ before the suffix.
 _SNS_DOMAIN_RE = re.compile(r"\b([a-z0-9][a-z0-9_-]{0,63})\.sol\b", re.IGNORECASE)
 
-# Price intent — fires on English/Turkish phrasings. Token capture is the
-# next word in CAPS (USDC, JUP, mSOL) or a registered symbol matched later.
-_PRICE_INTENT_RE = re.compile(
-    r"\b(price|fiyat|fiyatı|kac\s+dolar|ne\s+kadar\s+dolar|how\s+much\s+is)\b",
-    re.IGNORECASE,
-)
-
-# Balance intent — for tokens the user owns.
-_BALANCE_INTENT_RE = re.compile(
-    r"\b(balance|bakiye|ne\s+kadar(\s+\w+){0,2}\s+(var|holding|holdüm)?"
-    r"|how\s+much\s+\w+\s+do\s+i\s+have)\b",
-    re.IGNORECASE,
-)
-
-# Compare intent — "A vs B / A ile B karşılaştır".
-_COMPARE_INTENT_RE = re.compile(
-    # Comparison shapes:
-    #   "A vs B" / "A versus B" / "A ile B" / "A karşılaştır B"
-    #   "compare A to B" / "compare A with B" / "compare A and B" / "compare A B"
-    # The "compare X and Y" form was missed in the first pass — added the
-    # leading-compare branch.
-    r"\b(?:"
-    r"([A-Za-z][\w.-]{1,20})\s+(?:vs|versus|ile|karşılaştır|karsilastir)\s+([A-Za-z][\w.-]{1,20})"
-    r"|"
-    r"compare\s+(?:to\s+|with\s+)?([A-Za-z][\w.-]{1,20})\s+(?:and|to|with|ile|vs)?\s*([A-Za-z][\w.-]{1,20})"
-    r")\b",
-    re.IGNORECASE,
-)
+# Price, balance and comparison intent all come from the intent classifier,
+# which reads the message in whatever language it was written. They used to be
+# keyword regexes here, which meant every new phrasing — and every new
+# language — was a code change nobody remembered to make.
 
 
 @dataclass(frozen=True)
@@ -147,9 +123,9 @@ async def _facts_sns(msg: str) -> list[str]:
     return out
 
 
-async def _facts_price(msg: str) -> list[str]:
+async def _facts_price(msg: str, wants_price: bool) -> list[str]:
     """Pre-fetch live price for any known token symbols when intent is pricing."""
-    if not _PRICE_INTENT_RE.search(msg):
+    if not wants_price:
         return []
     symbols = _scan_symbols(msg)
     if not symbols:
@@ -175,14 +151,16 @@ async def _facts_price(msg: str) -> list[str]:
     return []
 
 
-def _facts_balance(msg: str, wallet_balances: dict[str, float] | None) -> list[str]:
+def _facts_balance(
+    msg: str, wallet_balances: dict[str, float] | None, wants_balance: bool
+) -> list[str]:
     """Surface user-owned token balances when the user asks 'how much X'.
 
     Pure compute — no I/O. The balances were already loaded into wallet
     context upstream; we just project them back out as a per-token line
     when the model is likely to need them.
     """
-    if not wallet_balances or not _BALANCE_INTENT_RE.search(msg):
+    if not wallet_balances or not wants_balance:
         return []
     symbols = _scan_symbols(msg)
     if not symbols:
@@ -202,7 +180,7 @@ def _facts_balance(msg: str, wallet_balances: dict[str, float] | None) -> list[s
     ]
 
 
-async def _facts_compare(msg: str) -> list[str]:
+async def _facts_compare(msg: str, compare_tokens: tuple[str, ...] = ()) -> list[str]:
     """For A vs B between known tokens, fetch both prices in parallel.
 
     Protocol-level comparisons (Marinade vs Jito) are not handled here —
@@ -210,13 +188,12 @@ async def _facts_compare(msg: str) -> list[str]:
     separate detector with its own cost / accuracy tradeoffs. The token
     case is the common one and a single batched price call covers it.
     """
-    m = _COMPARE_INTENT_RE.search(msg)
-    if not m:
+    if len(compare_tokens) < 2:
         return []
-    # The capture groups are (left, joiner, right). We re-scan with the
-    # token registry over the full message to keep the matching consistent
-    # with other detectors instead of trying to canonicalise the raw
-    # capture (which could be "msol" / "MSOL" / "Marinade").
+    # Re-scan with the token registry over the full message rather than
+    # canonicalising the classifier's raw symbols (which could be "msol" /
+    # "MSOL" / "Marinade") — keeps matching consistent with the other
+    # detectors.
     symbols = _scan_symbols(msg, limit=4)
     if len(symbols) < 2:
         return []
@@ -605,14 +582,14 @@ def _infer_action_facts(msg: str) -> list[str]:
 # the question. The caller tries them in order and uses the first hit.
 
 
-async def render_price_prose(user_message: str) -> str | None:
+async def render_price_prose(user_message: str, wants_price: bool = False) -> str | None:
     """If the user asked for a token price, fetch + render.
 
     Returns plain markdown text or None when no price intent / no
     recognised symbol. Uses Jupiter's price endpoint — real number, never
     fabricated. Language-agnostic output (just the symbol + dollar value).
     """
-    if not _PRICE_INTENT_RE.search(user_message):
+    if not wants_price:
         return None
     symbols = _scan_symbols(user_message)
     if not symbols:
@@ -649,15 +626,14 @@ async def render_price_prose(user_message: str) -> str | None:
 def render_balance_prose(
     user_message: str,
     wallet_balances: dict[str, float] | None,
+    wants_balance: bool = False,
 ) -> str | None:
     """If the user asked for a token balance, render from cached balances.
 
     Pure compute — no I/O. Returns None when no balance intent or no
     recognised symbol.
     """
-    if not _BALANCE_INTENT_RE.search(user_message):
-        return None
-    if not wallet_balances:
+    if not wants_balance or not wallet_balances:
         return None
     symbols = _scan_symbols(user_message)
     if not symbols:
@@ -739,17 +715,21 @@ async def render_sns_prose(user_message: str) -> str | None:
     return "Resolved:\n\n" + "\n".join(rows)
 
 
-async def render_compare_prose(user_message: str) -> str | None:
+async def render_compare_prose(
+    user_message: str, compare_tokens: tuple[str, ...] = ()
+) -> str | None:
     """For 'compare A and B' between known tokens, fetch both prices and
     return a side-by-side prose. Mirrors _facts_compare but formatted for
     direct user display (used by the hedge-override path)."""
-    m = _COMPARE_INTENT_RE.search(user_message)
-    if not m:
+    if len(compare_tokens) < 2:
         return None
-    # Captures: (left_optional_a, _, A, B) — the last two are the symbols.
+    # The symbols come from the classifier, verbatim as the user wrote them.
+    # Keeping the unrecognised ones matters: a token missing from the local
+    # registry is still named back to the user below, rather than silently
+    # dropped or swapped for a familiar-looking one.
     raw_syms: list[str] = []
-    for g in m.groups():
-        if g and isinstance(g, str) and g.upper() not in raw_syms:
+    for g in compare_tokens:
+        if g and g.upper() not in raw_syms:
             raw_syms.append(g.upper())
     raw_syms = raw_syms[:4]
 
@@ -795,6 +775,9 @@ async def render_fallback_prose(
     user_message: str,
     wallet_balances: dict[str, float] | None = None,
     token_category: str | None = None,
+    wants_price: bool = False,
+    wants_balance: bool = False,
+    compare_tokens: tuple[str, ...] = (),
 ) -> str | None:
     """Try each renderer in priority order. Return the first hit.
 
@@ -809,20 +792,21 @@ async def render_fallback_prose(
         return None
     # Balance is sync (pure compute against cached wallet) — try first.
     try:
-        r = render_balance_prose(user_message, wallet_balances)
+        r = render_balance_prose(user_message, wallet_balances, wants_balance)
         if r:
             return r
     except Exception:
         logger.debug("balance renderer failed", exc_info=True)
-    # Async renderers — each fetches its own source. Compare runs early so
-    # "compare A and B" doesn't get answered as a single-token price.
-    for fn in (
-        render_compare_prose,
-        render_sns_prose,
-        render_price_prose,
+    # Async renderers — each fetches its own source.
+    # Compare runs first so "compare A and B" is not answered as a single
+    # token price.
+    for fn, extra in (
+        (render_compare_prose, (compare_tokens,)),
+        (render_sns_prose, ()),
+        (render_price_prose, (wants_price,)),
     ):
         try:
-            r = await fn(user_message)
+            r = await fn(user_message, *extra)
             if r:
                 return r
         except Exception:
@@ -842,6 +826,9 @@ async def render_fallback_prose(
 async def precompute_facts(
     user_message: str,
     wallet_balances: dict[str, float] | None = None,
+    wants_price: bool = False,
+    wants_balance: bool = False,
+    compare_tokens: tuple[str, ...] = (),
 ) -> str | None:
     """Run all detectors in parallel; return a single combined system block.
 
@@ -857,11 +844,11 @@ async def precompute_facts(
         return None
 
     sns_task = asyncio.create_task(_facts_sns(msg))
-    price_task = asyncio.create_task(_facts_price(msg))
-    compare_task = asyncio.create_task(_facts_compare(msg))
+    price_task = asyncio.create_task(_facts_price(msg, wants_price))
+    compare_task = asyncio.create_task(_facts_compare(msg, compare_tokens))
 
     # Sync (pure compute) — do inline.
-    balance_facts = _facts_balance(msg, wallet_balances)
+    balance_facts = _facts_balance(msg, wallet_balances, wants_balance)
     action_facts = _infer_action_facts(msg)
 
     sns_facts, price_facts, compare_facts = await asyncio.gather(
