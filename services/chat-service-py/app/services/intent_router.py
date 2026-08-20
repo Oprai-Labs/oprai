@@ -60,10 +60,10 @@ VALID_PROTOCOLS: frozenset[str] = frozenset({
 # STRICT RULE (do not violate): every entry here is a single-meaning PRODUCT /
 # PROTOCOL / FEATURE NAME (e.g. "meteora", "dlmm", "pumpswap", "wormhole").
 # NEVER put generic verbs ("bridge", "swap"), chain names ("ethereum",
-# "base"), or language-specific words ("köprü") here. Those carry MEANING, not
-# a name — interpreting meaning (in any language) is the classifier's job
-# (Katman 1 / gpt-5.4-nano), not a regex table. A word like "base" is also a
-# common English noun and would misfire. Word-boundary matched, case-insensitive.
+# "base"), or any language's word for a concept here. Those carry MEANING, not
+# a name — interpreting meaning, in whatever language it arrives in, is the
+# classifier's job, not a regex table. A word like "base" is also a common
+# English noun and would misfire. Word-boundary matched, case-insensitive.
 #
 # Cross-chain (`relay`) therefore keeps only provider NAMES here (relay.link,
 # wormhole, mayan). Generic cross-chain intent ("bridge my USDC to Arbitrum",
@@ -233,6 +233,10 @@ class IntentResult:
     # Verbatim as the user wrote them — resolution to mints happens later,
     # and a symbol we cannot resolve is still worth naming in the answer.
     compare_tokens: tuple[str, ...] = ()
+    # True when the turn asks for analysis rather than a lookup — a deep dive,
+    # a comparison, a portfolio review, "what does this mean for me". Routes
+    # the turn to a stronger responder and unlocks the wallet-analysis path.
+    wants_analysis: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +406,14 @@ Empty list when the turn is not a comparison. Include a symbol even if you do
 not recognise it — naming an unknown token back to the user is useful, and
 guessing a familiar one in its place is not.
 
+`wants_analysis` — TRUE when the turn asks for reasoning over data rather than
+a lookup: a deep dive, a comparison, a portfolio or PnL review, "is this worth
+it", "what should I make of this". A bare "SOL price" is FALSE. This routes the
+turn to a stronger, more expensive responder, so reserve it for turns that
+genuinely need judgement.
+
 Respond with ONLY a single-line JSON object, no other text:
-{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>, "token_category": <"stable"|"lst"|"blue_chip"|"memecoin"|null>, "wants_venues": <true|false>, "is_chitchat": <true|false>, "wants_price": <true|false>, "wants_balance": <true|false>, "compare_tokens": ["..."]}\
+{"intent":"<one of the four>", "confidence": <0.0-1.0>, "protocols": ["..."], "is_category_request": <true|false>, "token_category": <"stable"|"lst"|"blue_chip"|"memecoin"|null>, "wants_venues": <true|false>, "is_chitchat": <true|false>, "wants_price": <true|false>, "wants_balance": <true|false>, "compare_tokens": ["..."], "wants_analysis": <true|false>}\
 """
 
 
@@ -642,10 +652,12 @@ class IntentRouter:
             if len(compare_tokens) < 2:
                 compare_tokens = ()
 
+            wants_analysis = bool(data.get("wants_analysis", False))
+
             result = IntentResult(
                 intent, confidence, protocols, "model", is_category,
                 token_category, wants_venues, is_chitchat,
-                wants_price, wants_balance, compare_tokens,
+                wants_price, wants_balance, compare_tokens, wants_analysis,
             )
             _cache_set(key, result)
             logger.info(

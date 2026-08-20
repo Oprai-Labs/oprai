@@ -1871,20 +1871,14 @@ async def stream_chat_response(
         pass
 
     # Intent-routed model selection — when configured, complex / analysis
-    # turns route to a stronger model. Detection heuristic:
-    #   - long message (≥ threshold chars), OR
-    #   - contains analysis-keyword (compare / vs / analyze / deep-dive /
-    #     karşılaştır / detaylı / pnl)
+    # turns route to a stronger model. Two signals: a long message, or the
+    # classifier saying the turn needs judgement rather than a lookup. This
+    # used to be a keyword list ("compare / vs / karşılaştır / detaylı / pnl"),
+    # which only ever knew the words and languages it had been given.
     # Disabled by default — env var must be set or this is a no-op.
-    _analysis_keywords = (
-        " vs ", " versus ", "compare ", "analyze", "analyse", "deep-dive",
-        "deep dive", "karşılaştır", "karsilastir", "detaylı analiz",
-        "detayli analiz", " pnl ",
-    )
-    _user_lc = f" {(user_content or '').lower()} "
     _is_analysis = (
         len(user_content or "") >= settings.OPRAI_RESPONDER_ANALYSIS_LENGTH_THRESHOLD
-        or any(kw in _user_lc for kw in _analysis_keywords)
+        or intent_result.wants_analysis
     )
     if _is_analysis:
         if settings.OPRAI_LLM_PROVIDER.lower() == "anthropic":
@@ -2478,15 +2472,10 @@ async def stream_chat_response(
             if n == "sns_resolve" and isinstance(r, dict) and r.get("owner")
         ]
         if _sns_results:
-            _ANALYSIS_HINTS = (
-                "analyz", "analiz", "deep-dive", "deep dive", "deepdive",
-                "holding", "portfolio", "portföy", "pnl", "p&l",
-                "net worth", "net-worth", "trade behaviour", "trade behavior",
-                "winners", "losers", "kazanan", "kaybeden",
-                "wallet", "cüzdan", "cuzdan",
-            )
-            _msg_lc = (user_content or "").lower()
-            if any(h in _msg_lc for h in _ANALYSIS_HINTS):
+            # Whether this turn wants an analysis of the resolved wallet, as
+            # opposed to just its address, is the classifier's call — it reads
+            # the message in whatever language it arrived in.
+            if intent_result.wants_analysis:
                 # Use the first resolved owner — multiple SNS resolves on the
                 # same turn are uncommon, and the first is by definition the
                 # one the model decided to look up first.
@@ -2842,7 +2831,7 @@ async def stream_chat_response(
                             "summary using the format below. No tool call.\n\n"
                             "## Hard rules for the text path\n"
                             "- NO PREAMBLE. Never start with 'I'll check', 'Let me look up', "
-                            "'Sorgu çalıştıracağım', 'I'm going to fetch', or any narration of "
+                            "'I'm going to fetch', or any narration of "
                             "what you're about to do. Open with the answer itself.\n"
                             "- NEVER mention tool names, service names, API names, or data "
                             "sources (birdeye, helius, dexscreener, jupiter API, query_onchain, "
