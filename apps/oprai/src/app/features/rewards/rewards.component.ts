@@ -513,7 +513,7 @@ export class RewardsComponent implements OnInit {
         },
         error: (e) => {
           this.claimOk.set(false);
-          this.claimMsg.set(e?.error?.detail || e?.error?.message || 'Could not complete the claim. Try again shortly.');
+          this.claimMsg.set(e?.error?.error || e?.error?.detail || e?.error?.message || 'Could not complete the claim. Try again shortly.');
           this.claiming.set(false);
         },
       });
