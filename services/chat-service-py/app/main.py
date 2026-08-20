@@ -399,6 +399,19 @@ def _gen_referral_code() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
+# ── Rewards / claiming ───────────────────────────────────────────────────
+MIN_CLAIM_USD = 5.0
+# Claim fee deducted from the payout (shown to the claimer before they confirm).
+# Covers the on-chain payout cost; the claimer bears it, not OPRAI.
+CLAIM_FEE_PCT = 0.02
+CLAIM_CHAINS = ["solana", "ethereum", "base", "bsc", "polygon", "arbitrum", "optimism"]
+# Native token each chain pays its rewards in.
+CHAIN_TOKEN = {
+    "solana": "SOL", "ethereum": "ETH", "base": "ETH", "arbitrum": "ETH",
+    "optimism": "ETH", "bsc": "BNB", "polygon": "POL",
+}
+
+
 async def _resolve_account_id(s, wallet: str, account_hdr: str | None) -> str | None:
     """The account the caller belongs to. Prefer the gateway-injected header;
     fall back to the wallet->account map so a stale client still aggregates."""
@@ -443,6 +456,7 @@ async def get_rewards(
         # Uniswap) record commission with their chain. Always return every chain
         # (0 where none) so the UI can show them separately.
         chain_map: dict[str, dict] = {}
+        claimed_map: dict[str, float] = {}
         if account_id:
             rows = (await s.execute(sa_text(
                 "SELECT chain, own_cashback_usd, volume_usd "
@@ -450,13 +464,33 @@ async def get_rewards(
                 {"a": account_id})).all()
             for r in rows:
                 chain_map[r[0]] = {"ownUsd": float(r[1] or 0), "volumeUsd": float(r[2] or 0)}
-        _CHAINS = ["solana", "ethereum", "base", "bsc", "polygon", "arbitrum", "optimism"]
-        by_chain = [
-            {"chain": c,
-             "ownUsd": chain_map.get(c, {}).get("ownUsd", 0.0),
-             "volumeUsd": chain_map.get(c, {}).get("volumeUsd", 0.0)}
-            for c in _CHAINS
-        ]
+            crows = (await s.execute(sa_text(
+                "SELECT chain, COALESCE(sum(amount_usd),0) FROM analytics_schema.cashback_claims "
+                "WHERE account_id=:a AND status IN ('pending','paid') GROUP BY chain"),
+                {"a": account_id})).all()
+            for r in crows:
+                claimed_map[r[0]] = float(r[1] or 0)
+        referral_total = float(cb_row[1]) if cb_row and cb_row[1] is not None else 0.0
+        by_chain = []
+        for c in CLAIM_CHAINS:
+            own = chain_map.get(c, {}).get("ownUsd", 0.0)
+            # Referral cashback is cross-chain — attributed to Solana's bucket.
+            earned = own + (referral_total if c == "solana" else 0.0)
+            claimed = claimed_map.get(c, 0.0)
+            claimable = max(0.0, earned - claimed)
+            fee = claimable * CLAIM_FEE_PCT
+            by_chain.append({
+                "chain": c,
+                "token": CHAIN_TOKEN[c],
+                "ownUsd": own,
+                "volumeUsd": chain_map.get(c, {}).get("volumeUsd", 0.0),
+                "earnedUsd": earned,
+                "claimedUsd": claimed,
+                "claimableUsd": claimable,
+                "feeUsd": fee,
+                "netUsd": claimable - fee,
+                "canClaim": claimable >= MIN_CLAIM_USD,
+            })
 
         code_row = (await s.execute(sa_text(
             "SELECT code FROM analytics_schema.referral_codes WHERE wallet=:w"), {"w": w})).first()
@@ -522,47 +556,64 @@ async def redeem_referral(body: RedeemBody, x_user_wallet: str = Header(..., ali
 
 @app.post("/me/cashback/claim")
 async def claim_cashback(
+    chain: str = "solana",
     x_user_wallet: str = Header(..., alias="X-User-Wallet"),
     x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
-    """Withdraw claimable cashback to the caller's wallet (paid in SOL).
-
-    Minimum $5 (market standard). chat-service is authoritative for the amount
-    (aggregated across the ACCOUNT's wallets in v_account_cashback) and reserves
-    it with a 'pending' claim BEFORE paying, so a retry can't double-spend;
-    solana-service is the only service that can sign the treasury payout, called
-    internally here. The lock + claim + balance are all keyed by account, so a
-    user can never over-claim by racing two of their linked wallets.
+    """Withdraw a single CHAIN's claimable cashback, paid in that chain's native
+    token (Solana→SOL, EVM→ETH/BNB/POL). Minimum $5 PER CHAIN. A claim fee
+    (CLAIM_FEE_PCT) is deducted from the payout and reported. chat-service is
+    authoritative for the amount and reserves a 'pending' claim BEFORE paying, so
+    a retry can't double-spend. Lock is per (account, chain).
     """
     import os
     w = x_user_wallet
-    min_claim = 5.0
-    # Reserve the claim under a per-ACCOUNT advisory lock so two concurrent claims
-    # (even from two linked wallets) can't both read the same balance and
-    # double-spend. The lock is held to the end of this transaction; the next
-    # claim for the same account blocks until the 'pending' row below is committed
-    # and thus already subtracted from claimable.
+    chain = (chain or "solana").lower()
+    if chain not in CLAIM_CHAINS:
+        raise HTTPException(status_code=400, detail="Unknown chain")
+    # EVM payouts need per-chain treasuries + real EVM rewards (none yet).
+    if chain != "solana":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{CHAIN_TOKEN.get(chain, 'EVM')} claiming opens when EVM trading goes live.")
+
     async with async_session_factory() as s:
         account_id = await _resolve_account_id(s, w, x_user_account)
-        lock_key = account_id or w
+        lock_key = f"{account_id or w}:{chain}"
         await s.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"), {"k": lock_key})
+
+        own = referral = claimed = 0.0
         if account_id:
-            cb = (await s.execute(sa_text(
-                "SELECT cashback_claimable_usd FROM admin_schema.v_account_cashback WHERE account_id=:a"),
-                {"a": account_id})).first()
+            r = (await s.execute(sa_text(
+                "SELECT own_cashback_usd FROM admin_schema.v_account_cashback_by_chain "
+                "WHERE account_id=:a AND chain=:c"), {"a": account_id, "c": chain})).first()
+            own = float(r[0]) if r and r[0] is not None else 0.0
+            if chain == "solana":
+                rr = (await s.execute(sa_text(
+                    "SELECT referral_cashback_usd FROM admin_schema.v_account_cashback WHERE account_id=:a"),
+                    {"a": account_id})).first()
+                referral = float(rr[0]) if rr and rr[0] is not None else 0.0
+            claimed = float((await s.execute(sa_text(
+                "SELECT COALESCE(sum(amount_usd),0) FROM analytics_schema.cashback_claims "
+                "WHERE account_id=:a AND chain=:c AND status IN ('pending','paid')"),
+                {"a": account_id, "c": chain})).scalar() or 0)
         else:
-            cb = (await s.execute(sa_text(
+            r = (await s.execute(sa_text(
                 "SELECT cashback_claimable_usd FROM admin_schema.v_user_cashback WHERE wallet=:w"),
                 {"w": w})).first()
-        claimable = float(cb[0]) if cb and cb[0] is not None else 0.0
-        if claimable < min_claim:
+            own = float(r[0]) if r and r[0] is not None else 0.0
+
+        claimable = max(0.0, own + referral - claimed)
+        if claimable < MIN_CLAIM_USD:
             raise HTTPException(
                 status_code=400,
-                detail=f"Minimum claim is ${min_claim:.0f}. You have ${claimable:.2f} available.")
+                detail=f"Minimum claim is ${MIN_CLAIM_USD:.0f} per chain. You have ${claimable:.2f} on {chain}.")
+        fee = round(claimable * CLAIM_FEE_PCT, 6)
+        net = round(claimable - fee, 6)
         claim_id = (await s.execute(sa_text(
-            "INSERT INTO analytics_schema.cashback_claims (wallet, account_id, amount_usd, status) "
-            "VALUES (:w, :acc, :a, 'pending') RETURNING id"),
-            {"w": w, "acc": account_id, "a": claimable})).scalar()
+            "INSERT INTO analytics_schema.cashback_claims (wallet, account_id, chain, amount_usd, status) "
+            "VALUES (:w, :acc, :c, :a, 'pending') RETURNING id"),
+            {"w": w, "acc": account_id, "c": chain, "a": claimable})).scalar()
         await s.commit()
 
     solana = os.getenv("SOLANA_SERVICE_HTTP", "http://solana-service-rs:3030")
@@ -577,7 +628,7 @@ async def claim_cashback(
             r = await client.post(
                 f"{solana}/actions/cashback-payout",
                 headers={"X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY, "X-User-Wallet": w},
-                json={"amountUsd": claimable})
+                json={"amountUsd": net})  # pay the net (claimable minus the claim fee)
         if r.status_code == 400:
             released = True
             raise RuntimeError(f"payout rejected: {r.text[:200]}")
@@ -600,7 +651,8 @@ async def claim_cashback(
             "UPDATE analytics_schema.cashback_claims SET status='paid', tx_signature=:sig WHERE id=:i"),
             {"sig": sig, "i": claim_id})
         await s.commit()
-    return {"ok": True, "claimedUsd": claimable, "signature": sig}
+    return {"ok": True, "chain": chain, "token": CHAIN_TOKEN[chain],
+            "claimedUsd": claimable, "feeUsd": fee, "netUsd": net, "signature": sig}
 
 
 # ---------------------------------------------------------------------------

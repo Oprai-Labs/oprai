@@ -6,7 +6,18 @@ import { ApiService } from '../../core/services/api.service';
 import { AnalyticsService } from '../../core/services/analytics.service';
 import { TierBadgeComponent } from './tier-badge.component';
 
-interface ChainReward { chain: string; ownUsd: number; volumeUsd: number; }
+interface ChainReward {
+  chain: string;
+  token: string;
+  ownUsd: number;
+  volumeUsd: number;
+  earnedUsd: number;
+  claimedUsd: number;
+  claimableUsd: number;
+  feeUsd: number;
+  netUsd: number;
+  canClaim: boolean;
+}
 interface Rewards {
   tier: number;
   volumeUsd: number;
@@ -28,8 +39,6 @@ const CHAIN_META: Record<string, { label: string; color: string; icon: string }>
 function tw(folder: string): string {
   return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${folder}/info/logo.png`;
 }
-
-const MIN_CLAIM_USD = 5;
 
 interface TierDef {
   n: number;
@@ -138,13 +147,9 @@ const TIERS: TierDef[] = [
             <div class="cb-claimbox">
               <div class="cb-claimable">
                 <span class="cb-amt-val">{{ d.cashback.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span>
-                <span class="cb-amt-lbl">Claimable now</span>
+                <span class="cb-amt-lbl">Claimable across all chains</span>
               </div>
-              <button class="cb-claim" (click)="claim()"
-                      [disabled]="claiming() || d.cashback.claimableUsd < 5"
-                      [title]="d.cashback.claimableUsd < 5 ? 'Minimum claim is $5' : 'Withdraw to your wallet (SOL)'">
-                {{ claiming() ? 'Claiming…' : 'Claim' }}
-              </button>
+              <span class="cb-hint">Claim each chain below — min $5 per chain, paid in that chain's native token.</span>
             </div>
           </div>
           @if (claimMsg()) { <div class="cb-msg" [class.ok]="claimOk()">{{ claimMsg() }}</div> }
@@ -156,17 +161,30 @@ const TIERS: TierDef[] = [
             <div class="bc-head">Trading cashback by chain</div>
             <div class="bc-list">
               @for (c of d.byChain; track c.chain) {
-                <div class="bc-row" [class.bc-zero]="c.ownUsd === 0">
+                <div class="bc-row" [class.bc-zero]="c.claimableUsd === 0 && c.ownUsd === 0">
                   <span class="bc-ico" [style.--cc]="chainMeta(c.chain).color">
                     <img [src]="chainMeta(c.chain).icon" [alt]="chainMeta(c.chain).label" (error)="hideImg($event)" />
                   </span>
-                  <span class="bc-name">{{ chainMeta(c.chain).label }}</span>
+                  <span class="bc-name">
+                    {{ chainMeta(c.chain).label }}
+                    <em class="bc-tok">pays in {{ c.token }}</em>
+                  </span>
                   <span class="bc-vol">Vol {{ c.volumeUsd | currency:'USD':'symbol':'1.0-0' }}</span>
-                  <span class="bc-val">{{ c.ownUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                  <span class="bc-amt">
+                    <span class="bc-val">{{ c.claimableUsd | currency:'USD':'symbol':'1.2-2' }}</span>
+                    @if (c.claimableUsd > 0) {
+                      <span class="bc-fee">− {{ c.feeUsd | currency:'USD':'symbol':'1.2-2' }} fee</span>
+                    }
+                  </span>
+                  <button class="bc-claim" (click)="claimChain(c.chain)"
+                          [disabled]="claiming() || !c.canClaim"
+                          [title]="c.canClaim ? ('Withdraw ' + (c.netUsd | currency:'USD':'symbol':'1.2-2') + ' in ' + c.token) : 'Minimum claim is $5 on this chain'">
+                    {{ claiming() ? '…' : 'Claim' }}
+                  </button>
                 </div>
               }
             </div>
-            <div class="bc-note">Each chain's rewards come from trading on that chain. EVM chains start earning once EVM swaps (Relay / Uniswap) go live.</div>
+            <div class="bc-note">Each chain is claimed separately once it reaches $5, paid in that chain's native token. A {{ claimFeePct }}% claim fee is deducted at withdrawal. EVM chains start earning once EVM swaps (Relay / Uniswap) go live.</div>
           </section>
         }
 
@@ -252,15 +270,21 @@ const TIERS: TierDef[] = [
     .bychain { background:var(--op-bg-surface-1); border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:16px; padding:16px; margin-bottom:16px; }
     .bc-head { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; font-weight:600; color:var(--op-text-secondary); margin-bottom:12px; }
     .bc-list { display:flex; flex-direction:column; gap:4px; }
-    .bc-row { display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:12px; padding:9px 8px; border-radius:10px; }
+    .bc-row { display:grid; grid-template-columns:auto 1fr auto auto auto; align-items:center; gap:12px; padding:9px 8px; border-radius:10px; }
     .bc-row:hover { background:var(--op-bg-surface-2, rgba(125,125,150,.05)); }
     .bc-row.bc-zero { opacity:.5; }
     .bc-ico { width:30px; height:30px; border-radius:50%; flex:none; display:grid; place-items:center; overflow:hidden; background:color-mix(in srgb, var(--cc) 18%, transparent); }
     .bc-ico img { width:30px; height:30px; border-radius:50%; object-fit:cover; }
-    .bc-name { font-weight:600; color:var(--op-text-primary); font-size:.9rem; }
+    .bc-name { font-weight:600; color:var(--op-text-primary); font-size:.9rem; display:flex; flex-direction:column; line-height:1.25; }
+    .bc-tok { font-style:normal; font-size:.68rem; font-weight:500; color:var(--op-text-secondary); }
     .bc-vol { font-size:.74rem; color:var(--op-text-secondary); font-variant-numeric:tabular-nums; }
-    .bc-val { font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; min-width:70px; text-align:right; }
+    .bc-amt { display:flex; flex-direction:column; align-items:flex-end; min-width:88px; }
+    .bc-val { font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; text-align:right; }
+    .bc-fee { font-size:.66rem; color:var(--op-text-secondary); font-variant-numeric:tabular-nums; }
+    .bc-claim { background:linear-gradient(90deg,#22c55e,#06b6d4); color:#fff; border:0; border-radius:8px; padding:7px 16px; font-weight:700; font-size:.8rem; cursor:pointer; min-width:64px; }
+    .bc-claim:disabled { background:var(--op-bg-surface-2, rgba(125,125,150,.12)); color:var(--op-text-secondary); cursor:not-allowed; }
     .bc-note { font-size:.76rem; color:var(--op-text-secondary); margin-top:12px; line-height:1.5; }
+    .cb-hint { font-size:.76rem; color:var(--op-text-secondary); line-height:1.45; max-width:220px; }
 
     /* .main-content is a flex column with overflow:hidden, so the page must scroll itself. */
     :host { display:block; flex:1 1 auto; min-height:0; overflow-y:auto; }
@@ -383,6 +407,7 @@ export class RewardsComponent implements OnInit {
   private analytics = inject(AnalyticsService);
 
   tiers = TIERS;
+  readonly claimFeePct = 2;
   data = signal<Rewards | null>(null);
   loading = signal(true);
   error = signal<string | null>(null);
@@ -469,24 +494,29 @@ export class RewardsComponent implements OnInit {
   chainMeta(c: string) { return CHAIN_META[c] ?? { label: c, color: '#7e8298', icon: '' }; }
   hideImg(ev: Event): void { (ev.target as HTMLImageElement).style.display = 'none'; }
 
-  claim(): void {
-    const d = this.data();
-    if (!d || this.claiming() || d.cashback.claimableUsd < MIN_CLAIM_USD) return;
+  claimChain(chain: string): void {
+    if (this.claiming()) return;
     this.claiming.set(true);
     this.claimMsg.set(null);
-    this.api.post<{ ok: boolean; claimedUsd: number; signature: string }>('/me/cashback/claim', {}).subscribe({
-      next: (r) => {
-        this.claimOk.set(true);
-        this.claimMsg.set(`Claimed $${r.claimedUsd.toFixed(2)} — paid to your wallet.`);
-        this.claiming.set(false);
-        this.load();
-      },
-      error: (e) => {
-        this.claimOk.set(false);
-        this.claimMsg.set(e?.error?.detail || e?.error?.message || 'Could not complete the claim. Try again shortly.');
-        this.claiming.set(false);
-      },
-    });
+    this.api
+      .post<{ ok: boolean; chain: string; token: string; claimedUsd: number; feeUsd: number; netUsd: number }>(
+        `/me/cashback/claim?chain=${encodeURIComponent(chain)}`, {})
+      .subscribe({
+        next: (r) => {
+          this.claimOk.set(true);
+          this.claimMsg.set(
+            `Claimed $${r.claimedUsd.toFixed(2)} on ${this.chainMeta(r.chain).label} — ` +
+            `$${r.netUsd.toFixed(2)} paid in ${r.token} (claim fee $${r.feeUsd.toFixed(2)}).`,
+          );
+          this.claiming.set(false);
+          this.load();
+        },
+        error: (e) => {
+          this.claimOk.set(false);
+          this.claimMsg.set(e?.error?.detail || e?.error?.message || 'Could not complete the claim. Try again shortly.');
+          this.claiming.set(false);
+        },
+      });
   }
 
   tierProgress(d: Rewards): number {
