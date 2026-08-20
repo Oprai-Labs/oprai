@@ -67,7 +67,10 @@ pub struct TokenStrategiesParams {
     /// The mint the wallet holds.
     pub mint: String,
     /// How much of it, in human units. Required: the ranking depends on it.
-    #[serde(alias = "amount", deserialize_with = "crate::services::params::lenient")]
+    #[serde(
+        alias = "amount",
+        deserialize_with = "crate::services::params::lenient"
+    )]
     pub amount: f64,
     /// Price of the token in USD, when the caller knows it. Costs are in SOL
     /// and yields are in percent, so a USD value is what makes them
@@ -129,8 +132,11 @@ async fn rent_sol(rpc: &SolanaRpc, sizes: &[usize]) -> Option<f64> {
 }
 
 fn num(v: Option<&serde_json::Value>) -> f64 {
-    v.and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
-        .unwrap_or(0.0)
+    v.and_then(|x| {
+        x.as_f64()
+            .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+    })
+    .unwrap_or(0.0)
 }
 
 /// Days of yield needed to earn back what the position costs to open.
@@ -139,7 +145,12 @@ fn num(v: Option<&serde_json::Value>) -> f64 {
 /// wallet, and the one no yield table shows. Null when either side is
 /// unknown — a payback figure built on a guessed cost would be worse than
 /// none.
-fn payback_days(usd_value: Option<f64>, apr_pct: f64, cost_sol: Option<f64>, sol_usd: Option<f64>) -> Option<f64> {
+fn payback_days(
+    usd_value: Option<f64>,
+    apr_pct: f64,
+    cost_sol: Option<f64>,
+    sol_usd: Option<f64>,
+) -> Option<f64> {
     let value = usd_value?;
     let cost = cost_sol?;
     let sol_price = sol_usd?;
@@ -152,7 +163,6 @@ fn payback_days(usd_value: Option<f64>, apr_pct: f64, cost_sol: Option<f64>, sol
     }
     Some(cost * sol_price / yearly * 365.0)
 }
-
 
 /// What one transaction leg costs in account rent, from the chain.
 ///
@@ -189,9 +199,12 @@ pub fn conservative_pool_apr(pool: &serde_json::Value) -> f64 {
         return apr_24h;
     }
     let apr_life = life_fees / age_days * 365.0 / tvl * 100.0;
-    if apr_life > 0.0 { apr_24h.min(apr_life) } else { apr_24h }
+    if apr_life > 0.0 {
+        apr_24h.min(apr_life)
+    } else {
+        apr_24h
+    }
 }
-
 
 /// What a concentrated position is worth against simply holding, after the
 /// price moves.
@@ -255,7 +268,6 @@ pub fn impermanent_loss_pct(band_pct: f64, move_pct: f64) -> Option<f64> {
     impermanent_loss_bounds(1.0 - band_pct / 100.0, 1.0 + band_pct / 100.0, move_pct)
 }
 
-
 /// What the position actually returns over the time it is held, after the
 /// cost of getting in and out, as a percentage of what was put in.
 ///
@@ -279,7 +291,6 @@ fn horizon_return_pct(
     let cost = net_cost_sol * sol_price;
     Some((gross - cost) / value * 100.0)
 }
-
 
 /// What it costs to get into a pool, beyond the network fee.
 ///
@@ -331,15 +342,18 @@ async fn entry_cost_pct(
     // Jupiter reports impact as a fraction of the trade.
     let impact_pct = body
         .get("priceImpactPct")
-        .and_then(|v| v.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| v.as_f64()))
+        .and_then(|v| {
+            v.as_str()
+                .and_then(|s| s.parse::<f64>().ok())
+                .or_else(|| v.as_f64())
+        })
         .unwrap_or(0.0)
         * 100.0;
 
     // Our own commission on the swapped half, at the rate that pair actually
     // pays — memecoin pairs are charged more than standard ones and stable
     // pairs nothing, so quoting one number for all of them would be wrong.
-    let commission_pct =
-        crate::services::fees::swap_fee_bps(from_mint, to_mint) as f64 / 100.0;
+    let commission_pct = crate::services::fees::swap_fee_bps(from_mint, to_mint) as f64 / 100.0;
 
     // Both apply to half the position, so halve them against the whole.
     Some((impact_pct + commission_pct) / 2.0)
@@ -369,7 +383,10 @@ pub async fn build_token_strategies(
     // spent, or the fee as free, are both wrong in the way that misleads.
     let (lend_rent, dammv2_rent, dlmm_rent) = tokio::join!(
         rent_sol(rpc, &[TOKEN_ACCOUNT_BYTES]),
-        rent_sol(rpc, &[DAMM_V2_POSITION_BYTES, MINT_BYTES, TOKEN_ACCOUNT_BYTES]),
+        rent_sol(
+            rpc,
+            &[DAMM_V2_POSITION_BYTES, MINT_BYTES, TOKEN_ACCOUNT_BYTES]
+        ),
         rent_sol(rpc, &[DLMM_POSITION_BYTES]),
     );
     // Open and close. Priority fees are not modelled: they are chosen at send
@@ -440,8 +457,16 @@ pub async fn build_token_strategies(
         .unwrap_or(0.0);
 
     for (venue, api, rent) in [
-        ("Meteora DAMM v2", crate::services::meteora::DAMM_V2_API, dammv2_rent),
-        ("Meteora DLMM", crate::services::meteora::DLMM_API, dlmm_rent),
+        (
+            "Meteora DAMM v2",
+            crate::services::meteora::DAMM_V2_API,
+            dammv2_rent,
+        ),
+        (
+            "Meteora DLMM",
+            crate::services::meteora::DLMM_API,
+            dlmm_rent,
+        ),
     ] {
         let pools = crate::services::meteora::pools_containing(http, api, &params.mint, 100)
             .await
@@ -474,20 +499,32 @@ pub async fn build_token_strategies(
             };
             // The lower of the two, so a quiet day is not hidden by a busy
             // lifetime and a spike is not sold as a rate.
-            let apr = if apr_life > 0.0 { apr_24h.min(apr_life) } else { apr_24h };
+            let apr = if apr_life > 0.0 {
+                apr_24h.min(apr_life)
+            } else {
+                apr_24h
+            };
 
             // Same rule the deposit card uses: the protocol's own granularity
             // says how far the pair moves. A 1 bp bin step is a pool built for
             // a pair that barely moves, and it is run tight; anything coarser
             // is not.
             let bin_step = num(p.get("pool_config").and_then(|c| c.get("bin_step")));
-            let band_pct = if bin_step > 0.0 && bin_step <= 1.0 { 0.1 } else { 10.0 };
+            let band_pct = if bin_step > 0.0 && bin_step <= 1.0 {
+                0.1
+            } else {
+                10.0
+            };
 
             // Which side is not the token being asked about — that is what the
             // depositor ends up half-holding.
             let (x, y) = crate::services::meteora::meteora_pool_mints(&p);
             let counter_is_y = x == Some(params.mint.as_str());
-            let counter = if counter_is_y { p.get("token_y") } else { p.get("token_x") };
+            let counter = if counter_is_y {
+                p.get("token_y")
+            } else {
+                p.get("token_x")
+            };
             let counter_mint = if counter_is_y { y } else { x };
 
             // Getting in costs far more than the fees do: half the position
@@ -504,7 +541,9 @@ pub async fn build_token_strategies(
                 _ => None,
             };
             let total_net_cost = round_trip_fee + entry_sol.unwrap_or(0.0);
-            let counter_symbol = counter.and_then(|t| t.get("symbol")).and_then(|s| s.as_str());
+            let counter_symbol = counter
+                .and_then(|t| t.get("symbol"))
+                .and_then(|s| s.as_str());
             let counter_verified = counter
                 .and_then(|t| t.get("is_verified"))
                 .and_then(|b| b.as_bool())
@@ -569,14 +608,22 @@ pub async fn build_token_strategies(
     options.sort_by(|a, b| {
         let key = |v: &serde_json::Value| {
             (
-                v.get("changesHolding").and_then(|x| x.as_bool()).unwrap_or(false),
-                v.get("tooNewToJudge").and_then(|x| x.as_bool()).unwrap_or(false),
+                v.get("changesHolding")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false),
+                v.get("tooNewToJudge")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false),
                 if by_horizon {
                     // Negated so a bigger return sorts first alongside the
                     // ascending payback below.
-                    -v.get("horizonReturnPct").and_then(|x| x.as_f64()).unwrap_or(f64::MIN)
+                    -v.get("horizonReturnPct")
+                        .and_then(|x| x.as_f64())
+                        .unwrap_or(f64::MIN)
                 } else {
-                    v.get("paybackDays").and_then(|x| x.as_f64()).unwrap_or(f64::MAX)
+                    v.get("paybackDays")
+                        .and_then(|x| x.as_f64())
+                        .unwrap_or(f64::MAX)
                 },
             )
         };
@@ -662,7 +709,10 @@ mod il_tests {
     fn a_tighter_band_loses_more_on_the_same_move() {
         let tight = impermanent_loss_pct(1.0, 10.0).expect("computable");
         let wide = impermanent_loss_pct(10.0, 10.0).expect("computable");
-        assert!(tight < wide, "tight {tight} should be worse than wide {wide}");
+        assert!(
+            tight < wide,
+            "tight {tight} should be worse than wide {wide}"
+        );
     }
 
     /// Nothing moved, nothing lost — a position that never leaves its band is
@@ -689,7 +739,10 @@ mod horizon_tests {
         // less, but only just.
         let tiny = horizon_return_pct(Some(20.0), 30.0, FEE, SOL, 1.0).expect("computable");
         let week = horizon_return_pct(Some(20.0), 30.0, FEE, SOL, 7.0).expect("computable");
-        assert!(week > tiny, "a longer stay must return more, got {week} vs {tiny}");
+        assert!(
+            week > tiny,
+            "a longer stay must return more, got {week} vs {tiny}"
+        );
     }
 
     /// The case the horizon exists for: below payback, the answer is no.

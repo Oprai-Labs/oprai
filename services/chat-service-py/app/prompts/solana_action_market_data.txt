@@ -151,6 +151,20 @@ lead with the fact that it earns less.
 `liquidationDropPct` on a leveraged flow is how far the collateral can fall
 before the position is at risk. Mention it whenever a flow borrows.
 
+A borrowed flow also carries `spreadHistory`: what the loop actually paid at
+every hour of the last 30 days, not just now. Use it, because today's number
+alone is misleading in both directions. `profitableSharePct` of 0 means the
+flow has not worked at any point in the month — say that it is not a matter
+of waiting for a better week, rather than leaving the reader to assume one is
+coming. A high share with a negative reading today means the opposite: the
+flow usually works and happens to be expensive right now, which is worth
+saying instead of dismissing it. `worstPerTurnPct` and `bestPerTurnPct` are
+the range it moved through.
+
+The staking yield inside that history is held at today's value —
+`stakeApyHeldAtPct` — because only the lending rates have hourly history. Do
+not present the range as more exact than that.
+
 Example:
 
   query_onchain("strategy_flows", {"usdValue": "5000"})

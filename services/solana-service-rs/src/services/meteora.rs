@@ -1899,8 +1899,7 @@ pub async fn build_meteora_open_position(
         0.0
     };
     let delta = crate::services::tx_cost::simulated_sol_delta_b64(rpc_url, &tx, &user).await;
-    let fee_label =
-        crate::services::tx_cost::cost_label(delta, sol_deposited, "~0.005 SOL");
+    let fee_label = crate::services::tx_cost::cost_label(delta, sol_deposited, "~0.005 SOL");
 
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -5000,7 +4999,10 @@ pub async fn build_meteora_dammv2_get_pools(
 /// says nothing about the 404 and sent us hunting a deserialization bug that
 /// did not exist. Check the status first, and pass through the API's own
 /// `message` when it sends one.
-async fn meteora_datapi_json(resp: reqwest::Response, what: &str) -> Result<serde_json::Value, AppError> {
+async fn meteora_datapi_json(
+    resp: reqwest::Response,
+    what: &str,
+) -> Result<serde_json::Value, AppError> {
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -5029,7 +5031,11 @@ fn meteora_datapi_page(page: Option<u32>) -> u32 {
 }
 
 pub fn meteora_pool_mints(pool: &serde_json::Value) -> (Option<&str>, Option<&str>) {
-    let side = |k: &str| pool.get(k).and_then(|t| t.get("address")).and_then(|a| a.as_str());
+    let side = |k: &str| {
+        pool.get(k)
+            .and_then(|t| t.get("address"))
+            .and_then(|a| a.as_str())
+    };
     (side("token_x"), side("token_y"))
 }
 
@@ -5191,15 +5197,22 @@ pub struct MeteoraDammV2BestPoolParams {
 
 fn meteora_pool_summary(pool: &serde_json::Value, deposit_usd: Option<f64>) -> serde_json::Value {
     let num = |v: Option<&serde_json::Value>| -> f64 {
-        v.and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
-            .unwrap_or(0.0)
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0.0)
     };
     let tvl = num(pool.get("tvl"));
     let vol24 = num(pool.get("volume").and_then(|v| v.get("24h")));
     let fees24 = num(pool.get("fees").and_then(|v| v.get("24h")));
     // Fees are what an LP is actually paid; annualise so it can be compared
     // against anything else the user might do with the money.
-    let fee_apr = if tvl > 0.0 { fees24 * 365.0 / tvl * 100.0 } else { 0.0 };
+    let fee_apr = if tvl > 0.0 {
+        fees24 * 365.0 / tvl * 100.0
+    } else {
+        0.0
+    };
     let share = match deposit_usd {
         Some(d) if tvl > 0.0 => d / tvl,
         _ => 0.0,
@@ -5262,9 +5275,10 @@ async fn meteora_best_pool(
     let (mint_a, mint_b) = match (&params.mint_a, &params.mint_b) {
         (Some(a), Some(b)) => (a.clone(), b.clone()),
         _ => {
-            let pool = params.pool.as_ref().ok_or_else(|| {
-                AppError::InvalidParams("pool or mintA+mintB is required".into())
-            })?;
+            let pool = params
+                .pool
+                .as_ref()
+                .ok_or_else(|| AppError::InvalidParams("pool or mintA+mintB is required".into()))?;
             let resp = http
                 .get(format!("{api}/pools/{pool}"))
                 .header("Accept", "application/json")
@@ -5302,7 +5316,10 @@ async fn meteora_best_pool(
         .iter()
         .filter(|s| {
             f(s, "tvl") > 0.0
-                && !s.get("tooShallow").and_then(|b| b.as_bool()).unwrap_or(false)
+                && !s
+                    .get("tooShallow")
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(false)
         })
         .collect();
 

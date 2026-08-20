@@ -1779,11 +1779,12 @@ pub async fn build_orca_open_position(
     // token account and the wrapped-SOL account are all rent the SDK figure
     // never mentions. A card that says an action is free, for a wallet
     // holding exactly the deposit, is a submit that fails.
-    let sol_deposited = if resolve_token_address(input_sym) == spl_token::native_mint::id().to_string() {
-        amount_base as f64 / 10f64.powi(in_decimals as i32)
-    } else {
-        0.0
-    };
+    let sol_deposited =
+        if resolve_token_address(input_sym) == spl_token::native_mint::id().to_string() {
+            amount_base as f64 / 10f64.powi(in_decimals as i32)
+        } else {
+            0.0
+        };
     let measured_fee = crate::services::tx_cost::cost_label(
         crate::services::tx_cost::simulated_sol_delta_b64(&rpc_url, &tx_b64, &user_pk).await,
         sol_deposited,

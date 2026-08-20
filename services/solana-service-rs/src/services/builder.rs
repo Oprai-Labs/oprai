@@ -2377,8 +2377,8 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         // Read-only. `mint` optional: absent means SOL.
         "strategy_flows" => Ok(()),
         "token_strategies" => {
-            let p: crate::services::strategies::TokenStrategiesParams = serde_json::from_value(params.clone())
-                .map_err(|e| {
+            let p: crate::services::strategies::TokenStrategiesParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
                     AppError::InvalidParams(format!("Invalid token_strategies params: {e}"))
                 })?;
             crate::services::strategies::validate_token_strategies_params(&p)
@@ -6785,7 +6785,10 @@ mod dispatch_coverage_tests {
                 continue;
             }
             let candidate = t.strip_prefix('|').unwrap_or(t).trim();
-            if let Some(name) = candidate.strip_prefix('"').and_then(|r| r.split('"').next()) {
+            if let Some(name) = candidate
+                .strip_prefix('"')
+                .and_then(|r| r.split('"').next())
+            {
                 if !name.is_empty() && !name.contains(' ') {
                     out.push(name.to_string());
                 }

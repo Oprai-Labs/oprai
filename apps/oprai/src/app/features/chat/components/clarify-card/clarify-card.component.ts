@@ -50,6 +50,10 @@ export class ClarifyCardComponent implements OnInit {
    */
   ngOnInit(): void {
     void this.tokenRegistry.ensureLoaded();
+    // This card is where a protocol gets picked, so the yields beside each
+    // name have to be today's. They used to be written into the registry by
+    // hand and were overstated by up to 43%.
+    void this.protocolRegistry.loadLiveYields();
   }
 
   readonly categoryIcons: Record<string, string> = {

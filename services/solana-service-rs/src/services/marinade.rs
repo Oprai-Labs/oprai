@@ -200,8 +200,28 @@ pub async fn get_marinade_stats(http: &reqwest::Client) -> Option<MarinadeStats>
                 .get("total_sol")
                 .and_then(|n| n.as_f64())
                 .map(|n| n.to_string()),
-            apy: None,
+            apy: None, // /tlv has none; get_marinade_apy_pct asks the right endpoint
         })
+}
+
+/// Marinade's realised 30-day staking yield, as a percentage.
+///
+/// `/tlv` carries no APY, which is why the field above is None — and a None
+/// that nobody replaced is how a hardcoded 6.8% ended up on the protocol
+/// picker while the real figure was 5.55%. This asks the endpoint that does
+/// answer: `/msol/apy/30d` returns the yield as a fraction over the window,
+/// derived from the mSOL price at each end.
+pub async fn get_marinade_apy_pct(http: &reqwest::Client) -> Option<f64> {
+    let resp = http
+        .get(format!("{MARINADE_API}/msol/apy/30d"))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let v = resp.json::<serde_json::Value>().await.ok()?;
+    v.get("value").and_then(|n| n.as_f64()).map(|f| f * 100.0)
 }
 
 /// Get the current mSOL/SOL exchange rate from Marinade's own indexer.
@@ -560,5 +580,61 @@ pub async fn build_marinade_claim_ticket(
         quote: None,
         is_cross_chain: false,
         data: None,
+    })
+}
+
+/// Live staking yields, for the places that used to show invented ones.
+///
+/// The protocol picker carried `apy: 7.2` for Jito and `6.8` for Marinade,
+/// hardcoded, and sorted the list by them. Measured the day this was written:
+/// Jito pays 5.05% and Marinade 5.55%, so both were overstated — by 43% and
+/// 22% — and the ordering users were shown was decided by numbers nobody had
+/// checked since they were typed.
+///
+/// A protocol whose live read fails is returned with `apy: null` rather than
+/// a stand-in. Showing nothing is honest; showing last year's number as this
+/// year's is not.
+pub async fn query_stake_yields(http: &reqwest::Client) -> Result<BuildResponse, AppError> {
+    let (jito_stats, marinade_apy, marinade_stats) = tokio::join!(
+        crate::services::jito::get_stake_pool_stats(http),
+        get_marinade_apy_pct(http),
+        get_marinade_stats(http),
+    );
+
+    let jito = jito_stats.ok();
+    let jito_apy = jito.as_ref().and_then(|s| s.current_apy_pct());
+    let jito_tvl_sol = jito
+        .as_ref()
+        .and_then(|s| s.current_tvl_lamports())
+        .map(|l| l as f64 / 1_000_000_000.0);
+    let marinade_tvl_sol = marinade_stats
+        .as_ref()
+        .and_then(|s| s.total_sol_staked.as_ref())
+        .and_then(|s| s.parse::<f64>().ok());
+
+    let data = serde_json::json!({
+        "yields": [
+            { "id": "jito",     "apy": jito_apy,     "tvlSol": jito_tvl_sol },
+            { "id": "marinade", "apy": marinade_apy, "tvlSol": marinade_tvl_sol },
+        ],
+    });
+
+    Ok(BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: "stake_yields".into(),
+            description: "Live staking yields".into(),
+            estimated_fee: "0".into(),
+            estimated_refund: None,
+            params: serde_json::json!({}),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(data),
     })
 }

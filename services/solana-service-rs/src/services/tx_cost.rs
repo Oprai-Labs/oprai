@@ -43,10 +43,12 @@ pub async fn simulated_sol_delta(
                 // VersionedTransaction needs base64; the default base58 trips
                 // -32602 and the simulation is silently lost.
                 encoding: Some(solana_transaction_status::UiTransactionEncoding::Base64),
-                accounts: Some(solana_client::rpc_config::RpcSimulateTransactionAccountsConfig {
-                    encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
-                    addresses: vec![payer.to_string()],
-                }),
+                accounts: Some(
+                    solana_client::rpc_config::RpcSimulateTransactionAccountsConfig {
+                        encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
+                        addresses: vec![payer.to_string()],
+                    },
+                ),
                 min_context_slot: None,
                 inner_instructions: false,
             },
@@ -81,7 +83,9 @@ pub fn cost_label(delta: Option<f64>, spent_elsewhere: f64, fallback: &str) -> S
 /// Same measurement, for builders that already hold the transaction as base64.
 pub async fn simulated_sol_delta_b64(rpc_url: &str, tx_b64: &str, payer: &Pubkey) -> Option<f64> {
     use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(tx_b64).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(tx_b64)
+        .ok()?;
     let tx: VersionedTransaction = bincode::deserialize(&bytes).ok()?;
     let rpc = AsyncRpc::new_with_commitment(
         rpc_url.to_string(),
