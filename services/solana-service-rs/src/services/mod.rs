@@ -28,6 +28,7 @@ pub mod pumpfun;
 pub mod raydium;
 pub mod raydium_clmm;
 pub mod relay;
+pub mod review;
 pub mod simulation;
 pub mod sns;
 pub mod solend;

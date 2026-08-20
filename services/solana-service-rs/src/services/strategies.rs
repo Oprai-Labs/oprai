@@ -305,24 +305,57 @@ fn horizon_return_pct(
 /// Returned as a percentage of the position, since that is how it compares to
 /// a yield. None when the quote cannot be fetched — the option then carries no
 /// entry cost rather than a guessed one, and says so.
+/// A mint's USD price and decimals, from one call.
+///
+/// Kept together on purpose: every caller that needs to turn a dollar amount
+/// into base units needs both, and fetching them separately is how they end up
+/// belonging to different tokens.
+async fn mint_price_and_decimals(http: &reqwest::Client, mint: &str) -> Option<(f64, u8)> {
+    let body: serde_json::Value = http
+        .get(format!("https://lite-api.jup.ag/price/v3?ids={mint}"))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let row = body.get(mint)?;
+    let price = row.get("usdPrice").and_then(|v| v.as_f64())?;
+    let decimals = row.get("decimals").and_then(|v| v.as_u64())? as u8;
+    Some((price, decimals))
+}
+
 async fn entry_cost_pct(
     http: &reqwest::Client,
     from_mint: &str,
     to_mint: &str,
     usd_value: Option<f64>,
-    sol_usd: Option<f64>,
 ) -> Option<f64> {
     let value = usd_value?;
-    let sol_price = sol_usd?;
-    if !(value > 0.0) || !(sol_price > 0.0) {
+    if !(value > 0.0) {
         return None;
     }
     // Half the position is swapped; the other half is already the right token.
     let swap_usd = value / 2.0;
-    let lamports = ((swap_usd / sol_price) * 1e9).round() as u64;
-    if lamports == 0 {
+
+    // Base units of the token actually being sold.
+    //
+    // The first version turned USD into lamports through the SOL price and
+    // sent that as the input amount whatever the input token was — correct
+    // only when it happened to be SOL. Quoting $2,500 of USDC asked Jupiter
+    // about 13,889 USDC instead of 2,500 and read back 0.0052% impact against
+    // a true 0.0018%; for a five-decimal memecoin it would be wrong by orders
+    // of magnitude. Price and decimals both come from one call, for the right
+    // token.
+    let (price, decimals) = mint_price_and_decimals(http, from_mint).await?;
+    if !(price > 0.0) {
         return None;
     }
+    let base_units = ((swap_usd / price) * 10f64.powi(decimals as i32)).round();
+    if !(base_units >= 1.0) || !base_units.is_finite() {
+        return None;
+    }
+    let lamports = base_units as u64;
 
     let quote = http
         .get("https://lite-api.jup.ag/swap/v1/quote")
@@ -531,7 +564,7 @@ pub async fn build_token_strategies(
             // has to be swapped into the other side, at that pair's price
             // impact and commission.
             let entry_pct = match counter_mint {
-                Some(m) => entry_cost_pct(http, &params.mint, m, params.usd_value, sol_usd).await,
+                Some(m) => entry_cost_pct(http, &params.mint, m, params.usd_value).await,
                 None => None,
             };
             // Expressed in SOL so it can join the round trip on the same
@@ -760,5 +793,66 @@ mod horizon_tests {
         assert!(horizon_return_pct(None, 30.0, FEE, SOL, 7.0).is_none());
         assert!(horizon_return_pct(Some(20.0), 30.0, FEE, None, 7.0).is_none());
         assert!(horizon_return_pct(Some(20.0), 30.0, FEE, SOL, 0.0).is_none());
+    }
+}
+
+/// The entry cost must be quoted in the units of the token being sold.
+///
+/// This is the shape of a bug that shipped: USD was turned into lamports
+/// through the SOL price and sent as the input amount whatever the input token
+/// was. For $2,500 of USDC that asked Jupiter about 13,889 USDC instead of
+/// 2,500 and read back roughly three times the true price impact; for a
+/// five-decimal token it would be wrong by orders of magnitude. It is
+/// invisible from the outside — the number still looks like a small
+/// percentage — so only a comparison against the correctly-sized quote catches
+/// it.
+#[cfg(test)]
+mod entry_cost_tests {
+    use super::*;
+
+    const USDC: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    const SOL: &str = "So11111111111111111111111111111111111111112";
+
+    #[tokio::test]
+    #[ignore = "hits the live Jupiter API"]
+    async fn price_and_decimals_belong_to_the_same_token() {
+        let http = reqwest::Client::new();
+        let (usdc_price, usdc_dec) = mint_price_and_decimals(&http, USDC)
+            .await
+            .expect("USDC price");
+        let (sol_price, sol_dec) = mint_price_and_decimals(&http, SOL)
+            .await
+            .expect("SOL price");
+        eprintln!(
+            "USDC ${usdc_price:.4} / {usdc_dec} ondalık   SOL ${sol_price:.2} / {sol_dec} ondalık"
+        );
+        assert_eq!(usdc_dec, 6, "USDC has six decimals");
+        assert_eq!(sol_dec, 9, "SOL has nine");
+        assert!(
+            (usdc_price - 1.0).abs() < 0.1,
+            "USDC should price near a dollar, got {usdc_price}"
+        );
+        // The old bug was exactly this substitution, so pin that the two are
+        // nowhere near each other.
+        assert!(sol_price > usdc_price * 10.0);
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the live Jupiter API"]
+    async fn a_stablecoin_entry_costs_far_less_than_the_old_maths_claimed() {
+        let http = reqwest::Client::new();
+        let cost = entry_cost_pct(&http, USDC, SOL, Some(5000.0))
+            .await
+            .expect("entry cost for a $5000 USDC position");
+        eprintln!(
+            "2500$ USDC → SOL girisi: %{cost:.4} (etki + komisyon, pozisyonun tamamına oranla)"
+        );
+        assert!(cost >= 0.0, "a cost cannot be negative");
+        // USDC/SOL is one of the deepest pairs on Solana; anything above this
+        // means the quote was sized wrongly again.
+        assert!(
+            cost < 0.5,
+            "entry into the deepest pair on the chain should not cost {cost}% — check the base-unit conversion"
+        );
     }
 }
