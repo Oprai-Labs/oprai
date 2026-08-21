@@ -201,6 +201,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::get_action_by_id)
                     .service(routes::actions::post_relay_execute_permits)
                     .service(routes::actions::get_relay_intent_status)
+                    .service(routes::actions::post_relay_record)
                     .service(routes::actions::post_relay_index_transaction)
                     .service(routes::actions::post_relay_single_transaction)
                     .service(routes::actions::post_relay_deposit_address_reindex)

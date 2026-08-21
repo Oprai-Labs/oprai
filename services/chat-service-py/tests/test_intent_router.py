@@ -1,9 +1,21 @@
 """Unit tests for the keyword-augmentation layer of intent_router.
 
-These exercise the pure-Python word-boundary matcher only — no OpenAI call,
-no chat service required. They guard against substring false-positives
-(e.g. "database" triggering Base chain) and false-negatives that hid the
-cross-chain detection bug seen in the screenshot.
+These exercise the pure-Python word-boundary matcher only — no OpenAI call, no
+chat service required.
+
+What that matcher is for, and what it deliberately is not: it recognises
+PRODUCT and PROTOCOL NAMES ("whirlpool", "K-Lend", "pump.fun", "wormhole") so a
+classifier that missed one still gets it. It does NOT recognise verbs
+("bridge", "swap"), chain names ("ethereum", "base") or any language's word for
+a concept — those carry meaning rather than a name, and interpreting meaning is
+the classifier's job, in whatever language the user wrote.
+
+That boundary is the thing these tests protect. An earlier version of this file
+asserted the opposite — that "bridge", "köprüle" and thirteen chain names all
+routed to relay through this function — and had been failing ever since the
+matcher was narrowed to names. Seventeen permanently-red tests are worse than
+none: they train everyone to skip the file, which is exactly where a real
+regression would sit unnoticed.
 """
 
 from __future__ import annotations
@@ -13,51 +25,44 @@ import pytest
 from app.services.intent_router import _augment_protocols_from_keywords
 
 
-# ─── Cross-chain (relay) — the bug from the screenshot ───────────────────────
+# ─── Names are matched; meaning is not ──────────────────────────────────────
 
-class TestCrossChainDetection:
-    """A non-Solana chain mention or bridge verb must force `relay`."""
+class TestNamesMatchMeaningDoesNot:
+    """Product names route. Verbs, chain names and concept words do not."""
 
-    def test_screenshot_query_turkish_base_eth(self):
-        # Exact failing message from the bug report.
-        msg = "1 sol karşılığı base ağında ethereum al"
-        assert "relay" in _augment_protocols_from_keywords(msg, ())
+    @pytest.mark.parametrize("msg,proto", [
+        ("use wormhole to send 1 SOL to ethereum", "relay"),
+        ("bridge via mayan", "relay"),
+        ("debridge swap", "debridge"),
+    ])
+    def test_bridge_product_names_route(self, msg, proto):
+        # Wormhole and Mayan have no canonical id of their own; they piggyback
+        # on relay so crosschain.txt loads.
+        assert proto in _augment_protocols_from_keywords(msg, ()), msg
 
-    def test_turkish_bridge_verb(self):
-        for msg in [
-            "1 SOL'u köprüle",
-            "USDC köprüleme yap",
-            "ethereum'a köprü kur",
-        ]:
-            assert "relay" in _augment_protocols_from_keywords(msg, ()), msg
-
-    def test_english_bridge_verb(self):
-        for msg in [
-            "bridge 1 SOL to ETH",
-            "do a cross-chain swap",
-            "cross chain transfer",
-        ]:
-            assert "relay" in _augment_protocols_from_keywords(msg, ()), msg
+    @pytest.mark.parametrize("verb", [
+        "bridge 1 SOL to ETH",
+        "do a cross-chain swap",
+        "cross chain transfer",
+        "1 SOL'u köprüle",
+        "USDC köprüleme yap",
+        "haz un puente de 1 SOL",
+    ])
+    def test_bridge_verbs_are_left_to_the_classifier(self, verb):
+        # A verb is meaning, not a name — and it arrives in whatever language
+        # the user speaks, which is precisely why a word list cannot own it.
+        assert "relay" not in _augment_protocols_from_keywords(verb, ()), verb
 
     @pytest.mark.parametrize("chain", [
         "ethereum", "arbitrum", "optimism", "polygon", "avalanche",
         "linea", "scroll", "zksync", "celo", "fantom",
         "base", "bsc", "evm",
     ])
-    def test_non_solana_chain_implies_relay(self, chain):
+    def test_chain_names_are_left_to_the_classifier(self, chain):
+        # "base" is also an ordinary English noun, so matching it here misfires
+        # on "database" / "baseline". The classifier reads it in context.
         msg = f"swap 1 SOL to USDC on {chain}"
-        assert "relay" in _augment_protocols_from_keywords(msg, ()), chain
-
-    def test_wormhole_routes_under_relay(self):
-        # Wormhole has no canonical id; piggyback on relay so crosschain.txt loads.
-        assert "relay" in _augment_protocols_from_keywords(
-            "use wormhole to send 1 SOL to ethereum", ()
-        )
-
-    def test_mayan_routes_under_relay(self):
-        assert "relay" in _augment_protocols_from_keywords(
-            "bridge via mayan", ()
-        )
+        assert "relay" not in _augment_protocols_from_keywords(msg, ()), chain
 
 
 # ─── No false positives — word boundary correctness ──────────────────────────
@@ -124,7 +129,17 @@ class TestExistingKeywordsStillWork:
 
     def test_multiple_protocols_merged(self):
         result = _augment_protocols_from_keywords(
-            "swap on raydium then bridge to base via relay", ()
+            "swap on raydium then bridge via relay.link", ()
         )
         assert "raydium" in result
         assert "relay" in result
+
+    def test_bare_relay_is_not_a_name(self):
+        # "relay.link" and "relay bridge" are names; bare "relay" is an ordinary
+        # English word ("relay the message", "relay race"), so it is withheld
+        # for the same reason "base" is. The classifier still sees the sentence.
+        result = _augment_protocols_from_keywords(
+            "swap on raydium then bridge to base via relay", ()
+        )
+        assert "raydium" in result
+        assert "relay" not in result

@@ -252,27 +252,24 @@ _BUY_RE = re.compile(
     r"\b",
     re.IGNORECASE,
 )
-# Stake intents — "stake N SOL with marinade" / "stake N SOL via jito" /
-# "jito ile N SOL stake et". Protocol comes before / after the verb.
+# Stake intents. Three things identify one: the word "stake", a quantity of
+# SOL, and a protocol name. Only the order varies, and the connector between
+# them is whatever the user's language uses — an English "with", a Turkish
+# "ile", a Spanish "con". Listing connectors is what made the old version
+# English-plus-Turkish and nothing else, so the connector is simply skipped.
+# "stake" itself is a loanword used untranslated across languages, and the
+# protocol names are proper nouns, so neither needs a per-language variant.
 _STAKE_RE = re.compile(
-    r"\b"
-    r"(?:stake\s+"
-    r"(?P<amount1>\d+(?:\.\d+)?|all)\s+"
-    r"(?P<token1>SOL|S[Oo][Ll])\s+"
-    r"(?:with|via|on|using|through)\s+"
-    r"(?P<protocol1>jito|marinade|jupiter|jupsol|sanctum)"
+    r"\bstake\b.{0,30}?"
+    r"(?P<amount1>\d+(?:\.\d+)?|all)\s+(?P<token1>SOL)\b.{0,30}?"
+    r"(?P<protocol1>jito|marinade|jupiter|jupsol|sanctum)\b"
     r"|"
-    r"(?P<protocol2>jito|marinade|jupiter|jupsol|sanctum)"
-    r"\s+(?:ile|with|via|on)\s+"
-    r"(?P<amount2>\d+(?:\.\d+)?|all)\s+"
-    r"(?P<token2>SOL|S[Oo][Ll])\s+stake\s+et"
+    r"(?P<amount2>\d+(?:\.\d+)?|all)\s+(?P<token2>SOL)\b.{0,30}?"
+    r"(?P<protocol2>jito|marinade|jupiter|jupsol|sanctum)\b.{0,30}?\bstake\b"
     r"|"
-    r"(?P<amount3>\d+(?:\.\d+)?|all)\s+"
-    r"(?P<token3>SOL|S[Oo][Ll])\s+"
-    r"(?P<protocol3>jito|marinade|jupiter|jupsol|sanctum)"
-    r"\s+(?:ile|with|via)?\s*stake"
-    r")\b",
-    re.IGNORECASE,
+    r"(?P<protocol3>jito|marinade|jupiter|jupsol|sanctum)\b.{0,30}?"
+    r"(?P<amount3>\d+(?:\.\d+)?|all)\s+(?P<token3>SOL)\b.{0,30}?\bstake\b",
+    re.IGNORECASE | re.DOTALL,
 )
 
 # Unstake intents — symbol prefix tells us which protocol.

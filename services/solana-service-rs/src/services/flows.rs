@@ -260,6 +260,19 @@ mod spread_tests {
 /// let a position look worth keeping on one screen and worth closing on
 /// another.
 pub async fn best_simple_option(http: &reqwest::Client) -> Option<(f64, String)> {
+    best_simple_option_for(http, SOL_MINT).await
+}
+
+/// The same, for whichever asset the money is actually denominated in.
+///
+/// A USDC-paired position judged against staking SOL is judged in the wrong
+/// unit: the two returns are not measured in the same thing, so the difference
+/// between them is not a gap. A stablecoin position is compared with stablecoin
+/// lending, a SOL position with staking or lending SOL.
+pub async fn best_simple_option_for(
+    http: &reqwest::Client,
+    quote_mint: &str,
+) -> Option<(f64, String)> {
     let (yields, reserves) = tokio::join!(
         crate::services::marinade::query_stake_yields(http),
         crate::services::kamino::fetch_market_reserves(http, None),
@@ -267,38 +280,46 @@ pub async fn best_simple_option(http: &reqwest::Client) -> Option<(f64, String)>
     let mut best = 0.0f64;
     let mut label = String::new();
 
-    if let Ok(resp) = yields {
-        let rows = resp
-            .data
-            .as_ref()
-            .and_then(|d| d.get("yields"))
-            .and_then(|y| y.as_array())
-            .cloned()
-            .unwrap_or_default();
-        for r in rows {
-            let apy = r.get("apy").and_then(|x| x.as_f64()).unwrap_or(0.0);
-            if apy > best {
-                best = apy;
-                label = "staking SOL".to_string();
+    // Staking only exists for SOL, so it is only an alternative to SOL.
+    if quote_mint == SOL_MINT {
+        if let Ok(resp) = yields {
+            let rows = resp
+                .data
+                .as_ref()
+                .and_then(|d| d.get("yields"))
+                .and_then(|y| y.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for r in rows {
+                let apy = r.get("apy").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                if apy > best {
+                    best = apy;
+                    label = "staking SOL".to_string();
+                }
             }
         }
     }
     if let Ok(reserves) = reserves {
-        // The deepest SOL reserve, for the same reason the flows engine picks
-        // by deposits: a mint can have several and the empty ones lie.
-        let sol = reserves
+        // The deepest reserve for this asset, for the same reason the flows
+        // engine picks by deposits: a mint can have several and the empty ones
+        // advertise rates nobody can get.
+        let own = reserves
             .iter()
-            .filter(|r| r.get("liquidityTokenMint").and_then(|v| v.as_str()) == Some(SOL_MINT))
+            .filter(|r| r.get("liquidityTokenMint").and_then(|v| v.as_str()) == Some(quote_mint))
             .max_by(|a, b| {
                 num(a.get("totalSupplyUsd"))
                     .partial_cmp(&num(b.get("totalSupplyUsd")))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-        if let Some(r) = sol {
+        if let Some(r) = own {
             let supply = num(r.get("supplyApy")) * 100.0;
             if supply > best {
                 best = supply;
-                label = "lending SOL on Kamino".to_string();
+                let sym = r
+                    .get("liquidityToken")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("it");
+                label = format!("lending {sym} on Kamino");
             }
         }
     }

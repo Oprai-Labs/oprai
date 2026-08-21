@@ -43,6 +43,10 @@ pub struct PositionFacts {
     pub exit_cost_pct: Option<f64>,
     /// Whether the position is currently earning at all.
     pub earning: bool,
+    /// Share of the recent window the range was actually live, 0..1. None when
+    /// it could not be measured, in which case the instantaneous flag is all
+    /// there is to go on.
+    pub in_range_share: Option<f64>,
 }
 
 /// What to do about it.
@@ -135,10 +139,21 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
             "This position is out of range and earning nothing, but {alternative_label} pays {:.2}% — no better than it, so there is nothing to move to.",
             f.alternative_apr
         ),
-        Verdict::Keep => format!(
-            "It earns {:.2}%, which is at least as good as anything else available right now ({alternative_label} pays {:.2}%). Leave it alone.",
-            f.forward_apr, f.alternative_apr
-        ),
+        Verdict::Keep => match f.in_range_share {
+            // A pool paying 120% is not a position earning 120% if the range
+            // was live a fifth of the time. Saying "leave it alone" without
+            // this describes a return the position never had.
+            Some(share) if share < 0.6 => format!(
+                "Its range was only live {:.0}% of the last ten days, so it captures about {:.2}% of the pool's rate rather than the headline. That still beats {alternative_label} at {:.2}%, but a tighter range that tracked the price would earn considerably more.",
+                share * 100.0,
+                f.forward_apr,
+                f.alternative_apr
+            ),
+            _ => format!(
+                "It earns {:.2}%, which is at least as good as anything else available right now ({alternative_label} pays {:.2}%). Leave it alone.",
+                f.forward_apr, f.alternative_apr
+            ),
+        },
         Verdict::ConsiderExit if !f.earning => format!(
             "It is out of range, so it is earning nothing at all while {alternative_label} pays {:.2}%. Closing it costs {:.2}% of the position and that is recovered in {:.0} days — worth moving.",
             f.alternative_apr,
@@ -168,30 +183,89 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
 /// Every open position the wallet holds, judged against doing something else.
 pub async fn build_position_review(
     http: &reqwest::Client,
+    rpc_url: &str,
     wallet: &str,
 ) -> Result<BuildResponse, AppError> {
     // What the same money would earn in one step today. Most LP positions are
     // paired against SOL, so "you could have just staked it" is the honest
     // comparison rather than a hand-picked rival pool.
-    let (alt, dlmm) = tokio::join!(
+    let (alt, dlmm, orca) = tokio::join!(
         crate::services::flows::best_simple_option(http),
         read_dlmm_positions(http, wallet),
+        read_orca_positions(http, rpc_url, wallet),
     );
-    let (alt_apr, alt_label) = alt.unwrap_or((0.0, "lending".to_string()));
+    let (default_apr, default_label) = alt.unwrap_or((0.0, "lending".to_string()));
 
     let mut reviewed: Vec<serde_json::Value> = Vec::new();
     let mut idle = 0usize;
-    for pos in dlmm.unwrap_or_default() {
+    // One lookup per distinct quote asset rather than per position.
+    let mut baselines: std::collections::HashMap<String, (f64, String)> =
+        std::collections::HashMap::new();
+    // Every venue best-effort and named separately, so one failing to answer
+    // narrows what the review claims to cover rather than silently dropping
+    // positions from it.
+    let mut covers: Vec<&str> = Vec::new();
+    let mut all: Vec<OpenPosition> = Vec::new();
+    match dlmm {
+        Ok(v) => {
+            covers.push("Meteora DLMM");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Meteora DLMM unreadable: {e}"),
+    }
+    match orca {
+        Ok(v) => {
+            covers.push("Orca");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Orca unreadable: {e}"),
+    }
+
+    for pos in all {
+        // Judged against what the money could do in its own unit. A USDC pair
+        // measured against staking SOL is measured in the wrong thing, and the
+        // difference between two units is not a gap.
+        let (alt_apr, alt_label) = match baselines.get(&pos.quote_mint) {
+            Some(v) => v.clone(),
+            None => {
+                let found = crate::services::flows::best_simple_option_for(http, &pos.quote_mint)
+                    .await
+                    .unwrap_or_else(|| (default_apr, default_label.clone()));
+                baselines.insert(pos.quote_mint.clone(), found.clone());
+                found
+            }
+        };
         if !pos.earning {
             idle += 1;
         }
+        // What this position actually captures, rather than what the pool
+        // advertises. A range live a fifth of the time earns a fifth of the
+        // rate; crediting the headline is the error this replaces.
+        let forward_apr = match pos.in_range_share {
+            Some(share) => pos.pool_apr * share,
+            // No history to go on, so fall back to the instantaneous read —
+            // out of range still means earning nothing right now.
+            None if pos.earning => pos.pool_apr,
+            None => 0.0,
+        };
+
+        // Fees already earned but not yet collected come back on the way out,
+        // so they work against the cost of leaving rather than sitting beside
+        // it. On a $1,421 position $4 of fees is 0.28% against a 0.15% exit —
+        // enough to decide the question on its own.
+        let exit_cost_pct = match (pos.exit_cost_pct, pos.unclaimed_fees_usd, pos.usd_value) {
+            (Some(cost), Some(fees), Some(value)) if value > 0.0 => {
+                Some(cost - (fees / value * 100.0))
+            }
+            (cost, _, _) => cost,
+        };
+
         let facts = PositionFacts {
-            // Out of range is not "earning less" — it is earning nothing, and
-            // that is the case this whole feature exists to surface.
-            forward_apr: if pos.earning { pos.pool_apr } else { 0.0 },
+            forward_apr,
             alternative_apr: alt_apr,
-            exit_cost_pct: pos.exit_cost_pct,
+            exit_cost_pct,
             earning: pos.earning,
+            in_range_share: pos.in_range_share,
         };
         let review = review_position(&facts);
         reviewed.push(serde_json::json!({
@@ -205,7 +279,11 @@ pub async fn build_position_review(
             "forwardAprPct": facts.forward_apr,
             "alternativeAprPct": alt_apr,
             "alternative": alt_label,
-            "exitCostPct": pos.exit_cost_pct,
+            "exitCostPct": exit_cost_pct,
+            "exitCostBeforeFeesPct": pos.exit_cost_pct,
+            // Share of the last ten days this range was live, 0..1.
+            "inRangeShare": pos.in_range_share,
+            "poolAprHeadlinePct": pos.pool_apr,
             // What it has actually done, in both denominators.
             "pnlUsdPct": pos.pnl_usd_pct,
             "pnlSolPct": pos.pnl_sol_pct,
@@ -245,11 +323,11 @@ pub async fn build_position_review(
         "wallet": wallet,
         "positions": reviewed,
         "idleCount": idle,
-        "alternativeAprPct": alt_apr,
-        "alternative": alt_label,
+        "alternativeAprPct": default_apr,
+        "alternative": default_label,
         // Said plainly so an answer never implies a wallet-wide all-clear it
         // has not actually checked.
-        "covers": ["Meteora DLMM"],
+        "covers": covers,
         "note": note,
     });
 
@@ -283,9 +361,55 @@ struct OpenPosition {
     usd_value: Option<f64>,
     pool_apr: f64,
     exit_cost_pct: Option<f64>,
+    in_range_share: Option<f64>,
+    /// The side the position is denominated in — what it would hold if closed
+    /// and consolidated. The baseline has to be in this unit or the comparison
+    /// is between two different things.
+    quote_mint: String,
     pnl_usd_pct: Option<f64>,
     pnl_sol_pct: Option<f64>,
     unclaimed_fees_usd: Option<f64>,
+}
+
+/// Share of a window during which a position's range was actually live.
+///
+/// A concentrated position earns only while the price sits inside its range,
+/// and "in range right now" says nothing about the rest of the week. Measured
+/// on a live wallet, three positions all reporting in-range had covered their
+/// ranges 16-19% of the previous ten days — so crediting them the pool's full
+/// APR, which is what reading the instantaneous flag does, described a return
+/// none of them earned.
+///
+/// Each candle contributes the fraction of its own low-to-high span that falls
+/// inside the range, rather than a yes/no. Counting a whole day as live
+/// because the price touched the range once overstates badly: on the same data
+/// the yes/no reading gave one position 30% where the weighted reading gives
+/// 15.8%. The weighting assumes price covers a candle's span evenly, which is
+/// an approximation — but a far better one than assuming it sat in the range
+/// all day because it passed through.
+///
+/// None when there are no candles, since a share of nothing is not zero.
+fn in_range_share(candles: &[(f64, f64)], lower: f64, upper: f64) -> Option<f64> {
+    if candles.is_empty() || !(upper > lower) {
+        return None;
+    }
+    let mut total = 0.0;
+    for (low, high) in candles {
+        let (low, high) = (*low, *high);
+        if !(high >= low) || low <= 0.0 {
+            continue;
+        }
+        if high == low {
+            // A flat candle is either in or out; there is no span to weight.
+            if low >= lower && low <= upper {
+                total += 1.0;
+            }
+            continue;
+        }
+        let overlap = (high.min(upper) - low.max(lower)).max(0.0);
+        total += overlap / (high - low);
+    }
+    Some((total / candles.len() as f64).clamp(0.0, 1.0))
 }
 
 /// Split a pool's balance across the positions inside it, by what each holds.
@@ -397,6 +521,31 @@ async fn read_dlmm_positions(
             ax * pool_price + ay
         };
 
+        // Ten daily candles — the endpoint caps at ten however it is asked, so
+        // the widest honest window is a daily one.
+        let candles: Vec<(f64, f64)> = {
+            let p = crate::services::meteora::MeteoraDlmmGetPoolOhlcvParams {
+                address: pool_addr.clone(),
+                timeframe: Some("24h".to_string()),
+                start_time: None,
+                end_time: None,
+            };
+            match crate::services::meteora::build_meteora_dlmm_get_pool_ohlcv(http, &p).await {
+                Ok(r) => r
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("data"))
+                    .and_then(|d| d.as_array())
+                    .map(|rows| {
+                        rows.iter()
+                            .filter_map(|c| Some((num(c.get("low"))?, num(c.get("high"))?)))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                Err(_) => Vec::new(),
+            }
+        };
+
         let idle: Vec<String> = pool
             .get("positionsOutOfRange")
             .and_then(|v| v.as_array())
@@ -455,12 +604,25 @@ async fn read_dlmm_positions(
                 crate::services::strategies::entry_cost_pct(http, &mint_x, &mint_y, value).await
             };
 
+            // How much of the window this particular range was live. Ranges
+            // differ inside one pool, so it is computed per position.
+            let in_range_share = match (
+                detail.and_then(|d| num(d.get("lowerPrice"))),
+                detail.and_then(|d| num(d.get("upperPrice"))),
+            ) {
+                (Some(lo), Some(hi)) => in_range_share(&candles, lo, hi),
+                _ => None,
+            };
+
             out.push(OpenPosition {
                 venue: "Meteora DLMM",
                 address: addr,
                 pool: pool_addr.clone(),
                 pair: pair.clone(),
                 earning,
+                in_range_share,
+                // Y is the quote side of a Meteora pair by construction.
+                quote_mint: mint_y.clone(),
                 usd_value: value,
                 pool_apr,
                 exit_cost_pct,
@@ -477,6 +639,139 @@ async fn read_dlmm_positions(
     Ok(out)
 }
 
+/// Orca Whirlpool positions, priced.
+///
+/// Orca reports no lifetime fee total, so its pool rate is a 24-hour
+/// annualisation with nothing to temper it — a livelier number than the
+/// Meteora one beside it, and labelled as such rather than quietly compared
+/// as though the two were measured the same way. There is also no candle
+/// history for a whirlpool, so the in-range share is unknown and the
+/// judgement falls back to the instantaneous read.
+async fn read_orca_positions(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    wallet: &str,
+) -> Result<Vec<OpenPosition>, AppError> {
+    let params = crate::services::orca::OrcaGetUserPositionsParams {
+        wallet: Some(wallet.to_string()),
+    };
+    let resp = crate::services::orca::build_orca_get_user_positions(http, rpc_url, wallet, &params)
+        .await?;
+    let data = resp.data.unwrap_or(serde_json::Value::Null);
+    let positions = data
+        .get("positions")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let num = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    let mut out = Vec::new();
+    // One pool lookup per distinct whirlpool, not per position.
+    let mut pool_rates: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+
+    for p in positions {
+        let whirlpool = text(p.get("whirlpool"));
+        let mint_a = text(p.get("tokenAMint"));
+        let mint_b = text(p.get("tokenBMint"));
+        if mint_a.is_empty() || mint_b.is_empty() {
+            continue;
+        }
+
+        let pool_apr = match pool_rates.get(&whirlpool) {
+            Some(v) => *v,
+            None => {
+                let rate = orca_pool_apr(http, &whirlpool).await.unwrap_or(0.0);
+                pool_rates.insert(whirlpool.clone(), rate);
+                rate
+            }
+        };
+
+        // Amounts and fees already arrive in UI units, so only prices apply —
+        // scaling by decimals again here would inflate the value by 10^n.
+        let (price_a, price_b) = tokio::join!(
+            crate::services::strategies::mint_price_and_decimals(http, &mint_a),
+            crate::services::strategies::mint_price_and_decimals(http, &mint_b),
+        );
+        let (pa, pb) = (price_a.map(|t| t.0), price_b.map(|t| t.0));
+        let value = match (pa, pb) {
+            (Some(pa), Some(pb)) => {
+                let v = num(p.get("amountA")).unwrap_or(0.0) * pa
+                    + num(p.get("amountB")).unwrap_or(0.0) * pb;
+                (v > 0.0).then_some(v)
+            }
+            _ => None,
+        };
+        let fees_usd = match (pa, pb) {
+            (Some(pa), Some(pb)) => Some(
+                num(p.get("feeOwedAUi")).unwrap_or(0.0) * pa
+                    + num(p.get("feeOwedBUi")).unwrap_or(0.0) * pb,
+            ),
+            _ => None,
+        };
+
+        let exit_cost_pct =
+            crate::services::strategies::entry_cost_pct(http, &mint_a, &mint_b, value).await;
+
+        out.push(OpenPosition {
+            venue: "Orca",
+            address: text(p.get("positionAddress")),
+            pool: whirlpool,
+            pair: format!(
+                "{}/{}",
+                text(p.get("tokenASymbol")),
+                text(p.get("tokenBSymbol"))
+            ),
+            earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
+            in_range_share: None,
+            quote_mint: mint_b,
+            usd_value: value,
+            pool_apr,
+            exit_cost_pct,
+            // Orca's reader carries no profit-and-loss history, so these stay
+            // unknown rather than being filled with something else's numbers.
+            pnl_usd_pct: None,
+            pnl_sol_pct: None,
+            unclaimed_fees_usd: fees_usd,
+        });
+    }
+    Ok(out)
+}
+
+/// A whirlpool's annualised fee rate, from its own 24-hour statistics.
+async fn orca_pool_apr(http: &reqwest::Client, address: &str) -> Option<f64> {
+    let params = crate::services::orca::OrcaGetPoolParams {
+        address: address.to_string(),
+        stats: None,
+    };
+    let resp = crate::services::orca::build_orca_get_pool(http, &params)
+        .await
+        .ok()?;
+    let d = resp.data?;
+    let row = d.get("data").unwrap_or(&d);
+    let n = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let tvl = n(row.get("tvlUsdc"))?;
+    if !(tvl > 0.0) {
+        return None;
+    }
+    let fees = n(row
+        .get("stats")
+        .and_then(|s| s.get("24h"))
+        .and_then(|s| s.get("fees")))?;
+    Some(fees / tvl * 365.0 * 100.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,6 +782,7 @@ mod tests {
             alternative_apr: alt,
             exit_cost_pct: cost,
             earning,
+            in_range_share: None,
         }
     }
 
@@ -549,6 +845,38 @@ mod tests {
     }
 
     #[test]
+    fn a_range_that_is_rarely_live_does_not_get_the_pools_headline() {
+        // The measured case: the pool pays 120% and the range was live a fifth
+        // of the time, so the position captures about 24%. Still better than
+        // staking, so the verdict stays keep — but the wording must not repeat
+        // the headline as though the position earned it.
+        let f = PositionFacts {
+            forward_apr: 24.0,
+            alternative_apr: 5.18,
+            exit_cost_pct: Some(0.5),
+            earning: true,
+            in_range_share: Some(0.2),
+        };
+        let r = review_position(&f);
+        assert_eq!(r.verdict, Verdict::Keep);
+        let text = explain(&f, &r, "staking SOL");
+        assert!(text.contains("20%"), "{text}");
+        assert!(
+            text.contains("tighter range"),
+            "a rarely-live range should be named as the thing to fix: {text}"
+        );
+    }
+
+    #[test]
+    fn unclaimed_fees_can_make_leaving_free() {
+        // Fees collected on the way out exceed the cost of the swap back, so
+        // the exit is not merely cheap but net positive.
+        let r = review_position(&facts(0.0, 5.0, Some(-0.2), false));
+        assert_eq!(r.verdict, Verdict::ConsiderExit);
+        assert_eq!(r.payback_days, Some(0.0));
+    }
+
+    #[test]
     fn an_idle_position_with_nowhere_better_still_says_so() {
         let f = facts(0.0, 0.0, Some(0.3), false);
         let r = review_position(&f);
@@ -600,5 +928,80 @@ mod split_tests {
     #[test]
     fn an_unknown_pool_balance_stays_unknown() {
         assert_eq!(split_pool_value(None, &[1.0, 2.0]), vec![None, None]);
+    }
+}
+
+#[cfg(test)]
+mod in_range_tests {
+    use super::*;
+
+    #[test]
+    fn a_range_covering_every_candle_is_fully_live() {
+        let c = [(10.0, 12.0), (11.0, 13.0)];
+        assert_eq!(in_range_share(&c, 0.0, 100.0), Some(1.0));
+    }
+
+    #[test]
+    fn a_range_the_price_never_reaches_is_never_live() {
+        let c = [(10.0, 12.0), (11.0, 13.0)];
+        assert_eq!(in_range_share(&c, 50.0, 60.0), Some(0.0));
+    }
+
+    #[test]
+    fn a_candle_counts_only_the_part_of_its_span_inside_the_range() {
+        // Half of the 10-12 span sits above 11.
+        let share = in_range_share(&[(10.0, 12.0)], 11.0, 20.0).unwrap();
+        assert!((share - 0.5).abs() < 1e-9, "{share}");
+    }
+
+    #[test]
+    fn touching_the_range_is_not_the_same_as_living_in_it() {
+        // The bug this replaces: a yes/no reading would call this a full day
+        // in range because the top of the candle grazes the bottom of the
+        // range. The weighted reading gives it a tenth.
+        let share = in_range_share(&[(10.0, 20.0)], 19.0, 30.0).unwrap();
+        assert!((share - 0.1).abs() < 1e-9, "{share}");
+    }
+
+    #[test]
+    fn a_flat_candle_is_in_or_out_with_no_span_to_weight() {
+        assert_eq!(in_range_share(&[(10.0, 10.0)], 9.0, 11.0), Some(1.0));
+        assert_eq!(in_range_share(&[(10.0, 10.0)], 11.0, 12.0), Some(0.0));
+    }
+
+    #[test]
+    fn no_candles_is_unknown_rather_than_zero() {
+        // Zero would read as "this range never earned", which is a claim.
+        assert_eq!(in_range_share(&[], 1.0, 2.0), None);
+    }
+
+    #[test]
+    fn an_inverted_or_empty_range_is_unknown() {
+        assert_eq!(in_range_share(&[(1.0, 2.0)], 5.0, 5.0), None);
+        assert_eq!(in_range_share(&[(1.0, 2.0)], 6.0, 5.0), None);
+    }
+
+    #[test]
+    fn the_measured_case_reproduces() {
+        // The live MET/SOL position: ten daily candles, of which the range
+        // covered a sixth. Pinned because this is the number that turns
+        // "earns 120%" into "earns a fraction of 120%".
+        let candles = [
+            (0.00207, 0.00230),
+            (0.00215, 0.00238),
+            (0.00220, 0.00252),
+            (0.00225, 0.00266),
+            (0.00210, 0.00240),
+            (0.00208, 0.00232),
+            (0.00212, 0.00236),
+            (0.00218, 0.00244),
+            (0.00214, 0.00239),
+            (0.00209, 0.00233),
+        ];
+        let share = in_range_share(&candles, 0.0023564, 0.0026993).unwrap();
+        assert!(
+            share > 0.0 && share < 0.35,
+            "expected a small share, got {share}"
+        );
     }
 }

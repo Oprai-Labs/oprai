@@ -55,6 +55,17 @@ fn wallet_from_req(req: &HttpRequest) -> Result<String, AppError> {
         .ok_or_else(|| AppError::Unauthorized("Missing wallet".into()))
 }
 
+/// The OPRAI account id the gateway resolved from the JWT (`X-User-Account`), if
+/// present. It ties a wallet's economics to its account so tiers/rewards pool
+/// across all the account's wallets. Absent for legacy/unauthenticated paths.
+fn account_from_req(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get("X-User-Account")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // POST /actions/quote
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1037,6 +1048,8 @@ pub async fn create_transaction(
             fee_mint,
             None, // fee_usd — derived from on-chain notional at confirm
             Some("pending".to_string()),
+            inserted.chain.clone(),
+            account_from_req(&req),
         )
         .await;
     }
@@ -1464,6 +1477,134 @@ pub async fn get_relay_intent_status(
     );
 
     Ok(HttpResponse::Ok().json(status))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /actions/relay/record — book economics for a settled EVM (Relay) swap
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// The frontend calls this once a Relay EVM swap settles, so the trade feeds the
+/// per-chain rewards. Everything is re-derived server-side and never trusted from
+/// the client: the intent must be `success` per Relay, and the volume + token
+/// symbols come from Relay's own request record. The commission is recomputed
+/// here (same tiering as Solana) and the cashback booked at the account's pooled
+/// tier. Idempotent on the EVM tx hash. Solana-origin swaps are booked by the
+/// `/transactions` flow instead and are ignored here.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayRecordBody {
+    pub request_id: String,
+}
+
+#[post("/relay/record")]
+pub async fn post_relay_record(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<RelayRecordBody>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    let account = account_from_req(&req);
+    let request_id = body.request_id.trim().to_string();
+    if request_id.is_empty() {
+        return Err(AppError::InvalidParams("requestId is required".into()));
+    }
+
+    let not_recorded = |reason: &str| {
+        Ok(HttpResponse::Ok()
+            .json(serde_json::json!({ "recorded": false, "reason": reason })))
+    };
+
+    // 1. Must be a settled success. The server asks Relay; the client cannot assert it.
+    let status = relay::get_relay_intent_status(&state.http, &request_id).await?;
+    if status.status != "success" {
+        return not_recorded(&format!("intent status is '{}'", status.status));
+    }
+
+    // 2. Authoritative amounts + symbols from Relay's own request record.
+    let q = relay::RelayRequestsQuery {
+        id: Some(request_id.clone()),
+        limit: Some(1),
+        ..Default::default()
+    };
+    let reqs = relay::get_relay_requests(&state.http, &q).await?;
+    let Some(r) = reqs.requests.into_iter().next() else {
+        return not_recorded("request not found");
+    };
+
+    let notional_usd = r
+        .pointer("/data/metadata/currencyIn/amountUsd")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let origin_symbol = r
+        .pointer("/data/metadata/currencyIn/currency/symbol")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let dest_symbol = r
+        .pointer("/data/metadata/currencyOut/currency/symbol")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let origin_chain = r
+        .pointer("/data/metadata/currencyIn/currency/chainId")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    let Some(chain_key) = relay::chain_key_for_id(origin_chain) else {
+        return not_recorded("unsupported chain");
+    };
+    // Solana-origin economics are booked by the /transactions confirm flow.
+    if chain_key == "solana" {
+        return not_recorded("solana booked via /transactions");
+    }
+    if notional_usd <= 0.0 {
+        return not_recorded("no usd notional");
+    }
+
+    let fee_bps = relay::evm_fee_bps_from_symbols(&origin_symbol, &dest_symbol);
+    let fee_usd = notional_usd * (fee_bps as f64) / 10_000.0;
+    // Prefer the origin-chain deposit hash; fall back to the requestId so the row
+    // is still idempotent and traceable.
+    let tx_hash = status
+        .in_tx_hashes
+        .iter()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| request_id.clone());
+
+    match crate::db::economics::record_evm_confirmed(
+        &state.pool,
+        wallet.clone(),
+        account,
+        chain_key.to_string(),
+        tx_hash,
+        "relay".to_string(),
+        "swap".to_string(),
+        Some(origin_symbol),
+        Some(dest_symbol),
+        notional_usd,
+        fee_bps as i32,
+        fee_usd,
+    )
+    .await
+    {
+        Ok(id) => {
+            tracing::info!(
+                action = "relay_record", user_wallet = %wallet, chain = %chain_key,
+                request_id = %request_id, notional_usd, fee_usd, fee_bps,
+                "EVM swap economics recorded"
+            );
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "recorded": true, "transactionId": id, "chain": chain_key,
+                "notionalUsd": notional_usd, "feeUsd": fee_usd, "feeBps": fee_bps
+            })))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, request_id = %request_id, "relay economics record failed");
+            not_recorded("record failed")
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

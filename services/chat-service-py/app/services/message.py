@@ -499,7 +499,13 @@ def _language_anchor(user_content: str, model_messages: list[dict]) -> str | Non
 # message anywhere in the visible history — still locks to the user's known
 # language instead of letting the model free-pick (which has produced English,
 # then Spanish, on QUACKSSANT-style symbol-only turns).
-_PREF_LANG_RE = re.compile(r"language:\s*([A-Za-zÇĞİÖŞÜçğıöşüÀ-ɏ]{3,})", re.IGNORECASE)
+# Any Unicode letters, two or more. The old class was Latin plus the Turkish
+# letters and required three characters, which failed twice over: user_facts
+# stores this as ISO 639-1 ("tr", "es"), so a correctly-stored value was too
+# short to match at all, and a language named in its own script ("русский",
+# "中文") had no letters the class recognised. Both are languages the assistant
+# is expected to answer in.
+_PREF_LANG_RE = re.compile(r"language:\s*([^\W\d_]{2,})", re.IGNORECASE | re.UNICODE)
 
 
 def _preferred_language_from_context(model_messages: list[dict]) -> str | None:

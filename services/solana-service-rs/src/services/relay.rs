@@ -432,10 +432,15 @@ pub fn validate_cross_chain_params(params: &CrossChainSwapParams) -> Result<(), 
         )));
     }
 
-    // Validate same-chain swaps should use Jupiter, not Relay
-    if params.origin_chain_id == params.destination_chain_id {
+    // Same-chain routing: Solana stays on Jupiter (native, cheaper, no Relay
+    // solver needed). EVM same-chain swaps have no Jupiter — Relay IS how we
+    // swap within Base/Arbitrum/etc. — so they are allowed here. Cross-chain is
+    // always allowed. Only a Solana→Solana pair is turned away.
+    if params.origin_chain_id == params.destination_chain_id
+        && canonical_chain_id(params.origin_chain_id) == chain_id::SOLANA
+    {
         return Err(AppError::InvalidParams(
-            "Same-chain swaps should use Jupiter. Relay is for cross-chain swaps only.".into(),
+            "Same-chain Solana swaps use Jupiter, not Relay.".into(),
         ));
     }
 
@@ -497,10 +502,12 @@ fn is_valid_evm_address(address: &str) -> bool {
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Append OPRAI's app fee to a Relay quote body if a fee recipient is
-/// configured AND Relay can pay it.
+/// configured AND Relay can pay it AND the rate is non-zero.
 ///
-/// 20 = 0.20% on Relay's scale (10000 = 100%), the same rate every other
-/// established pair pays. It was 0.05% here for no stated reason.
+/// `fee_bps` is on Relay's scale (10000 = 100%) and is computed per pair by
+/// [`relay_swap_fee_bps`] — the same tiering as Solana (stable↔stable free,
+/// blue-chip standard, long-tail memecoin rate). A zero rate (stable↔stable)
+/// attaches no `appFees` at all rather than an entry that reads as "0".
 ///
 /// Relay pays app fees to an EVM address and rejects anything else outright —
 /// `INVALID_APP_FEE_RECIPIENT`, on the quote, before any route is even
@@ -508,10 +515,13 @@ fn is_valid_evm_address(address: &str) -> bool {
 /// address, so attaching it unconditionally did not lose us a commission: it
 /// took down every bridge quote there was. A fee we cannot collect must never
 /// cost the user the trade.
-pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>) {
+pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>, fee_bps: u16) {
+    if fee_bps == 0 {
+        return;
+    }
     match fee_recipient.filter(|s| !s.is_empty()) {
         Some(addr) if is_valid_evm_address(addr) => {
-            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": "20"}]);
+            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": fee_bps.to_string()}]);
         }
         Some(addr) => {
             tracing::warn!(
@@ -522,6 +532,131 @@ pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>)
         }
         None => {}
     }
+}
+
+/// EVM blue-chip symbols that earn the STANDARD rate — native gas tokens and
+/// wrapped majors, mirroring Solana's SOL/LST/wBTC allowlist in `fees::is_standard`.
+/// Anything that is neither a stablecoin nor on this list is long-tail (memecoin rate).
+const EVM_BLUECHIP_SYMBOLS: [&str; 12] = [
+    "ETH", "WETH", "BTC", "WBTC", "CBBTC", "TBTC", "BNB", "WBNB", "POL", "MATIC", "WPOL", "WMATIC",
+];
+
+fn evm_symbol_is_bluechip(symbol: &str) -> bool {
+    let s = symbol.trim().to_uppercase();
+    EVM_BLUECHIP_SYMBOLS.contains(&s.as_str())
+}
+
+/// The commission (bps) for a Relay swap/bridge, using the SAME philosophy as
+/// Solana (`fees::swap_fee_bps`): stable↔stable is free, a pair of blue-chips
+/// earns the standard rate, anything touching a long-tail token earns the
+/// memecoin rate. The user pays it in full (Relay deducts it as an appFee) and
+/// earns it back as tier cashback.
+///
+/// Server-authoritative: token symbols come from Relay's own currency list,
+/// never the client. A symbol we cannot resolve is treated as a blue-chip
+/// (standard rate) — our lookup failing must never overcharge the user as if
+/// they traded a memecoin. The native token (`0x000…0`) is always blue-chip.
+async fn relay_swap_fee_bps(
+    http: &reqwest::Client,
+    origin_chain_id: u64,
+    origin_currency: &str,
+    destination_chain_id: u64,
+    destination_currency: &str,
+) -> u16 {
+    use crate::services::fees::{MEMECOIN_BPS, STABLE_PAIR_BPS, STANDARD_BPS};
+
+    // (is_stable, is_standard) — "standard" means stable OR blue-chip, matching
+    // fees.rs where the standard rate needs both sides blue-chip-or-stable.
+    async fn classify(http: &reqwest::Client, chain: u64, addr: &str) -> (bool, bool) {
+        if addr == NATIVE_TOKEN_ADDRESS {
+            return (false, true);
+        }
+        match relay_token_symbol(http, canonical_chain_id(chain), addr).await {
+            Some(sym) if crate::services::fees::symbol_is_stable(&sym) => (true, true),
+            Some(sym) if evm_symbol_is_bluechip(&sym) => (false, true),
+            Some(_) => (false, false),
+            None => (false, true), // unknown → standard, never overcharge
+        }
+    }
+
+    let (a_stable, a_std) = classify(http, origin_chain_id, origin_currency).await;
+    let (b_stable, b_std) = classify(http, destination_chain_id, destination_currency).await;
+
+    if a_stable && b_stable {
+        STABLE_PAIR_BPS
+    } else if a_std && b_std {
+        STANDARD_BPS
+    } else {
+        MEMECOIN_BPS
+    }
+}
+
+/// The commission (bps) for a pair given only its token SYMBOLS — used by the
+/// economics recorder, which reads symbols back from Relay's confirmed request
+/// metadata. Same classification as [`relay_swap_fee_bps`].
+pub fn evm_fee_bps_from_symbols(origin_symbol: &str, destination_symbol: &str) -> u16 {
+    use crate::services::fees::{symbol_is_stable, MEMECOIN_BPS, STABLE_PAIR_BPS, STANDARD_BPS};
+    // (is_stable, is_standard) where standard = stable OR blue-chip.
+    let classify = |s: &str| -> (bool, bool) {
+        if symbol_is_stable(s) {
+            (true, true)
+        } else if evm_symbol_is_bluechip(s) {
+            (false, true)
+        } else {
+            (false, false)
+        }
+    };
+    let (a_stable, a_std) = classify(origin_symbol);
+    let (b_stable, b_std) = classify(destination_symbol);
+    if a_stable && b_stable {
+        STABLE_PAIR_BPS
+    } else if a_std && b_std {
+        STANDARD_BPS
+    } else {
+        MEMECOIN_BPS
+    }
+}
+
+/// Our canonical economics/chain key for a Relay chain id — the values the
+/// rewards system and the `transactions.valid_chain` CHECK expect. `None` for
+/// chains we do not (yet) account rewards on; a bridge to them still works, it
+/// just books no cashback.
+pub fn chain_key_for_id(chain_id: u64) -> Option<&'static str> {
+    match canonical_chain_id(chain_id) {
+        chain_id::SOLANA => Some("solana"),
+        chain_id::ETHEREUM => Some("ethereum"),
+        chain_id::BASE => Some("base"),
+        chain_id::BSC => Some("bsc"),
+        chain_id::POLYGON => Some("polygon"),
+        chain_id::ARBITRUM => Some("arbitrum"),
+        chain_id::OPTIMISM => Some("optimism"),
+        _ => None,
+    }
+}
+
+/// The symbol Relay lists for a token, cached like [`relay_token_decimals`].
+async fn relay_token_symbol(
+    http: &reqwest::Client,
+    chain_id: u64,
+    currency: &str,
+) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<(u64, String), String>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = (chain_id, currency.to_lowercase());
+    if let Some(s) = cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
+        return Some(s);
+    }
+    let tokens = get_chain_tokens(http, chain_id).await.ok()?;
+    let found = tokens
+        .iter()
+        .find(|t| t.address.eq_ignore_ascii_case(currency))
+        .map(|t| t.symbol.clone());
+    if let (Some(s), Ok(mut c)) = (found.clone(), cache.lock()) {
+        c.insert(key, s);
+    }
+    found
 }
 
 /// Turn a human amount into the integer base units Relay demands.
@@ -944,7 +1079,15 @@ pub async fn get_cross_chain_quote(
         "tradeType": params.trade_type,
         "referrer": params.referrer,
     });
-    append_app_fee(&mut quote_body, fee_recipient);
+    let fee_bps = relay_swap_fee_bps(
+        http,
+        params.origin_chain_id,
+        &params.origin_currency,
+        params.destination_chain_id,
+        &params.destination_currency,
+    )
+    .await;
+    append_app_fee(&mut quote_body, fee_recipient, fee_bps);
 
     let response = http
         .post(format!("{}/quote/v2", base_url))
@@ -1457,7 +1600,15 @@ pub async fn get_relay_quote_full(
     if let Some(v) = params.include_compute_unit_limit {
         body["includeComputeUnitLimit"] = serde_json::json!(v);
     }
-    append_app_fee(&mut body, fee_recipient);
+    let fee_bps = relay_swap_fee_bps(
+        http,
+        params.origin_chain_id,
+        &params.origin_currency,
+        params.destination_chain_id,
+        &params.destination_currency,
+    )
+    .await;
+    append_app_fee(&mut body, fee_recipient, fee_bps);
 
     let response = http
         .post(format!("{}/quote/v2", RELAY_API))
@@ -2568,6 +2719,7 @@ mod tests {
         append_app_fee(
             &mut body,
             Some("Gf3dtGnHRkfaPpeHc2UYfu6mHrTsbFUp4Qx3RqV526h"),
+            30,
         );
         assert!(body.get("appFees").is_none());
 
@@ -2575,7 +2727,32 @@ mod tests {
         append_app_fee(
             &mut body,
             Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"),
+            30,
         );
-        assert_eq!(body["appFees"][0]["fee"], "20");
+        assert_eq!(body["appFees"][0]["fee"], "30");
+    }
+
+    /// A stable↔stable pair is free — no appFee entry at all, even with a valid
+    /// EVM recipient, so the quote is not sent a "0" fee.
+    #[test]
+    fn a_zero_rate_attaches_no_app_fee() {
+        let mut body = serde_json::json!({});
+        append_app_fee(
+            &mut body,
+            Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"),
+            0,
+        );
+        assert!(body.get("appFees").is_none());
+    }
+
+    #[test]
+    fn evm_bluechip_classification() {
+        assert!(evm_symbol_is_bluechip("ETH"));
+        assert!(evm_symbol_is_bluechip("weth"));
+        assert!(evm_symbol_is_bluechip("WBTC"));
+        assert!(evm_symbol_is_bluechip("BNB"));
+        assert!(evm_symbol_is_bluechip("POL"));
+        assert!(!evm_symbol_is_bluechip("PEPE"));
+        assert!(!evm_symbol_is_bluechip("USDC"));
     }
 }
