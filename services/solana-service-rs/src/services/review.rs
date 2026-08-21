@@ -311,6 +311,27 @@ pub async fn build_position_review(
             locked: pos.locked,
         };
         let review = review_position(&facts);
+
+        // Whether holding the two tokens would have done better. Read from the
+        // position's own transaction history, so it costs an RPC round trip
+        // per position and is skipped for ones too small to act on.
+        let vs_holding = if pos.usd_value.unwrap_or(0.0) >= MIN_VALUE_FOR_HISTORY_USD {
+            let (mx, my) = pos.pair_mints.clone();
+            compare_with_holding(
+                http,
+                rpc_url,
+                wallet,
+                &pos.address,
+                &mx,
+                &my,
+                pos.usd_value,
+                pos.unclaimed_fees_usd,
+            )
+            .await
+        } else {
+            None
+        };
+
         reviewed.push(serde_json::json!({
             "venue": pos.venue,
             "position": pos.address,
@@ -345,6 +366,19 @@ pub async fn build_position_review(
             "paybackDays": review.payback_days,
             "verdict": review.verdict.as_str(),
             "why": explain(&facts, &review, &alt_label),
+            // The question a fee rate cannot answer.
+            "vsHolding": vs_holding.as_ref().map(|c| {
+                serde_json::json!({
+                    "holdValueUsd": c.hold_value_usd,
+                    "actualValueUsd": c.actual_value_usd,
+                    "differenceUsd": c.difference_usd,
+                    "differencePct": c.difference_pct,
+                    "transactionsRead": c.transactions,
+                    // False means the history was longer than we read, and the
+                    // comparison is wrong rather than approximate.
+                    "complete": c.complete,
+                })
+            }),
         }));
     }
 
@@ -437,6 +471,9 @@ struct OpenPosition {
     /// and consolidated. The baseline has to be in this unit or the comparison
     /// is between two different things.
     quote_mint: String,
+    /// Both sides, for the history comparison — `quote_mint` alone cannot say
+    /// what was deposited.
+    pair_mints: (String, String),
     /// A locked position cannot be withdrawn until it vests, so telling
     /// someone to close it is advice they cannot act on.
     locked: bool,
@@ -521,6 +558,246 @@ async fn pair_price_series(
         .collect();
     out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     (!out.is_empty()).then_some(out)
+}
+
+/// Signatures that touched an account, oldest last (the RPC's own order).
+async fn rpc_signatures(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    account: &str,
+    limit: usize,
+) -> Option<Vec<String>> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress",
+        "params": [account, { "limit": limit }],
+    });
+    let resp: serde_json::Value = http
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    Some(
+        resp.get("result")?
+            .as_array()?
+            .iter()
+            .filter(|r| r.get("err").map(|e| e.is_null()).unwrap_or(true))
+            .filter_map(|r| r.get("signature")?.as_str().map(String::from))
+            .collect(),
+    )
+}
+
+/// One parsed transaction.
+async fn rpc_transaction(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    signature: &str,
+) -> Option<serde_json::Value> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "getTransaction",
+        "params": [signature, { "maxSupportedTransactionVersion": 0, "encoding": "jsonParsed" }],
+    });
+    let resp: serde_json::Value = http
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    resp.get("result").filter(|r| !r.is_null()).cloned()
+}
+
+/// What each of the wallet's token balances did in one transaction.
+///
+/// Read from the balance snapshots rather than from instruction decoding, so
+/// it does not need to know what any protocol's instructions look like — the
+/// same reader works for every venue, now and after they change.
+///
+/// Native SOL moves as wrapped SOL inside these positions, so it appears here
+/// like any other token; a position funded with unwrapped SOL wraps it in the
+/// same transaction and the token balances still show the movement.
+fn wallet_token_deltas(tx: &serde_json::Value, wallet: &str) -> Vec<(String, f64)> {
+    let meta = match tx.get("meta") {
+        Some(m) => m,
+        None => return Vec::new(),
+    };
+    let collect = |key: &str| -> std::collections::HashMap<String, f64> {
+        meta.get(key)
+            .and_then(|v| v.as_array())
+            .map(|rows| {
+                rows.iter()
+                    .filter(|b| b.get("owner").and_then(|o| o.as_str()) == Some(wallet))
+                    .filter_map(|b| {
+                        let mint = b.get("mint")?.as_str()?.to_string();
+                        let amt = b
+                            .get("uiTokenAmount")?
+                            .get("uiAmountString")?
+                            .as_str()?
+                            .parse::<f64>()
+                            .ok()?;
+                        Some((mint, amt))
+                    })
+                    .fold(std::collections::HashMap::new(), |mut acc, (m, a)| {
+                        *acc.entry(m).or_insert(0.0) += a;
+                        acc
+                    })
+            })
+            .unwrap_or_default()
+    };
+    let pre = collect("preTokenBalances");
+    let post = collect("postTokenBalances");
+    let mut out = Vec::new();
+    for mint in pre
+        .keys()
+        .chain(post.keys())
+        .collect::<std::collections::HashSet<_>>()
+    {
+        let d = post.get(mint).copied().unwrap_or(0.0) - pre.get(mint).copied().unwrap_or(0.0);
+        if d.abs() > 1e-12 {
+            out.push((mint.clone(), d));
+        }
+    }
+    out
+}
+
+/// Whether simply holding the two tokens would have done better.
+///
+/// The question every liquidity provider actually asks, and the one a fee rate
+/// cannot answer: fees can look excellent while the position quietly ends up
+/// behind the tokens it was made of.
+///
+/// Everything is valued at today's prices, which is what makes the comparison
+/// isolate the right thing. Tokens put in, valued now, is exactly what holding
+/// them would be worth. Against that goes everything the position has given
+/// back — what it still holds, plus anything already withdrawn or claimed,
+/// also valued now. The difference is the whole answer.
+///
+/// Netting the flows this way handles the cases a simpler reading gets wrong:
+/// a position topped up twice, one partially withdrawn, and one whose fees
+/// have been claimed along the way all come out right, because claimed fees
+/// are tokens the holder still has rather than value that vanished.
+struct HoldingComparison {
+    /// What the deposited tokens would be worth today if never deposited.
+    hold_value_usd: f64,
+    /// What the position has actually produced: its current value plus
+    /// everything already taken back out.
+    actual_value_usd: f64,
+    /// Positive means the position beat holding.
+    difference_usd: f64,
+    difference_pct: f64,
+    /// Transactions read. Named because a truncated history makes the answer
+    /// wrong rather than approximate, and the caller must be able to say so.
+    transactions: usize,
+    complete: bool,
+}
+
+/// How many of a position's transactions to read before giving up.
+///
+/// A history longer than this belongs to a wallet that re-ranges constantly,
+/// and a partial read would silently answer a different question — so it is
+/// reported incomplete rather than answered.
+const MAX_POSITION_TX: usize = 60;
+
+/// Below this a position is not worth an RPC round trip per transaction to
+/// compare — the answer could not change what anyone does about it.
+const MIN_VALUE_FOR_HISTORY_USD: f64 = 50.0;
+
+async fn compare_with_holding(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    wallet: &str,
+    position: &str,
+    mint_x: &str,
+    mint_y: &str,
+    current_value_usd: Option<f64>,
+    unclaimed_fees_usd: Option<f64>,
+) -> Option<HoldingComparison> {
+    let current = current_value_usd?;
+    let sigs = rpc_signatures(http, rpc_url, position, MAX_POSITION_TX + 1).await?;
+    if sigs.is_empty() {
+        return None;
+    }
+    let complete = sigs.len() <= MAX_POSITION_TX;
+
+    // Net movement of each side between the wallet and the position, summed
+    // over every transaction that touched it.
+    let mut into_pool_x = 0.0;
+    let mut into_pool_y = 0.0;
+    let mut back_to_wallet_x = 0.0;
+    let mut back_to_wallet_y = 0.0;
+
+    for sig in sigs.iter().take(MAX_POSITION_TX) {
+        let Some(tx) = rpc_transaction(http, rpc_url, sig).await else {
+            // One unreadable transaction makes the sum wrong, not noisy.
+            return None;
+        };
+        for (mint, delta) in wallet_token_deltas(&tx, wallet) {
+            let (into, back) = if mint == mint_x {
+                (&mut into_pool_x, &mut back_to_wallet_x)
+            } else if mint == mint_y {
+                (&mut into_pool_y, &mut back_to_wallet_y)
+            } else {
+                continue;
+            };
+            if delta < 0.0 {
+                *into += -delta;
+            } else {
+                *back += delta;
+            }
+        }
+    }
+    if into_pool_x <= 0.0 && into_pool_y <= 0.0 {
+        return None;
+    }
+
+    let (px, py) = tokio::join!(
+        crate::services::strategies::mint_price_and_decimals(http, mint_x),
+        crate::services::strategies::mint_price_and_decimals(http, mint_y),
+    );
+    let (px, py) = (px?.0, py?.0);
+
+    let mut out = holding_maths(
+        (into_pool_x, into_pool_y),
+        (back_to_wallet_x, back_to_wallet_y),
+        current + unclaimed_fees_usd.unwrap_or(0.0),
+        (px, py),
+    )?;
+    out.transactions = sigs.len().min(MAX_POSITION_TX);
+    out.complete = complete;
+    Some(out)
+}
+
+/// The arithmetic, separated so it can be tested without a chain.
+///
+/// This is where the comparison is easy to get subtly wrong — forgetting what
+/// was withdrawn understates the position, and forgetting a top-up overstates
+/// it — so every one of those cases is pinned below.
+fn holding_maths(
+    into_pool: (f64, f64),
+    back_to_wallet: (f64, f64),
+    still_held_usd: f64,
+    prices: (f64, f64),
+) -> Option<HoldingComparison> {
+    let (px, py) = prices;
+    let hold_value_usd = into_pool.0 * px + into_pool.1 * py;
+    if !(hold_value_usd > 0.0) {
+        return None;
+    }
+    let actual_value_usd = still_held_usd + back_to_wallet.0 * px + back_to_wallet.1 * py;
+    let difference_usd = actual_value_usd - hold_value_usd;
+    Some(HoldingComparison {
+        hold_value_usd,
+        actual_value_usd,
+        difference_usd,
+        difference_pct: difference_usd / hold_value_usd * 100.0,
+        transactions: 0,
+        complete: true,
+    })
 }
 
 /// A concentrated-liquidity tick, as a price of B per A in display units.
@@ -772,6 +1049,7 @@ async fn read_dlmm_positions(
                 }),
                 // Y is the quote side of a Meteora pair by construction.
                 quote_mint: mint_y.clone(),
+                pair_mints: (mint_x.clone(), mint_y.clone()),
                 locked: false,
                 usd_value: value,
                 pool_apr,
@@ -909,7 +1187,8 @@ async fn read_orca_positions(
             ),
             earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
             in_range_share,
-            quote_mint: mint_b,
+            quote_mint: mint_b.clone(),
+            pair_mints: (mint_a.clone(), mint_b),
             locked: false,
             usd_value: value,
             pool_apr,
@@ -1053,6 +1332,7 @@ async fn read_dammv2_positions(
                 earning,
                 in_range_share: pool_share,
                 quote_mint: mint_y.clone(),
+                pair_mints: (mint_x.clone(), mint_y.clone()),
                 locked: p.get("locked").and_then(|v| v.as_bool()).unwrap_or(false),
                 usd_value: value,
                 pool_apr,
@@ -1171,7 +1451,8 @@ async fn read_raydium_positions(
             },
             earning: amount_a > 0.0 && amount_b > 0.0,
             in_range_share,
-            quote_mint: mint_b,
+            quote_mint: mint_b.clone(),
+            pair_mints: (mint_a.clone(), mint_b),
             locked: false,
             usd_value: value,
             pool_apr,
@@ -1489,5 +1770,75 @@ mod tick_tests {
             "lo {lo} target {target} hi {hi}"
         );
         assert_eq!(share_inside(&[target], lo, hi), Some(1.0));
+    }
+}
+
+#[cfg(test)]
+mod holding_tests {
+    use super::*;
+
+    /// $2 a unit for X, $1 for Y — round numbers so an error is visible.
+    const P: (f64, f64) = (2.0, 1.0);
+
+    #[test]
+    fn a_position_worth_exactly_what_went_in_is_level() {
+        // 100 X and 100 Y in, worth $300 today, and the position is worth $300.
+        let r = holding_maths((100.0, 100.0), (0.0, 0.0), 300.0, P).unwrap();
+        assert_eq!(r.hold_value_usd, 300.0);
+        assert_eq!(r.difference_usd, 0.0);
+    }
+
+    #[test]
+    fn fees_are_what_puts_a_position_ahead() {
+        let r = holding_maths((100.0, 100.0), (0.0, 0.0), 315.0, P).unwrap();
+        assert!(
+            (r.difference_pct - 5.0).abs() < 1e-9,
+            "{}",
+            r.difference_pct
+        );
+    }
+
+    #[test]
+    fn what_was_already_withdrawn_still_counts_as_yours() {
+        // Half taken out earlier, half still in. Ignoring the withdrawn half
+        // would report the position as having lost 50% when it is level.
+        let r = holding_maths((100.0, 100.0), (50.0, 50.0), 150.0, P).unwrap();
+        assert_eq!(r.actual_value_usd, 300.0);
+        assert_eq!(r.difference_usd, 0.0);
+    }
+
+    #[test]
+    fn claimed_fees_are_not_value_that_vanished() {
+        // Fees claimed to the wallet appear as tokens coming back. They are
+        // still the holder's, so they belong on the position's side.
+        let r = holding_maths((100.0, 100.0), (0.0, 20.0), 300.0, P).unwrap();
+        assert!((r.difference_usd - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_top_up_raises_the_bar_it_has_to_clear() {
+        // Two deposits totalling 200 X. Holding those is worth $400, so a
+        // position worth $300 is behind — reading only the first deposit would
+        // have called it ahead.
+        let r = holding_maths((200.0, 0.0), (0.0, 0.0), 300.0, P).unwrap();
+        assert_eq!(r.hold_value_usd, 400.0);
+        assert!(r.difference_usd < 0.0);
+    }
+
+    #[test]
+    fn impermanent_loss_shows_up_as_a_shortfall() {
+        // The classic case: the pair moved, the position rebalanced into the
+        // side that fell, and fees did not cover the gap.
+        let r = holding_maths((100.0, 100.0), (0.0, 0.0), 285.0, P).unwrap();
+        assert!(
+            (r.difference_pct + 5.0).abs() < 1e-9,
+            "{}",
+            r.difference_pct
+        );
+    }
+
+    #[test]
+    fn nothing_deposited_is_not_a_comparison() {
+        assert!(holding_maths((0.0, 0.0), (10.0, 10.0), 5.0, P).is_none());
     }
 }

@@ -211,6 +211,17 @@ The `verdict` is already the answer and it is deliberately conservative:
 `covers` lists which venues actually answered. Never let an answer imply the
 whole wallet is fine when only some venues were read.
 
+`vsHolding` answers the question a fee rate cannot: would simply holding the
+two tokens have done better? `differencePct` is the answer — positive means
+the position beat holding, negative means the fees did not cover what the
+rebalancing cost. Lead with it when it is present; someone told only that
+their pool pays 120% has not been told whether they are ahead.
+
+It already accounts for top-ups, partial withdrawals and fees claimed along
+the way, so do not caveat it for those. But if `complete` is false the history
+was longer than could be read and the number is **wrong, not approximate** —
+do not quote it at all in that case.
+
 `holds` is what the position actually contains, per side. Use it when
 `usdValue` is null — some tokens have no listed price, so the value is unknown
 rather than zero, and the holder should still be told what they hold. Never
