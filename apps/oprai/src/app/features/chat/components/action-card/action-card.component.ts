@@ -2736,8 +2736,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // The recipient is no longer part of readiness: a price does not depend on
     // who receives it, and hiding the rate until a wallet is connected asks
     // the user to commit before they can see what they are committing to.
+    // An EVM origin needs a sender to quote from; asking Relay without one returns
+    // "needs an EVM wallet to send from" — a connect prompt dressed as a fault. So
+    // hold the quote until the sender is set (auto-connect or a click fills it).
     const ready = p['originChainId'] && p['destinationChainId'] && p['originCurrency']
-      && p['destinationCurrency'] && Number(p['amount']) > 0;
+      && p['destinationCurrency'] && Number(p['amount']) > 0 && this.relaySenderReady();
     if (!ready) { this.relayQuote.set(null); this.relayQuoteError.set(null); return; }
 
     if (this.relayQuoteTimer) clearTimeout(this.relayQuoteTimer);
