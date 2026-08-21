@@ -1810,7 +1810,56 @@ pub async fn build_kamino_market_reserves(
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_market_reserves".into(),
-            description: format!("{count} reserves in K-Lend market {}", short_id(market)),
+            // The headline rates go in the description, not only in the
+            // payload. Asked to compare Kamino with Jupiter, the model read
+            // Jupiter's rate straight out of its one-line summary and could
+            // not find Kamino's in 58 reserves of raw JSON — so it recommended
+            // the worse of the two, 4.55% over 5.38%, having only ever seen
+            // one number.
+            description: {
+                let mut rows: Vec<(String, f64)> = data
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|r| {
+                                let sym = r.get("liquidityToken")?.as_str()?.to_string();
+                                let apy = r
+                                    .get("supplyApy")?
+                                    .as_str()
+                                    .and_then(|v| v.parse::<f64>().ok())
+                                    .or_else(|| r.get("supplyApy")?.as_f64())?;
+                                let usd = r
+                                    .get("totalSupplyUsd")
+                                    .and_then(|v| {
+                                        v.as_f64()
+                                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                                    })
+                                    .unwrap_or(0.0);
+                                // The deepest reserve per asset — a mint can
+                                // have several and the empty ones quote rates
+                                // nobody can get.
+                                (apy > 0.0 && usd > 1_000_000.0).then_some((sym, apy * 100.0))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                rows.dedup_by(|a, b| a.0 == b.0);
+                let head = rows
+                    .iter()
+                    .take(8)
+                    .map(|(s, a)| format!("{s} ({a:.2}%)"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if head.is_empty() {
+                    format!("{count} reserves in K-Lend market {}", short_id(market))
+                } else {
+                    format!(
+                        "{count} reserves in K-Lend market {}. Supply APY — {head}",
+                        short_id(market)
+                    )
+                }
+            },
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: data,
