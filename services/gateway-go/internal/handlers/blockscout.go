@@ -23,6 +23,12 @@ const (
 	robinhoodNativeName   = "Ether"
 )
 
+// The surfaces the readers below actually implement. Kept beside them so that
+// implementing a reader without advertising it — or advertising one that was
+// never written — is visible in one place. There is no DeFi-position provider
+// for this chain, which is why "positions" is absent.
+var robinhoodReads = []string{"balances", "transactions", "nfts"}
+
 // bigStrToFloat scales a base-unit decimal string by 10^decimals (big.Float, no
 // precision loss on 18-decimal values). Blockscout returns balances as decimal
 // strings, not hex.

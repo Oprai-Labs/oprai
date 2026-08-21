@@ -2129,85 +2129,60 @@ _NOT_OFFERED: frozenset[str] = frozenset({
 
 _SOLANA_NOTE = "Where the protocol integrations and the DeFi analysis live."
 
-_BRIDGED_NOTE = (
-    "Assets move between any of these and Solana, and can be swapped on the "
-    "chain itself. They are not all EVM chains — the families below say which "
-    "is which, and a chain that runs the EVM (Robinhood Chain among them) is "
-    "one of that family rather than a heading of its own. What is Solana-only "
-    "is the lending, staking and liquidity work; say so rather than letting "
-    "someone go looking for a lending market on Base."
+_OTHER_CHAINS_NOTE = (
+    "The non-Solana chains a wallet is actually read on: balances, NFTs, "
+    "transaction history and, where a provider covers it, DeFi positions. "
+    "Swapping on the chain itself and moving assets to and from Solana run "
+    "through Relay. Assets can be bridged further afield than this, but these "
+    "are the chains the product can see — so these are the ones to name. The "
+    "lending, staking and liquidity integrations are Solana-only; say so "
+    "rather than letting someone go looking for a lending market on Base."
 )
 
-# Relay's `vmType` → the family a reader recognises. Only the label is written
-# here; which chains exist, and which family each is in, is read live.
-_VM_FAMILIES: dict[str, str] = {
-    "evm": "EVM",
-    "svm": "Solana VM",
-    "bvm": "Bitcoin",
-    "tvm": "Tron",
-    "tonvm": "TON",
-    "hypevm": "Hyperliquid",
-    "lvm": "Lighter",
-    "xrpvm": "XRP",
-}
 
-# Relay's id for Solana, and the one we used to send. Solana is a network in
-# its own right in this answer, not somewhere to bridge to.
-_SOLANA_CHAIN_IDS: frozenset[int] = frozenset({792_703_809, 900})
+def _describe_integrated_chains(payload: dict) -> dict | None:
+    """Shape the gateway's chain-support table for the answer.
 
-
-def _group_bridged_chains(chains: list) -> dict:
-    """Sort a live Relay chain list into families, dropping what cannot be used.
-
-    Pure so it can be tested without a bridge: the grouping is where the two
-    mistakes lived, not the fetching.
+    Pure so it can be tested without a gateway. Coverage is carried per chain
+    rather than flattened into "supported": Robinhood Chain has no
+    DeFi-position provider, and one word for all of them would invent it.
     """
-    by_family: dict[str, list[str]] = {}
+    chains = (payload or {}).get("chains")
+    if not isinstance(chains, list) or not chains:
+        return None
+    named = []
     for c in chains:
         if not isinstance(c, dict):
             continue
-        # `disabled` is the chain being off; `depositEnabled: false` is it
-        # being unreachable in the direction that matters here. Arbitrum Nova
-        # is live and undepositable — listing it offers a route that is not
-        # there.
-        if c.get("disabled") or c.get("depositEnabled") is False:
+        label = c.get("label") or c.get("chain")
+        if not label:
             continue
-        if c.get("id") in _SOLANA_CHAIN_IDS:
-            continue
-        name = c.get("displayName") or c.get("name")
-        if not name:
-            continue
-        family = _VM_FAMILIES.get(str(c.get("vmType") or "").lower(), "Other")
-        by_family.setdefault(family, []).append(str(name))
-    return {
-        "chainCount": sum(len(v) for v in by_family.values()),
-        # EVM first because it is much the largest, then the rest by size.
-        "chainsByFamily": {
-            k: sorted(v)
-            for k, v in sorted(by_family.items(), key=lambda kv: -len(kv[1]))
-        },
-    }
+        reads = [r for r in (c.get("reads") or []) if isinstance(r, str)]
+        if not reads:
+            continue  # listed by no reader — not somewhere we can see anything
+        named.append({"chain": str(label), "reads": sorted(reads)})
+    if not named:
+        return None
+    return {"chainCount": len(named), "chains": named}
 
 
-async def _bridged_chains() -> dict | None:
-    """The chains assets can move to and from, read live from the bridge.
+async def _integrated_chains() -> dict | None:
+    """The chains this product can actually see, read from the readers.
 
-    Naming them from memory was wrong twice over. The constants listed
-    eighteen chains where the bridge routes sixty-five, and called them all
-    EVM when Bitcoin, TON, Tron, XRP and Hyperliquid are not EVM at all — and
-    Robinhood Chain, given a heading of its own, is simply one of the EVM ones.
-    A chain list is exactly the thing that goes stale between releases, so it
-    is read rather than remembered. When the read fails the answer says the
-    list is unavailable instead of reciting one nobody checked.
+    Not the chains assets can be bridged to. The bridge routes to sixty-odd
+    chains and the help text listed them, which read as a promise that a
+    wallet on any of them could be looked at — it cannot. What can be looked
+    at is whatever some reader covers, and the gateway builds that list from
+    the readers themselves, so it cannot claim a chain nobody reads.
     """
     try:
-        chains = await _solana_action_data("relay_get_chains", {})
+        async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+            r = await c.get(f"{GATEWAY_URL}/market/evm/chains")
+            r.raise_for_status()
+            payload = r.json()
     except Exception:
         return None
-    if not isinstance(chains, list) or not chains:
-        return None
-    grouped = _group_bridged_chains(chains)
-    return grouped if grouped["chainCount"] else None
+    return _describe_integrated_chains(payload)
 
 # Human names for the protocol tags. Only the label is hand-written; whether a
 # protocol appears at all comes from the registry.
@@ -2301,10 +2276,10 @@ async def capabilities() -> dict:
     }]
     # Only claim other chains if something actually routes to them.
     if cross_chain:
-        live = await _bridged_chains()
+        live = await _integrated_chains()
         entry = {
             "network": "Other chains",
-            "note": _BRIDGED_NOTE,
+            "note": _OTHER_CHAINS_NOTE,
             "protocols": cross_chain,
         }
         if live:
@@ -2312,8 +2287,8 @@ async def capabilities() -> dict:
         else:
             entry["chainsUnavailable"] = True
             entry["note"] += (
-                " The live chain list could not be read just now — say that "
-                "rather than naming chains from memory."
+                " The chain list could not be read just now — say that rather "
+                "than naming chains from memory."
             )
         networks.append(entry)
 

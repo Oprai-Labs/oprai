@@ -309,6 +309,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	marketProxy := handlers.NewMarketProxy(ctx, cfg.BirdeyeAPIKey, cfg.JupiterAPIKey, cfg.HeliusAPIKey, cfg.AlchemyAPIKey, cfg.MoralisAPIKey, cfg.CORSOrigin)
 	// Token list is public data — no auth needed, served from Jupiter CDN with server-side caching.
 	r.With(defaultTimeout).Get("/market/tokens/strict", marketProxy.GetTokenList)
+	// Which non-Solana chains we read wallets on. A description of ourselves —
+	// no upstream call, no key, nothing to exhaust — and what /help is built
+	// from, so it must be reachable without a wallet.
+	r.With(defaultTimeout).Get("/market/evm/chains", marketProxy.GetEvmChains)
 	r.Route("/market", func(r chi.Router) {
 		r.Use(defaultTimeout)
 		r.Use(middleware.RequireWallet)
