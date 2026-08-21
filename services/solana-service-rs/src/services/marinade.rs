@@ -623,7 +623,21 @@ pub async fn query_stake_yields(http: &reqwest::Client) -> Result<BuildResponse,
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "stake_yields".into(),
-            description: "Live staking yields".into(),
+            description: {
+                // The rates themselves, not the fact that rates exist.
+                let head = [("jito", jito_apy), ("marinade", marinade_apy)]
+                    .iter()
+                    .filter_map(|(id, apy)| {
+                        apy.filter(|a| *a > 0.0).map(|a| format!("{id} ({a:.2}%)"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if head.is_empty() {
+                    "Live staking yields".to_string()
+                } else {
+                    format!("Live staking yields — {head}")
+                }
+            },
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),

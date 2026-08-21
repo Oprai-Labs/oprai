@@ -4568,6 +4568,25 @@ pub fn validate_meteora_s2e_withdraw_params(p: &MeteoraS2EWithdrawParams) -> Res
 
 // ── DLMM ─────────────────────────────────────────────────────────────────────
 
+/// Pool names and their conservative fee rates, for a listing's description.
+///
+/// The same basis the entry options use — the lower of the last day and the
+/// pool's lifetime — so a listing and a recommendation never quote different
+/// numbers for the same pool. A listing that says only "pair list" leaves the
+/// rate in the payload, and a model comparing venues then answers from
+/// whichever one put its numbers where they could be read.
+fn meteora_rate_summary(rows: &[serde_json::Value], take: usize) -> String {
+    crate::services::strategies::rate_summary(
+        rows,
+        "name",
+        &|r| {
+            let apr = crate::services::strategies::conservative_pool_apr(r);
+            (apr > 0.0).then_some(apr)
+        },
+        take,
+    )
+}
+
 pub async fn build_meteora_dlmm_get_pairs(
     http: &reqwest::Client,
     params: &MeteoraDlmmGetPairsParams,
@@ -4604,7 +4623,15 @@ pub async fn build_meteora_dlmm_get_pairs(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_pairs".into(),
-            description: "Meteora DLMM pair list".into(),
+            description: {
+                let rows = data.as_array().cloned().unwrap_or_default();
+                let head = meteora_rate_summary(&rows, 5);
+                if head.is_empty() {
+                    "Meteora DLMM pair list".to_string()
+                } else {
+                    format!("{}. Fee APR — {head}", "Meteora DLMM pair list")
+                }
+            },
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -4991,7 +5018,15 @@ pub async fn build_meteora_dammv2_get_pools(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv2_get_pools".into(),
-            description: "Meteora DAMM v2 pool list".into(),
+            description: {
+                let rows = data.as_array().cloned().unwrap_or_default();
+                let head = meteora_rate_summary(&rows, 5);
+                if head.is_empty() {
+                    "Meteora DAMM v2 pool list".to_string()
+                } else {
+                    format!("{}. Fee APR — {head}", "Meteora DAMM v2 pool list")
+                }
+            },
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::json!({}),

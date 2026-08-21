@@ -1476,6 +1476,43 @@ pub fn validate_raydium_get_pools_params(p: &RaydiumGetPoolsParams) -> Result<()
     Ok(())
 }
 
+/// Pairs and their daily fee APR, for a Raydium pool listing's description.
+///
+/// Raydium reports `day.feeApr` already annualised as a percentage, and the
+/// pair name has to be assembled from the two mint records. The rows sit two
+/// levels down — `data.data` — which is part of why they were easy to leave
+/// buried.
+fn raydium_rate_summary(data: &serde_json::Value, take: usize) -> String {
+    let rows = data
+        .get("data")
+        .and_then(|d| d.get("data"))
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut rated: Vec<(String, f64)> = rows
+        .iter()
+        .filter_map(|r| {
+            let sym = |k: &str| {
+                r.get(k)
+                    .and_then(|m| m.get("symbol"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string()
+            };
+            let apr = r.get("day")?.get("feeApr")?.as_f64()?;
+            (apr > 0.0).then(|| (format!("{}/{}", sym("mintA"), sym("mintB")), apr))
+        })
+        .collect();
+    rated.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    rated.dedup_by(|a, b| a.0 == b.0);
+    rated
+        .iter()
+        .take(take)
+        .map(|(n, p)| format!("{n} ({p:.2}%)"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub async fn build_raydium_get_pools(
     http: &reqwest::Client,
     params: &RaydiumGetPoolsParams,
@@ -1551,7 +1588,17 @@ pub async fn build_raydium_get_pools(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "raydium_get_pools".to_string(),
-            description: format!("Raydium pools ({pool_type}, by {sort_field} {sort_type}, minVol=${min_vol:.0}, minRatio={min_ratio:.4})"),
+            description: {
+                let head = raydium_rate_summary(&data, 5);
+                let base = format!(
+                    "Raydium pools ({pool_type}, by {sort_field} {sort_type}, minVol=${min_vol:.0}, minRatio={min_ratio:.4})"
+                );
+                if head.is_empty() {
+                    base
+                } else {
+                    format!("{base}. Fee APR — {head}")
+                }
+            },
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: data,

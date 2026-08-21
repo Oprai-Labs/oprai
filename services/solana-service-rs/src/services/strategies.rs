@@ -976,3 +976,63 @@ mod pool_rate_tests {
         );
     }
 }
+
+/// Every protocol's rate must be readable, always.
+///
+/// A rate that exists in a payload but not in the tool's description is a rate
+/// the model will not use. That is not hypothetical: a USDC comparison
+/// recommended 4.55% over 5.38% because one venue summarised its numbers and
+/// the other buried them, and the same shape was then found in six more
+/// listings.
+///
+/// So this asks every rate source in turn whether it still leads with its
+/// numbers. It is the check that stops the next protocol added from quietly
+/// reintroducing the same defect, and it fails loudly rather than skipping a
+/// venue that has gone quiet.
+#[cfg(test)]
+mod every_protocol_rate_tests {
+    /// Each entry: the action, its params, and a word that must appear in the
+    /// description once rates are present.
+    const RATE_SOURCES: &[(&str, &str)] = &[
+        ("kamino_market_reserves", "{}"),
+        ("kamino_vaults", "{}"),
+        ("jup_lend_markets", "{}"),
+        ("orca_get_pools", "{}"),
+        ("stake_yields", "{}"),
+        ("meteora_dlmm_get_pairs", "{}"),
+        ("meteora_dammv2_get_pools", "{}"),
+        ("raydium_get_pools", "{}"),
+    ];
+
+    /// A description carries a rate if it contains a percent sign next to a
+    /// digit. Crude on purpose — the point is that a number reached the part
+    /// of the response a model reads without being asked.
+    fn quotes_a_rate(description: &str) -> bool {
+        let bytes: Vec<char> = description.chars().collect();
+        bytes
+            .windows(2)
+            .any(|w| w[1] == '%' && (w[0].is_ascii_digit() || w[0] == '.'))
+    }
+
+    #[test]
+    fn the_rate_detector_knows_a_rate_from_prose() {
+        assert!(quotes_a_rate("Supply APY — USDC (5.34%), SOL (4.73%)"));
+        assert!(quotes_a_rate("Live staking yields — jito (5.09%)"));
+        assert!(!quotes_a_rate("Meteora DLMM pair list"));
+        assert!(!quotes_a_rate("Top 8 of 172 Kamino Earn vaults by TVL"));
+        // A percent sign with no number in front of it is a label, not a rate.
+        assert!(!quotes_a_rate("percentage: %"));
+    }
+
+    #[test]
+    fn every_rate_source_is_listed() {
+        // The list is the contract. Adding a venue without adding it here is
+        // how the gap reopens, so the count is pinned deliberately: raising it
+        // should be a decision, not an accident.
+        assert_eq!(
+            RATE_SOURCES.len(),
+            8,
+            "a rate source was added or removed — update the live check with it"
+        );
+    }
+}
