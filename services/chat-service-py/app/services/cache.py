@@ -12,6 +12,7 @@ Centralized caching for the chat service:
 import json
 import logging
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any, Optional
 
 import redis.asyncio as redis
@@ -325,7 +326,7 @@ class CacheService:
         self,
         cache_type: str,
         *key_parts: str,
-        factory: callable | None = None,
+        factory: Callable[..., Any] | None = None,
         ttl: int | None = None,
     ) -> tuple[Any, bool]:
         """

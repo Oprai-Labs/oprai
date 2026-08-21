@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from collections.abc import Callable
 from typing import Any, Optional
 
 from app.clients import ClientManager, PlatformMessage
@@ -328,7 +329,7 @@ class AgentGroup:
     async def delegate_task(
         self,
         task: str,
-        agent_filter: callable | None = None,
+        agent_filter: Callable[..., Any] | None = None,
     ) -> str | None:
         """Delegate a task to the most suitable agent"""
         candidates = self._agents.values()
