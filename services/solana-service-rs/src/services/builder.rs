@@ -907,9 +907,14 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
         "relay_bridge" | "relay_get_quote" => {
             let p: relay::RelayBridgeParams = serde_json::from_value(params.clone())
                 .map_err(|e| AppError::InvalidParams(format!("Invalid relay params: {e}")))?;
-            if p.origin_chain_id == p.destination_chain_id {
+            // Same-chain is allowed on EVM (Relay is how we swap within a chain —
+            // there is no Jupiter on EVM). Only a Solana→Solana pair is rejected
+            // (that routes through Jupiter instead).
+            if p.origin_chain_id == p.destination_chain_id
+                && relay::canonical_chain_id(p.origin_chain_id) == relay::chain_id::SOLANA
+            {
                 return Err(AppError::InvalidParams(
-                    "relay_bridge: origin and destination chain must differ".into(),
+                    "Same-chain Solana swaps use Jupiter, not Relay.".into(),
                 ));
             }
             if p.amount.trim().is_empty() {
