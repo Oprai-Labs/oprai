@@ -98,6 +98,58 @@ Rules:
 6. If the user explicitly says to forget, remove, or stop a preference (e.g. "forget my DEX preference", "don't use Meteora anymore", "remove my slippage setting"), emit the fact with confidence=0.0 and fact_value=null. The caller will delete zero-confidence facts."""
 
 
+
+# Wallets and venues a preference could plausibly name. Not a curated
+# allowlist of what the product supports — a check that the extractor wrote a
+# *name of the right kind*. It once stored preferred_wallet = "cüzdan", which
+# is simply the Turkish word for "wallet": the model saw the noun in the
+# sentence and recorded it as the answer.
+_KNOWN_WALLETS: frozenset[str] = frozenset({
+    "phantom", "solflare", "backpack", "ledger", "trezor", "trust", "exodus",
+    "glow", "coinbase", "okx", "bitget", "magiceden", "magic eden", "tiplink",
+})
+_KNOWN_VENUES: frozenset[str] = frozenset({
+    "jupiter", "raydium", "orca", "meteora", "phoenix", "openbook", "lifinity",
+    "pumpfun", "pump.fun", "pumpswap", "kamino", "marginfi", "solend", "save",
+    "drift", "marinade", "jito", "sanctum", "aldrin", "saber", "invariant",
+})
+
+def _plausible(fact_type: str, value: object) -> bool:
+    """Whether a value is the right *kind* of thing for its fact type.
+
+    The extractor is told to emit facts only from explicit statements, and it
+    ignores that instruction often enough to matter — every wrong fact found on
+    a live account had been written with confidence 1.0, so the confidence
+    floor never saw them. These are the shapes that actually went wrong.
+    """
+    if fact_type == "preferred_wallet":
+        return isinstance(value, str) and value.strip().lower() in _KNOWN_WALLETS
+
+    if fact_type in ("preferred_dex", "preferred_lender"):
+        return isinstance(value, str) and value.strip().lower() in _KNOWN_VENUES
+
+    if fact_type == "usually_holds":
+        # Holdings are tokens. A live account had ["Meteora", "Raydium",
+        # "Pump.fun"] here — venues recorded as though they were assets, which
+        # then read back as "this user usually holds Meteora".
+        if not isinstance(value, list) or not value:
+            return False
+        return not any(
+            isinstance(v, str) and v.strip().lower() in _KNOWN_VENUES for v in value
+        )
+
+    if fact_type == "max_position_size_usd":
+        # Nobody states a maximum position size of one cent. That figure came
+        # from reading the balances of a wallet being used for testing, which
+        # rule 1 of the extractor prompt forbids and the model did anyway.
+        try:
+            return float(value) >= 1.0  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return False
+
+    return True
+
+
 async def extract_and_upsert(
     db: AsyncSession,
     wallet: str,
@@ -189,6 +241,14 @@ async def extract_and_upsert(
 
         if confidence < 0.4:
             continue
+        if not _plausible(fact_type, fact["fact_value"]):
+            logger.info(
+                "user_facts rejected implausible %s=%r (confidence %.2f)",
+                fact_type,
+                fact["fact_value"],
+                confidence,
+            )
+            continue
         confidence = min(max(confidence, 0.0), 1.0)
 
         try:
@@ -201,8 +261,11 @@ async def extract_and_upsert(
                             CAST(:fact_value AS JSONB), :confidence, 'extracted', now())
                     ON CONFLICT (wallet, fact_type) DO UPDATE
                       SET fact_value = EXCLUDED.fact_value,
-                          confidence = GREATEST(EXCLUDED.confidence,
-                                                {settings.DB_SCHEMA}.user_facts.confidence),
+                          -- The newest reading wins outright. Taking the
+                          -- greater of the two ratcheted confidence upwards
+                          -- and never down, so a fact written wrongly at 1.0
+                          -- could never be softened by anything later.
+                          confidence = EXCLUDED.confidence,
                           updated_at = now()
                     """
                 ),
