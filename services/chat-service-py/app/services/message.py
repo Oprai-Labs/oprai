@@ -2267,7 +2267,12 @@ async def stream_chat_response(
                         except Exception:
                             pass
                     except Exception as exc:
-                        _log.warning("market_data_error type=%s err=%s", validated.type.value, exc)
+                        _log.warning(
+                            "market_data_error type=%s err=%s: %s",
+                            validated.type.value,
+                            type(exc).__name__,
+                            exc,
+                        )
                         if validated.type.value in QUERY_CARD_RENDER_TYPES:
                             # The interactive card was already emitted above and
                             # fetches its OWN data, so the user sees live results
@@ -2287,9 +2292,24 @@ async def stream_chat_response(
                                          "the user to try again."},
                             ))
                         else:
-                            market_data_results.append(
-                                (validated.type.value, params_dict, {"error": str(exc)})
-                            )
+                            # An exception with an empty message becomes
+                            # {"error": ""} — a failure the model cannot say
+                            # anything about, so it said nothing at all and the
+                            # user watched a question vanish. httpx timeouts
+                            # carry no message at all, which is exactly the case
+                            # that produced it.
+                            detail = str(exc).strip() or type(exc).__name__
+                            market_data_results.append((
+                                validated.type.value,
+                                params_dict,
+                                {
+                                    "error": detail,
+                                    "note": "This lookup failed. Tell the user plainly "
+                                            "that this particular figure could not be "
+                                            "fetched, answer with whatever else you have, "
+                                            "and never reply with nothing.",
+                                },
+                            ))
                         # TEMP DEBUG
                         try:
                             with open("/tmp/oprai-debug.log", "a") as _df:

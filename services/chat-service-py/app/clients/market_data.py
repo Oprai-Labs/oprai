@@ -119,6 +119,16 @@ SOLANA_SERVICE_URL = (
 )
 INTERNAL_KEY  = os.environ.get("OPRAI_INTERNAL_API_KEY", "")
 TIMEOUT       = 12.0
+
+# The strategy reads fan out across every venue before they can answer — pools,
+# reserves, price histories, a quote per option. Twelve seconds is a sensible
+# ceiling for a single price lookup and far too tight for these: one timed out
+# at 12s against a 55KB answer it had very nearly finished assembling, and the
+# user got no reply at all.
+_SLOW_QUERIES: frozenset[str] = frozenset({
+    "token_strategies", "strategy_flows", "wallet_strategies", "position_review",
+})
+_SLOW_TIMEOUT = 45.0
 _MAX_CHARS    = 16_000  # raised from 6_000 so server-ranked wallet PnL payload (~7.5 KB) and token deep-dive composite (multiple ranked arrays) fit; LLM-side cap in message.py was also bumped to 16_000 to match
 _VALIDATOR_MAX_COMMISSION = 10  # % — exclude validators above this threshold
 _VALIDATOR_BASE_APY       = 7.0  # % — approximate Solana network inflation yield
@@ -2671,7 +2681,8 @@ async def _solana_action_data(action_type: str, params: dict, wallet: str | None
         headers["x-user-wallet"] = body["params"]["wallet"]
     else:
         headers["x-user-wallet"] = "11111111111111111111111111111111"  # System program — neutral filler
-    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+    timeout = _SLOW_TIMEOUT if action_type in _SLOW_QUERIES else TIMEOUT
+    async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(f"{SOLANA_SERVICE_URL}/actions/build", json=body, headers=headers)
         r.raise_for_status()
         resp = r.json()
