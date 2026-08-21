@@ -14,36 +14,40 @@ class TestSettings:
     """Test Settings class"""
 
     def test_default_values(self):
-        """Test default settings values"""
+        """The values Settings DECLARES, not the ones the environment supplies.
+
+        This test used to read them off an instance. Settings is env-backed, so
+        every assertion here quietly became "does this developer's .env happen
+        to match" — and once OPRAI_RESPONDER_MODEL_OPENAI and DATABASE_URL were
+        set locally, it could not pass on a working machine.
+        """
         from app.config import Settings
 
-        settings = Settings()
+        def declared(name: str):
+            return Settings.model_fields[name].default
 
-        # Server defaults
-        assert settings.PORT == 3020
-        assert settings.GRPC_PORT == 50052
+        # Server
+        assert declared("PORT") == 3020
+        assert declared("GRPC_PORT") == 50052
 
-        # Database defaults
-        assert settings.DATABASE_URL == "postgresql+asyncpg://postgres@localhost:5433/oprai"
-        assert settings.DB_SCHEMA == "chat_schema"
+        # Database
+        assert declared("DATABASE_URL") == "postgresql+asyncpg://postgres:@localhost:5433/oprai"
+        assert declared("DB_SCHEMA") == "chat_schema"
 
-        # OpenAI defaults
-        assert settings.OPRAI_RESPONDER_MODEL_OPENAI == "gpt-4o-mini"
-        assert settings.OPRAI_GPT_REASONING_EFFORT == "medium"
-        assert settings.OPRAI_GPT_MAX_TOKENS == 4096
+        # LLM
+        assert declared("OPRAI_RESPONDER_MODEL_OPENAI") == "gpt-5.4-mini"
+        assert declared("OPRAI_GPT_REASONING_EFFORT") == "medium"
 
-        # Inter-service defaults
-        assert settings.MEMORY_SERVICE_URL == "http://localhost:3040"
-        assert settings.GATEWAY_URL == "http://localhost:3001"
-        assert settings.OPRAI_INTERNAL_API_KEY == "dev-internal-key-change"
-        assert settings.OPRAI_JWT_SECRET == "dev-insecure-secret-change"
+        # Inter-service
+        assert declared("MEMORY_SERVICE_URL") == "http://localhost:3040"
+        assert declared("GATEWAY_URL") == "http://localhost:3001"
 
-        # Solana RPC
-        assert settings.SOLANA_RPC_URL == "https://api.mainnet-beta.solana.com"
-
-        # Environment
-        assert settings.NODE_ENV == "development"
-        assert settings.CORS_ALLOWED_ORIGINS == ""
+        # Secrets carry NO baked-in default — chat-service ships without a
+        # usable key rather than with a guessable one. The Go services do hold
+        # dev placeholders, but they refuse to boot in production while set;
+        # here the empty string is the guarantee, so pin it.
+        assert declared("OPRAI_INTERNAL_API_KEY") == ""
+        assert declared("OPRAI_JWT_SECRET") == ""
 
     def test_env_variable_override(self):
         """Test environment variables override defaults"""

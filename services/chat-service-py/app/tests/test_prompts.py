@@ -30,19 +30,22 @@ class TestPromptLoader:
         """Test that all expected prompt files are defined"""
         from app.prompts.loader import PromptLoader
 
-        expected_files = [
-            "solana_action_base.txt",
-            "solana_action_queries.txt",
-            "solana_action_core.txt",
-            "solana_action_dex.txt",
-            "solana_action_lending.txt",
-            "solana_action_staking.txt",
-            "solana_action_nft.txt",
-            "solana_action_crosschain.txt",
-            "solana_action_streamflow.txt",
-        ]
+        # Membership, not an exact ordered list. Pinning the whole list meant
+        # every new prompt file broke this test, which is how it came to be
+        # permanently red: pumpfun, market_data, knowledge and strategy had all
+        # landed since it was written. What is worth guarding is that the ones
+        # the loader cannot work without are still declared.
+        required = {
+            "solana_action_base.txt",      # every turn loads this
+            "solana_action_queries.txt",   # every read path
+            "solana_action_core.txt",      # transfer / swap / stake
+        }
 
-        assert PromptLoader.PROMPT_FILES == expected_files
+        assert required <= set(PromptLoader.PROMPT_FILES)
+        assert len(PromptLoader.PROMPT_FILES) == len(set(PromptLoader.PROMPT_FILES)), (
+            "a file is declared twice — it would be concatenated into the prompt twice"
+        )
+        assert all(f.endswith(".txt") for f in PromptLoader.PROMPT_FILES)
 
     def test_get_system_prompt_returns_string(self):
         """Test get_system_prompt returns a string"""

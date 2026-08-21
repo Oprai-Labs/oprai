@@ -206,8 +206,6 @@ class TestDefiActionsExecution:
 
             assert result.success is True
 
-    @pytest.mark.asyncio
-
 
 class TestActionAliases:
     """Test action aliases"""

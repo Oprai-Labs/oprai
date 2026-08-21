@@ -162,13 +162,17 @@ class TestCharacterRepositoryList:
         mock_session = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
+        # `list()` returns (rows, total) — the count comes from a second query
+        # via scalar_one(). Without stubbing it the mock hands back a MagicMock
+        # and the tuple's second element is not a number.
+        mock_result.scalar_one.return_value = 0
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         repo = CharacterRepository(mock_session)
         chars, total = await repo.list()
 
-        assert isinstance(chars, list)
-        assert isinstance(total, int)
+        assert chars == []
+        assert total == 0
 
 
 class TestCharacterRepositoryUpdate:

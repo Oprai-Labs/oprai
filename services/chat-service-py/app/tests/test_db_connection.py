@@ -36,7 +36,10 @@ class TestBuildAsyncPgUrl:
         url, connect_args = _build_asyncpg_url("postgresql://localhost:5432/db")
 
         assert "sslmode" not in url
-        assert connect_args == {}
+        # asyncpg runs behind pgbouncer in transaction mode, which cannot serve
+        # prepared statements — hence statement_cache_size=0. Losing it does not
+        # fail here; it fails in production, intermittently, under load.
+        assert connect_args == {"statement_cache_size": 0, "command_timeout": 30}
 
     def test_multiple_params(self):
         """Test multiple query parameters"""

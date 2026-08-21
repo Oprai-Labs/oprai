@@ -47,62 +47,54 @@ class TestExtractApy:
     """Test _extract_apy function"""
 
     def test_extract_marinade_apy(self):
-        """Test extracting APY from Marinade response"""
-        data = {"apy": 8.5}
-        result = _extract_apy("marinade", data)
+        """Marinade answers {"value": <fraction>, "end_time": …}."""
+        result = _extract_apy("marinade", {}, {"value": 0.0678})
 
-        assert result == 8.5
+        assert result == 0.0678
 
-    def test_extract_marinade_missing_apy(self):
-        """Test extracting APY when missing"""
-        data = {}
-        result = _extract_apy("marinade", data)
+    def test_extract_marinade_missing_value(self):
+        """A response without `value` scores zero, not None — the call worked."""
+        result = _extract_apy("marinade", {}, {})
 
         assert result == 0.0
 
-    def test_extract_jupsol_apy(self):
-        """Test extracting APY from JupSOL response"""
-        data = {"apy": 7.2}
-        result = _extract_apy("jupsol", data)
+    def test_extract_jito_takes_the_latest_point(self):
+        """Jito answers {"apy": [{"data": …, "date": …}, …]} — newest last."""
+        data = {
+            "apy": [
+                {"data": 0.0540, "date": "2026-08-18"},
+                {"data": 0.0571, "date": "2026-08-19"},
+            ]
+        }
+        result = _extract_apy("jito", {}, data)
+
+        assert result == 0.0571
+
+    def test_extract_jito_empty_series(self):
+        result = _extract_apy("jito", {}, {"apy": []})
+
+        assert result is None
+
+    def test_extract_mint_lookup_matches_the_right_entry(self):
+        """A mint_lookup protocol answers a list; the mint in `meta` picks the row."""
+        data = [
+            {"tokenMint": "OtherMint111", "apy": 3.0},
+            {"tokenMint": "JupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v", "apy": 7.2},
+        ]
+        meta = {"mint_lookup": True, "mint": "JupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v"}
+        result = _extract_apy("jupsol", meta, data)
 
         assert result == 7.2
 
-    def test_extract_jupsol_annualized_apy(self):
-        """Test extracting APY from JupSOL with annualizedApy"""
-        data = {"annualizedApy": 8.0}
-        result = _extract_apy("jupsol", data)
+    def test_extract_mint_lookup_falls_back_to_annualised(self):
+        data = [{"tokenMint": "Mint111", "annualizedApy": 8.0}]
+        result = _extract_apy("jupsol", {"mint_lookup": True, "mint": "Mint111"}, data)
 
         assert result == 8.0
 
-    def test_extract_jito_apy(self):
-        """Test extracting APY from Jito validators"""
-        data = {
-            "validators": [
-                {"apy": 8.0},
-                {"apy": 7.5},
-                {"apy": 9.0},
-            ]
-        }
-        result = _extract_apy("jito", data)
-
-        # Average of 8.0, 7.5, 9.0 = 8.166...
-        assert result is not None
-        assert 8.0 <= result <= 9.0
-
-    def test_extract_jito_list(self):
-        """Test Jito with list response"""
-        data = [
-            {"apy": 8.0},
-            {"apy": 7.0},
-        ]
-        result = _extract_apy("jito", data)
-
-        assert result == 7.5
-
-    def test_extract_jito_no_validators(self):
-        """Test Jito with no validators"""
-        data = {"validators": []}
-        result = _extract_apy("jito", data)
+    def test_extract_mint_lookup_no_matching_mint(self):
+        data = [{"tokenMint": "Mint111", "apy": 8.0}]
+        result = _extract_apy("jupsol", {"mint_lookup": True, "mint": "Missing"}, data)
 
         assert result is None
 
@@ -114,7 +106,7 @@ class TestExtractApy:
                 {"symbol": "USDC", "supplyApy": 3.0},
             ]
         }
-        result = _extract_apy("kamino_sol", data)
+        result = _extract_apy("kamino_sol", {}, data)
 
         assert result == 5.5
 
@@ -125,7 +117,7 @@ class TestExtractApy:
                 {"symbol": "SOL", "apy": 6.0},
             ]
         }
-        result = _extract_apy("kamino_sol", data)
+        result = _extract_apy("kamino_sol", {}, data)
 
         assert result == 6.0
 
@@ -133,16 +125,16 @@ class TestExtractApy:
 
     def test_extract_invalid_data(self):
         """Test extraction with invalid data types"""
-        result = _extract_apy("marinade", "invalid string")
+        result = _extract_apy("marinade", {}, "invalid string")
         assert result is None
 
-        result = _extract_apy("marinade", 123)
+        result = _extract_apy("marinade", {}, 123)
         assert result is None
 
     def test_extract_unknown_protocol(self):
         """Test extraction for unknown protocol"""
         data = {"apy": 5.0}
-        result = _extract_apy("unknown_protocol", data)
+        result = _extract_apy("unknown_protocol", {}, data)
 
         assert result is None
 

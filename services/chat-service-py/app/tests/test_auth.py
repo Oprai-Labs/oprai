@@ -9,6 +9,21 @@ from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
 
 
+class _FakeRequest:
+    """Minimal stand-in for `starlette.Request`.
+
+    `require_auth` reads only `request.url.path` and `request.method`, and only
+    to attach them to a log line. Building a real Request needs an ASGI scope,
+    which would test Starlette rather than the dependency.
+    """
+
+    class _Url:
+        path = "/test"
+
+    url = _Url()
+    method = "POST"
+
+
 class TestRequireAuth:
     """Test require_auth dependency"""
 
@@ -19,6 +34,7 @@ class TestRequireAuth:
 
         with pytest.raises(HTTPException) as exc_info:
             await require_auth(
+                _FakeRequest(),
                 x_user_wallet=None,
                 x_internal_api_key="test-key"
             )
@@ -33,6 +49,7 @@ class TestRequireAuth:
 
         with pytest.raises(HTTPException) as exc_info:
             await require_auth(
+                _FakeRequest(),
                 x_user_wallet="Wallet123",
                 x_internal_api_key=None
             )
@@ -51,6 +68,7 @@ class TestRequireAuth:
 
             with pytest.raises(HTTPException) as exc_info:
                 await require_auth(
+                    _FakeRequest(),
                     x_user_wallet="Wallet123",
                     x_internal_api_key="wrong-key"
                 )
@@ -66,6 +84,7 @@ class TestRequireAuth:
             mock_settings.OPRAI_INTERNAL_API_KEY = "correct-key"
 
             result = await require_auth(
+                _FakeRequest(),
                 x_user_wallet="Wallet123",
                 x_internal_api_key="correct-key"
             )
@@ -79,6 +98,7 @@ class TestRequireAuth:
 
         with pytest.raises(HTTPException) as exc_info:
             await require_auth(
+                _FakeRequest(),
                 x_user_wallet="",
                 x_internal_api_key="test-key"
             )
@@ -97,6 +117,7 @@ class TestRequireAuth:
             mock_settings.OPRAI_INTERNAL_API_KEY = "correct-key"
 
             result = await require_auth(
+                _FakeRequest(),
                 x_user_wallet=valid_address,
                 x_internal_api_key="correct-key"
             )
@@ -104,21 +125,27 @@ class TestRequireAuth:
             assert result == valid_address
 
     @pytest.mark.asyncio
-    async def test_whitespace_wallet_passes_check(self):
-        """Test that whitespace-only wallet passes the initial check (current behavior)"""
+    async def test_whitespace_wallet_is_rejected(self):
+        """A wallet header of nothing but spaces is no wallet.
+
+        This test used to assert the opposite — that "   " passed and was
+        returned as the caller's identity — and was named for the wart it was
+        pinning. `require_auth` strips before testing now, so it 401s.
+        """
         from app.middleware.auth import require_auth
 
-        # Current behavior: whitespace-only strings are truthy, so they pass
         with patch("app.middleware.auth.settings") as mock_settings:
             mock_settings.OPRAI_INTERNAL_API_KEY = "test-key"
 
-            result = await require_auth(
-                x_user_wallet="   ",  # whitespace-only
-                x_internal_api_key="test-key"
-            )
+            with pytest.raises(HTTPException) as exc_info:
+                await require_auth(
+                    _FakeRequest(),
+                    x_user_wallet="   ",
+                    x_internal_api_key="test-key"
+                )
 
-            # Returns the whitespace string (current behavior)
-            assert result == "   "
+            assert exc_info.value.status_code == 401
+            assert "wallet header" in exc_info.value.detail.lower()
 
 
 class TestAuthEdgeCases:
@@ -131,6 +158,7 @@ class TestAuthEdgeCases:
 
         with pytest.raises(HTTPException) as exc_info:
             await require_auth(
+                _FakeRequest(),
                 x_user_wallet="Wallet123",
                 x_internal_api_key="   "
             )
