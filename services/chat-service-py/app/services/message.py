@@ -499,25 +499,45 @@ def _language_anchor(user_content: str, model_messages: list[dict]) -> str | Non
 # message anywhere in the visible history — still locks to the user's known
 # language instead of letting the model free-pick (which has produced English,
 # then Spanish, on QUACKSSANT-style symbol-only turns).
-async def _preferred_language(db, wallet: str) -> str | None:
-    """The wallet's durable preferred-language fact, or None.
+async def _last_spoken_message(db, wallet: str) -> str | None:
+    """The last thing this wallet actually wrote that carried a language.
 
-    Used only when the turn carries no language of its own — a bare mint, a
-    ticker, a number. It used to be scraped back out of the injected memory
-    block with a regex, which meant guessing at how a language might be named
-    and in which script; the fact is a database column, so it is read as one.
+    Reached only when the current turn has no language and neither does anything
+    in the visible history — a fresh session opened with a bare mint or ticker.
+    Rather than a stored "preferred language", this walks one step further back
+    through the same question the anchor asks: what did they last write?
 
-    The memory block no longer shows this fact to the model at all. Presented
-    there under "honour these preferences", it out-argued the language of the
-    message the user had just typed: a Turkish greeting does not read as
-    *contradicting* a stored "Arabic", so the model kept answering in Arabic.
+    A preference was the wrong shape for this. It was inferred from usage, so a
+    single question in another language set it; it then outlived the moment,
+    because nothing un-sets a preference; and it had to be named ("Turkish",
+    "tr", "русский") when the anchor never needed a name, only a sample. Reading
+    the last real message instead is self-correcting: switch languages and the
+    fallback follows on the next turn, exactly as the in-session anchor does.
     """
     try:
-        from app.services.user_facts import get_preferred_language
-        return await get_preferred_language(db, wallet)
+        rows = await db.execute(
+            text(
+                """
+                SELECT content FROM chat_schema.chat_messages
+                WHERE wallet_address = :w AND role = 'user'
+                  AND content IS NOT NULL AND content <> ''
+                ORDER BY created_at DESC
+                LIMIT 12
+                """
+            ),
+            {"w": wallet},
+        )
     except Exception:
-        _log.debug("preferred-language lookup failed", exc_info=True)
+        _log.debug("last-spoken lookup failed", exc_info=True)
         return None
+    for (content,) in rows.fetchall():
+        if not isinstance(content, str):
+            continue
+        if _is_injected_data_message(content):
+            continue
+        if _has_language_signal(content):
+            return content.strip()
+    return None
 
 
 # Keys that only appear inside tool-call JSON blobs — never in normal prose.
@@ -1640,16 +1660,20 @@ async def stream_chat_response(
                 "literal translation."
             ),
         })
-    elif (_pref_lang := await _preferred_language(db, wallet)):
-        # No natural-language message anywhere (symbol/mint-only turn) — fall
-        # back to the user's durable preferred language so we never free-pick.
+    elif (_last_spoken := await _last_spoken_message(db, wallet)):
+        # Nothing linguistic in this turn OR this session — a fresh chat opened
+        # with a bare mint. Anchor to the last thing they wrote anywhere, using
+        # the same wording as above so there is one rule, not two.
         model_messages.append({
             "role": "system",
             "content": (
-                f"LANGUAGE LOCK — write your ENTIRE response in {_pref_lang}. "
-                "Every word (headings, bullets, warnings, takeaways) must be in "
-                f"{_pref_lang}. Tool results may contain English labels — "
-                "translate them; never switch languages mid-response."
+                "LANGUAGE LOCK — match the user's language exactly.\n"
+                "This turn has no words in it, so anchor to the most recent "
+                "message this user wrote:\n"
+                f"<<<{_last_spoken[:400]}>>>\n"
+                "Your entire response must be in the SAME language as that "
+                "message. Tool results may contain English labels — translate "
+                "them; never switch languages mid-response."
             ),
         })
 
@@ -2633,10 +2657,8 @@ async def stream_chat_response(
                 # through history) so a bare-mint turn still replies in the
                 # conversation's language instead of defaulting to English.
                 _user_excerpt_fu = (_language_anchor(user_content, model_messages) or "")[:400]
-                _pref_lang_fu = (
-                    await _preferred_language(db, wallet)
-                    if not _user_excerpt_fu else None
-                )
+                if not _user_excerpt_fu:
+                    _user_excerpt_fu = (await _last_spoken_message(db, wallet) or "")[:400]
                 if _user_excerpt_fu:
                     _lang_followup_prefix = (
                         "LANGUAGE LOCK — match the user's language exactly. "
@@ -2652,18 +2674,12 @@ async def stream_chat_response(
                         "native terms; well-known English crypto terms may stay "
                         "in English inline where that reads more naturally.\n\n"
                     )
-                elif _pref_lang_fu:
-                    # Symbol/mint-only turn with no natural-language history in
-                    # this (history-stripped) followup context — lock to the
-                    # user's durable preferred language so we never free-pick
-                    # (this is the QUACKSSANT→Spanish bug).
-                    _lang_followup_prefix = (
-                        f"LANGUAGE LOCK — write your ENTIRE response in {_pref_lang_fu}. "
-                        "Every word (headings, bullets, warnings, takeaways) must "
-                        f"be in {_pref_lang_fu}. Tool result data may contain "
-                        "English labels — translate them; never switch languages.\n\n"
-                    )
                 else:
+                    # Nothing linguistic in this (history-stripped) followup
+                    # context either — the QUACKSSANT→Spanish case, where a
+                    # symbol-only turn let the model free-pick. `_user_excerpt_fu`
+                    # was already backfilled from the wallet's last real message
+                    # above, so reaching here means they have never written words.
                     _lang_followup_prefix = ""
                 followup_messages = [
                     {
