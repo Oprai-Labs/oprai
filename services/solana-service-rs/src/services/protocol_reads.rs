@@ -113,6 +113,26 @@ async fn ts_proxy_read(
 /// Meteora DLMM — per-position detail for one pool, read on-chain via the SDK.
 /// Returns the raw `data` payload (not a `BuildResponse`) so callers can merge
 /// it into a larger response.
+/// A wallet's open Raydium positions, read through the SDK service.
+///
+/// Raydium publishes no positions-by-owner API — the one the frontend calls
+/// (`api.raydium.io/v2/positions`) answers 404 and its errors are swallowed,
+/// so that path has been returning an empty list rather than positions. The
+/// SDK reads them from chain, which is what Raydium's own interface does.
+pub async fn raydium_user_positions(
+    http: &Client,
+    wallet: &str,
+) -> Result<serde_json::Value, AppError> {
+    let resp = ts_proxy_read(
+        http,
+        wallet,
+        "raydium_get_user_positions",
+        serde_json::json!({}),
+    )
+    .await?;
+    Ok(resp.data.unwrap_or(serde_json::Value::Null))
+}
+
 /// A wallet's open Meteora DAMM v2 positions, read through the SDK service.
 pub async fn meteora_dammv2_user_positions(
     http: &Client,

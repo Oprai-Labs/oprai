@@ -209,11 +209,12 @@ pub async fn build_position_review(
     // What the same money would earn in one step today. Most LP positions are
     // paired against SOL, so "you could have just staked it" is the honest
     // comparison rather than a hand-picked rival pool.
-    let (alt, dlmm, orca, damm) = tokio::join!(
+    let (alt, dlmm, orca, damm, ray) = tokio::join!(
         crate::services::flows::best_simple_option(http),
         read_dlmm_positions(http, wallet),
         read_orca_positions(http, rpc_url, wallet),
         read_dammv2_positions(http, wallet),
+        read_raydium_positions(http, wallet),
     );
     let (default_apr, default_label) = alt.unwrap_or((0.0, "lending".to_string()));
 
@@ -247,6 +248,13 @@ pub async fn build_position_review(
             all.extend(v);
         }
         Err(e) => tracing::warn!("position review: Meteora DAMM v2 unreadable: {e}"),
+    }
+    match ray {
+        Ok(v) => {
+            covers.push("Raydium CLMM");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Raydium unreadable: {e}"),
     }
 
     for pos in all {
@@ -947,6 +955,121 @@ async fn read_dammv2_positions(
     Ok(out)
 }
 
+/// Raydium CLMM positions, read through the SDK service.
+///
+/// In-range is derived from what the position holds rather than looked up: a
+/// concentrated position holds both tokens only while the price sits inside
+/// its range — below it everything is token A, above it everything is token B.
+/// That is exact, and needs no tick arithmetic to go wrong.
+async fn read_raydium_positions(
+    http: &reqwest::Client,
+    wallet: &str,
+) -> Result<Vec<OpenPosition>, AppError> {
+    let data = crate::services::protocol_reads::raydium_user_positions(http, wallet).await?;
+    let positions = data
+        .get("positions")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let num = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    let mut out = Vec::new();
+    let mut rates: std::collections::HashMap<String, Option<f64>> =
+        std::collections::HashMap::new();
+
+    for p in positions {
+        if p.get("empty").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let mint_a = text(p.get("mintA").and_then(|m| m.get("address")));
+        let mint_b = text(p.get("mintB").and_then(|m| m.get("address")));
+        if mint_a.is_empty() || mint_b.is_empty() {
+            continue;
+        }
+        let amount_a = num(p.get("amountA")).unwrap_or(0.0);
+        let amount_b = num(p.get("amountB")).unwrap_or(0.0);
+        if amount_a <= 0.0 && amount_b <= 0.0 {
+            continue;
+        }
+
+        let pool_id = text(p.get("poolId"));
+        let pool_apr = match rates.get(&pool_id) {
+            Some(v) => *v,
+            None => {
+                let r = raydium_pool_apr(http, &pool_id).await;
+                rates.insert(pool_id.clone(), r);
+                r
+            }
+        };
+
+        let (price_a, price_b) = tokio::join!(
+            crate::services::strategies::mint_price_and_decimals(http, &mint_a),
+            crate::services::strategies::mint_price_and_decimals(http, &mint_b),
+        );
+        let value = match (price_a.map(|t| t.0), price_b.map(|t| t.0)) {
+            (Some(pa), Some(pb)) => {
+                let v = amount_a * pa + amount_b * pb;
+                (v > 0.0).then_some(v)
+            }
+            _ => None,
+        };
+        let exit_cost_pct =
+            crate::services::strategies::entry_cost_pct(http, &mint_a, &mint_b, value).await;
+
+        out.push(OpenPosition {
+            venue: "Raydium CLMM",
+            address: text(p.get("positionId")),
+            pool: pool_id,
+            pair: {
+                let pair = text(p.get("pair"));
+                if pair.is_empty() {
+                    "liquidity position".to_string()
+                } else {
+                    pair
+                }
+            },
+            earning: amount_a > 0.0 && amount_b > 0.0,
+            in_range_share: None,
+            quote_mint: mint_b,
+            locked: false,
+            usd_value: value,
+            pool_apr,
+            apr_24h: pool_apr,
+            apr_life: None,
+            exit_cost_pct,
+            pnl_usd_pct: None,
+            pnl_sol_pct: None,
+            unclaimed_fees_usd: None,
+        });
+    }
+    Ok(out)
+}
+
+/// A Raydium pool's fee rate, from its own daily statistics.
+async fn raydium_pool_apr(http: &reqwest::Client, pool_id: &str) -> Option<f64> {
+    let body: serde_json::Value = http
+        .get(format!(
+            "https://api-v3.raydium.io/pools/info/ids?ids={pool_id}"
+        ))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let row = body.get("data")?.as_array()?.first()?;
+    row.get("day")
+        .and_then(|d| d.get("feeApr"))
+        .and_then(|v| v.as_f64())
+}
+
 /// A whirlpool's annualised fee rate, from its own 24-hour statistics.
 async fn orca_pool_apr(http: &reqwest::Client, address: &str) -> Option<f64> {
     let params = crate::services::orca::OrcaGetPoolParams {
@@ -1080,7 +1203,6 @@ mod tests {
         assert_eq!(r.verdict, Verdict::ConsiderExit);
         assert_eq!(r.payback_days, Some(0.0));
     }
-
 
     #[test]
     fn an_unreadable_pool_produces_no_advice() {
