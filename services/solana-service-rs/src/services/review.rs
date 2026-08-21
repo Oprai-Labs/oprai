@@ -183,14 +183,16 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
 /// Every open position the wallet holds, judged against doing something else.
 pub async fn build_position_review(
     http: &reqwest::Client,
+    rpc_url: &str,
     wallet: &str,
 ) -> Result<BuildResponse, AppError> {
     // What the same money would earn in one step today. Most LP positions are
     // paired against SOL, so "you could have just staked it" is the honest
     // comparison rather than a hand-picked rival pool.
-    let (alt, dlmm) = tokio::join!(
+    let (alt, dlmm, orca) = tokio::join!(
         crate::services::flows::best_simple_option(http),
         read_dlmm_positions(http, wallet),
+        read_orca_positions(http, rpc_url, wallet),
     );
     let (default_apr, default_label) = alt.unwrap_or((0.0, "lending".to_string()));
 
@@ -199,7 +201,27 @@ pub async fn build_position_review(
     // One lookup per distinct quote asset rather than per position.
     let mut baselines: std::collections::HashMap<String, (f64, String)> =
         std::collections::HashMap::new();
-    for pos in dlmm.unwrap_or_default() {
+    // Every venue best-effort and named separately, so one failing to answer
+    // narrows what the review claims to cover rather than silently dropping
+    // positions from it.
+    let mut covers: Vec<&str> = Vec::new();
+    let mut all: Vec<OpenPosition> = Vec::new();
+    match dlmm {
+        Ok(v) => {
+            covers.push("Meteora DLMM");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Meteora DLMM unreadable: {e}"),
+    }
+    match orca {
+        Ok(v) => {
+            covers.push("Orca");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Orca unreadable: {e}"),
+    }
+
+    for pos in all {
         // Judged against what the money could do in its own unit. A USDC pair
         // measured against staking SOL is measured in the wrong thing, and the
         // difference between two units is not a gap.
@@ -305,7 +327,7 @@ pub async fn build_position_review(
         "alternative": default_label,
         // Said plainly so an answer never implies a wallet-wide all-clear it
         // has not actually checked.
-        "covers": ["Meteora DLMM"],
+        "covers": covers,
         "note": note,
     });
 
@@ -615,6 +637,139 @@ async fn read_dlmm_positions(
         }
     }
     Ok(out)
+}
+
+/// Orca Whirlpool positions, priced.
+///
+/// Orca reports no lifetime fee total, so its pool rate is a 24-hour
+/// annualisation with nothing to temper it — a livelier number than the
+/// Meteora one beside it, and labelled as such rather than quietly compared
+/// as though the two were measured the same way. There is also no candle
+/// history for a whirlpool, so the in-range share is unknown and the
+/// judgement falls back to the instantaneous read.
+async fn read_orca_positions(
+    http: &reqwest::Client,
+    rpc_url: &str,
+    wallet: &str,
+) -> Result<Vec<OpenPosition>, AppError> {
+    let params = crate::services::orca::OrcaGetUserPositionsParams {
+        wallet: Some(wallet.to_string()),
+    };
+    let resp = crate::services::orca::build_orca_get_user_positions(http, rpc_url, wallet, &params)
+        .await?;
+    let data = resp.data.unwrap_or(serde_json::Value::Null);
+    let positions = data
+        .get("positions")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let num = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    let mut out = Vec::new();
+    // One pool lookup per distinct whirlpool, not per position.
+    let mut pool_rates: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+
+    for p in positions {
+        let whirlpool = text(p.get("whirlpool"));
+        let mint_a = text(p.get("tokenAMint"));
+        let mint_b = text(p.get("tokenBMint"));
+        if mint_a.is_empty() || mint_b.is_empty() {
+            continue;
+        }
+
+        let pool_apr = match pool_rates.get(&whirlpool) {
+            Some(v) => *v,
+            None => {
+                let rate = orca_pool_apr(http, &whirlpool).await.unwrap_or(0.0);
+                pool_rates.insert(whirlpool.clone(), rate);
+                rate
+            }
+        };
+
+        // Amounts and fees already arrive in UI units, so only prices apply —
+        // scaling by decimals again here would inflate the value by 10^n.
+        let (price_a, price_b) = tokio::join!(
+            crate::services::strategies::mint_price_and_decimals(http, &mint_a),
+            crate::services::strategies::mint_price_and_decimals(http, &mint_b),
+        );
+        let (pa, pb) = (price_a.map(|t| t.0), price_b.map(|t| t.0));
+        let value = match (pa, pb) {
+            (Some(pa), Some(pb)) => {
+                let v = num(p.get("amountA")).unwrap_or(0.0) * pa
+                    + num(p.get("amountB")).unwrap_or(0.0) * pb;
+                (v > 0.0).then_some(v)
+            }
+            _ => None,
+        };
+        let fees_usd = match (pa, pb) {
+            (Some(pa), Some(pb)) => Some(
+                num(p.get("feeOwedAUi")).unwrap_or(0.0) * pa
+                    + num(p.get("feeOwedBUi")).unwrap_or(0.0) * pb,
+            ),
+            _ => None,
+        };
+
+        let exit_cost_pct =
+            crate::services::strategies::entry_cost_pct(http, &mint_a, &mint_b, value).await;
+
+        out.push(OpenPosition {
+            venue: "Orca",
+            address: text(p.get("positionAddress")),
+            pool: whirlpool,
+            pair: format!(
+                "{}/{}",
+                text(p.get("tokenASymbol")),
+                text(p.get("tokenBSymbol"))
+            ),
+            earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
+            in_range_share: None,
+            quote_mint: mint_b,
+            usd_value: value,
+            pool_apr,
+            exit_cost_pct,
+            // Orca's reader carries no profit-and-loss history, so these stay
+            // unknown rather than being filled with something else's numbers.
+            pnl_usd_pct: None,
+            pnl_sol_pct: None,
+            unclaimed_fees_usd: fees_usd,
+        });
+    }
+    Ok(out)
+}
+
+/// A whirlpool's annualised fee rate, from its own 24-hour statistics.
+async fn orca_pool_apr(http: &reqwest::Client, address: &str) -> Option<f64> {
+    let params = crate::services::orca::OrcaGetPoolParams {
+        address: address.to_string(),
+        stats: None,
+    };
+    let resp = crate::services::orca::build_orca_get_pool(http, &params)
+        .await
+        .ok()?;
+    let d = resp.data?;
+    let row = d.get("data").unwrap_or(&d);
+    let n = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let tvl = n(row.get("tvlUsdc"))?;
+    if !(tvl > 0.0) {
+        return None;
+    }
+    let fees = n(row
+        .get("stats")
+        .and_then(|s| s.get("24h"))
+        .and_then(|s| s.get("fees")))?;
+    Some(fees / tvl * 365.0 * 100.0)
 }
 
 #[cfg(test)]
