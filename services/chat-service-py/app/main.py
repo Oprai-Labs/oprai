@@ -404,11 +404,11 @@ MIN_CLAIM_USD = 5.0
 # Claim fee deducted from the payout (shown to the claimer before they confirm).
 # Covers the on-chain payout cost; the claimer bears it, not OPRAI.
 CLAIM_FEE_PCT = 0.02
-CLAIM_CHAINS = ["solana", "ethereum", "base", "bsc", "polygon", "arbitrum", "optimism"]
+CLAIM_CHAINS = ["solana", "ethereum", "base", "bsc", "polygon", "arbitrum", "optimism", "robinhood"]
 # Native token each chain pays its rewards in.
 CHAIN_TOKEN = {
     "solana": "SOL", "ethereum": "ETH", "base": "ETH", "arbitrum": "ETH",
-    "optimism": "ETH", "bsc": "BNB", "polygon": "POL",
+    "optimism": "ETH", "bsc": "BNB", "polygon": "POL", "robinhood": "ETH",
 }
 
 

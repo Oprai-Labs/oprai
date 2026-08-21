@@ -20,7 +20,9 @@ const TW_FOLDER: Record<string, string> = {
   ethereum: 'ethereum', base: 'base', arbitrum: 'arbitrum', optimism: 'optimism', polygon: 'polygon', bsc: 'smartchain',
 };
 const chainLogo = (chain: string) =>
-  `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${TW_FOLDER[chain] || 'ethereum'}/info/logo.png`;
+  chain === 'robinhood'
+    ? 'https://assets.relay.link/icons/4663/light.png' // no Trust Wallet folder
+    : `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${TW_FOLDER[chain] || 'ethereum'}/info/logo.png`;
 const ALLOC_COLORS = ['#5b5fc7', '#06b6d4', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444'];
 
 function categoryFor(label: string): ProtocolCategory {

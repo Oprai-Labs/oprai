@@ -122,6 +122,11 @@ func (m *MarketProxy) GetEvmNfts(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Robinhood Chain (Blockscout — not indexed by Alchemy).
+	if rh := m.fetchRobinhoodNfts(r, address); len(rh) > 0 {
+		nfts = append(nfts, rh...)
+	}
+
 	out := map[string]any{"address": address, "nfts": nfts}
 	body, err := json.Marshal(out)
 	if err != nil {

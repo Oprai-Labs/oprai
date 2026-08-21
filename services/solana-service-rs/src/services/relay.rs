@@ -37,6 +37,10 @@ pub mod chain_id {
     pub const ARBITRUM_NOVA: u64 = 42170;
     pub const POLYGON_ZKEVM: u64 = 1101;
     pub const SCROLL: u64 = 534352;
+    /// Robinhood Chain — an Arbitrum-Orbit L2 (native ETH). Relay routes it
+    /// (depositEnabled), and it has a public RPC + Blockscout explorer, so it
+    /// needs no node of ours. Rewards book against the key "robinhood".
+    pub const ROBINHOOD: u64 = 4663;
     /// Relay's own id for Solana, confirmed against their /chains endpoint.
     /// It was 900 here, which is nobody's Solana — so every quote we made read
     /// "on Unknown", and any routing decision keyed on this constant was
@@ -377,6 +381,7 @@ pub fn get_chain_name(chain_id: u64) -> &'static str {
         chain_id::ARBITRUM_NOVA => "Arbitrum Nova",
         chain_id::POLYGON_ZKEVM => "Polygon zkEVM",
         chain_id::SCROLL => "Scroll",
+        chain_id::ROBINHOOD => "Robinhood Chain",
         chain_id::SOLANA | chain_id::SOLANA_LEGACY_ID => "Solana",
         // Testnets
         chain_id::GOERLI => "Goerli",
@@ -630,6 +635,7 @@ pub fn chain_key_for_id(chain_id: u64) -> Option<&'static str> {
         chain_id::POLYGON => Some("polygon"),
         chain_id::ARBITRUM => Some("arbitrum"),
         chain_id::OPTIMISM => Some("optimism"),
+        chain_id::ROBINHOOD => Some("robinhood"),
         _ => None,
     }
 }

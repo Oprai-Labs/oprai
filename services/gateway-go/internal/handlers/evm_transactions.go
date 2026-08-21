@@ -87,6 +87,11 @@ func (m *MarketProxy) GetEvmTransactions(w http.ResponseWriter, r *http.Request)
 	}
 	wg.Wait()
 
+	// Robinhood Chain (Blockscout — not indexed by Moralis).
+	if rh := m.fetchRobinhoodTxs(r, address); len(rh) > 0 {
+		all = append(all, rh...)
+	}
+
 	// Newest first across all chains; cap so the response stays lightweight.
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Timestamp > all[j].Timestamp })
 	if len(all) > 40 {

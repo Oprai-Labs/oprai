@@ -35,6 +35,8 @@ const CHAIN_META: Record<string, { label: string; color: string; icon: string }>
   polygon: { label: 'Polygon', color: '#8247e5', icon: tw('polygon') },
   arbitrum: { label: 'Arbitrum', color: '#28a0f0', icon: tw('arbitrum') },
   optimism: { label: 'Optimism', color: '#ff0420', icon: tw('optimism') },
+  // Robinhood has no Trust Wallet folder; use Relay's chain icon CDN.
+  robinhood: { label: 'Robinhood', color: '#00c805', icon: 'https://assets.relay.link/icons/4663/light.png' },
 };
 function tw(folder: string): string {
   return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${folder}/info/logo.png`;
