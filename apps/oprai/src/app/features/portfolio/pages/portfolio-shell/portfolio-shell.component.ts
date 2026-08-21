@@ -108,6 +108,7 @@ export class PortfolioShellComponent implements OnDestroy {
     { id: 'polygon', label: 'Polygon', color: '#8247e5', icon: this.tw('polygon') },
     { id: 'arbitrum', label: 'Arbitrum', color: '#28a0f0', icon: this.tw('arbitrum') },
     { id: 'optimism', label: 'Optimism', color: '#ff0420', icon: this.tw('optimism') },
+    { id: 'robinhood', label: 'Robinhood', color: '#00c805', icon: 'https://assets.relay.link/icons/4663/light.png' },
   ];
   private tw(folder: string): string {
     return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${folder}/info/logo.png`;

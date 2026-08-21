@@ -674,94 +674,60 @@ _BALANCE_ROW_RE = re.compile(
     r"(?:\s|$)",
 )
 
-# Matches header lines that announce a balance block. The model loves
-# opening with "Mevcut bakiyeleriniz:" / "Your current balances:" / "Here
-# is your wallet:" before listing fake numbers — stripping the header AND
-# the list keeps the visible text clean.
-_BALANCE_HEADER_RE = re.compile(
-    # Turkish: bakiye / bakiyem / bakiyen / bakiyeniz / bakiyelerim /
-    # bakiyeleriniz / bakiyeler — covers every realistic possessive form.
-    r"^\s*(?:\*\*)?\s*(?:mevcut\s+)?bakiye(?:ler(?:im|in|iniz)?|lerim|leriniz|niz|m|n)?"
-    # Turkish: "Cüzdan bakiyelerim:" / "Cüzdanım:" — wallet with possessive
-    r"|^\s*(?:\*\*)?\s*c[üu]zdan(?:[ıi]m|[ıi]n[ıi]z|[ıi]n)?\s*(?:bakiye\w*\s*)?[:：]"
-    r"|^\s*(?:\*\*)?\s*current\s+(?:wallet\s+)?balance"
-    r"|^\s*(?:\*\*)?\s*(?:here\s+is\s+|here\s+are\s+|this\s+is\s+)?your\s+wallet\s*[:：]"
-    r"|^\s*(?:\*\*)?\s*(?:your\s+)?wallet\s+(?:holds|holdings|balances?)"
-    r"|^\s*(?:\*\*)?\s*holdings?\s*[:：]",
-    re.IGNORECASE,
-)
+# A balance block opens with a label line — "Your balances:", "Cüzdanım:",
+# "Holdings:" — and the model likes writing one above invented rows. Detecting
+# it by its words meant one alternation per language, so it is detected by its
+# shape instead: a short line that ends in a colon and is immediately followed
+# by a balance row. That holds in any language, and a label long enough to be a
+# sentence is not a label.
+_LABEL_LINE_RE = re.compile(r"^\s*(?:\*\*)?[^\n]{0,60}?[:：]\s*(?:\*\*)?\s*$")
 
-# Matches comparison narratives: "USDC was 0.34, now 5.34" / "USDC bakiyeniz
-# 0.34 idi, şimdi 5.34" / "previously USDC: 0.34, currently …". These are
-# the worst fabrication mode — the model invents BOTH the old AND the new
-# number, then frames the comparison as if it had legitimately observed
-# the difference.
-#
-# Signals we look for in a paragraph to classify it as a balance
-# comparison fabrication. We require ALL of:
-#   - a possessive / balance keyword (`your`, `senin`, `bakiye`, `wallet`)
-#   - a token symbol (`USDC`, `SOL`, etc.)
-#   - at least one digit (the fabricated value)
-#   - EITHER a past+present pair (was X, now Y) OR an explicit
-#     "previously queried" / "daha önce sorgulanan" claim
-#
-# The possessive / balance keyword requirement is what separates this
-# from generic market commentary like "Total supply was 100 million SOL
-# last year and remains stable now": that has token + digit + past +
-# present, but no `your`/`bakiye` — it's not about the user's holdings.
-_BAL_PAST_RE = re.compile(
-    r"\b(?:daha\s+önce|önceden|previously|before|was|were|idi)\b",
-    re.IGNORECASE,
-)
-_BAL_PRESENT_RE = re.compile(
-    r"\b(?:şimdi|now|currently|güncel)\b",
-    re.IGNORECASE,
-)
+
+def _looks_like_balance_header(line: str, next_line: str | None) -> bool:
+    """True when `line` is a label introducing balance rows."""
+    if not _LABEL_LINE_RE.match(line):
+        return False
+    return bool(next_line and _BALANCE_ROW_RE.match(next_line))
+
+
+# A fabricated balance narrative is the worst mode: the model invents BOTH the
+# old and the new number, then frames the delta as if it had observed it. The
+# tell used to be matched by listing past-tense and present-tense words, which
+# is a per-language list and covered two. The tell is structural: the paragraph
+# quotes MORE THAN ONE number for the same holding. One number is a statement,
+# two is a comparison, and a comparison is exactly what cannot have been
+# observed when no balance tool ran this turn.
+_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+# Ticker symbols — proper nouns, so this list is about which assets we track,
+# not about which languages we cover.
 _BAL_TERM_RE = re.compile(
     r"\b(?:usdc|usds|usdt|sol|wsol|jitosol|msol|bonk|jup|ray|jto|tokens?)\b",
     re.IGNORECASE,
 )
-_OWNERSHIP_RE = re.compile(
-    r"\b(?:your|my|senin|sizin|benim|wallet|cüzdan(?:ım|ınız)?|"
-    r"bakiye(?:niz|leriniz|m)?|balance|holding|portfolio)\b",
-    re.IGNORECASE,
-)
-_DIGIT_RE = re.compile(r"\d")
 
-# Catches the "previously queried" / "daha önce sorgulanan" anti-pattern.
-# A single phrase claim — "according to the previously queried data, your
-# USDC was 0.34" — is fabrication regardless of whether the paragraph
-# also has a present-tense pivot.
-_PRIOR_QUERY_PHRASE_RE = re.compile(
-    r"(?:daha\s+önce\s+sorgulanan|önceki\s+sorgu|previously\s+queried|"
-    r"based\s+on\s+(?:the\s+)?(?:earlier|prior|previous)\s+query|"
-    r"sorgulanm[ıi]ş\s+veri(?:ye|ler))",
-    re.IGNORECASE,
-)
-
-
-def _is_balance_fabrication_paragraph(paragraph: str) -> bool:
+def _is_balance_fabrication_paragraph(
+    paragraph: str, user_asked_for_balance: bool
+) -> bool:
     """True if `paragraph` looks like fabricated balance commentary.
 
-    Requires all of: a digit, an ownership/balance keyword, a token
-    symbol, and either (past + present) or a "previously queried" phrase.
-    The compound requirement keeps generic market prose ("SOL was big in
-    2024, is now bigger") from triggering — that has no ownership word.
+    Requires all of: the user actually asked about their holdings, a token
+    symbol, and more than one number quoted for it. The first condition is
+    what keeps generic market prose out ("SOL was big in 2024, bigger now" is
+    two numbers about a token, but nobody asked about a balance), and it comes
+    from the intent classifier rather than from a list of possessive words in
+    the two languages someone happened to enumerate.
     """
-    if not _DIGIT_RE.search(paragraph):
-        return False
-    if not _OWNERSHIP_RE.search(paragraph):
+    if not user_asked_for_balance:
         return False
     if not _BAL_TERM_RE.search(paragraph):
         return False
-    if _PRIOR_QUERY_PHRASE_RE.search(paragraph):
-        return True
-    return bool(
-        _BAL_PAST_RE.search(paragraph) and _BAL_PRESENT_RE.search(paragraph)
-    )
+    return len(_NUMBER_RE.findall(paragraph)) >= 2
 
 
-def _strip_unverified_balance_lines(text: str) -> str:
+def _strip_unverified_balance_lines(
+    text: str, user_asked_for_balance: bool = False
+) -> str:
     """Strip balance-shaped lines and comparison narratives from assistant text.
 
     Apply ONLY when no balance tool was called this turn. The goal is to
@@ -771,8 +737,9 @@ def _strip_unverified_balance_lines(text: str) -> str:
     The regex set is intentionally narrow:
       - `_BALANCE_ROW_RE` only fires on `SYM: number` shapes without
         `$` or `%`, so price/share/APY lines pass through.
-      - `_BALANCE_HEADER_RE` catches the lead-in line so we don't leave
-        "Mevcut bakiyeleriniz:" dangling above an empty space.
+      - `_looks_like_balance_header` catches the lead-in label so we don't
+        leave it dangling above an empty space. It reads the shape (a short
+        line ending in a colon, followed by a balance row), not the words.
       - `_is_balance_fabrication_paragraph` removes whole paragraphs
         narrating a before/after delta the model has no way of having
         observed. Paragraph-level (not sentence) because embedded
@@ -784,10 +751,11 @@ def _strip_unverified_balance_lines(text: str) -> str:
     lines = text.split("\n")
     out: list[str] = []
     in_balance_block = False
-    for line in lines:
-        # Header line: enter a balance block (drop subsequent bullet/row lines
-        # too, until we see something that's clearly not a balance row).
-        if _BALANCE_HEADER_RE.search(line):
+    for idx, line in enumerate(lines):
+        # Label line introducing balance rows: enter a balance block (drop the
+        # rows below it too, until something that is clearly not a row).
+        _next = next((n for n in lines[idx + 1:] if n.strip() != ""), None)
+        if _looks_like_balance_header(line, _next):
             in_balance_block = True
             continue
 
@@ -815,7 +783,7 @@ def _strip_unverified_balance_lines(text: str) -> str:
     paragraphs = re.split(r"\n\s*\n", cleaned)
     kept_paragraphs = [
         p for p in paragraphs
-        if not _is_balance_fabrication_paragraph(p)
+        if not _is_balance_fabrication_paragraph(p, user_asked_for_balance)
     ]
     cleaned = "\n\n".join(kept_paragraphs)
     # Collapse the runs of blank lines we leave behind.
@@ -891,11 +859,10 @@ _PRICE_DATA_TYPES: frozenset[str] = frozenset({
 _PRICE_CLAIM_LINE_RE = re.compile(
     r"\$\s*\d[\d,]*(?:\.\d+)?",
 )
-_PRICE_FRAMING_RE = re.compile(
-    r"\b(?:price|trading\s+at|currently\s+(?:at|trading)|now\s+at|"
-    r"\bat\s+\$|worth(?:\s+about)?|fiyat[ıi]|şu\s+an\s+|şuan)\b",
-    re.IGNORECASE,
-)
+# Stablecoin peg statements ("pegged to $1", "$1.00") are about a design
+# target, not a fetched quote, so they survive the scrub on their value rather
+# than on the words around them.
+_PEG_VALUE_RE = re.compile(r"^\$\s*1(?:\.0+)?$")
 
 
 def _price_tool_called(tool_calls: list, market_data_results: list) -> bool:
@@ -922,36 +889,49 @@ def _price_tool_called(tool_calls: list, market_data_results: list) -> bool:
     return False
 
 
-def _strip_unverified_price_lines(text: str, allow_substrings: set[str] | None = None) -> str:
+def _strip_unverified_price_lines(
+    text: str,
+    allow_substrings: set[str] | None = None,
+    user_asked_for_price: bool = False,
+) -> str:
     """Strip lines containing fabricated price claims.
 
-    Apply ONLY when no price tool fired this turn. `allow_substrings` is
-    the set of $-prefixed numeric strings that DO appear in
-    precomputed_facts (e.g. {"$143.50"}); lines containing any of those
-    are preserved. The narrow framing requirement (price/trading/currently)
-    keeps peg statements and incidental prose intact.
+    Apply ONLY when no price tool fired this turn. `allow_substrings` holds
+    every $-number that actually came back from something this turn, so a line
+    quoting a real figure survives.
+
+    The scrub runs only when the user ASKED what something costs. That gate
+    used to be a list of framing words (price / trading at / fiyat / şu an),
+    which decided the question by its wording and so worked in the two
+    languages it listed; the classifier answers the same question in whatever
+    language the user wrote. It also draws the line in the right place: a
+    number in advice ("buy if it dips below $100") is a hypothetical the user
+    did not ask us to source, while a number answering "what is SOL worth" is a
+    claim we either fetched or invented.
     """
     if not text:
+        return text
+    if not user_asked_for_price:
         return text
     allow_substrings = allow_substrings or set()
 
     lines = text.split("\n")
     out: list[str] = []
     for line in lines:
+        claims = _PRICE_CLAIM_LINE_RE.findall(line)
         # No $-number → keep as-is.
-        if not _PRICE_CLAIM_LINE_RE.search(line):
+        if not claims:
             out.append(line)
             continue
-        # If precomputed_facts contained this exact $-number, keep.
-        if any(_a in line for _a in allow_substrings):
+        # Every $-number on the line is either something we fetched or a peg.
+        if all(
+            any(_a in line for _a in allow_substrings)
+            or _PEG_VALUE_RE.match(c.replace(" ", ""))
+            for c in claims
+        ):
             out.append(line)
             continue
-        # $1 / $1.00 / pegged to $1 — peg statements should survive. We
-        # only strip when the line also has a price-framing keyword.
-        if not _PRICE_FRAMING_RE.search(line):
-            out.append(line)
-            continue
-        # All conditions met: this is a fabricated price claim. Drop.
+        # A figure we never fetched, on a turn that asked for one. Drop.
         continue
 
     cleaned = "\n".join(out)
@@ -959,12 +939,30 @@ def _strip_unverified_price_lines(text: str, allow_substrings: set[str] | None =
     return cleaned
 
 
-def _allowed_price_substrings(precomputed_facts: str | None) -> set[str]:
-    """Extract $-prefixed numeric tokens from precomputed_facts so we
-    don't strip lines that quote real, fetched prices."""
-    if not precomputed_facts:
-        return set()
-    return set(re.findall(r"\$\s*\d[\d,]*(?:\.\d+)?", precomputed_facts))
+def _allowed_price_substrings(
+    precomputed_facts: str | None,
+    market_data_results: list | None = None,
+) -> set[str]:
+    """Every $-number that actually came back from something this turn.
+
+    Sources are the pre-computed facts block and the raw results of whatever
+    tools did run. The second half matters: the price scrub fires when no
+    *price* tool was called, but a pool or yield query returns dollar figures
+    too, and stripping those as fabrications would delete real data.
+    """
+    allowed: set[str] = set()
+    if precomputed_facts:
+        allowed |= set(re.findall(r"\$\s*\d[\d,]*(?:\.\d+)?", precomputed_facts))
+    for entry in market_data_results or []:
+        try:
+            blob = json.dumps(entry[2], ensure_ascii=False, default=str)
+        except (IndexError, TypeError, ValueError):
+            continue
+        # Results carry bare numbers, not "$"-prefixed ones, so match the digits
+        # and re-render them the way a reply would write them.
+        for num in re.findall(r"\d[\d,]*(?:\.\d+)?", blob):
+            allowed.add(f"${num}")
+    return allowed
 
 
 def _strip_querycard_duplicate_enumeration(text: str) -> str:
@@ -1476,122 +1474,6 @@ async def stream_chat_response(
               protocols=_all_protocols,
               has_explicit_tags=bool(_explicit))
 
-    # ── 5b. Direct action emit (skip LLM for unambiguous actions) ──────────
-    # When the user's wording is fully parseable ("swap 0.1 SOL to USDC",
-    # "send 5 USDC to <addr>", "stake 1 SOL with marinade") AND intent is
-    # action, we skip the LLM entirely. This eliminates the entire failure
-    # mode where the model emits execute_action({}) with empty params, cuts
-    # latency from ~6s to <200ms, and removes a per-row LLM token cost.
-    #
-    # Safety: only fires when validate_tool_call accepts the inferred
-    # payload (so the action card the user sees is identical to what the
-    # LLM would have produced through the validator path). On ANY failure
-    # we fall through to the normal LLM flow.
-    if intent_result.intent == "action" and not intent_result.is_category_request:
-        try:
-            from app.services.action_schemas import (
-                ValidatedAction,
-                validate_tool_call,
-            )
-            from app.services.pre_compute import (
-                infer_action_params,
-                resolve_sns_in_message,
-            )
-
-            _direct_inferred = infer_action_params(user_content or "")
-            if _direct_inferred:
-                # Resolve any .sol domains in the message and substitute them
-                # into the inferred params (e.g. recipient field).
-                _direct_sns = await resolve_sns_in_message(user_content or "")
-                if _direct_sns and _direct_inferred.get("params"):
-                    _dp = _direct_inferred["params"]
-                    for _sol_name, _owner in _direct_sns.items():
-                        for _k, _v in list(_dp.items()):
-                            if isinstance(_v, str) and _sol_name in _v:
-                                _dp[_k] = _v.replace(_sol_name, _owner)
-
-                # Explicit-tag override: if the user @-tagged a protocol, force
-                # the inferred action_type to match the tag family for stake
-                # operations (generic "stake" → "<tag>_stake").
-                _act_type = _direct_inferred.get("action_type", "")
-                if _explicit and _act_type in (
-                    "stake", "jito_stake", "marinade_stake", "jupsol_stake",
-                ):
-                    _stake_tag_map = {
-                        "jito": "jito_stake",
-                        "marinade": "marinade_stake",
-                        "jupiter": "jupsol_stake",
-                        "jupsol": "jupsol_stake",
-                    }
-                    for _tag in _explicit:
-                        if _tag in _stake_tag_map:
-                            _act_type = _stake_tag_map[_tag]
-                            _direct_inferred["action_type"] = _act_type
-                            break
-
-                _direct_args = json.dumps({
-                    "action_type": _direct_inferred.get("action_type", ""),
-                    "params": _direct_inferred.get("params") or {},
-                    "chain_from_previous": False,
-                    "_chain_depth": 0,
-                })
-                _direct_validated = validate_tool_call(
-                    "execute_action", _direct_args, authenticated_wallet=wallet,
-                )
-                if isinstance(_direct_validated, ValidatedAction):
-                    _direct_action_dict = _direct_validated.to_frontend_dict()
-                    _log_turn(
-                        "direct_action_emit",
-                        action_type=_direct_action_dict.get("type"),
-                        param_count=len(_direct_action_dict.get("params") or {}),
-                    )
-                    _log.info(
-                        "direct_action_emit: bypassed LLM for action=%s wallet=%s",
-                        _direct_action_dict.get("type"), wallet[:16] + "…",
-                    )
-
-                    # Emit the action card on the SSE stream.
-                    yield f"data: {json.dumps({'action': _direct_action_dict})}\n\n"
-
-                    # Persist the assistant message. Content is intentionally
-                    # empty — the frontend renders the action chip from
-                    # metadata.actions, no prose is needed (and any prose we
-                    # invent risks misleading the user about amounts/tokens).
-                    _direct_assistant_msg = ChatMessage(
-                        id=uuid.uuid4(),
-                        session_id=uuid.UUID(session_id),
-                        wallet_address=wallet,
-                        role="assistant",
-                        content="",
-                        metadata_={"actions": [_direct_action_dict]},
-                    )
-                    db.add(_direct_assistant_msg)
-                    try:
-                        await _increment_message_count(db, session_id)
-                        await db.execute(
-                            update(ChatSession)
-                            .where(ChatSession.id == uuid.UUID(session_id))
-                            .values(updated_at=func.now())
-                        )
-                    except Exception:
-                        _log.debug("direct_action: counter/updated_at bump failed", exc_info=True)
-                    await db.commit()
-
-                    yield f"data: {json.dumps({'messageId': str(_direct_assistant_msg.id)})}\n\n"
-
-                    if is_first_message:
-                        try:
-                            _title = await generate_title(user_content)
-                            await session_svc.update_title(db, wallet, session_id, _title)
-                            yield f"data: {json.dumps({'title': _title})}\n\n"
-                        except Exception:
-                            _log.warning("direct_action: title gen failed", exc_info=True)
-
-                    yield "data: [DONE]\n\n"
-                    return
-        except Exception:
-            _log.debug("direct_action_emit: falling through to LLM", exc_info=True)
-
     # ── 6. Build LLM context with the union of protocols ──────────────────
     # The prompt loader scopes which protocol prompt files to load; passing
     # the classifier-detected ids keeps prompt docs aligned with the tool
@@ -2062,7 +1944,7 @@ async def stream_chat_response(
                     # tool calls. If that prose asserts a wallet balance, it's
                     # fabricated by definition — there's no source. Strip.
                     if _full_text and not _balance_tool_called(collected_tool_calls, market_data_results):
-                        _scrubbed = _strip_unverified_balance_lines(_full_text)
+                        _scrubbed = _strip_unverified_balance_lines(_full_text, intent_result.wants_balance)
                         if _scrubbed != _full_text:
                             _log.info(
                                 "balance_fabrication_stripped before=%d after=%d wallet=%s",
@@ -2072,8 +1954,8 @@ async def stream_chat_response(
                     # Price-fabrication guard: same idea, but for $-prices.
                     # Allowed substrings = $-numbers found in precomputed_facts.
                     if _full_text and not _price_tool_called(collected_tool_calls, market_data_results):
-                        _allowed = _allowed_price_substrings(precomputed_facts)
-                        _scrubbed_p = _strip_unverified_price_lines(_full_text, _allowed)
+                        _allowed = _allowed_price_substrings(precomputed_facts, market_data_results)
+                        _scrubbed_p = _strip_unverified_price_lines(_full_text, _allowed, intent_result.wants_price)
                         if _scrubbed_p != _full_text:
                             _log.info(
                                 "price_fabrication_stripped before=%d after=%d wallet=%s",
@@ -2161,27 +2043,6 @@ async def stream_chat_response(
                     _original_count - len(collected_tool_calls), wallet,
                 )
 
-        # Pre-extract deterministic params from the user message (regex
-        # patterns in pre_compute). When the model emits an action with
-        # empty / partial params (mini's documented failure under
-        # tool_choice="required"), we merge these in before validation so
-        # the action survives instead of getting dropped + recovered.
-        # Also resolve any `.sol` domains in the same pass so the merged
-        # recipient is a real Solana address, not the .sol literal.
-        try:
-            from app.services.pre_compute import infer_action_params, resolve_sns_in_message
-            _inferred_params = infer_action_params(user_content or "")
-            _sns_map = await resolve_sns_in_message(user_content or "")
-            if _sns_map and _inferred_params.get("params"):
-                _p = _inferred_params["params"]
-                for sol_name, owner in _sns_map.items():
-                    for k, v in list(_p.items()):
-                        if isinstance(v, str) and sol_name in v:
-                            _p[k] = v.replace(sol_name, owner)
-        except Exception:
-            _inferred_params = {}
-            _sns_map = {}
-
         chain_depth = 0
         # Deterministic lending-protocol correction. gpt-5.4-mini intermittently
         # emits a Kamino-specific action (kamino_deposit / kamino_withdraw /
@@ -2244,25 +2105,6 @@ async def stream_chat_response(
                         _tc_args_parsed.get("action_type"), _generic, _named_lender, wallet[:16] + "…",
                     )
                     _tc_args_parsed["action_type"] = _generic
-                # Gap-fill: if execute_action's params are empty/partial AND
-                # pre_compute extracted params for the SAME action_type, merge.
-                # Model's emitted params win on conflict; we only fill gaps.
-                if (
-                    tc_name == "execute_action"
-                    and _inferred_params
-                    and _inferred_params.get("action_type") == _tc_args_parsed.get("action_type")
-                ):
-                    existing = _tc_args_parsed.get("params") or {}
-                    if not isinstance(existing, dict):
-                        existing = {}
-                    inferred_p = _inferred_params.get("params") or {}
-                    merged = {**inferred_p, **{k: v for k, v in existing.items() if v}}
-                    _tc_args_parsed["params"] = merged
-                    if merged != existing:
-                        _log.info(
-                            "gap_fill: merged %d inferred params into %s (model emitted %d)",
-                            len(inferred_p), _tc_args_parsed.get("action_type"), len(existing),
-                        )
                 tc_args_with_depth = json.dumps(_tc_args_parsed)
             except Exception:
                 tc_args_with_depth = tc_args
@@ -2615,7 +2457,7 @@ async def stream_chat_response(
                         # a pool query.
                         if not _balance_tool_called(collected_tool_calls, market_data_results):
                             joined = "".join(_fu_buffer)
-                            scrubbed = _strip_unverified_balance_lines(joined)
+                            scrubbed = _strip_unverified_balance_lines(joined, intent_result.wants_balance)
                             if scrubbed != joined:
                                 _log.info(
                                     "balance_fabrication_stripped_tokenres before=%d after=%d wallet=%s",
@@ -2624,8 +2466,8 @@ async def stream_chat_response(
                                 _fu_buffer = [scrubbed] if scrubbed else []
                         if not _price_tool_called(collected_tool_calls, market_data_results):
                             joined_p = "".join(_fu_buffer)
-                            allowed_p = _allowed_price_substrings(precomputed_facts)
-                            scrubbed_p = _strip_unverified_price_lines(joined_p, allowed_p)
+                            allowed_p = _allowed_price_substrings(precomputed_facts, market_data_results)
+                            scrubbed_p = _strip_unverified_price_lines(joined_p, allowed_p, intent_result.wants_price)
                             if scrubbed_p != joined_p:
                                 _log.info(
                                     "price_fabrication_stripped_tokenres before=%d after=%d wallet=%s",
@@ -2959,7 +2801,7 @@ async def stream_chat_response(
                             collected_tool_calls, market_data_results,
                         ):
                             joined = "".join(_fu_buffer)
-                            scrubbed = _strip_unverified_balance_lines(joined)
+                            scrubbed = _strip_unverified_balance_lines(joined, intent_result.wants_balance)
                             if scrubbed != joined:
                                 _log.info(
                                     "balance_fabrication_stripped_followup before=%d after=%d wallet=%s",
@@ -2970,8 +2812,8 @@ async def stream_chat_response(
                             collected_tool_calls, market_data_results,
                         ):
                             joined_p = "".join(_fu_buffer)
-                            allowed_p = _allowed_price_substrings(precomputed_facts)
-                            scrubbed_p = _strip_unverified_price_lines(joined_p, allowed_p)
+                            allowed_p = _allowed_price_substrings(precomputed_facts, market_data_results)
+                            scrubbed_p = _strip_unverified_price_lines(joined_p, allowed_p, intent_result.wants_price)
                             if scrubbed_p != joined_p:
                                 _log.info(
                                     "price_fabrication_stripped_followup before=%d after=%d wallet=%s",

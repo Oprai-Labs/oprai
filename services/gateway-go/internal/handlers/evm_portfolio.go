@@ -68,7 +68,7 @@ const twBase = "https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchain
 func tokenLogo(chain, tokenAddr string, native bool) string {
 	if native {
 		switch chain {
-		case "ethereum", "base", "arbitrum", "optimism":
+		case "ethereum", "base", "arbitrum", "optimism", "robinhood":
 			return twBase + "ethereum/info/logo.png" // native coin is ETH
 		case "polygon":
 			return twBase + "polygon/info/logo.png" // POL
@@ -245,6 +245,20 @@ func (m *MarketProxy) GetEvmPortfolio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := normalizeEVMPortfolio(address, &parsed)
+
+	// Robinhood Chain is not indexed by Alchemy — read it from its Blockscout and
+	// merge into the same multichain response. A miss returns nothing, never fails.
+	if rhTokens, rhUsd := m.fetchRobinhoodTokens(r, address); len(rhTokens) > 0 {
+		if toks, ok := out["tokens"].([]evmToken); ok {
+			toks = append(toks, rhTokens...)
+			sort.SliceStable(toks, func(i, j int) bool { return toks[i].ValueUsd > toks[j].ValueUsd })
+			out["tokens"] = toks
+		}
+		if tu, ok := out["totalUsd"].(float64); ok {
+			out["totalUsd"] = tu + rhUsd
+		}
+	}
+
 	body, err := json.Marshal(out)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to encode portfolio")
