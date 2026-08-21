@@ -416,6 +416,7 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "strategy_flows":        _A({"analysis", "staking", "lending"}),
     "position_review":       _A({"analysis", "portfolio", "dex"}),
     "lending_rates":         _A({"analysis", "lending", "always"}),
+    "capabilities":          _A({"always", "core"}),
     "wallet_strategies":     _A({"analysis", "portfolio", "staking", "lending"}),
     "marinade_list_tickets":  _A({"staking", "marinade", "portfolio"}),
     # Birdeye

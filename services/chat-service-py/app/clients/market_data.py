@@ -2104,6 +2104,125 @@ async def token_strategies(mint: str, amount: str, usdValue: str = "", horizonDa
     return await _solana_action_data("token_strategies", params)
 
 
+# ── /help — what this assistant can actually do ─────────────────────────────
+#
+# Derived from the registries, never written by hand. A capability list that is
+# maintained separately drifts from the product within a release or two, and a
+# user is then told about something that no longer works or — worse — not told
+# about something that does. Everything below is read from the same tables that
+# decide what the model may call, so the answer is true by construction.
+
+_NETWORKS: dict[str, dict] = {
+    "Solana": {
+        "note": "Every protocol integration and all analysis lives here.",
+        "protocol_tags": None,  # all of them
+    },
+    # Relay and deBridge reach these; nothing protocol-specific runs on them.
+    "EVM chains and Robinhood": {
+        "note": (
+            "Reached through bridging and cross-chain swaps — Ethereum, Base, "
+            "Arbitrum, Optimism, Polygon, BSC, Avalanche, Linea, zkSync, "
+            "Scroll and others, plus the Robinhood chain. Balances can be read "
+            "and assets moved; the DeFi protocol actions are Solana-only."
+        ),
+        "protocol_tags": {"relay", "debridge"},
+    },
+}
+
+# Human names for the protocol tags. Only the label is hand-written; whether a
+# protocol appears at all comes from the registry.
+_PROTOCOL_LABELS: dict[str, str] = {
+    "jupiter": "Jupiter", "raydium": "Raydium", "orca": "Orca",
+    "meteora": "Meteora", "marinade": "Marinade", "jito": "Jito",
+    "kamino": "Kamino", "solend": "Save (Solend)", "tensor": "Tensor",
+    "magic_eden": "Magic Eden", "pumpfun": "pump.fun", "relay": "Relay",
+    "debridge": "deBridge", "streamflow": "Streamflow",
+    "native_stake": "Native staking",
+}
+
+_CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
+    "Trading and swaps": ("dex", "trading"),
+    "Lending and borrowing": ("lending",),
+    "Staking": ("staking", "native_stake"),
+    "Liquidity pools": ("liquidity",),
+    "NFTs": ("nft", "nft_read"),
+    "Token launch": ("token_launch",),
+    "Bridging and cross-chain": ("bridge",),
+    "Payments and streaming": ("streaming",),
+    "Analysis and research": ("analysis", "portfolio", "price"),
+}
+
+
+async def capabilities() -> dict:
+    """Everything this assistant can do, by network — read from the registries.
+
+    The answer to "what can you do" and to /help. It is assembled from the
+    same tables that gate what the model may call, so it cannot describe a
+    feature that was removed or omit one that was added.
+    """
+    from app.services.tool_selector import (
+        ACTION_TAGS,
+        PROTOCOL_TO_TAGS,
+        QUERY_TAGS,
+    )
+
+    def _tags_of(name: str) -> frozenset[str]:
+        return ACTION_TAGS.get(name) or QUERY_TAGS.get(name) or frozenset()
+
+    # Which protocols are actually wired, and how much of each.
+    protocols = []
+    for proto, tags in sorted(PROTOCOL_TO_TAGS.items()):
+        acts = [a for a, t in ACTION_TAGS.items() if t & tags]
+        queries = [q for q, t in QUERY_TAGS.items() if t & tags]
+        if not acts and not queries:
+            continue  # registered but nothing reachable — do not advertise it
+        protocols.append({
+            "id": proto,
+            "name": _PROTOCOL_LABELS.get(proto, proto),
+            "actions": len(acts),
+            "reads": len(queries),
+        })
+
+    # What kinds of thing can be done at all, regardless of venue.
+    groups = []
+    for label, wanted in _CAPABILITY_GROUPS.items():
+        want = frozenset(wanted)
+        acts = sorted(a for a, t in ACTION_TAGS.items() if t & want)
+        reads = sorted(q for q, t in QUERY_TAGS.items() if t & want)
+        if not acts and not reads:
+            continue
+        groups.append({
+            "area": label,
+            "canDo": len(acts),
+            "canRead": len(reads),
+            # A few concrete names so the answer is not only counts.
+            "examples": (acts[:4] or reads[:4]),
+        })
+
+    cross_chain = {p["name"] for p in protocols if p["id"] in {"relay", "debridge"}}
+    networks = []
+    for name, meta in _NETWORKS.items():
+        entry = {"network": name, "note": meta["note"]}
+        if meta["protocol_tags"] is None:
+            entry["protocols"] = [
+                p["name"] for p in protocols if p["id"] not in {"relay", "debridge"}
+            ]
+        else:
+            entry["protocols"] = sorted(cross_chain)
+        networks.append(entry)
+
+    return {
+        "networks": networks,
+        "capabilityAreas": groups,
+        "protocolDetail": protocols,
+        "totals": {
+            "protocols": len(protocols),
+            "actions": len(ACTION_TAGS),
+            "reads": len(QUERY_TAGS),
+        },
+    }
+
+
 async def lending_rates(mint: str = "") -> dict:
     """What an asset earns to lend, across every venue, in one answer.
 
@@ -2432,6 +2551,7 @@ _DISPATCH: dict[str, tuple] = {
     "strategy_flows":       (strategy_flows,       [],                 ["usdValue", "mint"]),
     "position_review":      (position_review,      [],                 ["wallet"]),
     "lending_rates":        (lending_rates,        [],                 ["mint"]),
+    "capabilities":         (capabilities,         [],                 []),
     "wallet_strategies":    (wallet_strategies,    ["wallet"],         ["minUsd"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)

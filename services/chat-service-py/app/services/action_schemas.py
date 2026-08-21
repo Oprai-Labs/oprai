@@ -442,6 +442,7 @@ class QueryType(str, Enum):
     STRATEGY_FLOWS = "strategy_flows"
     POSITION_REVIEW = "position_review"
     LENDING_RATES = "lending_rates"
+    CAPABILITIES = "capabilities"
     # The whole wallet in one answer, fees kept back and dust skipped.
     WALLET_STRATEGIES = "wallet_strategies"
     MARINADE_LIST_TICKETS = "marinade_list_tickets"
