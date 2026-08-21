@@ -66,6 +66,19 @@ fn account_from_req(req: &HttpRequest) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// The trader's cashback tier percent, from their POOLED (fee-paying) volume
+/// across all their wallets/chains. Used to split a Relay app fee at collection
+/// into the cashback pool vs the profit wallet, so the pool self-funds with
+/// exactly what it owes. A DB miss reads as tier 1 (the lowest cashback %).
+async fn trader_cashback_pct(state: &AppState, req: &HttpRequest) -> u16 {
+    let wallet = wallet_from_req(req).unwrap_or_default();
+    let account = account_from_req(req);
+    let volume =
+        crate::db::economics::account_tier_volume_usd(&state.pool, account.as_deref(), &wallet)
+            .await;
+    crate::services::fees::cashback_pct_for_volume(volume)
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // POST /actions/quote
 // ──────────────────────────────────────────────────────────────────────────────
@@ -198,7 +211,8 @@ pub async fn post_cross_chain_quote(
 
     relay::validate_cross_chain_params(&body)?;
 
-    let quote = relay::get_cross_chain_quote(&state.http, &body, &wallet, state.relay_fee_recipient.as_deref()).await
+    let cashback_pct = trader_cashback_pct(&state, &req).await;
+    let quote = relay::get_cross_chain_quote(&state.http, &body, &wallet, state.relay_fee_recipient.as_deref(), cashback_pct).await
         .map_err(|e| {
             tracing::error!(error = %e, user_wallet = %wallet, origin = %body.origin_chain_id, dest = %body.destination_chain_id, "Failed to get cross-chain quote");
             e
@@ -497,6 +511,7 @@ pub async fn post_build(
     // Reward model is cashback, not a fee discount — full commission is charged
     // and a tier % is credited to the cashback ledger afterwards. Discount = 0.
     let fee_discount_pct: u16 = 0;
+    let cashback_pct = trader_cashback_pct(&state, &req).await;
 
     let result = builder::build_action(
         &state.http,
@@ -509,6 +524,7 @@ pub async fn post_build(
         &body.action_type,
         params,
         fee_discount_pct,
+        cashback_pct,
     )
     .await
     .map_err(|e| {
@@ -1510,8 +1526,7 @@ pub async fn post_relay_record(
     }
 
     let not_recorded = |reason: &str| {
-        Ok(HttpResponse::Ok()
-            .json(serde_json::json!({ "recorded": false, "reason": reason })))
+        Ok(HttpResponse::Ok().json(serde_json::json!({ "recorded": false, "reason": reason })))
     };
 
     // 1. Must be a settled success. The server asks Relay; the client cannot assert it.
