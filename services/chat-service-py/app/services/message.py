@@ -3632,10 +3632,24 @@ async def stream_chat_response(
         # happen when every tool call validates to None AND the recovery
         # loop produces nothing — rare, but the user-facing experience
         # of an empty bubble is the worst possible failure mode.
+        # A validated query is not the same as something the user can see. The
+        # card-rendering types put a live card on screen and speak for
+        # themselves; the rest only feed data back to the model, so if that
+        # fetch fails and the model then says nothing, the guard is the only
+        # thing between the user and a blank screen.
+        #
+        # It used to be skipped whenever any query validated at all. A strategy
+        # read timed out, the model produced no text, and the question vanished
+        # — with the one mechanism built to prevent exactly that standing down
+        # because a tool call had been *made*.
+        rendered_something = any(
+            getattr(q, "type", None) and q.type.value in QUERY_CARD_RENDER_TYPES
+            for q in validated_queries
+        )
         if (
             not full_response
             and not validated_actions
-            and not validated_queries
+            and not rendered_something
             and not validated_clarifications
         ):
             # The model stalled mid-turn (e.g. it fetched a price for a limit
