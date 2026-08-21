@@ -20,7 +20,6 @@ it, and a typo'd status is a report that quietly disappears from every view.
 
 from alembic import op
 
-
 revision = "20260814_add_issue_reports"
 down_revision = "20260814_add_session_shares"
 branch_labels = None

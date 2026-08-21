@@ -8,11 +8,11 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from app.config import settings
 
 # Import models so Alembic can detect them for autogenerate
 from app.models.consent import Base, UserConsent  # noqa: F401
 from app.models.memory_operation import MemoryOperation  # noqa: F401
-from app.config import settings
 
 config = context.config
 

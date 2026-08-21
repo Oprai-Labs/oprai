@@ -4,9 +4,10 @@ Tests for Autonomous Agent module.
 Tests autonomous loop and manager classes.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestActionType:
@@ -28,7 +29,7 @@ class TestScheduledAction:
 
     def test_scheduled_action_defaults(self):
         """Test default values"""
-        from app.agents.autonomous import ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, ScheduledAction
 
         action = ScheduledAction(
             action_type=ActionType.CHECK_PRICES,
@@ -43,7 +44,7 @@ class TestScheduledAction:
 
     def test_scheduled_action_with_values(self):
         """Test with custom values"""
-        from app.agents.autonomous import ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, ScheduledAction
 
         def callback():
             pass
@@ -109,7 +110,7 @@ class TestAutonomousLoopInit:
 
     def test_default_actions_setup(self):
         """Test default actions are set up"""
-        from app.agents.autonomous import AutonomousLoop, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -128,7 +129,7 @@ class TestAutonomousLoopScheduling:
 
     def test_schedule_action(self):
         """Test scheduling an action"""
-        from app.agents.autonomous import AutonomousLoop, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -154,7 +155,7 @@ class TestAutonomousLoopScheduling:
 
     def test_remove_action(self):
         """Test removing an action"""
-        from app.agents.autonomous import AutonomousLoop, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -168,7 +169,7 @@ class TestAutonomousLoopScheduling:
 
     def test_enable_action(self):
         """Test enabling an action"""
-        from app.agents.autonomous import AutonomousLoop, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -184,7 +185,7 @@ class TestAutonomousLoopScheduling:
 
     def test_disable_action(self):
         """Test disabling an action"""
-        from app.agents.autonomous import AutonomousLoop, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -241,7 +242,7 @@ class TestAutonomousLoopConditions:
     @pytest.mark.asyncio
     async def test_check_conditions_no_conditions(self):
         """Test with no conditions"""
-        from app.agents.autonomous import AutonomousLoop, ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop, ScheduledAction
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -258,7 +259,7 @@ class TestAutonomousLoopConditions:
     @pytest.mark.asyncio
     async def test_check_conditions_twitter(self):
         """Test twitter condition"""
-        from app.agents.autonomous import AutonomousLoop, ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop, ScheduledAction
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -279,7 +280,7 @@ class TestAutonomousLoopConditions:
     @pytest.mark.asyncio
     async def test_check_conditions_twitter_missing(self):
         """Test twitter condition when missing"""
-        from app.agents.autonomous import AutonomousLoop, ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop, ScheduledAction
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -304,7 +305,7 @@ class TestAutonomousLoopExecute:
     @pytest.mark.asyncio
     async def test_execute_action_with_callback(self):
         """Test executing action with callback"""
-        from app.agents.autonomous import AutonomousLoop, ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop, ScheduledAction
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -330,7 +331,7 @@ class TestAutonomousLoopExecute:
     @pytest.mark.asyncio
     async def test_execute_action_no_callback(self):
         """Test executing action without callback"""
-        from app.agents.autonomous import AutonomousLoop, ScheduledAction, ActionType
+        from app.agents.autonomous import ActionType, AutonomousLoop, ScheduledAction
 
         mock_agent = MagicMock()
         mock_agent.character.name = "Test"
@@ -431,10 +432,9 @@ class TestGlobalAutonomousManager:
 
     def test_get_autonomous_manager(self):
         """Test getting manager"""
-        from app.agents.autonomous import get_autonomous_manager
-
         # Reset global
         import app.agents.autonomous as aut_module
+        from app.agents.autonomous import get_autonomous_manager
         aut_module._autonomous_manager = None
 
         manager = get_autonomous_manager()
@@ -443,10 +443,9 @@ class TestGlobalAutonomousManager:
 
     def test_singleton(self):
         """Test singleton behavior"""
-        from app.agents.autonomous import get_autonomous_manager
-
         # Reset global
         import app.agents.autonomous as aut_module
+        from app.agents.autonomous import get_autonomous_manager
         aut_module._autonomous_manager = None
 
         manager1 = get_autonomous_manager()

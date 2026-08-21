@@ -4,9 +4,10 @@ Tests for Summary Service module.
 Tests conversation summarization using OpenAI.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestSummaryServiceInit:

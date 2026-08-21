@@ -4,8 +4,9 @@ Tests for Embeddings Service module.
 Tests embedding generation using OpenAI API.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestEmbeddingServiceInit:

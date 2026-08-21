@@ -10,10 +10,10 @@ Provides real-time portfolio analytics:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +69,14 @@ class RealTimeAnalytics:
 
     def __init__(self):
         # Cache for price data
-        self._price_cache: Dict[str, float] = {}
-        self._price_cache_time: Dict[str, datetime] = {}
+        self._price_cache: dict[str, float] = {}
+        self._price_cache_time: dict[str, datetime] = {}
 
     async def calculate_portfolio_metrics(
         self,
-        positions: List[Dict[str, Any]],
-        prices: Optional[Dict[str, float]] = None,
-    ) -> Dict[str, Any]:
+        positions: list[dict[str, Any]],
+        prices: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
         """
         Calculate comprehensive portfolio metrics.
 
@@ -141,9 +141,9 @@ class RealTimeAnalytics:
 
     async def calculate_pnl(
         self,
-        positions: List[Dict[str, Any]],
-        historical_snapshots: Optional[List[Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
+        positions: list[dict[str, Any]],
+        historical_snapshots: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """
         Calculate P&L metrics.
 
@@ -190,8 +190,8 @@ class RealTimeAnalytics:
 
     async def get_protocol_attribution(
         self,
-        positions: List[Dict[str, Any]],
-    ) -> List[ProtocolAttribution]:
+        positions: list[dict[str, Any]],
+    ) -> list[ProtocolAttribution]:
         """
         Get protocol-level performance attribution.
 
@@ -205,7 +205,7 @@ class RealTimeAnalytics:
             return []
 
         # Group by protocol
-        protocol_data: Dict[str, Dict] = {}
+        protocol_data: dict[str, dict] = {}
 
         for pos in positions:
             protocol = pos.get("protocol", "unknown")
@@ -260,9 +260,9 @@ class RealTimeAnalytics:
 
     async def get_performance_metrics(
         self,
-        positions: List[Dict[str, Any]],
+        positions: list[dict[str, Any]],
         timeframe_days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Calculate performance metrics.
 
@@ -310,8 +310,8 @@ class RealTimeAnalytics:
 
     async def get_risk_metrics(
         self,
-        positions: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        positions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """
         Calculate portfolio risk metrics.
 
@@ -363,7 +363,7 @@ class RealTimeAnalytics:
         }
 
     # Helper methods
-    def _calculate_allocations(self, positions: List[Dict]) -> Dict[str, float]:
+    def _calculate_allocations(self, positions: list[dict]) -> dict[str, float]:
         """Calculate allocation by category"""
         total = sum(p.get("value_usd", 0) for p in positions)
         if total == 0:
@@ -378,7 +378,7 @@ class RealTimeAnalytics:
 
         return allocations
 
-    def _calculate_concentration(self, positions: List[Dict], total: float) -> Dict:
+    def _calculate_concentration(self, positions: list[dict], total: float) -> dict:
         """Calculate concentration metrics"""
         if total == 0:
             return {"risk": "unknown", "top_holder_pct": 0}
@@ -396,7 +396,7 @@ class RealTimeAnalytics:
             "top_holder_protocol": max_pos.get("protocol", "unknown"),
         }
 
-    def _calculate_pnl_by_token(self, positions: List[Dict]) -> List[Dict]:
+    def _calculate_pnl_by_token(self, positions: list[dict]) -> list[dict]:
         """Calculate P&L by token"""
         pnl_list = []
 
@@ -431,7 +431,7 @@ class RealTimeAnalytics:
         }
         return risk_map.get(protocol.lower(), "medium")
 
-    def _empty_portfolio_metrics(self) -> Dict:
+    def _empty_portfolio_metrics(self) -> dict:
         return {
             "summary": {
                 "total_value_usd": 0,
@@ -447,7 +447,7 @@ class RealTimeAnalytics:
             "updated_at": datetime.utcnow().isoformat(),
         }
 
-    def _empty_pnl_metrics(self) -> Dict:
+    def _empty_pnl_metrics(self) -> dict:
         return {
             "unrealized_pnl": 0,
             "realized_pnl": 0,
@@ -456,7 +456,7 @@ class RealTimeAnalytics:
             "updated_at": datetime.utcnow().isoformat(),
         }
 
-    def _empty_performance_metrics(self) -> Dict:
+    def _empty_performance_metrics(self) -> dict:
         return {
             "total_value_usd": 0,
             "weighted_apy": 0,
@@ -467,7 +467,7 @@ class RealTimeAnalytics:
             "updated_at": datetime.utcnow().isoformat(),
         }
 
-    def _empty_risk_metrics(self) -> Dict:
+    def _empty_risk_metrics(self) -> dict:
         return {
             "diversification_score": 0,
             "concentration_risk": "low",
@@ -482,7 +482,7 @@ class RealTimeAnalytics:
 
 
 # Global instance
-_analytics: Optional[RealTimeAnalytics] = None
+_analytics: RealTimeAnalytics | None = None
 
 
 def get_analytics() -> RealTimeAnalytics:

@@ -7,8 +7,8 @@ regenerate if the .proto files change.
 
 import asyncio
 import logging
-import sys
 import os
+import sys
 from concurrent import futures
 from pathlib import Path
 
@@ -17,8 +17,9 @@ from grpc import aio as grpc_aio
 
 from app.config import settings
 from app.db.connection import async_session_factory
-from app.services import session as session_svc
 from app.services import message as message_svc
+from app.services import session as session_svc
+from datetime import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,12 @@ if str(_PROTO_GEN) not in sys.path:
     sys.path.insert(0, str(_PROTO_GEN))
 
 try:
-    from proto.chat import session_pb2, session_pb2_grpc  # type: ignore
-    from proto.chat import message_pb2, message_pb2_grpc  # type: ignore
+    from proto.chat import (  # type: ignore  # type: ignore
+        message_pb2,
+        message_pb2_grpc,
+        session_pb2,
+        session_pb2_grpc,
+    )
     _STUBS_AVAILABLE = True
 except ImportError as _import_err:
     logger.warning(
@@ -111,6 +116,7 @@ class _ChatMessageServicer(message_pb2_grpc.ChatMessageServiceServicer if _STUBS
         """Streaming RPC: streams token deltas then the completed message."""
         import json
         from datetime import datetime, timezone
+
         from app.services import session as session_svc
 
         session_id = request.session_id
@@ -153,14 +159,15 @@ class _ChatMessageServicer(message_pb2_grpc.ChatMessageServiceServicer if _STUBS
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _session_to_proto(sess: dict):
-    from google.protobuf.timestamp_pb2 import Timestamp
     from datetime import datetime, timezone
+
+    from google.protobuf.timestamp_pb2 import Timestamp
 
     def _ts(iso: str | None):
         ts = Timestamp()
         if iso:
             try:
-                dt = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+                dt = datetime.fromisoformat(iso).replace(tzinfo=UTC)
                 ts.FromDatetime(dt)
             except Exception:
                 pass
@@ -176,8 +183,9 @@ def _session_to_proto(sess: dict):
 
 
 def _message_to_proto(msg: dict):
-    from google.protobuf.timestamp_pb2 import Timestamp
     from datetime import datetime, timezone
+
+    from google.protobuf.timestamp_pb2 import Timestamp
 
     role_map = {"user": 1, "assistant": 2, "system": 3}
 
@@ -185,7 +193,7 @@ def _message_to_proto(msg: dict):
     iso = msg.get("timestamp")
     if iso:
         try:
-            dt = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+            dt = datetime.fromisoformat(iso).replace(tzinfo=UTC)
             ts.FromDatetime(dt)
         except Exception:
             pass

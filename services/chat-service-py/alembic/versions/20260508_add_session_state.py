@@ -15,10 +15,10 @@ This survives block summarisation, which is the primary defence against
 100 messages" failure mode we saw in production.
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision = "20260508_add_session_state"
 down_revision = "20260417_chat_audit_events"

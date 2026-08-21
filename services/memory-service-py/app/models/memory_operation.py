@@ -8,8 +8,8 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.consent import Base
 from app.config import settings
+from app.models.consent import Base
 
 
 class MemoryOperation(Base):

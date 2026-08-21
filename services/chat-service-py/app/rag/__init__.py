@@ -12,7 +12,7 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from functools import lru_cache
 from typing import Any, Optional
 
@@ -53,10 +53,10 @@ class KnowledgeChunk:
     section_path: str
     source_url: str
     source_type: str
-    protocol: Optional[str]
-    category: Optional[str]
+    protocol: str | None
+    category: str | None
     language: str
-    published_at: Optional[int]
+    published_at: int | None
     token_count: int
     score: float = 0.0
     tags: list[str] = field(default_factory=list)
@@ -70,7 +70,7 @@ class _EmbeddingCache:
         self._order: list[str] = []
         self._maxsize = maxsize
 
-    def get(self, key: str) -> Optional[list[float]]:
+    def get(self, key: str) -> list[float] | None:
         return self._cache.get(key)
 
     def set(self, key: str, value: list[float]) -> None:
@@ -92,10 +92,10 @@ class RAGService:
     block suitable for direct inclusion as a system message.
     """
 
-    def __init__(self, qdrant_url: Optional[str] = None) -> None:
+    def __init__(self, qdrant_url: str | None = None) -> None:
         self._qdrant_url = qdrant_url or settings.QDRANT_URL
-        self._client: Optional[AsyncQdrantClient] = None
-        self._openai: Optional[AsyncOpenAI] = None
+        self._client: AsyncQdrantClient | None = None
+        self._openai: AsyncOpenAI | None = None
         self._embed_cache = _EmbeddingCache()
 
     # ── Lazy clients ─────────────────────────────────────────────────────────
@@ -223,7 +223,7 @@ class RAGService:
         self,
         query_vec: list[float],
         top_k: int,
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> list[KnowledgeChunk]:
         client = await self._get_qdrant()
 
@@ -318,7 +318,7 @@ class RAGService:
             ts = ""
             if chunk.published_at:
                 try:
-                    dt = datetime.fromtimestamp(chunk.published_at / 1000, tz=timezone.utc)
+                    dt = datetime.fromtimestamp(chunk.published_at / 1000, tz=UTC)
                     ts = dt.strftime("%Y-%m-%d")
                 except Exception:
                     pass
@@ -330,7 +330,7 @@ class RAGService:
             title_line = chunk.title if chunk.title else chunk.doc_id
 
             block = (
-                f"---\n"
+                "---\n"
                 + (f"{title_line}" if title_line else "")
                 + (f" ({meta})" if meta else "")
                 + "\n"
@@ -393,7 +393,7 @@ class RAGService:
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 
-_rag_service: Optional[RAGService] = None
+_rag_service: RAGService | None = None
 
 
 def get_rag_service() -> RAGService:

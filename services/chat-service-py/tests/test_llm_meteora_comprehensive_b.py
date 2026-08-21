@@ -334,7 +334,7 @@ class TestDV1GetPools_Advanced:
         )
 
     def test_msol_sol_pool_filter(self, chat_client):
-        r = _chat(chat_client, f"DAMM v1'de mSOL içeren havuzları listele")
+        r = _chat(chat_client, "DAMM v1'de mSOL içeren havuzları listele")
         assert_triggered(r, "DAMMV1_GET_POOLS")
         assert_no_raw_json(r)
         assert_no_hallucination(r)
@@ -445,7 +445,7 @@ class TestDV1GetFarms_Advanced:
         assert_mentions(r, ["farm", "reward", "ödül", "apr", "stake"], min_hits=1)
 
     def test_farms_not_pool_specific(self, chat_client):
-        r = _chat(chat_client, f"DAMM v1 farmlarını getir (tüm farmlar)")
+        r = _chat(chat_client, "DAMM v1 farmlarını getir (tüm farmlar)")
         assert_triggered(r, "DAMMV1_GET_FARMS")
         p = r.params_for("DAMMV1_GET_FARMS")
         assert_param_absent(r, "DAMMV1_GET_FARMS", "poolAddress")
@@ -504,7 +504,7 @@ class TestDV1GetPoolsMetrics_Advanced:
         assert_has_number(r)
 
     def test_metrics_no_pool_specific_param(self, chat_client):
-        r = _chat(chat_client, f"DAMM v1 genel metrikleri — tüm havuzlar için toplam")
+        r = _chat(chat_client, "DAMM v1 genel metrikleri — tüm havuzlar için toplam")
         assert_triggered(r, "DAMMV1_GET_POOLS_METRICS")
         assert_param_absent(r, "DAMMV1_GET_POOLS_METRICS", "pool_addresses")
         assert_param_absent(r, "DAMMV1_GET_POOLS_METRICS", "poolAddress")
@@ -1323,7 +1323,6 @@ class TestVaultGetVirtualPrice_Advanced:
         if "VAULT_GET_VIRTUAL_PRICE" in r.all_triggered_types():
             p = r.params_for("VAULT_GET_VIRTUAL_PRICE")
             # Strateji varsa iyi
-            pass
         else:
             assert r.asked_clarification() or r.has_text_content(), (
                 "The LLM did not respond to the missing strategy"

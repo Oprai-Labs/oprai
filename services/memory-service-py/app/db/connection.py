@@ -9,7 +9,7 @@ prepared-statement cache when running behind pgBouncer in transaction mode.
 
 import re
 from collections.abc import AsyncGenerator
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import sqlalchemy
 from sqlalchemy.ext.asyncio import (

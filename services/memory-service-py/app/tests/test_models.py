@@ -4,8 +4,9 @@ Tests for Memory Service Models.
 Tests SQLAlchemy models for memory service.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestUserConsentModel:
@@ -19,8 +20,8 @@ class TestUserConsentModel:
 
     def test_schema(self):
         """Test schema is memory_schema"""
-        from app.models.consent import UserConsent
         from app.config import settings
+        from app.models.consent import UserConsent
 
         table_args = UserConsent.__table_args__
         assert table_args["schema"] == settings.DB_SCHEMA
@@ -72,8 +73,9 @@ class TestMemoryModelsEdgeCases:
 
     def test_model_can_be_instantiated(self):
         """Test model can be instantiated"""
-        from app.models.consent import UserConsent
         from datetime import datetime
+
+        from app.models.consent import UserConsent
 
         # Create instance with mock data
         consent = UserConsent(

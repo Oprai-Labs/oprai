@@ -10,8 +10,8 @@ Security analysis for Solana tokens:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,9 @@ class SecurityScore:
 
 
 def analyze_holder_distribution(
-    holders: List[Dict[str, Any]],
+    holders: list[dict[str, Any]],
     total_supply: float
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze token holder distribution for concentration risks.
 
@@ -118,11 +118,11 @@ def analyze_holder_distribution(
 
 
 def check_mint_authority(
-    mint_authority: Optional[str],
-    freeze_authority: Optional[str],
+    mint_authority: str | None,
+    freeze_authority: str | None,
     supply: float,
     decimals: int
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze mint and freeze authorities for security.
 
@@ -175,10 +175,10 @@ def check_mint_authority(
 
 
 def analyze_liquidity(
-    liquidity_usd: Optional[float],
-    market_cap_usd: Optional[float],
-    pair_address: Optional[str] = None
-) -> Dict[str, Any]:
+    liquidity_usd: float | None,
+    market_cap_usd: float | None,
+    pair_address: str | None = None
+) -> dict[str, Any]:
     """
     Analyze token liquidity for rug pull risk.
 
@@ -243,9 +243,9 @@ def analyze_liquidity(
 
 
 def detect_suspicious_patterns(
-    metadata: Dict[str, Any],
-    transfers: List[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    metadata: dict[str, Any],
+    transfers: list[dict[str, Any]] = None
+) -> dict[str, Any]:
     """
     Detect suspicious patterns in token creation and transfers.
 
@@ -300,11 +300,11 @@ def detect_suspicious_patterns(
 
 
 def calculate_rug_pull_score(
-    holder_analysis: Dict[str, Any],
-    liquidity_analysis: Dict[str, Any],
-    mint_analysis: Dict[str, Any],
-    pattern_analysis: Dict[str, Any]
-) -> Dict[str, Any]:
+    holder_analysis: dict[str, Any],
+    liquidity_analysis: dict[str, Any],
+    mint_analysis: dict[str, Any],
+    pattern_analysis: dict[str, Any]
+) -> dict[str, Any]:
     """
     Calculate overall rug pull risk score.
 
@@ -366,17 +366,17 @@ def calculate_rug_pull_score(
 
 async def analyze_token_security(
     token_address: str,
-    holders: Optional[List[Dict[str, Any]]] = None,
-    liquidity_usd: Optional[float] = None,
-    market_cap_usd: Optional[float] = None,
-    mint_authority: Optional[str] = None,
-    freeze_authority: Optional[str] = None,
+    holders: list[dict[str, Any]] | None = None,
+    liquidity_usd: float | None = None,
+    market_cap_usd: float | None = None,
+    mint_authority: str | None = None,
+    freeze_authority: str | None = None,
     supply: float = 0,
     decimals: int = 9,
-    metadata: Optional[Dict[str, Any]] = None,
-    pair_address: Optional[str] = None,
+    metadata: dict[str, Any] | None = None,
+    pair_address: str | None = None,
     use_cache: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Complete token security analysis.
 
@@ -475,7 +475,7 @@ async def analyze_token_security(
     return result
 
 
-def _generate_recommendation(rug_analysis: Dict, overall_score: float) -> str:
+def _generate_recommendation(rug_analysis: dict, overall_score: float) -> str:
     """Generate recommendation based on analysis"""
     risk_level = rug_analysis.get("risk_level", "unknown")
 
@@ -497,7 +497,7 @@ def _generate_recommendation(rug_analysis: Dict, overall_score: float) -> str:
 async def fetch_token_data_from_rpc(
     rpc_client: Any,
     token_address: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch token data from Solana RPC"""
     # This would use solana RPC to get token supply, mint info
     # Placeholder for actual implementation
@@ -506,8 +506,8 @@ async def fetch_token_data_from_rpc(
 
 async def get_token_security_from_api(
     token_address: str,
-    api_key: Optional[str] = None
-) -> Dict[str, Any]:
+    api_key: str | None = None
+) -> dict[str, Any]:
     """
     Fetch token security data from external APIs (Birdeye, DexScreener, etc.)
 

@@ -143,7 +143,7 @@ class TemplateManager:
     Loads from files and provides default templates.
     """
 
-    def __init__(self, templates_dir: Optional[Path] = None):
+    def __init__(self, templates_dir: Path | None = None):
         self.templates_dir = templates_dir
         self._templates: dict[str, PromptTemplate] = {}
         self._load_defaults()
@@ -186,7 +186,7 @@ class TemplateManager:
             except Exception as e:
                 logger.error("Failed to load template file {file_path}", exc_info=True)
 
-    def get_template(self, name: str) -> Optional[PromptTemplate]:
+    def get_template(self, name: str) -> PromptTemplate | None:
         """Get a template by name"""
         return self._templates.get(name)
 
@@ -367,7 +367,7 @@ Continue the conversation as {{character_name}}, maintaining context from the su
 
 
 # Global template manager
-_template_manager: Optional[TemplateManager] = None
+_template_manager: TemplateManager | None = None
 
 
 def get_template_manager() -> TemplateManager:

@@ -12,11 +12,12 @@ Provides real-time streaming capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set
+import uuid
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import uuid
+from typing import Any, Dict, List, Optional, Set
 
 import grpc
 from grpc import aio as grpc_aio
@@ -64,8 +65,8 @@ class StreamSubscription:
     """Represents a stream subscription"""
     subscription_id: str
     stream_type: StreamType
-    wallet_address: Optional[str]
-    filters: Dict[str, Any] = field(default_factory=dict)
+    wallet_address: str | None
+    filters: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
     active: bool = True
 
@@ -78,7 +79,7 @@ class StreamManager:
 
     def __init__(self):
         # Active subscriptions by type
-        self._subscriptions: Dict[StreamType, Dict[str, StreamSubscription]] = {
+        self._subscriptions: dict[StreamType, dict[str, StreamSubscription]] = {
             StreamType.PRICE: {},
             StreamType.POSITION: {},
             StreamType.NOTIFICATION: {},
@@ -88,8 +89,8 @@ class StreamManager:
         }
 
         # Price cache for streaming
-        self._price_cache: Dict[str, float] = {}
-        self._price_timestamps: Dict[str, int] = {}
+        self._price_cache: dict[str, float] = {}
+        self._price_timestamps: dict[str, int] = {}
 
         # Notification queue for broadcasting
         self._notification_queue: asyncio.Queue = asyncio.Queue()
@@ -100,8 +101,8 @@ class StreamManager:
     async def subscribe(
         self,
         stream_type: StreamType,
-        wallet_address: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,
+        wallet_address: str | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> StreamSubscription:
         """Register a new subscription"""
         async with self._lock:
@@ -133,7 +134,7 @@ class StreamManager:
         self._price_cache[f"{token_address}_volume"] = volume_24h
         self._price_timestamps[token_address] = int(datetime.utcnow().timestamp())
 
-    async def get_subscribers(self, stream_type: StreamType) -> List[StreamSubscription]:
+    async def get_subscribers(self, stream_type: StreamType) -> list[StreamSubscription]:
         """Get all active subscribers for a stream type"""
         async with self._lock:
             return [
@@ -141,7 +142,7 @@ class StreamManager:
                 if sub.active
             ]
 
-    def get_price_cache(self, token_address: str) -> Optional[Dict[str, Any]]:
+    def get_price_cache(self, token_address: str) -> dict[str, Any] | None:
         """Get cached price data"""
         if token_address not in self._price_cache:
             return None
@@ -153,7 +154,7 @@ class StreamManager:
             "timestamp": self._price_timestamps.get(token_address),
         }
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """Get streaming statistics"""
         async with self._lock:
             stats = {}
@@ -175,7 +176,7 @@ class PriceStreamService:
     def __init__(self, stream_manager: StreamManager):
         self.stream_manager = stream_manager
         self._running = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
     async def start(self, interval_seconds: float = 5.0) -> None:
         """Start the price streaming background task"""
@@ -199,8 +200,8 @@ class PriceStreamService:
 
     async def _price_stream_loop(self, interval: float) -> None:
         """Background loop to fetch and broadcast prices"""
-        from app.services.yield_aggregator import get_yield_comparison
         from app.services.trending_tokens import get_hot_tokens
+        from app.services.yield_aggregator import get_yield_comparison
 
         while self._running:
             try:
@@ -232,9 +233,9 @@ class PriceStreamService:
 
     async def subscribe_prices(
         self,
-        token_addresses: List[str],
+        token_addresses: list[str],
         interval_ms: int = 1000,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """
         Stream price updates for specified tokens.
 
@@ -276,8 +277,8 @@ class NotificationStreamService:
     async def subscribe_notifications(
         self,
         wallet_address: str,
-        notification_types: Optional[List[str]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        notification_types: list[str] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream notifications for a wallet"""
         subscription = await self.stream_manager.subscribe(
             stream_type=StreamType.NOTIFICATION,
@@ -301,9 +302,9 @@ class NotificationStreamService:
         notification_type: NotificationType,
         title: str,
         body: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
         priority: Priority = Priority.PRIORITY_NORMAL,
-        wallet_address: Optional[str] = None,
+        wallet_address: str | None = None,
     ) -> None:
         """Broadcast a notification to relevant subscribers"""
         notification = {
@@ -338,8 +339,8 @@ class PositionStreamService:
     async def subscribe_positions(
         self,
         wallet_address: str,
-        protocols: Optional[List[str]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        protocols: list[str] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Stream position updates for a wallet"""
         subscription = await self.stream_manager.subscribe(
             stream_type=StreamType.POSITION,
@@ -385,7 +386,7 @@ class StreamServiceServicer:
         await self.price_service.stop()
         logger.info("All streaming services stopped")
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """Get streaming statistics"""
         return await self.stream_manager.get_stats()
 
@@ -402,9 +403,9 @@ class StreamClient:
 
     def __init__(self, grpc_url: str = "localhost:50052"):
         self.grpc_url = grpc_url
-        self._channel: Optional[grpc_aio.Channel] = None
+        self._channel: grpc_aio.Channel | None = None
         self._stub = None
-        self._active_streams: List[asyncio.Task] = []
+        self._active_streams: list[asyncio.Task] = []
 
     async def connect(self) -> None:
         """Connect to the gRPC server"""
@@ -427,7 +428,7 @@ class StreamClient:
 
     async def stream_prices(
         self,
-        token_addresses: List[str],
+        token_addresses: list[str],
         callback: callable,
     ) -> None:
         """
@@ -443,7 +444,6 @@ class StreamClient:
         #     callback(price)
 
         logger.info(f"Would stream prices for: {token_addresses}")
-        pass
 
     async def stream_notifications(
         self,
@@ -452,14 +452,13 @@ class StreamClient:
     ) -> None:
         """Stream notifications for a wallet"""
         logger.info(f"Would stream notifications for: {wallet_address}")
-        pass
 
 
 # ============================================================================
 # Global Instance
 # ============================================================================
 
-_stream_service: Optional[StreamServiceServicer] = None
+_stream_service: StreamServiceServicer | None = None
 
 
 async def get_stream_service() -> StreamServiceServicer:

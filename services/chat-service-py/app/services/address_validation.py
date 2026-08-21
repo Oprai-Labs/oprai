@@ -12,10 +12,10 @@ Provides comprehensive address validation and security analysis:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 
@@ -88,20 +88,20 @@ class AddressValidation:
     is_freeze_authority_revoked: bool = False
 
     # Token specific
-    token_name: Optional[str] = None
-    token_symbol: Optional[str] = None
-    token_decimals: Optional[int] = None
-    token_supply: Optional[float] = None
+    token_name: str | None = None
+    token_symbol: str | None = None
+    token_decimals: int | None = None
+    token_supply: float | None = None
 
     # Warnings and issues
-    warnings: List[str] = field(default_factory=list)
-    issues: List[str] = field(default_factory=list)
-    flags: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
 
     # Metadata
     analyzed_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "address": self.address,
             "status": self.status.value,
@@ -150,13 +150,13 @@ class SecurityAnalysis:
     trust_score: int = 100  # 0-100
 
     # Details
-    holder_distribution: Dict[str, Any] = field(default_factory=dict)
-    contract_verification: Dict[str, Any] = field(default_factory=dict)
+    holder_distribution: dict[str, Any] = field(default_factory=dict)
+    contract_verification: dict[str, Any] = field(default_factory=dict)
 
     # Recommendations
-    recommendations: List[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "is_safe": self.is_safe,
             "risk_level": self.risk_level.value,
@@ -222,7 +222,7 @@ class AddressValidationService:
     }
 
     def __init__(self):
-        self._redis: Optional[redis.Redis] = None
+        self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis client"""
@@ -569,10 +569,10 @@ class AddressValidationService:
 
     async def batch_validate(
         self,
-        addresses: List[str],
+        addresses: list[str],
         check_token: bool = True,
         check_security: bool = True,
-    ) -> List[AddressValidation]:
+    ) -> list[AddressValidation]:
         """
         Validate multiple addresses in batch.
 
@@ -597,7 +597,7 @@ class AddressValidationService:
 # Global Instance
 # ============================================================================
 
-_address_service: Optional[AddressValidationService] = None
+_address_service: AddressValidationService | None = None
 
 
 def get_address_service() -> AddressValidationService:

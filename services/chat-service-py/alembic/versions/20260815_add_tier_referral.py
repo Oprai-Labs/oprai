@@ -20,7 +20,6 @@ Seeded tier thresholds are a starting point — adjust freely:
 
 from alembic import op
 
-
 revision = "20260815_add_tier_referral"
 down_revision = "20260814_add_analytics_events"
 branch_labels = None

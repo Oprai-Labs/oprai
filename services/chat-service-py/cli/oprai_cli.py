@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 @click.version_option(version="1.0.0")
 def cli():
     """OPRAI - DeFi-native AI assistant for Solana"""
-    pass
 
 
 # ==================== Character Commands ====================
@@ -29,7 +28,6 @@ def cli():
 @cli.group()
 def character():
     """Manage AI characters"""
-    pass
 
 
 @character.command("create")
@@ -115,14 +113,13 @@ def validate_character(file: str):
 @cli.group()
 def knowledge():
     """Knowledge base management tools"""
-    pass
 
 
 @knowledge.command("import-folder")
 @click.argument("folder", type=click.Path(exists=True))
 @click.option("--character", "-c", help="Target character file")
 @click.option("--output", "-o", default="knowledge", help="Output directory")
-def import_folder(folder: str, character: Optional[str], output: str):
+def import_folder(folder: str, character: str | None, output: str):
     """Convert folder contents to knowledge base (folder2knowledge)"""
     from app.ingestion import DocumentIngestionService
 
@@ -267,7 +264,6 @@ def _chunk_text(text: str, chunk_size: int = 500) -> list[str]:
 @cli.group()
 def agent():
     """Manage AI agents"""
-    pass
 
 
 @agent.command("start")
@@ -296,7 +292,7 @@ def start_agent(character_file: str, port: int):
 @agent.command("chat")
 @click.argument("character_file", type=click.Path(exists=True))
 @click.option("--message", "-m", help="Send a single message")
-def chat_agent(character_file: str, message: Optional[str]):
+def chat_agent(character_file: str, message: str | None):
     """Interactive chat with an agent"""
     from app.models.character import Character
     from app.services.character import PromptBuilder
@@ -333,7 +329,6 @@ def chat_agent(character_file: str, message: Optional[str]):
 @cli.group()
 def plugin():
     """Manage plugins"""
-    pass
 
 
 @plugin.command("list")

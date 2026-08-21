@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
-from sqlalchemy import select, update, func, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -19,7 +19,6 @@ from app.models.message import ChatMessage
 from app.models.session import ChatSession
 from app.services.llm import LLMService
 from app.services.summary import build_llm_context, maybe_create_summary
-
 
 # Query types that list the pools for a pair. A turn that emits one of these is
 # a turn where the user is still choosing a venue — see the "Which pool to
@@ -1197,14 +1196,14 @@ async def stream_chat_response(
       - Tool call arguments are validated against strict Pydantic schemas with
         Solana address format checks before being forwarded to the client.
     """
-    from app.services.title_generator import generate_title
     from app.services import session as session_svc
     from app.services.action_schemas import (
         ValidatedAction,
-        ValidatedQuery,
         ValidatedClarify,
+        ValidatedQuery,
         validate_tool_call,
     )
+    from app.services.title_generator import generate_title
     from app.services.tool_selector import ToolSelector
 
     # ── 0. Check per-chat limits ────────────────────────────────────────────
@@ -1225,13 +1224,13 @@ async def stream_chat_response(
     locked_reason: str | None = sess_state[3] if sess_state else None
 
     from app.services.cost_cap import (
+        LLMCapExceeded,
         assert_under_cap,
+        chat_cap_check,
+        chat_message_cap,
+        chat_token_cap,
         record_message,
         record_tokens,
-        chat_cap_check,
-        chat_token_cap,
-        chat_message_cap,
-        LLMCapExceeded,
     )
 
     if already_locked:
@@ -1521,8 +1520,8 @@ async def stream_chat_response(
     category_context: str | None = None
     try:
         from app.services.token_categories import (
-            get_category_tokens,
             format_category_context_block,
+            get_category_tokens,
         )
         # The class comes from the classifier, which reads the message in
         # whatever language it arrived in. A venue request is not a class
@@ -2173,7 +2172,9 @@ async def stream_chat_response(
                     pass
                 else:
                     try:
-                        from app.services.output_validator import validate_tool_call as _sanity_check
+                        from app.services.output_validator import (
+                            validate_tool_call as _sanity_check,
+                        )
 
                         _verdict = await _sanity_check(user_content, tc_name, tc_args)
                         if _verdict.should_block:
@@ -2896,7 +2897,9 @@ async def stream_chat_response(
                             # would block it on semantic-drift grounds.
                             if not intent_for_filter.is_category_request:
                                 try:
-                                    from app.services.output_validator import validate_tool_call as _sanity_check
+                                    from app.services.output_validator import (
+                                        validate_tool_call as _sanity_check,
+                                    )
                                     _verdict = await _sanity_check(user_content, tc_name, tc_args)
                                     if _verdict.should_block:
                                         _log.warning(

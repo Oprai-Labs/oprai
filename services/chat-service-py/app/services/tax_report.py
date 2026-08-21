@@ -10,10 +10,10 @@ Generates tax reports for cryptocurrency transactions:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 
@@ -89,7 +89,7 @@ class TaxableEvent:
     description: str = ""
     wallet_address: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "date": self.date.isoformat(),
@@ -134,9 +134,9 @@ class TaxSummary:
     net_gain_loss: float = 0
 
     # By token
-    by_token: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    by_token: dict[str, dict[str, float]] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "year": self.year,
             "wallet_address": self.wallet_address,
@@ -205,7 +205,7 @@ class TaxReportService:
     """
 
     def __init__(self):
-        self._redis: Optional[redis.Redis] = None
+        self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis client"""
@@ -240,7 +240,7 @@ class TaxReportService:
     async def _get_transactions(
         self,
         config: TaxReportConfig,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get transactions for the wallet and year.
 
@@ -251,14 +251,14 @@ class TaxReportService:
 
     async def _calculate_events(
         self,
-        transactions: List[Dict[str, Any]],
+        transactions: list[dict[str, Any]],
         config: TaxReportConfig,
-    ) -> List[TaxableEvent]:
+    ) -> list[TaxableEvent]:
         """
         Calculate taxable events from transactions.
         """
         events = []
-        holdings: Dict[str, List[Dict]] = {}  # token -> list of purchases
+        holdings: dict[str, list[dict]] = {}  # token -> list of purchases
 
         for tx in transactions:
             event = TaxableEvent(
@@ -309,7 +309,7 @@ class TaxReportService:
 
     def _calculate_cost_basis(
         self,
-        holdings: List[Dict],
+        holdings: list[dict],
         quantity: float,
         method: CostBasisMethod,
     ) -> float:
@@ -347,7 +347,7 @@ class TaxReportService:
 
     async def _generate_summary(
         self,
-        events: List[TaxableEvent],
+        events: list[TaxableEvent],
         config: TaxReportConfig,
     ) -> TaxSummary:
         """Generate tax summary from events"""
@@ -356,7 +356,7 @@ class TaxReportService:
             wallet_address=config.wallet_address,
         )
 
-        by_token: Dict[str, Dict[str, float]] = {}
+        by_token: dict[str, dict[str, float]] = {}
 
         for event in events:
             # Initialize token if not exists
@@ -482,8 +482,8 @@ class TaxReportService:
         self,
         wallet_address: str,
         year: int,
-        token: Optional[str] = None,
-    ) -> List[TaxableEvent]:
+        token: str | None = None,
+    ) -> list[TaxableEvent]:
         """
         Get detailed taxable events.
         """
@@ -506,7 +506,7 @@ class TaxReportService:
 # Global Instance
 # ============================================================================
 
-_tax_service: Optional[TaxReportService] = None
+_tax_service: TaxReportService | None = None
 
 
 def get_tax_service() -> TaxReportService:

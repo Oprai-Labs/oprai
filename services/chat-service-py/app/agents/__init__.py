@@ -15,10 +15,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from app.clients import ClientManager, PlatformMessage
 from app.models.character import Character
 from app.services.character import PromptBuilder
 from app.services.character.loader import CharacterLoader
-from app.clients import PlatformMessage, ClientManager
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ class AgentContext:
     character: Character
     status: AgentStatus = AgentStatus.IDLE
     message_count: int = 0
-    last_activity: Optional[datetime] = None
-    error_message: Optional[str] = None
+    last_activity: datetime | None = None
+    error_message: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
     goals: list[str] = field(default_factory=list)
     facts: list[dict[str, Any]] = field(default_factory=list)
@@ -52,9 +52,9 @@ class AgentMessage:
     role: str  # user, assistant, system
     content: str
     timestamp: datetime
-    platform: Optional[str] = None
-    channel_id: Optional[str] = None
-    user_id: Optional[str] = None
+    platform: str | None = None
+    channel_id: str | None = None
+    user_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -113,9 +113,9 @@ class AgentRuntime:
     async def process_message(
         self,
         message: str,
-        user_id: Optional[str] = None,
-        platform: Optional[str] = None,
-        channel_id: Optional[str] = None,
+        user_id: str | None = None,
+        platform: str | None = None,
+        channel_id: str | None = None,
     ) -> str:
         """
         Process an incoming message and generate a response.
@@ -176,19 +176,19 @@ class AgentRuntime:
                 self._context.error_message = str(e)
                 raise
 
-    async def _build_context(self, user_id: Optional[str] = None) -> str:
+    async def _build_context(self, user_id: str | None = None) -> str:
         """Build context string for the agent"""
         parts = []
 
         # Add goals
         if self._context.goals:
-            parts.append(f"Current Goals:\n" + "\n".join(f"- {g}" for g in self._context.goals))
+            parts.append("Current Goals:\n" + "\n".join(f"- {g}" for g in self._context.goals))
 
         # Add facts about user
         if user_id:
             user_facts = [f for f in self._context.facts if f.get("user_id") == user_id]
             if user_facts:
-                parts.append(f"User Facts:\n" + "\n".join(f"- {f['key']}: {f['value']}" for f in user_facts))
+                parts.append("User Facts:\n" + "\n".join(f"- {f['key']}: {f['value']}" for f in user_facts))
 
         return "\n\n".join(parts)
 
@@ -199,6 +199,7 @@ class AgentRuntime:
 
         # Fallback to direct OpenAI call
         from openai import AsyncOpenAI
+
         from app.config import settings
 
         client = AsyncOpenAI(api_key=settings.OPRAI_OPENAI_API_KEY)
@@ -257,7 +258,7 @@ Facts (JSON array only):"""
         if goal in self._context.goals:
             self._context.goals.remove(goal)
 
-    def add_fact(self, key: str, value: Any, user_id: Optional[str] = None) -> None:
+    def add_fact(self, key: str, value: Any, user_id: str | None = None) -> None:
         """Add a fact about a user or context"""
         self._context.facts.append({
             "key": key,
@@ -296,7 +297,7 @@ class AgentGroup:
         """Remove an agent from the group"""
         self._agents.pop(agent_id, None)
 
-    def get_agent(self, agent_id: str) -> Optional[AgentRuntime]:
+    def get_agent(self, agent_id: str) -> AgentRuntime | None:
         """Get an agent by ID"""
         return self._agents.get(agent_id)
 
@@ -327,8 +328,8 @@ class AgentGroup:
     async def delegate_task(
         self,
         task: str,
-        agent_filter: Optional[callable] = None,
-    ) -> Optional[str]:
+        agent_filter: callable | None = None,
+    ) -> str | None:
         """Delegate a task to the most suitable agent"""
         candidates = self._agents.values()
         if agent_filter:
@@ -380,7 +381,7 @@ class AgentManager:
 
     def __init__(
         self,
-        character_loader: Optional[CharacterLoader] = None,
+        character_loader: CharacterLoader | None = None,
         llm_service: Any = None,
         memory_service: Any = None,
     ):
@@ -390,7 +391,7 @@ class AgentManager:
 
         self._runtimes: dict[str, AgentRuntime] = {}
         self._groups: dict[str, AgentGroup] = {}
-        self._client_manager: Optional[ClientManager] = None
+        self._client_manager: ClientManager | None = None
 
     def create_agent(
         self,
@@ -416,7 +417,7 @@ class AgentManager:
 
         return runtime
 
-    def get_agent(self, agent_id: str) -> Optional[AgentRuntime]:
+    def get_agent(self, agent_id: str) -> AgentRuntime | None:
         """Get an agent runtime by ID"""
         return self._runtimes.get(agent_id)
 
@@ -447,7 +448,7 @@ class AgentManager:
         self._groups[group.group_id] = group
         return group
 
-    def get_group(self, group_id: str) -> Optional[AgentGroup]:
+    def get_group(self, group_id: str) -> AgentGroup | None:
         """Get a group by ID"""
         return self._groups.get(group_id)
 
@@ -455,7 +456,7 @@ class AgentManager:
         """List all groups"""
         return list(self._groups.values())
 
-    async def handle_platform_message(self, message: PlatformMessage) -> Optional[str]:
+    async def handle_platform_message(self, message: PlatformMessage) -> str | None:
         """Handle an incoming platform message with smart routing"""
         # Score agents by relevance
         scored_agents = []
@@ -533,7 +534,7 @@ class AgentManager:
 
 
 # Global agent manager
-_agent_manager: Optional[AgentManager] = None
+_agent_manager: AgentManager | None = None
 
 
 def get_agent_manager() -> AgentManager:

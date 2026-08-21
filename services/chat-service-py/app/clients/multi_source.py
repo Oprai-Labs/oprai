@@ -23,7 +23,6 @@ from typing import Any
 
 from app.clients import market_data
 
-
 # ── Price ─────────────────────────────────────────────────────────────────────
 
 async def _try_birdeye_price(mint: str) -> dict | None:

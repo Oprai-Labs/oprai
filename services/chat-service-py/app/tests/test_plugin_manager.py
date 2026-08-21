@@ -4,9 +4,10 @@ Tests for Plugin Manager module.
 Tests plugin lifecycle, registration, and management.
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestPluginManagerInit:
@@ -163,8 +164,8 @@ class TestPluginManagerExecute:
     @pytest.mark.asyncio
     async def test_execute_action_not_found(self):
         """Test executing non-existent action returns error"""
-        from app.plugins.manager import PluginManager
         from app.plugins.base import PluginContext
+        from app.plugins.manager import PluginManager
 
         manager = PluginManager()
         context = PluginContext(plugin_id="test")
@@ -177,8 +178,8 @@ class TestPluginManagerExecute:
     @pytest.mark.asyncio
     async def test_execute_provider_not_found(self):
         """Test executing non-existent provider returns error"""
-        from app.plugins.manager import PluginManager
         from app.plugins.base import PluginContext
+        from app.plugins.manager import PluginManager
 
         manager = PluginManager()
         context = PluginContext(plugin_id="test")
@@ -226,7 +227,7 @@ class TestInitializePlugins:
     @pytest.mark.asyncio
     async def test_initialize_plugins_calls_load_all(self):
         """Test initialize_plugins loads all"""
-        from app.plugins.manager import initialize_plugins, get_plugin_manager
+        from app.plugins.manager import get_plugin_manager, initialize_plugins
 
         manager = get_plugin_manager()
         manager._loaded = False  # Reset

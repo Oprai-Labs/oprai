@@ -4,10 +4,11 @@ Tests for ChatSummary SQLAlchemy model.
 Tests database schema and column definitions.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 import uuid
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestChatSummaryModel:
@@ -21,8 +22,8 @@ class TestChatSummaryModel:
 
     def test_schema(self):
         """Test schema is configured"""
-        from app.models.summary import ChatSummary
         from app.config import settings
+        from app.models.summary import ChatSummary
 
         table_args = ChatSummary.__table_args__
         # Check schema is in table args
@@ -149,6 +150,7 @@ class TestSummaryService:
     def test_fetch_sol_balance_success(self):
         """Test fetching SOL balance"""
         import asyncio
+
         from app.services.summary import _fetch_sol_balance
 
         mock_response = MagicMock()
@@ -164,6 +166,7 @@ class TestSummaryService:
     def test_fetch_sol_balance_error(self):
         """Test fetching SOL balance with error"""
         import asyncio
+
         from app.services.summary import _fetch_sol_balance
 
         with patch("httpx.AsyncClient") as mock_client:

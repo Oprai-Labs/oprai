@@ -19,7 +19,6 @@ itself is a stateless proxy with no Postgres.
 
 from alembic import op
 
-
 revision = "20260814_add_analytics_events"
 down_revision = "20260814_add_llm_usage"
 branch_labels = None

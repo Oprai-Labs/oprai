@@ -4,8 +4,9 @@ Tests for Database Connection module.
 Tests async database connection, session management, and URL handling.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 class TestBuildAsyncPgUrl:

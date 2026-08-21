@@ -4,8 +4,9 @@ Tests for Memory Client module.
 Tests HTTP client functions for memory service communication.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 
 class TestSearchMemories:
@@ -230,8 +231,9 @@ class TestMemoryTypes:
     def test_memory_types_are_valid(self):
         """Test that memory types can be passed"""
         # This tests the function signature accepts types parameter
-        from app.services.memory_client import search_memories
         import inspect
+
+        from app.services.memory_client import search_memories
 
         sig = inspect.signature(search_memories)
         params = sig.parameters

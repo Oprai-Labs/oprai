@@ -28,8 +28,8 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text as sa_text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 

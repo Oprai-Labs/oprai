@@ -9,7 +9,7 @@ time rather than trusted from the client.
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,7 +47,7 @@ async def create_report(
     }
 
     report_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await db.execute(
         text(
             f"""

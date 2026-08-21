@@ -1,9 +1,9 @@
 """Session CRUD operations against chat_sessions table."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.session import ChatSession
@@ -122,7 +122,7 @@ async def update_title(
             ChatSession.wallet_address == wallet,
             ChatSession.is_deleted == False,  # noqa: E712
         )
-        .values(title=title, updated_at=datetime.now(timezone.utc))
+        .values(title=title, updated_at=datetime.now(UTC))
     )
     result = await db.execute(stmt)
     return (result.rowcount or 0) > 0
@@ -135,7 +135,7 @@ async def set_pinned(
     pinned: bool,
 ) -> bool:
     """Set the pinned state of a session. Returns True if a row was affected."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stmt = (
         update(ChatSession)
         .where(
@@ -155,7 +155,7 @@ async def delete_session(
     session_id: str,
 ) -> bool:
     """Soft-delete a session. Returns True if a row was affected."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stmt = (
         update(ChatSession)
         .where(
@@ -175,7 +175,7 @@ async def delete_all_sessions(db: AsyncSession, wallet: str) -> int:
     Used by the Settings → Privacy "delete chat history" action. Soft-delete
     keeps the rows for audit / recovery; a follow-up cron can purge.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stmt = (
         update(ChatSession)
         .where(

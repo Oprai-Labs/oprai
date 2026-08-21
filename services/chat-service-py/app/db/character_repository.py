@@ -12,21 +12,25 @@ from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     Column,
+    DateTime,
+    Index,
     String,
     Text,
-    Boolean,
-    DateTime,
-    JSON,
-    Index,
-    select,
     delete,
+    select,
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
-from app.models.character import Character, CreateCharacterRequest, UpdateCharacterRequest
+from app.models.character import (
+    Character,
+    CreateCharacterRequest,
+    UpdateCharacterRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +78,7 @@ class CharacterRepository:
     async def create(
         self,
         request: CreateCharacterRequest,
-        owner_wallet: Optional[str] = None,
+        owner_wallet: str | None = None,
     ) -> Character:
         """Create a new character"""
         import uuid
@@ -112,7 +116,7 @@ class CharacterRepository:
 
         return self._model_to_character(model)
 
-    async def get(self, character_id: str) -> Optional[Character]:
+    async def get(self, character_id: str) -> Character | None:
         """Get a character by ID"""
         result = await self.session.execute(
             select(CharacterModel).where(CharacterModel.id == character_id)
@@ -126,10 +130,10 @@ class CharacterRepository:
 
     async def list(
         self,
-        owner_wallet: Optional[str] = None,
-        is_public: Optional[bool] = None,
-        tags: Optional[list[str]] = None,
-        search: Optional[str] = None,
+        owner_wallet: str | None = None,
+        is_public: bool | None = None,
+        tags: list[str] | None = None,
+        search: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Character], int]:
@@ -171,8 +175,8 @@ class CharacterRepository:
         self,
         character_id: str,
         request: UpdateCharacterRequest,
-        owner_wallet: Optional[str] = None,
-    ) -> Optional[Character]:
+        owner_wallet: str | None = None,
+    ) -> Character | None:
         """Update a character"""
         # Get existing
         result = await self.session.execute(
@@ -214,7 +218,7 @@ class CharacterRepository:
     async def delete(
         self,
         character_id: str,
-        owner_wallet: Optional[str] = None,
+        owner_wallet: str | None = None,
     ) -> bool:
         """Delete a character"""
         # Check ownership first
@@ -238,8 +242,8 @@ class CharacterRepository:
     async def duplicate(
         self,
         character_id: str,
-        owner_wallet: Optional[str] = None,
-    ) -> Optional[Character]:
+        owner_wallet: str | None = None,
+    ) -> Character | None:
         """Duplicate a character"""
         original = await self.get(character_id)
         if not original:
@@ -281,13 +285,13 @@ class CharacterRepository:
     def _model_to_character(self, model: CharacterModel) -> Character:
         """Convert SQLAlchemy model to Pydantic model"""
         from app.models.character import (
-            ModelProvider,
-            ClientType,
-            CharacterStyle,
             CharacterSettings,
+            CharacterStyle,
             CharacterTemplates,
-            MessageExample,
+            ClientType,
             MessageContent,
+            MessageExample,
+            ModelProvider,
         )
 
         # Parse clients

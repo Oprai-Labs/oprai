@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, Callable
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +36,10 @@ class ScheduledAction:
     """A scheduled autonomous action"""
     action_type: ActionType
     interval_minutes: int
-    last_run: Optional[datetime] = None
-    next_run: Optional[datetime] = None
+    last_run: datetime | None = None
+    next_run: datetime | None = None
     enabled: bool = True
-    callback: Optional[Callable] = None
+    callback: Callable | None = None
     conditions: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -48,7 +49,7 @@ class ActionResult:
     action_type: ActionType
     success: bool
     result: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -67,7 +68,7 @@ class AutonomousLoop:
         self.agent = agent_runtime
         self._scheduled_actions: dict[ActionType, ScheduledAction] = {}
         self._running = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._action_history: list[ActionResult] = []
 
         # Default actions
@@ -115,8 +116,8 @@ class AutonomousLoop:
         self,
         action_type: ActionType,
         interval_minutes: int,
-        callback: Optional[Callable] = None,
-        conditions: Optional[list[dict]] = None,
+        callback: Callable | None = None,
+        conditions: list[dict] | None = None,
         start_delay_minutes: int = 0,
     ) -> None:
         """Schedule an autonomous action"""
@@ -361,7 +362,7 @@ class AutonomousManager:
 
         return self._loops[agent_id]
 
-    def get_loop(self, agent_id: str) -> Optional[AutonomousLoop]:
+    def get_loop(self, agent_id: str) -> AutonomousLoop | None:
         """Get autonomous loop for an agent"""
         return self._loops.get(agent_id)
 
@@ -386,7 +387,7 @@ class AutonomousManager:
 
 
 # Global autonomous manager
-_autonomous_manager: Optional[AutonomousManager] = None
+_autonomous_manager: AutonomousManager | None = None
 
 
 def get_autonomous_manager() -> AutonomousManager:

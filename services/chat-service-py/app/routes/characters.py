@@ -8,22 +8,22 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.middleware.auth import require_auth
 from app.models.character import (
     Character,
     CharacterFile,
+    CharacterFilters,
     CharacterWithRuntime,
     CreateCharacterRequest,
     UpdateCharacterRequest,
-    CharacterFilters,
 )
-from app.services.character import get_character_loader, CharacterLoader
+from app.services.character import CharacterLoader, get_character_loader
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,10 @@ def _assert_owner(character, wallet: str) -> None:
 async def list_characters(
     wallet: str = Depends(require_auth),
     loader: CharacterLoader = Depends(get_loader),
-    owner_wallet: Optional[str] = Query(None, alias="ownerWallet"),
-    is_public: Optional[bool] = Query(None, alias="isPublic"),
-    tags: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
+    owner_wallet: str | None = Query(None, alias="ownerWallet"),
+    is_public: bool | None = Query(None, alias="isPublic"),
+    tags: str | None = Query(None),
+    search: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
@@ -381,7 +381,7 @@ async def start_character(
     if state.get("status") == "running":
         raise HTTPException(status_code=409, detail="Character runtime is already running")
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     _RUNTIME_STATE[key] = {
         "status": "running",
         "started_at": now,
@@ -418,7 +418,7 @@ async def stop_character(
     if state.get("status") != "running":
         raise HTTPException(status_code=409, detail="Character runtime is not running")
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     _RUNTIME_STATE[key] = {
         "status": "idle",
         "started_at": None,
@@ -439,7 +439,7 @@ async def stop_character(
 async def generate_prompt(
     character_id: str,
     context: str = Query("system", description="Prompt context (system, chat, post)"),
-    topic: Optional[str] = Query(None, description="Topic for post generation"),
+    topic: str | None = Query(None, description="Topic for post generation"),
     wallet: str = Depends(require_auth),
     loader: CharacterLoader = Depends(get_loader),
 ) -> dict:

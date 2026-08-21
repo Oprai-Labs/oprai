@@ -12,10 +12,11 @@ import logging
 import tempfile
 import wave
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, AsyncGenerator
+from typing import Any, Optional
 
 import httpx
 
@@ -38,7 +39,7 @@ class VoiceConfig:
     """Voice configuration"""
     provider: VoiceProvider
     voice_id: str
-    model: Optional[str] = None
+    model: str | None = None
     speed: float = 1.0
     pitch: float = 1.0
     language: str = "en-US"
@@ -78,7 +79,6 @@ class BaseTTSProvider(ABC):
         config: VoiceConfig,
     ) -> TTSResult:
         """Synthesize speech from text"""
-        pass
 
     async def synthesize_stream(
         self,
@@ -105,7 +105,6 @@ class BaseSTTProvider(ABC):
         language: str = "en-US",
     ) -> STTResult:
         """Transcribe audio to text"""
-        pass
 
     async def transcribe_stream(
         self,
@@ -126,7 +125,7 @@ class BaseSTTProvider(ABC):
 class OpenAITTSProvider(BaseTTSProvider):
     """OpenAI TTS provider"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key
         self._client = None
 
@@ -174,7 +173,7 @@ class OpenAITTSProvider(BaseTTSProvider):
 class OpenAISTTProvider(BaseSTTProvider):
     """OpenAI STT provider (Whisper)"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key
         self._client = None
 
@@ -220,7 +219,7 @@ class OpenAISTTProvider(BaseSTTProvider):
 class ElevenLabsTTSProvider(BaseTTSProvider):
     """ElevenLabs TTS provider"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key
         self.base_url = "https://api.elevenlabs.io/v1"
 
@@ -288,7 +287,7 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
 class DeepgramSTTProvider(BaseSTTProvider):
     """Deepgram STT provider"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key
         self.base_url = "https://api.deepgram.com/v1"
 
@@ -338,7 +337,7 @@ class VoiceService:
     Manages TTS and STT providers.
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
         self._tts_providers: dict[VoiceProvider, BaseTTSProvider] = {}
         self._stt_providers: dict[VoiceProvider, BaseSTTProvider] = {}
@@ -357,7 +356,7 @@ class VoiceService:
         self,
         text: str,
         voice_id: str = "alloy",
-        provider: Optional[VoiceProvider] = None,
+        provider: VoiceProvider | None = None,
         speed: float = 1.0,
     ) -> TTSResult:
         """
@@ -390,7 +389,7 @@ class VoiceService:
         self,
         audio_data: bytes,
         language: str = "en-US",
-        provider: Optional[VoiceProvider] = None,
+        provider: VoiceProvider | None = None,
     ) -> STTResult:
         """
         Convert speech to text.
@@ -415,7 +414,7 @@ class VoiceService:
         self,
         text: str,
         voice_id: str = "alloy",
-        provider: Optional[VoiceProvider] = None,
+        provider: VoiceProvider | None = None,
     ) -> AsyncGenerator[bytes, None]:
         """Stream TTS audio"""
         prov = provider or self._default_tts
@@ -429,7 +428,7 @@ class VoiceService:
         async for chunk in tts_provider.synthesize_stream(text, config):
             yield chunk
 
-    def list_voices(self, provider: Optional[VoiceProvider] = None) -> list[dict]:
+    def list_voices(self, provider: VoiceProvider | None = None) -> list[dict]:
         """List available voices"""
         # OpenAI voices
         if provider == VoiceProvider.OPENAI or provider is None:
@@ -445,7 +444,7 @@ class VoiceService:
 
 
 # Global voice service
-_voice_service: Optional[VoiceService] = None
+_voice_service: VoiceService | None = None
 
 
 def get_voice_service() -> VoiceService:

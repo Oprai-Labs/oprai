@@ -39,7 +39,7 @@ class ClientType(str, Enum):
 class CharacterVoice(BaseModel):
     """Voice settings for text-to-speech"""
     model: str
-    url: Optional[str] = None
+    url: str | None = None
 
 
 class CharacterStyle(BaseModel):
@@ -52,8 +52,8 @@ class CharacterStyle(BaseModel):
 class MessageContent(BaseModel):
     """Message content structure"""
     text: str
-    action: Optional[str] = None
-    attachments: Optional[list[dict[str, str]]] = None
+    action: str | None = None
+    attachments: list[dict[str, str]] | None = None
 
 
 class MessageExample(BaseModel):
@@ -64,13 +64,13 @@ class MessageExample(BaseModel):
 
 class CharacterSettings(BaseModel):
     """Settings and configuration"""
-    secrets: Optional[dict[str, str]] = None
-    voice: Optional[CharacterVoice] = None
-    model: Optional[str] = None
-    embedding_model: Optional[str] = Field(None, alias="embeddingModel")
-    twitter_api_key: Optional[str] = Field(None, alias="twitterApiKey")
-    discord_bot_token: Optional[str] = Field(None, alias="discordBotToken")
-    telegram_bot_token: Optional[str] = Field(None, alias="telegramBotToken")
+    secrets: dict[str, str] | None = None
+    voice: CharacterVoice | None = None
+    model: str | None = None
+    embedding_model: str | None = Field(None, alias="embeddingModel")
+    twitter_api_key: str | None = Field(None, alias="twitterApiKey")
+    discord_bot_token: str | None = Field(None, alias="discordBotToken")
+    telegram_bot_token: str | None = Field(None, alias="telegramBotToken")
 
     class Config:
         populate_by_name = True
@@ -78,21 +78,21 @@ class CharacterSettings(BaseModel):
 
 class CharacterTemplates(BaseModel):
     """Prompt templates for various tasks"""
-    goals_template: Optional[str] = Field(None, alias="goalsTemplate")
-    facts_template: Optional[str] = Field(None, alias="factsTemplate")
-    message_handler_template: Optional[str] = Field(None, alias="messageHandlerTemplate")
-    should_respond_template: Optional[str] = Field(None, alias="shouldRespondTemplate")
-    continue_message_handler_template: Optional[str] = Field(None, alias="continueMessageHandlerTemplate")
-    evaluation_template: Optional[str] = Field(None, alias="evaluationTemplate")
-    twitter_search_template: Optional[str] = Field(None, alias="twitterSearchTemplate")
-    twitter_post_template: Optional[str] = Field(None, alias="twitterPostTemplate")
-    twitter_message_handler_template: Optional[str] = Field(None, alias="twitterMessageHandlerTemplate")
-    twitter_should_respond_template: Optional[str] = Field(None, alias="twitterShouldRespondTemplate")
-    telegram_message_handler_template: Optional[str] = Field(None, alias="telegramMessageHandlerTemplate")
-    telegram_should_respond_template: Optional[str] = Field(None, alias="telegramShouldRespondTemplate")
-    discord_voice_handler_template: Optional[str] = Field(None, alias="discordVoiceHandlerTemplate")
-    discord_should_respond_template: Optional[str] = Field(None, alias="discordShouldRespondTemplate")
-    discord_message_handler_template: Optional[str] = Field(None, alias="discordMessageHandlerTemplate")
+    goals_template: str | None = Field(None, alias="goalsTemplate")
+    facts_template: str | None = Field(None, alias="factsTemplate")
+    message_handler_template: str | None = Field(None, alias="messageHandlerTemplate")
+    should_respond_template: str | None = Field(None, alias="shouldRespondTemplate")
+    continue_message_handler_template: str | None = Field(None, alias="continueMessageHandlerTemplate")
+    evaluation_template: str | None = Field(None, alias="evaluationTemplate")
+    twitter_search_template: str | None = Field(None, alias="twitterSearchTemplate")
+    twitter_post_template: str | None = Field(None, alias="twitterPostTemplate")
+    twitter_message_handler_template: str | None = Field(None, alias="twitterMessageHandlerTemplate")
+    twitter_should_respond_template: str | None = Field(None, alias="twitterShouldRespondTemplate")
+    telegram_message_handler_template: str | None = Field(None, alias="telegramMessageHandlerTemplate")
+    telegram_should_respond_template: str | None = Field(None, alias="telegramShouldRespondTemplate")
+    discord_voice_handler_template: str | None = Field(None, alias="discordVoiceHandlerTemplate")
+    discord_should_respond_template: str | None = Field(None, alias="discordShouldRespondTemplate")
+    discord_message_handler_template: str | None = Field(None, alias="discordMessageHandlerTemplate")
 
     class Config:
         populate_by_name = True
@@ -100,27 +100,27 @@ class CharacterTemplates(BaseModel):
 
 class Character(BaseModel):
     """Complete Character definition"""
-    id: Optional[str] = None
+    id: str | None = None
     name: str
     model_provider: ModelProvider = Field(alias="modelProvider")
     clients: list[ClientType]
     bio: str | list[str]
-    lore: Optional[list[str]] = None
-    knowledge: Optional[list[str]] = None
-    message_examples: Optional[list[list[MessageExample]]] = Field(None, alias="messageExamples")
-    post_examples: Optional[list[str]] = Field(None, alias="postExamples")
-    topics: Optional[list[str]] = None
-    adjectives: Optional[list[str]] = None
-    style: Optional[CharacterStyle] = None
-    settings: Optional[CharacterSettings] = None
-    templates: Optional[CharacterTemplates] = None
-    system_prompt: Optional[str] = Field(None, alias="systemPrompt")
-    active: Optional[bool] = True
-    created_at: Optional[datetime] = Field(None, alias="createdAt")
-    updated_at: Optional[datetime] = Field(None, alias="updatedAt")
-    owner_wallet: Optional[str] = Field(None, alias="ownerWallet")
-    is_public: Optional[bool] = Field(None, alias="isPublic")
-    tags: Optional[list[str]] = None
+    lore: list[str] | None = None
+    knowledge: list[str] | None = None
+    message_examples: list[list[MessageExample]] | None = Field(None, alias="messageExamples")
+    post_examples: list[str] | None = Field(None, alias="postExamples")
+    topics: list[str] | None = None
+    adjectives: list[str] | None = None
+    style: CharacterStyle | None = None
+    settings: CharacterSettings | None = None
+    templates: CharacterTemplates | None = None
+    system_prompt: str | None = Field(None, alias="systemPrompt")
+    active: bool | None = True
+    created_at: datetime | None = Field(None, alias="createdAt")
+    updated_at: datetime | None = Field(None, alias="updatedAt")
+    owner_wallet: str | None = Field(None, alias="ownerWallet")
+    is_public: bool | None = Field(None, alias="isPublic")
+    tags: list[str] | None = None
 
     class Config:
         populate_by_name = True
@@ -128,7 +128,7 @@ class Character(BaseModel):
 
 class CharacterFile(Character):
     """Character file format for loading/saving"""
-    version: Optional[str] = None
+    version: str | None = None
 
 
 class CreateCharacterRequest(BaseModel):
@@ -137,18 +137,18 @@ class CreateCharacterRequest(BaseModel):
     model_provider: ModelProvider = Field(alias="modelProvider")
     clients: list[ClientType]
     bio: str | list[str]
-    lore: Optional[list[str]] = None
-    knowledge: Optional[list[str]] = None
-    message_examples: Optional[list[list[MessageExample]]] = Field(None, alias="messageExamples")
-    post_examples: Optional[list[str]] = Field(None, alias="postExamples")
-    topics: Optional[list[str]] = None
-    adjectives: Optional[list[str]] = None
-    style: Optional[CharacterStyle] = None
-    settings: Optional[CharacterSettings] = None
-    templates: Optional[CharacterTemplates] = None
-    system_prompt: Optional[str] = Field(None, alias="systemPrompt")
-    is_public: Optional[bool] = Field(None, alias="isPublic")
-    tags: Optional[list[str]] = None
+    lore: list[str] | None = None
+    knowledge: list[str] | None = None
+    message_examples: list[list[MessageExample]] | None = Field(None, alias="messageExamples")
+    post_examples: list[str] | None = Field(None, alias="postExamples")
+    topics: list[str] | None = None
+    adjectives: list[str] | None = None
+    style: CharacterStyle | None = None
+    settings: CharacterSettings | None = None
+    templates: CharacterTemplates | None = None
+    system_prompt: str | None = Field(None, alias="systemPrompt")
+    is_public: bool | None = Field(None, alias="isPublic")
+    tags: list[str] | None = None
 
     class Config:
         populate_by_name = True
@@ -156,23 +156,23 @@ class CreateCharacterRequest(BaseModel):
 
 class UpdateCharacterRequest(BaseModel):
     """Character update request"""
-    name: Optional[str] = None
-    model_provider: Optional[ModelProvider] = Field(None, alias="modelProvider")
-    clients: Optional[list[ClientType]] = None
-    bio: Optional[str | list[str]] = None
-    lore: Optional[list[str]] = None
-    knowledge: Optional[list[str]] = None
-    message_examples: Optional[list[list[MessageExample]]] = Field(None, alias="messageExamples")
-    post_examples: Optional[list[str]] = Field(None, alias="postExamples")
-    topics: Optional[list[str]] = None
-    adjectives: Optional[list[str]] = None
-    style: Optional[CharacterStyle] = None
-    settings: Optional[CharacterSettings] = None
-    templates: Optional[CharacterTemplates] = None
-    system_prompt: Optional[str] = Field(None, alias="systemPrompt")
-    active: Optional[bool] = None
-    is_public: Optional[bool] = Field(None, alias="isPublic")
-    tags: Optional[list[str]] = None
+    name: str | None = None
+    model_provider: ModelProvider | None = Field(None, alias="modelProvider")
+    clients: list[ClientType] | None = None
+    bio: str | list[str] | None = None
+    lore: list[str] | None = None
+    knowledge: list[str] | None = None
+    message_examples: list[list[MessageExample]] | None = Field(None, alias="messageExamples")
+    post_examples: list[str] | None = Field(None, alias="postExamples")
+    topics: list[str] | None = None
+    adjectives: list[str] | None = None
+    style: CharacterStyle | None = None
+    settings: CharacterSettings | None = None
+    templates: CharacterTemplates | None = None
+    system_prompt: str | None = Field(None, alias="systemPrompt")
+    active: bool | None = None
+    is_public: bool | None = Field(None, alias="isPublic")
+    tags: list[str] | None = None
 
     class Config:
         populate_by_name = True
@@ -180,12 +180,12 @@ class UpdateCharacterRequest(BaseModel):
 
 class CharacterFilters(BaseModel):
     """Character list filters"""
-    owner_wallet: Optional[str] = Field(None, alias="ownerWallet")
-    is_public: Optional[bool] = Field(None, alias="isPublic")
-    tags: Optional[list[str]] = None
-    search: Optional[str] = None
-    model_provider: Optional[ModelProvider] = Field(None, alias="modelProvider")
-    client: Optional[ClientType] = None
+    owner_wallet: str | None = Field(None, alias="ownerWallet")
+    is_public: bool | None = Field(None, alias="isPublic")
+    tags: list[str] | None = None
+    search: str | None = None
+    model_provider: ModelProvider | None = Field(None, alias="modelProvider")
+    client: ClientType | None = None
 
     class Config:
         populate_by_name = True
@@ -194,9 +194,9 @@ class CharacterFilters(BaseModel):
 class CharacterWithRuntime(Character):
     """Character with runtime info"""
     status: str = "idle"  # idle, running, error
-    last_activity_at: Optional[datetime] = Field(None, alias="lastActivityAt")
-    message_count: Optional[int] = Field(None, alias="messageCount")
-    error_message: Optional[str] = Field(None, alias="errorMessage")
+    last_activity_at: datetime | None = Field(None, alias="lastActivityAt")
+    message_count: int | None = Field(None, alias="messageCount")
+    error_message: str | None = Field(None, alias="errorMessage")
 
     class Config:
         populate_by_name = True

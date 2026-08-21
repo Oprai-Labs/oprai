@@ -6,8 +6,9 @@ and service URLs.
 """
 
 import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestMemoryServiceConfig:
@@ -37,6 +38,7 @@ class TestMemoryServiceConfig:
         """Test OpenAI API key environment variable"""
         with patch.dict(os.environ, {"OPRAI_OPENAI_API_KEY": "test-key-123"}):
             from importlib import reload
+
             import app.config
             reload(app.config)
             # After reload it would have test value
@@ -88,6 +90,7 @@ class TestMemoryServiceEnvironment:
         """Test port can be overridden"""
         with patch.dict(os.environ, {"PORT": "5000"}):
             from importlib import reload
+
             import app.config
             reload(app.config)
 
@@ -95,6 +98,7 @@ class TestMemoryServiceEnvironment:
         """Test database URL can be overridden"""
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://custom:5432/db"}):
             from importlib import reload
+
             import app.config
             reload(app.config)
 
@@ -102,6 +106,7 @@ class TestMemoryServiceEnvironment:
         """Test Qdrant URL can be overridden"""
         with patch.dict(os.environ, {"QDRANT_URL": "http://custom:6333"}):
             from importlib import reload
+
             import app.config
             reload(app.config)
 
@@ -109,6 +114,7 @@ class TestMemoryServiceEnvironment:
         """Test collection name can be overridden"""
         with patch.dict(os.environ, {"COLLECTION_NAME": "custom_collection"}):
             from importlib import reload
+
             import app.config
             reload(app.config)
 

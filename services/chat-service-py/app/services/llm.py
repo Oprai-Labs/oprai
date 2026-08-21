@@ -17,10 +17,10 @@ import re
 from collections.abc import AsyncGenerator
 from typing import Literal
 
-from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from openai import AsyncOpenAI
 
 from app.config import settings
 

@@ -9,6 +9,7 @@ from google.protobuf import descriptor_pool as _descriptor_pool
 from google.protobuf import runtime_version as _runtime_version
 from google.protobuf import symbol_database as _symbol_database
 from google.protobuf.internal import builder as _builder
+
 _runtime_version.ValidateProtobufRuntimeVersion(
     _runtime_version.Domain.PUBLIC,
     6,
@@ -24,7 +25,6 @@ _sym_db = _symbol_database.Default()
 
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 from proto.common import types_pb2 as proto_dot_common_dot_types__pb2
-
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18proto/chat/session.proto\x12\noprai.chat\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18proto/common/types.proto\"\x98\x01\n\x0bSessionMeta\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06wallet\x18\x02 \x01(\t\x12\r\n\x05title\x18\x03 \x01(\t\x12.\n\ncreated_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"5\n\x14\x43reateSessionRequest\x12\x0e\n\x06wallet\x18\x01 \x01(\t\x12\r\n\x05title\x18\x02 \x01(\t\"7\n\x11GetSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0e\n\x06wallet\x18\x02 \x01(\t\"\x90\x01\n\x13ListSessionsRequest\x12\x0e\n\x06wallet\x18\x01 \x01(\t\x12,\n\npagination\x18\x02 \x01(\x0b\x32\x18.oprai.common.Pagination\x12+\n\ndate_range\x18\x03 \x01(\x0b\x32\x17.oprai.common.DateRange\x12\x0e\n\x06search\x18\x04 \x01(\t\"v\n\x14ListSessionsResponse\x12)\n\x08sessions\x18\x01 \x03(\x0b\x32\x17.oprai.chat.SessionMeta\x12\x33\n\npagination\x18\x02 \x01(\x0b\x32\x1f.oprai.common.PaginatedResponse\"N\n\x19UpdateSessionTitleRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0e\n\x06wallet\x18\x02 \x01(\t\x12\r\n\x05title\x18\x03 \x01(\t\":\n\x14\x44\x65leteSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0e\n\x06wallet\x18\x02 \x01(\t\"(\n\x15\x44\x65leteSessionResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x32\xa5\x03\n\x12\x43hatSessionService\x12J\n\rCreateSession\x12 .oprai.chat.CreateSessionRequest\x1a\x17.oprai.chat.SessionMeta\x12\x44\n\nGetSession\x12\x1d.oprai.chat.GetSessionRequest\x1a\x17.oprai.chat.SessionMeta\x12Q\n\x0cListSessions\x12\x1f.oprai.chat.ListSessionsRequest\x1a .oprai.chat.ListSessionsResponse\x12T\n\x12UpdateSessionTitle\x12%.oprai.chat.UpdateSessionTitleRequest\x1a\x17.oprai.chat.SessionMeta\x12T\n\rDeleteSession\x12 .oprai.chat.DeleteSessionRequest\x1a!.oprai.chat.DeleteSessionResponseB,Z*github.com/oprai/oprai/proto/gen/go/chatpbb\x06proto3')
 

@@ -4,10 +4,11 @@ Tests for ChatMessage SQLAlchemy model.
 Tests database schema and column definitions.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 import uuid
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestChatMessageModel:
@@ -21,8 +22,8 @@ class TestChatMessageModel:
 
     def test_schema(self):
         """Test schema is configured"""
-        from app.models.message import ChatMessage
         from app.config import settings
+        from app.models.message import ChatMessage
 
         table_args = ChatMessage.__table_args__
         # Check schema is in table args

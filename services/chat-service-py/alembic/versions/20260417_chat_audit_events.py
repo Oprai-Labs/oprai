@@ -5,9 +5,10 @@ Revises: 20260420_add_last_message_at
 Create Date: 2026-04-17 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "20260417_chat_audit_events"
 down_revision = "20260420_add_last_message_at"

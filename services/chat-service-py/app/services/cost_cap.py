@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone, UTC
 
 from app.services.cache import get_cache_service
 
@@ -88,15 +88,15 @@ def _chat_message_cap() -> int:   return _env_int("OPRAI_LLM_CHAT_MESSAGE_CAP", 
 # ── Period strings — used to bucket Redis keys ─────────────────────────────
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 def _this_week() -> str:
     """ISO-week format `YYYY-Www` (e.g. `2026-W20`)."""
-    y, w, _ = datetime.now(timezone.utc).isocalendar()
+    y, w, _ = datetime.now(UTC).isocalendar()
     return f"{y:04d}-W{w:02d}"
 
 def _this_month() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m")
+    return datetime.now(UTC).strftime("%Y-%m")
 
 
 # ── Redis keys ─────────────────────────────────────────────────────────────
@@ -112,13 +112,13 @@ def _mmsg_key(wallet: str) -> str:   return f"llm:monthly:msg:{wallet}:{_this_mo
 # ── Reset-time helpers ─────────────────────────────────────────────────────
 
 def _next_daily_reset_iso() -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     nxt = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     return nxt.isoformat().replace("+00:00", "Z")
 
 def _next_weekly_reset_iso() -> str:
     """Next Monday 00:00 UTC. ISO weeks start on Monday (weekday=0)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     days_until_monday = (7 - now.weekday()) % 7 or 7
     nxt = (now.replace(hour=0, minute=0, second=0, microsecond=0)
            + timedelta(days=days_until_monday))
@@ -126,7 +126,7 @@ def _next_weekly_reset_iso() -> str:
 
 def _next_monthly_reset_iso() -> str:
     """1st of next month, 00:00 UTC."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if now.month == 12:
         nxt = now.replace(year=now.year + 1, month=1, day=1, hour=0,
                           minute=0, second=0, microsecond=0)

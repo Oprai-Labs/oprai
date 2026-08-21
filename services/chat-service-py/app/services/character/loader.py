@@ -18,13 +18,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.models.character import (
+    BUILTIN_CHARACTERS,
     Character,
     CharacterFile,
     CharacterStyle,
+    ClientType,
     CreateCharacterRequest,
     ModelProvider,
-    ClientType,
-    BUILTIN_CHARACTERS,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def _sanitize_system_prompt(text: str | None, field_name: str = "system_prompt")
 class CharacterLoader:
     """Service for loading and managing character configurations"""
 
-    def __init__(self, characters_dir: Optional[Path] = None):
+    def __init__(self, characters_dir: Path | None = None):
         """
         Initialize character loader.
 
@@ -125,7 +125,7 @@ class CharacterLoader:
         logger.info(f"Loaded character from file: {character.name} ({character.id})")
         return character
 
-    def get_character(self, character_id: str) -> Optional[Character]:
+    def get_character(self, character_id: str) -> Character | None:
         """
         Get a character by ID.
 
@@ -139,10 +139,10 @@ class CharacterLoader:
 
     def list_characters(
         self,
-        owner_wallet: Optional[str] = None,
-        is_public: Optional[bool] = None,
-        tags: Optional[list[str]] = None,
-        search: Optional[str] = None,
+        owner_wallet: str | None = None,
+        is_public: bool | None = None,
+        tags: list[str] | None = None,
+        search: str | None = None,
     ) -> list[Character]:
         """
         List characters with optional filters.
@@ -185,7 +185,7 @@ class CharacterLoader:
     def create_character(
         self,
         request: CreateCharacterRequest,
-        owner_wallet: Optional[str] = None,
+        owner_wallet: str | None = None,
     ) -> Character:
         """
         Create a new character.
@@ -235,7 +235,7 @@ class CharacterLoader:
         self,
         character_id: str,
         updates: dict[str, Any],
-    ) -> Optional[Character]:
+    ) -> Character | None:
         """
         Update a character.
 
@@ -301,7 +301,7 @@ class CharacterLoader:
         logger.info(f"Deleted character: {character_id}")
         return True
 
-    def duplicate_character(self, character_id: str) -> Optional[Character]:
+    def duplicate_character(self, character_id: str) -> Character | None:
         """
         Duplicate a character.
 
@@ -345,7 +345,7 @@ class CharacterLoader:
             return random.choice(character.bio)
         return character.bio
 
-    def get_random_lore(self, character: Character) -> Optional[str]:
+    def get_random_lore(self, character: Character) -> str | None:
         """
         Get a random lore element for variety.
 
@@ -384,7 +384,7 @@ class CharacterLoader:
 
 
 # Global character loader instance
-_character_loader: Optional[CharacterLoader] = None
+_character_loader: CharacterLoader | None = None
 
 
 def get_character_loader() -> CharacterLoader:

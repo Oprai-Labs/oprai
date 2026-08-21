@@ -4,9 +4,10 @@ Tests for Prompt Loader module.
 Tests modular prompt loading with singleton caching.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestPromptLoader:

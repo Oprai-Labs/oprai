@@ -25,7 +25,6 @@ Adds three columns to chat_schema.chat_sessions:
 
 from alembic import op
 
-
 revision = "20260517_chat_session_locks"
 down_revision = "20260508_add_message_feedback"
 branch_labels = None

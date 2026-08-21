@@ -696,6 +696,7 @@ async def build_llm_context(
     # Cached at 30s TTL to avoid blocking RPC calls on every message.
     # The cache is invalidated by post-action flows that change the balance.
     import asyncio as _asyncio
+
     from app.services.cache import get_cache_service as _get_cache
     _cache = await _get_cache()
     _cached_balances = await _cache.get("wallet_balances", wallet)
@@ -1278,7 +1279,7 @@ async def build_llm_context(
             try:
                 with open("/tmp/oprai-debug.log", "a") as _df:
                     _df.write(
-                        f"[CTX] fallback card_state SKIPPED — irrelevant to current msg\n"
+                        "[CTX] fallback card_state SKIPPED — irrelevant to current msg\n"
                     )
             except Exception:
                 pass

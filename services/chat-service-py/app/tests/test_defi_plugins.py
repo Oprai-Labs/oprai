@@ -4,8 +4,9 @@ Tests for DeFi Plugins module.
 Tests various DeFi protocol actions.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestBuildAction:
@@ -14,8 +15,8 @@ class TestBuildAction:
     @pytest.mark.asyncio
     async def test_build_action_success(self):
         """Test successful action build"""
-        from app.plugins.defi_plugins import _build_action
         from app.plugins.base import PluginResult
+        from app.plugins.defi_plugins import _build_action
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"transaction": "base64..."}
@@ -187,8 +188,8 @@ class TestDefiActionsExecution:
     @pytest.mark.asyncio
     async def test_meteora_swap_execute(self):
         """Test executing Meteora swap"""
-        from app.plugins.defi_plugins import MeteoraSwapAction
         from app.plugins.base import PluginContext
+        from app.plugins.defi_plugins import MeteoraSwapAction
 
         action = MeteoraSwapAction()
 

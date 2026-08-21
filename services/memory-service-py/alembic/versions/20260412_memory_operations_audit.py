@@ -9,9 +9,10 @@ Revises: 20260101_initial_consent
 Create Date: 2026-04-12
 """
 
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "20260412_memory_operations_audit"
 down_revision = "20260101_initial_consent"

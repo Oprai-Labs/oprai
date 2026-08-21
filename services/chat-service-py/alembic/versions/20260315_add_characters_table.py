@@ -11,8 +11,9 @@ which broke Alembic upgrades on fresh databases because the
 without it existing.  This migration canonicalises the DDL.
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260315_add_characters"
 down_revision = "20260302_soft_delete_pin"

@@ -11,10 +11,10 @@ each fact_type is single-valued — new extractions overwrite the old
 value rather than accumulating duplicates.
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision = "20260508_add_user_facts"
 down_revision = "20260508_add_session_state"

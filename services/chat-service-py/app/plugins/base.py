@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional, TypeVar, Generic
+from typing import Any, Generic, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,10 @@ class PluginPriority(int, Enum):
 class PluginContext:
     """Context passed to plugin methods"""
     plugin_id: str
-    character_id: Optional[str] = None
-    user_wallet: Optional[str] = None
-    session_id: Optional[str] = None
-    message_id: Optional[str] = None
+    character_id: str | None = None
+    user_wallet: str | None = None
+    session_id: str | None = None
+    message_id: str | None = None
     config: dict[str, Any] = field(default_factory=dict)
     state: dict[str, Any] = field(default_factory=dict)
 
@@ -57,8 +58,8 @@ class PluginContext:
 class PluginResult(Generic[T]):
     """Result from plugin execution"""
     success: bool
-    data: Optional[T] = None
-    error: Optional[str] = None
+    data: T | None = None
+    error: str | None = None
     execution_time_ms: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -73,7 +74,6 @@ class PluginAction(ABC):
     @abstractmethod
     def name(self) -> str:
         """Unique action name"""
-        pass
 
     @property
     def description(self) -> str:
@@ -110,9 +110,8 @@ class PluginAction(ABC):
         context: PluginContext
     ) -> PluginResult:
         """Execute the action"""
-        pass
 
-    def validate_params(self, params: dict[str, Any]) -> tuple[bool, Optional[str]]:
+    def validate_params(self, params: dict[str, Any]) -> tuple[bool, str | None]:
         """
         Validate action parameters.
 
@@ -159,7 +158,6 @@ class PluginProvider(ABC):
     @abstractmethod
     def name(self) -> str:
         """Unique provider name"""
-        pass
 
     @property
     def description(self) -> str:
@@ -183,7 +181,6 @@ class PluginProvider(ABC):
         context: PluginContext
     ) -> PluginResult:
         """Fetch data from the provider"""
-        pass
 
     async def get(self, key: str, context: PluginContext) -> Any:
         """
@@ -203,7 +200,6 @@ class PluginEvaluator(ABC):
     @abstractmethod
     def name(self) -> str:
         """Unique evaluator name"""
-        pass
 
     @property
     def description(self) -> str:
@@ -227,7 +223,6 @@ class PluginEvaluator(ABC):
         Returns:
             PluginResult with list of action names to consider
         """
-        pass
 
 
 class BasePlugin(ABC):
@@ -240,13 +235,11 @@ class BasePlugin(ABC):
     @abstractmethod
     def id(self) -> str:
         """Unique plugin identifier"""
-        pass
 
     @property
     @abstractmethod
     def name(self) -> str:
         """Plugin display name"""
-        pass
 
     @property
     def version(self) -> str:
@@ -290,15 +283,12 @@ class BasePlugin(ABC):
 
     async def on_load(self, context: PluginContext) -> None:
         """Called when plugin is loaded"""
-        pass
 
     async def on_unload(self, context: PluginContext) -> None:
         """Called when plugin is unloaded"""
-        pass
 
     async def on_message(self, message: str, context: PluginContext) -> None:
         """Called for each message (optional)"""
-        pass
 
     async def on_action_complete(
         self,
@@ -307,23 +297,22 @@ class BasePlugin(ABC):
         context: PluginContext
     ) -> None:
         """Called after an action completes"""
-        pass
 
-    def get_action(self, name: str) -> Optional[PluginAction]:
+    def get_action(self, name: str) -> PluginAction | None:
         """Get action by name"""
         for action in self.actions:
             if action.name == name or name in action.aliases:
                 return action
         return None
 
-    def get_provider(self, name: str) -> Optional[PluginProvider]:
+    def get_provider(self, name: str) -> PluginProvider | None:
         """Get provider by name"""
         for provider in self.providers:
             if provider.name == name:
                 return provider
         return None
 
-    def get_evaluator(self, name: str) -> Optional[PluginEvaluator]:
+    def get_evaluator(self, name: str) -> PluginEvaluator | None:
         """Get evaluator by name"""
         for evaluator in self.evaluators:
             if evaluator.name == name:

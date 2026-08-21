@@ -8,11 +8,12 @@ Fetches trending tokens from DexScreener for Solana ecosystem:
 - Price changes by timeframe
 """
 
-import httpx
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def fetch_trending_pairs(
     timeframe: str = Timeframe.HOUR_24,
     limit: int = 20,
     min_liquidity: float = 10000,
-) -> List[TokenPair]:
+) -> list[TokenPair]:
     """
     Fetch trending pairs from DexScreener.
 
@@ -137,7 +138,7 @@ async def fetch_trending_pairs(
 async def get_hot_tokens(
     limit: int = 10,
     min_liquidity: float = 50000,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get hot tokens - highest volume in last hour.
 
@@ -164,7 +165,7 @@ async def get_top_gainers(
     timeframe: str = Timeframe.HOUR_24,
     limit: int = 10,
     min_liquidity: float = 50000,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get top gaining tokens by price change.
 
@@ -190,7 +191,7 @@ async def get_top_losers(
     timeframe: str = Timeframe.HOUR_24,
     limit: int = 10,
     min_liquidity: float = 50000,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get top losing tokens by price change.
 
@@ -221,7 +222,7 @@ async def get_top_losers(
 async def get_new_tokens(
     limit: int = 10,
     min_liquidity: float = 10000,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get newest tokens (by pair creation time if available).
 
@@ -242,7 +243,7 @@ async def get_new_tokens(
 async def search_tokens(
     query: str,
     limit: int = 10,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Search tokens by symbol or name.
 
@@ -292,7 +293,7 @@ async def search_tokens(
 
 async def get_token_by_address(
     token_address: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Get detailed token info by address.
 
@@ -344,7 +345,7 @@ async def get_token_by_address(
         return None
 
 
-def _pair_to_dict(pair: TokenPair) -> Dict[str, Any]:
+def _pair_to_dict(pair: TokenPair) -> dict[str, Any]:
     """Convert TokenPair to dict for JSON serialization"""
     return {
         "address": pair.address,
@@ -362,7 +363,7 @@ def _pair_to_dict(pair: TokenPair) -> Dict[str, Any]:
     }
 
 
-async def get_trending_summary(use_cache: bool = True) -> Dict[str, Any]:
+async def get_trending_summary(use_cache: bool = True) -> dict[str, Any]:
     """
     Get a complete trending summary with all categories.
     Uses cache with 2-minute TTL.

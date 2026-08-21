@@ -5,76 +5,79 @@ within the same process using the async lifespan protocol.
 """
 
 import asyncio
-from datetime import datetime, timezone
 import json
 import logging
 import os
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, UTC
+from typing import Any, Dict, List, Optional
 
 import httpx
-from contextlib import asynccontextmanager
-from collections.abc import AsyncGenerator
-from typing import Any, Dict, List, Optional
 
 # Configure structured logging before any logger is created.
 from app.logging_config import configure_logging
+
 configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"), fmt=os.environ.get("LOG_FORMAT", "json"))
 
+import structlog
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from pydantic import BaseModel, Field
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     Counter,
     Histogram,
     generate_latest,
-    CONTENT_TYPE_LATEST,
 )
-from starlette.responses import Response, StreamingResponse
-from sqlalchemy import select, text as sa_text, update as sa_update
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy import text as sa_text
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response, StreamingResponse
 
 from app.config import settings
-from app.db.connection import get_session, init_db, close_db, async_session_factory
-from app.middleware.request_audit import RequestAuditMiddleware
-from app.services.cache import get_cache_service, close_cache_service
+from app.db.connection import async_session_factory, close_db, get_session, init_db
 from app.grpc_server import start_grpc_server
 from app.middleware.auth import require_auth, require_internal
-from app.services import session as session_svc
-from app.services import message as message_svc
-from app.services import share as share_svc
+from app.middleware.request_audit import RequestAuditMiddleware
 from app.services import issue_report as issue_svc
+from app.services import message as message_svc
+from app.services import session as session_svc
+from app.services import share as share_svc
+from app.services.audit_trail import (
+    AuditEntityType,
+    AuditEvent,
+    AuditEventSeverity,
+    AuditEventType,
+    AuditTrailService,
+)
+from app.services.cache import close_cache_service, get_cache_service
 from app.services.llm import LLMService
-from app.services.summary import build_llm_context, maybe_create_summary
-from app.services.title_generator import generate_title
-from app.services.yield_aggregator import get_yield_comparison
 from app.services.portfolio_optimizer import analyze_portfolio, optimize_portfolio
 from app.services.protocol_comparison import get_protocol_comparison
 from app.services.risk_assessment import analyze_portfolio_risk, assess_position_risk
+from app.services.streaming import (
+    StreamType,
+    get_stream_service,
+)
+from app.services.summary import build_llm_context, maybe_create_summary
+from app.services.title_generator import generate_title
 from app.services.token_security import analyze_token_security
 from app.services.trending_tokens import (
-    get_trending_summary,
     get_hot_tokens,
+    get_token_by_address,
     get_top_gainers,
     get_top_losers,
+    get_trending_summary,
     search_tokens,
-    get_token_by_address,
 )
-from app.services.streaming import (
-    get_stream_service,
-    StreamType,
-)
-from app.services.audit_trail import (
-    AuditTrailService,
-    AuditEvent,
-    AuditEventType,
-    AuditEventSeverity,
-    AuditEntityType,
-)
+from app.services.yield_aggregator import get_yield_comparison
 
-import structlog
 logger = structlog.get_logger(__name__)
 
 
@@ -315,7 +318,7 @@ async def health():
     return {
         "status": "ok",
         "service": "chat-service-py",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -340,8 +343,8 @@ _EVENT_TYPES = {"app_open", "funnel", "feature_used", "error_shown", "page_view"
 class EventIn(BaseModel):
     event_type: str = Field(..., max_length=48)
     event_name: str = Field(..., max_length=80)
-    session_id: Optional[str] = None
-    properties: Optional[dict] = None
+    session_id: str | None = None
+    properties: dict | None = None
 
 
 @app.post("/events")
@@ -364,7 +367,7 @@ async def ingest_event(
     if len(blob) > 4000:  # cap: events are meta, not payloads
         blob = json.dumps({"_truncated": True})
 
-    sid: Optional[str] = None
+    sid: str | None = None
     if evt.session_id:
         try:
             sid = str(uuid.UUID(str(evt.session_id)))
@@ -588,6 +591,7 @@ async def claim_cashback(
     a retry can't double-spend. Lock is per (account, chain).
     """
     import os
+
     from app.services import evm_payout
     w = x_user_wallet
     chain = (chain or "solana").lower()
@@ -822,14 +826,14 @@ class PortfolioPosition(BaseModel):
 
 class PortfolioAnalyzeRequest(BaseModel):
     """Request to analyze a portfolio."""
-    positions: List[PortfolioPosition]
+    positions: list[PortfolioPosition]
     risk_tolerance: str = Field(default="moderate", description="conservative, moderate, or aggressive")
-    prices_24h: Dict[str, float] | None = Field(default=None, description="Token prices for 24h change")
+    prices_24h: dict[str, float] | None = Field(default=None, description="Token prices for 24h change")
 
 
 class PortfolioOptimizeRequest(BaseModel):
     """Request to optimize a portfolio."""
-    positions: List[PortfolioPosition]
+    positions: list[PortfolioPosition]
     category: str = Field(default="liquid_staking", description="liquid_staking, lending")
     risk_tolerance: str = Field(default="moderate")
 
@@ -889,10 +893,9 @@ async def optimize_portfolio_endpoint(
 # blocking first paint.
 
 from app.services.portfolio_analytics import (  # noqa: E402
-    sync_wallet_costbasis,
     read_costbasis,
+    sync_wallet_costbasis,
 )
-
 
 # Per-wallet debounce so back-to-back refresh calls don't fan out
 # duplicate Helius pages. Lives in-memory because the work is cheap to
@@ -989,8 +992,8 @@ class RiskPosition(BaseModel):
 
 class PortfolioRiskRequest(BaseModel):
     """Request for portfolio risk analysis."""
-    positions: List[RiskPosition]
-    prices_24h: Dict[str, float] | None = None
+    positions: list[RiskPosition]
+    prices_24h: dict[str, float] | None = None
 
 
 @app.post("/risk/analyze")
@@ -1036,14 +1039,14 @@ class TokenHolderInput(BaseModel):
 class TokenSecurityRequest(BaseModel):
     """Request for token security analysis"""
     token_address: str
-    holders: List[TokenHolderInput] | None = None
+    holders: list[TokenHolderInput] | None = None
     liquidity_usd: float | None = None
     market_cap_usd: float | None = None
     mint_authority: str | None = None
     freeze_authority: str | None = None
     supply: float = 0
     decimals: int = 9
-    metadata: Dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
     pair_address: str | None = None
 
 
@@ -2257,7 +2260,7 @@ class PortfolioPositionInput(BaseModel):
 
 class AnalyticsRequest(BaseModel):
     """Request for analytics calculation"""
-    positions: List[PortfolioPositionInput]
+    positions: list[PortfolioPositionInput]
     timeframe_days: int = 30
 
 
@@ -3009,7 +3012,7 @@ async def send_message(
         ))
         return {
             "message": text,
-            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(UTC).isoformat(),
             **response_extra,
         }
     except Exception as exc:
@@ -3029,7 +3032,7 @@ async def send_message(
         ))
         return {
             "message": "",
-            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(UTC).isoformat(),
             "degraded": True,
             **response_extra,
         }
@@ -3122,9 +3125,11 @@ async def edit_message_stream(
     the assistant response streams normally — the SSE format matches
     `/messages/stream` so the client can reuse the same parser.
     """
-    from app.models.message import ChatMessage as _ChatMessageORM
     import uuid as _uuid
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    from app.models.message import ChatMessage as _ChatMessageORM
 
     content = body.content.strip()
     session_id = body.session_id
@@ -3174,7 +3179,7 @@ async def edit_message_stream(
         )
     )
     affected = (await db.execute(affected_stmt)).scalars().all()
-    now_iso = _dt.now(_tz.utc).isoformat()
+    now_iso = _dt.now(UTC).isoformat()
     for m in affected:
         meta = dict(m.metadata_ or {})
         if meta.get("superseded_at"):
@@ -3312,8 +3317,8 @@ async def get_preferences(
 
         if not preferences:
             # Return defaults
-            from app.services.user_preferences import get_default_preferences
             from app.services.session import get_or_create_user_id
+            from app.services.user_preferences import get_default_preferences
 
             user_id = await get_or_create_user_id(db, wallet)
             preferences = get_default_preferences(user_id, wallet)
@@ -3336,8 +3341,11 @@ async def update_preferences(
     Supports partial updates - only provided fields will be updated.
     """
     try:
-        from app.services.user_preferences import get_preferences_service, get_default_preferences
         from app.services.session import get_or_create_user_id
+        from app.services.user_preferences import (
+            get_default_preferences,
+            get_preferences_service,
+        )
 
         service = get_preferences_service(db)
 
@@ -3379,8 +3387,11 @@ async def delete_preferences(
     Reset user preferences to defaults.
     """
     try:
-        from app.services.user_preferences import get_preferences_service, get_default_preferences
         from app.services.session import get_or_create_user_id
+        from app.services.user_preferences import (
+            get_default_preferences,
+            get_preferences_service,
+        )
 
         service = get_preferences_service(db)
 
@@ -3493,7 +3504,12 @@ async def get_audit_events(
     Get audit events for the authenticated user.
     """
     try:
-        from app.services.audit_trail import get_audit_service, AuditQuery, AuditEventType, AuditEventSeverity
+        from app.services.audit_trail import (
+            AuditEventSeverity,
+            AuditEventType,
+            AuditQuery,
+            get_audit_service,
+        )
 
         service = get_audit_service(db)
 
@@ -3627,7 +3643,12 @@ async def export_audit_events(
     Export audit events in specified format.
     """
     try:
-        from app.services.audit_trail import get_audit_service, AuditQuery, AuditEventType, AuditEventSeverity
+        from app.services.audit_trail import (
+            AuditEventSeverity,
+            AuditEventType,
+            AuditQuery,
+            get_audit_service,
+        )
 
         service = get_audit_service(db)
 
@@ -3695,8 +3716,8 @@ async def get_priority_fee(
     """
     try:
         from app.services.mev_protection import (
-            get_mev_service,
             TransactionPriority,
+            get_mev_service,
         )
 
         service = get_mev_service()
@@ -3724,8 +3745,8 @@ async def get_jito_tip(
     """
     try:
         from app.services.mev_protection import (
-            get_mev_service,
             TransactionPriority,
+            get_mev_service,
         )
 
         service = get_mev_service()
@@ -3751,9 +3772,9 @@ async def estimate_fees(
     """
     try:
         from app.services.mev_protection import (
-            get_mev_service,
             PriorityFeeConfig,
             TransactionPriority,
+            get_mev_service,
         )
 
         service = get_mev_service()
@@ -3783,10 +3804,10 @@ async def apply_mev_protection(
     """
     try:
         from app.services.mev_protection import (
-            get_mev_service,
             MEVProtectionConfig,
             ProtectionLevel,
             ProtectionStrategy,
+            get_mev_service,
         )
 
         service = get_mev_service()
@@ -3843,8 +3864,8 @@ async def get_bundle_params(
     """
     try:
         from app.services.mev_protection import (
-            get_mev_service,
             TransactionPriority,
+            get_mev_service,
         )
 
         service = get_mev_service()
@@ -3880,7 +3901,7 @@ class AddressValidationRequest(BaseModel):
 
 class BatchValidationRequest(BaseModel):
     """Request for batch address validation"""
-    addresses: List[str]
+    addresses: list[str]
     check_token: bool = True
     check_security: bool = True
 
@@ -3984,7 +4005,7 @@ async def detect_address_type(
     Detect the type of a Solana address.
     """
     try:
-        from app.services.address_validation import get_address_service, AddressType
+        from app.services.address_validation import AddressType, get_address_service
 
         service = get_address_service()
         validation = service.validate_address_format(address)
@@ -4012,7 +4033,7 @@ class AddWhaleRequest(BaseModel):
     address: str
     name: str
     whale_type: str = "unknown"  # exchange, fund, market_maker, defi_protocol, large_holder
-    tags: List[str] = []
+    tags: list[str] = []
 
 
 class AddSmartMoneyRequest(BaseModel):
@@ -4025,9 +4046,9 @@ class AddSmartMoneyRequest(BaseModel):
 class CreateAlertRuleRequest(BaseModel):
     """Request to create an alert rule"""
     name: str
-    condition: Dict[str, Any]
+    condition: dict[str, Any]
     priority: str = "medium"  # low, medium, high, urgent
-    channels: List[str] = ["in_app"]
+    channels: list[str] = ["in_app"]
 
 
 @app.get("/whale/tracked")
@@ -4040,7 +4061,7 @@ async def get_tracked_whales(
     Get list of tracked whale wallets.
     """
     try:
-        from app.services.whale_tracking import get_whale_service, WhaleType
+        from app.services.whale_tracking import WhaleType, get_whale_service
 
         service = get_whale_service()
         wtype = WhaleType(whale_type) if whale_type else None
@@ -4065,7 +4086,7 @@ async def add_whale(
     Add a new whale to track.
     """
     try:
-        from app.services.whale_tracking import get_whale_service, WhaleType
+        from app.services.whale_tracking import WhaleType, get_whale_service
 
         service = get_whale_service()
         whale = await service.add_whale(
@@ -4244,8 +4265,8 @@ async def create_alert_rule(
     Create a custom alert rule.
     """
     try:
-        from app.services.whale_tracking import get_whale_service, AlertPriority
         from app.services.session import get_or_create_user_id
+        from app.services.whale_tracking import AlertPriority, get_whale_service
 
         service = get_whale_service()
         user_id = await get_or_create_user_id(db, wallet)
@@ -4276,8 +4297,8 @@ async def get_alert_rules(
     Get alert rules for the user.
     """
     try:
-        from app.services.whale_tracking import get_whale_service
         from app.services.session import get_or_create_user_id
+        from app.services.whale_tracking import get_whale_service
 
         service = get_whale_service()
         user_id = await get_or_create_user_id(db, wallet)
@@ -4304,8 +4325,8 @@ async def delete_alert_rule(
     Delete an alert rule.
     """
     try:
-        from app.services.whale_tracking import get_whale_service
         from app.services.session import get_or_create_user_id
+        from app.services.whale_tracking import get_whale_service
 
         service = get_whale_service()
         user_id = await get_or_create_user_id(db, wallet)
@@ -4368,9 +4389,9 @@ async def generate_tax_report(
     """
     try:
         from app.services.tax_report import (
-            get_tax_service,
-            TaxReportConfig,
             CostBasisMethod,
+            TaxReportConfig,
+            get_tax_service,
         )
 
         service = get_tax_service()
@@ -4410,9 +4431,9 @@ async def export_tax_report(
     """
     try:
         from app.services.tax_report import (
-            get_tax_service,
-            TaxReportConfig,
             CostBasisMethod,
+            TaxReportConfig,
+            get_tax_service,
         )
 
         service = get_tax_service()
@@ -4470,7 +4491,7 @@ async def get_available_years(
     Get available tax years for the wallet.
     """
     # In production, this would query the database
-    current_year = datetime.now(timezone.utc).year
+    current_year = datetime.now(UTC).year
     years = list(range(2020, current_year + 1))
 
     return {

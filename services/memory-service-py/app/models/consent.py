@@ -10,7 +10,6 @@ from app.config import settings
 
 class Base(DeclarativeBase):
     """Shared declarative base for all memory-service models."""
-    pass
 
 
 class UserConsent(Base):

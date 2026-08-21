@@ -12,10 +12,11 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
-import sys
 import os
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 # Allow importing from app/ without full service setup
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -23,62 +24,117 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.plugins.base import PluginContext, PluginResult
 from app.plugins.defi_plugins import (
     ALL_PLUGINS,
-    # Meteora
-    MeteoraPlugin, MeteoraSwapAction, MeteoraOpenPositionAction,
-    MeteoraClosePositionAction, MeteoraAddToPositionAction,
-    MeteoraAddLiquidityAction, MeteoraRemoveLiquidityAction,
-    MeteoraCreatePoolAction, MeteoraClaimFeesAction,
-    MeteoraClaimRewardsAction, MeteoraStakeAction,
-    MeteoraUnstakeAction, MeteoraHarvestAction,
-    # Orca
-    OrcaPlugin, OrcaSwapAction, OrcaLiquidityAction,
-    # Kamino
-    KaminoPlugin, KaminoDepositAction, KaminoBorrowAction,
-    KaminoMultiplyOpenAction, KaminoMultiplyAddAction,
-    KaminoMultiplyWithdrawAction, KaminoMultiplyCloseAction,
-    KaminoLongOpenAction, KaminoShortOpenAction,
-    KaminoPositionCloseAction, KaminoStakeAction, KaminoUnstakeAction,
     # Jito
-    JitoPlugin, JitoStakeAction, JitoTipAction,
-
-    # Raydium
-    RaydiumPlugin, RaydiumSwapAction, RaydiumAddLiquidityAction,
-    RaydiumRemoveLiquidityAction, RaydiumCreatePoolAction,
-    RaydiumOpenPositionAction, RaydiumClosePositionAction,
-    RaydiumIncreasePositionAction, RaydiumDecreasePositionAction,
-    # Marinade
-    MarinadePlugin, MarinadeStakeAction, MarinadeUnstakeAction,
-    MarinadeDelayedUnstakeAction,
-    # Magic Eden
-    MagicEdenPlugin, MagicEdenListAction, MagicEdenBuyAction,
-    MagicEdenCancelListingAction, MagicEdenMakeOfferAction,
-    MagicEdenAcceptOfferAction, MagicEdenCancelOfferAction,
-    # Tensor
-    TensorPlugin, TensorBuyAction, TensorListAction,
-    TensorCancelListingAction, TensorMakeOfferAction, TensorCancelOfferAction,
-    # Jupiter DCA/Limit
-    JupiterPlugin, JupiterDCAAction, JupiterCancelDCAAction,
-    JupiterLimitOrderAction, JupiterCancelLimitOrderAction,
-    # PumpFun
-    PumpFunPlugin, PumpFunLaunchAction, PumpFunBuyAction, PumpFunSellAction,
-    # JupSOL
-    JupSolPlugin, JupSolStakeAction, JupSolUnstakeAction,
-    # Token Utility
-    TokenUtilityPlugin, TokenBurnAction, TokenTransferAction,
+    JitoPlugin,
+    JitoStakeAction,
+    JitoTipAction,
+    JupiterBorrowAction,
+    JupiterCancelDCAAction,
+    JupiterCancelLimitOrderAction,
+    JupiterDCAAction,
+    JupiterJlpAddAction,
+    JupiterJlpRemoveAction,
+    JupiterLendDepositAction,
     # Jupiter Lend
-    JupiterLendPlugin, JupiterLendDepositAction, JupiterLendWithdrawAction,
-    JupiterBorrowAction, JupiterRepayAction,
+    JupiterLendPlugin,
+    JupiterLendWithdrawAction,
+    JupiterLimitOrderAction,
+    JupiterPerpCloseAction,
+    JupiterPerpOpenAction,
     # Jupiter Perp
-    JupiterPerpPlugin, JupiterPerpOpenAction, JupiterPerpCloseAction,
-    JupiterJlpAddAction, JupiterJlpRemoveAction,
+    JupiterPerpPlugin,
+    # Jupiter DCA/Limit
+    JupiterPlugin,
+    JupiterRepayAction,
+    # JupSOL
+    JupSolPlugin,
+    JupSolStakeAction,
+    JupSolUnstakeAction,
+    KaminoBorrowAction,
+    KaminoDepositAction,
+    KaminoLongOpenAction,
+    KaminoMultiplyAddAction,
+    KaminoMultiplyCloseAction,
+    KaminoMultiplyOpenAction,
+    KaminoMultiplyWithdrawAction,
+    # Kamino
+    KaminoPlugin,
+    KaminoPositionCloseAction,
+    KaminoShortOpenAction,
+    KaminoStakeAction,
+    KaminoUnstakeAction,
+    MagicEdenAcceptOfferAction,
+    MagicEdenBuyAction,
+    MagicEdenCancelListingAction,
+    MagicEdenCancelOfferAction,
+    MagicEdenListAction,
+    MagicEdenMakeOfferAction,
+    # Magic Eden
+    MagicEdenPlugin,
+    MarinadeDelayedUnstakeAction,
+    # Marinade
+    MarinadePlugin,
+    MarinadeStakeAction,
+    MarinadeUnstakeAction,
+    MeteoraAddLiquidityAction,
+    MeteoraAddToPositionAction,
+    MeteoraClaimFeesAction,
+    MeteoraClaimRewardsAction,
+    MeteoraClosePositionAction,
+    MeteoraCreatePoolAction,
+    MeteoraHarvestAction,
+    MeteoraOpenPositionAction,
+    # Meteora
+    MeteoraPlugin,
+    MeteoraRemoveLiquidityAction,
+    MeteoraStakeAction,
+    MeteoraSwapAction,
+    MeteoraUnstakeAction,
+    OrcaLiquidityAction,
+    # Orca
+    OrcaPlugin,
+    OrcaSwapAction,
+    PumpFunBuyAction,
+    PumpFunLaunchAction,
+    # PumpFun
+    PumpFunPlugin,
+    PumpFunSellAction,
+    RaydiumAddLiquidityAction,
+    RaydiumClosePositionAction,
+    RaydiumCreatePoolAction,
+    RaydiumDecreasePositionAction,
+    RaydiumIncreasePositionAction,
+    RaydiumOpenPositionAction,
+    # Raydium
+    RaydiumPlugin,
+    RaydiumRemoveLiquidityAction,
+    RaydiumSwapAction,
+    SquidBridgeAction,
     # Squid
-    SquidPlugin, SquidBridgeAction,
+    SquidPlugin,
+    StreamflowCancelStreamAction,
+    StreamflowCreateMultipleAction,
+    StreamflowCreateStreamAction,
+    StreamflowGetOneAction,
+    StreamflowListAction,
     # Streamflow
-    StreamflowPlugin, StreamflowCreateStreamAction, StreamflowCreateMultipleAction,
-    StreamflowCancelStreamAction, StreamflowWithdrawAction, StreamflowTransferStreamAction,
-    StreamflowTopupAction, StreamflowUpdateAction, StreamflowGetOneAction, StreamflowListAction,
+    StreamflowPlugin,
+    StreamflowTopupAction,
+    StreamflowTransferStreamAction,
+    StreamflowUpdateAction,
+    StreamflowWithdrawAction,
+    TensorBuyAction,
+    TensorCancelListingAction,
+    TensorCancelOfferAction,
+    TensorListAction,
+    TensorMakeOfferAction,
+    # Tensor
+    TensorPlugin,
+    TokenBurnAction,
+    TokenTransferAction,
+    # Token Utility
+    TokenUtilityPlugin,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

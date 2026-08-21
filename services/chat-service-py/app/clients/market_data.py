@@ -2028,8 +2028,9 @@ async def _me_collection_listings(symbol: str, offset=0, limit=20, minPrice=None
     return await get_collection_listings(symbol, offset=int(offset), limit=int(limit), min_price=minPrice, max_price=maxPrice, sort=sort, sort_direction=sortDirection, listing_agg_mode=agg)
 
 async def _me_collections_batch_listings(symbols, offset=0, limit=20, minPrice=None, maxPrice=None, sort="listPrice", sortDirection="asc", listingAggMode=False) -> Any:
-    from app.clients.magic_eden import get_collections_batch_listings
     import json as _json
+
+    from app.clients.magic_eden import get_collections_batch_listings
     agg = str(listingAggMode).lower() in ("true", "1", "yes")
     if isinstance(symbols, list):
         syms = symbols

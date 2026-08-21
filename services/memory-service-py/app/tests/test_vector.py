@@ -4,9 +4,10 @@ Tests for Vector Service module.
 Tests vector storage, search, and deletion operations with Qdrant.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
 import uuid
+from unittest.mock import AsyncMock, MagicMock, call, patch
+
+import pytest
 
 
 class TestVectorServiceInit:

@@ -8,12 +8,12 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from app.config import settings
+from app.models.message import ChatMessage  # noqa: F401
 
 # Import models so Alembic can detect them for autogenerate
 from app.models.session import Base, ChatSession  # noqa: F401
-from app.models.message import ChatMessage  # noqa: F401
 from app.models.summary import ChatSummary  # noqa: F401
-from app.config import settings
 
 config = context.config
 

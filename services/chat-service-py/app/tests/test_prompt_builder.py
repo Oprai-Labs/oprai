@@ -4,8 +4,10 @@ Tests for Character Prompt Builder module.
 Tests dynamic prompt generation from character configurations.
 """
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
 from app.models.character import Character, CharacterStyle, CharacterTemplates
 
 
@@ -553,8 +555,8 @@ class TestGetMessageExamples:
 
     def test_get_examples_with_count(self):
         """Test getting examples with count"""
+        from app.models.character import MessageContent, MessageExample
         from app.services.character.prompt_builder import PromptBuilder
-        from app.models.character import MessageExample, MessageContent
 
         content1 = MessageExample(
             user="User1",
@@ -613,7 +615,10 @@ class TestPromptBuilderEdgeCases:
 
     def test_with_extra_kwargs(self):
         """Test with extra kwargs passed to prompt"""
-        from app.services.character.prompt_builder import PromptBuilder, DEFAULT_SYSTEM_TEMPLATE
+        from app.services.character.prompt_builder import (
+            DEFAULT_SYSTEM_TEMPLATE,
+            PromptBuilder,
+        )
 
         # Create a custom template that uses extra kwargs
         character = MagicMock()

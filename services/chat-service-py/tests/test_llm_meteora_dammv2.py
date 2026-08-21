@@ -1678,10 +1678,10 @@ class TestDV2InterpretationDepth:
 
     def test_cok_adimli_soru_yanit(self, chat_client):
         msg = (
-            f"Meteora DAMM v2 için şunları yap: "
-            f"1) Protocol TVL'yi öğren, "
-            f"2) En likit pool'un adresini bul, "
-            f"3) O pool'un 1h fiyat grafiğini analiz et"
+            "Meteora DAMM v2 için şunları yap: "
+            "1) Protocol TVL'yi öğren, "
+            "2) En likit pool'un adresini bul, "
+            "3) O pool'un 1h fiyat grafiğini analiz et"
         )
         r = _chat(chat_client, msg)
         assert_text_not_empty(r, msg, min_chars=100)

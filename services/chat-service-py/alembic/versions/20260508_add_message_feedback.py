@@ -10,9 +10,9 @@ Aggregated reads are by message_id; per-wallet history is rare so we
 optimise for the common path with a single composite index.
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "20260508_add_message_feedback"
 down_revision = "20260508_add_user_facts"

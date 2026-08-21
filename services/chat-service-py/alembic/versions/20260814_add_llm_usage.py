@@ -21,7 +21,6 @@ provider pricing — update `model_pricing` (a plain UPDATE) when they change.
 
 from alembic import op
 
-
 revision = "20260814_add_llm_usage"
 down_revision = "20260814_add_issue_reports"
 branch_labels = None

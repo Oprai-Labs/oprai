@@ -15,12 +15,12 @@ This service helps protect users from:
 - Gas manipulation
 """
 
+import asyncio
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import asyncio
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 
@@ -80,7 +80,7 @@ class PriorityFeeConfig:
     use_jito: bool = True
     jito_tip_percentile: int = 95
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "priority": self.priority.value,
             "min_priority_fee_micro_lamports": self.min_priority_fee_micro_lamports,
@@ -117,7 +117,7 @@ class MEVProtectionConfig:
     check_price_impact: bool = True
     max_price_impact_bps: int = 500       # 5% max price impact
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "level": self.level.value,
             "strategy": self.strategy.value,
@@ -159,7 +159,7 @@ class EstimatedFees:
         )
         self.total_fee_sol = self.total_fee_lamports / 1_000_000_000
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "compute_units": self.compute_units,
             "compute_unit_price_micro_lamports": self.compute_unit_price_micro_lamports,
@@ -177,7 +177,7 @@ class ProtectionResult:
     # Applied protection
     protection_applied: bool = False
     protection_level: ProtectionLevel = ProtectionLevel.NONE
-    strategy_used: Optional[ProtectionStrategy] = None
+    strategy_used: ProtectionStrategy | None = None
 
     # Modified transaction params
     priority_fee: int = 0
@@ -187,14 +187,14 @@ class ProtectionResult:
 
     # Recommendations
     recommended: bool = False
-    warning: Optional[str] = None
-    suggestions: List[str] = field(default_factory=list)
+    warning: str | None = None
+    suggestions: list[str] = field(default_factory=list)
 
     # Price impact
     price_impact_bps: int = 0
     sandwich_risk: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "protection_applied": self.protection_applied,
             "protection_level": self.protection_level.value,
@@ -237,7 +237,7 @@ class MEVProtectionService:
     JITO_TIP_FLOOR_MAX = 50000      # 0.05 SOL
 
     def __init__(self):
-        self._redis: Optional[redis.Redis] = None
+        self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis client"""
@@ -473,10 +473,10 @@ class MEVProtectionService:
 
     def create_bundle_params(
         self,
-        transactions: List[str],
+        transactions: list[str],
         tip: int = 5000,
         timeout_ms: int = 10000,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create Jito bundle parameters.
 
@@ -584,7 +584,7 @@ def get_priority_fee_config(
 # Global Instance
 # ============================================================================
 
-_mev_service: Optional[MEVProtectionService] = None
+_mev_service: MEVProtectionService | None = None
 
 
 def get_mev_service() -> MEVProtectionService:

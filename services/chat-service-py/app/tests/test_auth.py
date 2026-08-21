@@ -4,8 +4,9 @@ Tests for Authentication Middleware.
 Tests require_auth dependency for wallet and API key validation.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
 
 

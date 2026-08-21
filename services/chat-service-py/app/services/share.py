@@ -18,7 +18,7 @@ Two rules run through every function here:
 
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,7 +102,7 @@ async def create_or_refresh(db: AsyncSession, wallet: str, session_id: str) -> d
     if session is None:
         return None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         select(ChatSessionShare).where(ChatSessionShare.session_id == session.id)
     )

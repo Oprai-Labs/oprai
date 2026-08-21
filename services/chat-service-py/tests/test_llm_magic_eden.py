@@ -1278,7 +1278,7 @@ class TestMeSell:
         not_triggered(r, "me_sell_now")
 
     def test_sell_missing_params_asks(self, chat_client):
-        r = _chat(chat_client, f"I want to list my NFT on Magic Eden")
+        r = _chat(chat_client, "I want to list my NFT on Magic Eden")
         if "me_sell" not in r.types():
             asks_for_missing(r, "mint")
 

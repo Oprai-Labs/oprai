@@ -23,7 +23,7 @@ class HybridRetriever:
         self,
         query: str,
         top_k: int = 50,
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> list[KnowledgeChunk]:
         svc = get_rag_service()
         query_vec = await svc._embed(query)
@@ -33,7 +33,7 @@ class HybridRetriever:
         self,
         query: str,
         max_tokens: int = 1500,
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> str:
         """Full pipeline: embed → retrieve → diversity filter → format."""
         return await get_rag_service().get_context_for_query(

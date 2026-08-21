@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional, AsyncGenerator
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -58,7 +59,7 @@ class LLMResponse:
 class BaseLLMProvider(ABC):
     """Base class for LLM providers"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         self.api_key = api_key
         self.base_url = base_url
 
@@ -66,7 +67,6 @@ class BaseLLMProvider(ABC):
     @abstractmethod
     def provider(self) -> ModelProvider:
         """Return provider type"""
-        pass
 
     @abstractmethod
     async def complete(
@@ -75,7 +75,6 @@ class BaseLLMProvider(ABC):
         config: ModelConfig,
     ) -> LLMResponse:
         """Generate a completion"""
-        pass
 
     @abstractmethod
     async def stream(
@@ -84,7 +83,6 @@ class BaseLLMProvider(ABC):
         config: ModelConfig,
     ) -> AsyncGenerator[str, None]:
         """Stream a completion"""
-        pass
 
     async def embed(self, text: str) -> list[float]:
         """Generate embeddings (optional)"""
@@ -94,7 +92,7 @@ class BaseLLMProvider(ABC):
 class OpenAIProvider(BaseLLMProvider):
     """OpenAI provider"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         super().__init__(api_key, base_url)
         self._client = None
 
@@ -178,7 +176,7 @@ class OpenAIProvider(BaseLLMProvider):
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic provider"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         super().__init__(api_key, base_url)
         self._client = None
 
@@ -264,7 +262,7 @@ class AnthropicProvider(BaseLLMProvider):
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini provider"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         super().__init__(api_key, base_url)
         self._client = None
 
@@ -357,7 +355,7 @@ class GeminiProvider(BaseLLMProvider):
 class OllamaProvider(BaseLLMProvider):
     """Ollama local provider"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         super().__init__(api_key, base_url or "http://localhost:11434")
 
     @property
@@ -370,6 +368,7 @@ class OllamaProvider(BaseLLMProvider):
         config: ModelConfig,
     ) -> LLMResponse:
         import time
+
         import httpx
 
         start = time.perf_counter()
@@ -433,7 +432,7 @@ class OllamaProvider(BaseLLMProvider):
 class DeepseekProvider(BaseLLMProvider):
     """Deepseek provider (OpenAI-compatible)"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         super().__init__(api_key, base_url or "https://api.deepseek.com/v1")
         self._openai_provider = None
 
@@ -473,7 +472,7 @@ class LLMService:
     Handles provider selection, fallback, and load balancing.
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
         self._providers: dict[ModelProvider, BaseLLMProvider] = {}
         self._default_provider = ModelProvider.OPENAI
@@ -490,7 +489,7 @@ class LLMService:
         self._providers[provider.provider] = provider
         logger.info(f"Registered LLM provider: {provider.provider}")
 
-    def get_provider(self, provider: ModelProvider) -> Optional[BaseLLMProvider]:
+    def get_provider(self, provider: ModelProvider) -> BaseLLMProvider | None:
         """Get a provider by type"""
         return self._providers.get(provider)
 
@@ -501,7 +500,7 @@ class LLMService:
     def _get_model_config(
         self,
         provider: ModelProvider,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> ModelConfig:
         """Get model configuration for a provider"""
         default_models = {
@@ -520,8 +519,8 @@ class LLMService:
     async def complete(
         self,
         messages: list[dict[str, str]],
-        provider: Optional[ModelProvider] = None,
-        model: Optional[str] = None,
+        provider: ModelProvider | None = None,
+        model: str | None = None,
     ) -> LLMResponse:
         """
         Generate a completion with fallback support.
@@ -557,8 +556,8 @@ class LLMService:
     async def stream(
         self,
         messages: list[dict[str, str]],
-        provider: Optional[ModelProvider] = None,
-        model: Optional[str] = None,
+        provider: ModelProvider | None = None,
+        model: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream a completion"""
         prov = provider or self._default_provider
@@ -574,8 +573,8 @@ class LLMService:
     async def acomplete(
         self,
         messages: list[dict[str, str]],
-        provider: Optional[ModelProvider] = None,
-        model: Optional[str] = None,
+        provider: ModelProvider | None = None,
+        model: str | None = None,
     ) -> str:
         """Simple async complete returning just the content"""
         response = await self.complete(messages, provider, model)
@@ -595,7 +594,7 @@ class LLMService:
 
 
 # Global LLM service
-_llm_service: Optional[LLMService] = None
+_llm_service: LLMService | None = None
 
 
 def get_llm_service() -> LLMService:

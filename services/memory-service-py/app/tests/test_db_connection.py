@@ -4,8 +4,9 @@ Tests for Database Connection module.
 Tests async database connection, session management, and URL handling.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 class TestBuildAsyncPgUrl:
@@ -98,8 +99,9 @@ class TestDatabaseInit:
 
     def test_get_session_is_generator(self):
         """Test get_session is an async generator"""
-        from app.db.connection import get_session
         import inspect
+
+        from app.db.connection import get_session
 
         assert inspect.isasyncgenfunction(get_session)
 

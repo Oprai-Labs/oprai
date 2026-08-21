@@ -7,42 +7,43 @@ within the same process using the async lifespan protocol.
 import logging
 import os
 import time
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 # Configure structured logging before any logger is created.
 from app.logging_config import configure_logging
+
 configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"), fmt=os.environ.get("LOG_FORMAT", "json"))
 
+import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from pydantic import BaseModel, Field
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     Counter,
     Histogram,
     generate_latest,
-    CONTENT_TYPE_LATEST,
 )
-from starlette.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 
 from app.config import settings
-from app.db.connection import get_session, init_db, close_db
+from app.db.connection import close_db, get_session, init_db
 from app.grpc_server import start_grpc_server
 from app.middleware.auth import require_auth
 from app.middleware.request_audit import RequestAuditMiddleware
 from app.services.audit_service import log_memory_op
-from app.services.consent import get_consent, update_consent, is_type_allowed
+from app.services.consent import get_consent, is_type_allowed, update_consent
 from app.services.embeddings import EmbeddingService
 from app.services.summary import SummaryService
 from app.services.vector import VectorService
 
-import structlog
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -255,7 +256,7 @@ async def health():
     return {
         "status": "ok",
         "service": "memory-service-py",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -310,7 +311,7 @@ async def store_memory(
 
     # Ensure user_id is set
     payload.setdefault("user_id", wallet)
-    payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+    payload.setdefault("timestamp", datetime.now(UTC).isoformat())
 
     # Store in Qdrant
     t_start = time.perf_counter()

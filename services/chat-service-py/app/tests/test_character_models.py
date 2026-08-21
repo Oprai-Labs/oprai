@@ -4,8 +4,9 @@ Tests for Character Models.
 Tests Pydantic models for character system.
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 
 class TestModelProvider:
@@ -99,7 +100,7 @@ class TestMessageExample:
 
     def test_message_example(self):
         """Test message example creation"""
-        from app.models.character import MessageExample, MessageContent
+        from app.models.character import MessageContent, MessageExample
 
         content = MessageContent(text="Hello!")
         example = MessageExample(
@@ -115,7 +116,7 @@ class TestCharacterModel:
 
     def test_character_required_fields(self):
         """Test character requires name, modelProvider, clients"""
-        from app.models.character import Character, ModelProvider, ClientType
+        from app.models.character import Character, ClientType, ModelProvider
 
         char = Character(
             name="TestBot",
@@ -128,7 +129,7 @@ class TestCharacterModel:
 
     def test_character_with_bio_list(self):
         """Test character accepts bio as list"""
-        from app.models.character import Character, ModelProvider, ClientType
+        from app.models.character import Character, ClientType, ModelProvider
 
         char = Character(
             name="TestBot",
@@ -141,7 +142,7 @@ class TestCharacterModel:
 
     def test_character_alias_mapping(self):
         """Test alias mapping works"""
-        from app.models.character import Character, ModelProvider, ClientType
+        from app.models.character import Character, ClientType, ModelProvider
 
         char = Character(
             name="TestBot",
@@ -157,7 +158,11 @@ class TestCreateCharacterRequest:
 
     def test_create_request_required(self):
         """Test create request requires fields"""
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
 
         req = CreateCharacterRequest(
             name="NewBot",
@@ -169,7 +174,11 @@ class TestCreateCharacterRequest:
 
     def test_create_request_optional_fields(self):
         """Test create request optional fields"""
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
 
         req = CreateCharacterRequest(
             name="NewBot",
@@ -212,7 +221,12 @@ class TestCharacterWithRuntime:
 
     def test_runtime_defaults(self):
         """Test runtime has default values"""
-        from app.models.character import CharacterWithRuntime, Character, ModelProvider, ClientType
+        from app.models.character import (
+            Character,
+            CharacterWithRuntime,
+            ClientType,
+            ModelProvider,
+        )
 
         char = Character(
             name="TestBot",

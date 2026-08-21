@@ -4,12 +4,14 @@ Tests for Yield Aggregator module.
 Tests yield data fetching and comparison from Solana DeFi protocols.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+
 from app.services.yield_aggregator import (
-    get_yield_comparison,
-    _extract_apy,
     PROTOCOLS,
+    _extract_apy,
+    get_yield_comparison,
 )
 
 

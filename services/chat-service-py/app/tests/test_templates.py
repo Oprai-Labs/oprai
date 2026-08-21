@@ -4,8 +4,9 @@ Tests for Template System module.
 Tests prompt template rendering, conditionals, loops, and context management.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestTemplateContext:
@@ -253,8 +254,9 @@ class TestTemplateManager:
 
     def test_init_with_dir(self):
         """Test initialization with templates directory"""
-        from app.templates import TemplateManager
         from pathlib import Path
+
+        from app.templates import TemplateManager
 
         manager = TemplateManager(templates_dir=Path("/tmp/templates"))
 
@@ -301,7 +303,7 @@ class TestTemplateManager:
 
     def test_render(self):
         """Test rendering via manager"""
-        from app.templates import TemplateManager, TemplateContext
+        from app.templates import TemplateContext, TemplateManager
 
         manager = TemplateManager()
         result = manager.render("system", TemplateContext(character_name="Bot"))
@@ -310,7 +312,7 @@ class TestTemplateManager:
 
     def test_render_not_found(self):
         """Test rendering non-existent template"""
-        from app.templates import TemplateManager, TemplateContext
+        from app.templates import TemplateContext, TemplateManager
 
         manager = TemplateManager()
 
@@ -369,10 +371,9 @@ class TestGlobalTemplateManager:
 
     def test_get_template_manager(self):
         """Test getting global template manager"""
-        from app.templates import get_template_manager, TemplateManager
-
         # Reset global
         import app.templates as templates_module
+        from app.templates import TemplateManager, get_template_manager
         templates_module._template_manager = None
 
         manager = get_template_manager()
@@ -382,10 +383,9 @@ class TestGlobalTemplateManager:
 
     def test_singleton(self):
         """Test singleton behavior"""
-        from app.templates import get_template_manager
-
         # Reset global
         import app.templates as templates_module
+        from app.templates import get_template_manager
         templates_module._template_manager = None
 
         manager1 = get_template_manager()

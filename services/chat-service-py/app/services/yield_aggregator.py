@@ -5,9 +5,10 @@ Usage:
     results = await get_yield_comparison("liquid_staking")
 """
 
-import httpx
 import logging
 from typing import Optional
+
+import httpx
 
 from .tokens_generated import get_verified_token_by_symbol
 
@@ -115,7 +116,7 @@ async def get_yield_comparison(category: str = "liquid_staking") -> list[dict]:
     return results
 
 
-def _extract_apy(protocol: str, meta: dict, data: object) -> Optional[float]:
+def _extract_apy(protocol: str, meta: dict, data: object) -> float | None:
     """Extract APY float from protocol-specific response shape."""
     try:
         if not isinstance(data, (dict, list)):

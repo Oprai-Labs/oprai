@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 import re
+import uuid
 
 import httpx
 import pytest
@@ -306,7 +306,7 @@ class TestSwap:
         )
 
     def test_bonk_to_sol(self, chat_client):
-        r = _chat(chat_client, f"Sell 100000 BONK for SOL")
+        r = _chat(chat_client, "Sell 100000 BONK for SOL")
         triggered(r, "swap")
         params = r.params_for("swap")
         assert "BONK" in str(params.get("inputMint", "")).upper()
@@ -503,7 +503,7 @@ class TestScanEmptyAccounts:
 class TestCloseAccounts:
 
     def test_close_explicit_mints(self, chat_client):
-        r = _chat(chat_client, f"Close empty BONK and WIF token accounts to reclaim SOL")
+        r = _chat(chat_client, "Close empty BONK and WIF token accounts to reclaim SOL")
         triggered(r, "close_accounts")
         params = r.params_for("close_accounts")
         # mints may be a comma-separated string or a list (serialized)

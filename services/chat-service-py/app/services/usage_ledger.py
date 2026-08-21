@@ -24,7 +24,7 @@ _log = logging.getLogger(__name__)
 async def record_llm_usage(
     *,
     wallet: str,
-    session_id: Optional[str],
+    session_id: str | None,
     model: str,
     request_kind: str,
     prompt_tokens: int,
@@ -39,7 +39,7 @@ async def record_llm_usage(
     if total <= 0 or not wallet:
         return
 
-    sid: Optional[str] = None
+    sid: str | None = None
     if session_id:
         try:
             sid = str(_uuid.UUID(str(session_id)))
@@ -58,7 +58,7 @@ async def record_llm_usage(
                 )
             ).first()
 
-            cost: Optional[float]
+            cost: float | None
             if row is not None:
                 in_p, out_p, cache_p = float(row[0]), float(row[1]), float(row[2])
                 # prompt_tokens is already the FRESH (billable) input and

@@ -21,7 +21,7 @@ RISK_LEVELS = {
 }
 
 
-def calculate_diversification_score(positions: List[Dict[str, Any]]) -> float:
+def calculate_diversification_score(positions: list[dict[str, Any]]) -> float:
     """Calculate portfolio diversification score (0-100)"""
     if not positions:
         return 0.0
@@ -35,9 +35,9 @@ def calculate_diversification_score(positions: List[Dict[str, Any]]) -> float:
 
 
 def identify_concentration_risks(
-    positions: List[Dict[str, Any]],
+    positions: list[dict[str, Any]],
     risk_tolerance: str = "moderate"
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Identify positions with concentration risk"""
     risks = []
     max_allocation = RISK_LEVELS.get(risk_tolerance, 0.5)
@@ -65,10 +65,10 @@ def identify_concentration_risks(
 
 
 def suggest_rebalancing(
-    positions: List[Dict[str, Any]],
-    yields: List[Dict[str, Any]],
-    target_allocation: Optional[Dict[str, float]] = None
-) -> List[Dict[str, Any]]:
+    positions: list[dict[str, Any]],
+    yields: list[dict[str, Any]],
+    target_allocation: dict[str, float] | None = None
+) -> list[dict[str, Any]]:
     """Suggest portfolio rebalancing based on yields and current positions"""
     suggestions = []
 
@@ -78,7 +78,7 @@ def suggest_rebalancing(
         return suggestions
 
     # Current protocol allocations
-    current_alloc: Dict[str, float] = {}
+    current_alloc: dict[str, float] = {}
     for pos in positions:
         protocol = pos.get("protocol", "unknown")
         value = pos.get("value_usd", 0)
@@ -119,9 +119,9 @@ def suggest_rebalancing(
 
 
 def identify_tax_loss_harvesting(
-    positions: List[Dict[str, Any]],
-    prices_24h: Dict[str, float]
-) -> List[Dict[str, Any]]:
+    positions: list[dict[str, Any]],
+    prices_24h: dict[str, float]
+) -> list[dict[str, Any]]:
     """Identify potential tax-loss harvesting opportunities"""
     opportunities = []
 
@@ -150,11 +150,11 @@ def identify_tax_loss_harvesting(
 
 
 def analyze_portfolio(
-    positions: List[Dict[str, Any]],
-    yields: List[Dict[str, Any]],
+    positions: list[dict[str, Any]],
+    yields: list[dict[str, Any]],
     risk_tolerance: str = "moderate",
-    prices_24h: Optional[Dict[str, float]] = None
-) -> Dict[str, Any]:
+    prices_24h: dict[str, float] | None = None
+) -> dict[str, Any]:
     """Complete portfolio analysis with recommendations"""
 
     total_value = sum(p.get("value_usd", 0) for p in positions)
@@ -195,10 +195,10 @@ def analyze_portfolio(
 
 
 async def optimize_portfolio(
-    positions: List[Dict[str, Any]],
+    positions: list[dict[str, Any]],
     category: str = "liquid_staking",
     risk_tolerance: str = "moderate"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Main portfolio optimization function"""
 
     # Import here to avoid circular imports

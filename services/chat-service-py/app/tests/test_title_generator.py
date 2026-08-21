@@ -4,8 +4,9 @@ Tests for Title Generator module.
 Tests auto-generation of chat session titles.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestTitleGenerator:
@@ -147,7 +148,7 @@ class TestTitlePrompt:
 
     def test_get_title_prompt_cached(self):
         """Test _get_title_prompt uses caching"""
-        from app.services.title_generator import _get_title_prompt, _TITLE_PROMPT
+        from app.services.title_generator import _TITLE_PROMPT, _get_title_prompt
 
         # Call twice - should use cached value
         result1 = _get_title_prompt()

@@ -4,8 +4,9 @@ Tests for LLM Service module.
 Tests LLM orchestration, Chat Completions and Responses API support.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestLLMServiceInit:

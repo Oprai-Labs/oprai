@@ -4,9 +4,10 @@ Tests for Character Repository module.
 Tests database operations for characters.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestCharacterModel:
@@ -20,8 +21,8 @@ class TestCharacterModel:
 
     def test_schema(self):
         """Test schema is chat_schema"""
-        from app.db.character_repository import CharacterModel
         from app.config import settings
+        from app.db.character_repository import CharacterModel
 
         table_args = CharacterModel.__table_args__
         assert table_args[2]["schema"] == "chat_schema"
@@ -71,7 +72,11 @@ class TestCharacterRepositoryCreate:
     async def test_create_character(self):
         """Test creating a character"""
         from app.db.character_repository import CharacterRepository
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
 
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
@@ -255,7 +260,7 @@ class TestCharacterRepositorySerialize:
     def test_serialize_message_examples_with_data(self):
         """Test serializing message examples"""
         from app.db.character_repository import CharacterRepository
-        from app.models.character import MessageExample, MessageContent
+        from app.models.character import MessageContent, MessageExample
 
         mock_session = MagicMock()
         repo = CharacterRepository(mock_session)

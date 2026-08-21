@@ -252,7 +252,7 @@ class PromptBuilder:
     def build_twitter_post_prompt(
         self,
         topic: str = "",
-        adjective: Optional[str] = None,
+        adjective: str | None = None,
         max_tweet_length: int = 280,
         **kwargs: Any,
     ) -> str:
@@ -359,7 +359,7 @@ Reply with only "true" if you should respond, or "false" if you should not.
     def build_evaluation_prompt(
         self,
         response: str,
-        criteria: Optional[list[str]] = None,
+        criteria: list[str] | None = None,
         **kwargs: Any,
     ) -> str:
         """

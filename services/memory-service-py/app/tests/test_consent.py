@@ -4,9 +4,10 @@ Tests for Consent Service module.
 Tests consent CRUD operations and type permission checks.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestConsentFields:
@@ -45,8 +46,8 @@ class TestGetConsent:
     @pytest.mark.asyncio
     async def test_get_consent_existing_user(self):
         """Test get_consent returns consent flags for existing user"""
-        from app.services.consent import get_consent
         from app.models.consent import UserConsent
+        from app.services.consent import get_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -106,8 +107,8 @@ class TestUpdateConsent:
     @pytest.mark.asyncio
     async def test_update_consent_creates_new(self):
         """Test update_consent creates new record when none exists"""
-        from app.services.consent import update_consent
         from app.models.consent import UserConsent
+        from app.services.consent import update_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -140,8 +141,8 @@ class TestUpdateConsent:
     @pytest.mark.asyncio
     async def test_update_consent_updates_existing(self):
         """Test update_consent updates existing record"""
-        from app.services.consent import update_consent
         from app.models.consent import UserConsent
+        from app.services.consent import update_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -171,8 +172,8 @@ class TestUpdateConsent:
     @pytest.mark.asyncio
     async def test_update_consent_ignores_unknown_fields(self):
         """Test update_consent ignores unknown fields"""
-        from app.services.consent import update_consent
         from app.models.consent import UserConsent
+        from app.services.consent import update_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -199,8 +200,8 @@ class TestUpdateConsent:
     @pytest.mark.asyncio
     async def test_update_consent_default_values(self):
         """Test update_consent uses defaults for missing fields"""
-        from app.services.consent import update_consent
         from app.models.consent import UserConsent
+        from app.services.consent import update_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -227,8 +228,8 @@ class TestUpdateConsent:
     @pytest.mark.asyncio
     async def test_update_consent_returns_full_map(self):
         """Test update_consent returns full consent map"""
-        from app.services.consent import update_consent
         from app.models.consent import UserConsent
+        from app.services.consent import update_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -382,8 +383,8 @@ class TestConsentIntegration:
     @pytest.mark.asyncio
     async def test_full_consent_flow(self):
         """Test complete consent update and check flow"""
-        from app.services.consent import update_consent, is_type_allowed
         from app.models.consent import UserConsent
+        from app.services.consent import is_type_allowed, update_consent
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -429,8 +430,8 @@ class TestConsentIntegration:
     @pytest.mark.asyncio
     async def test_consent_toggle_flow(self):
         """Test toggling consent on/off"""
-        from app.services.consent import update_consent, is_type_allowed
         from app.models.consent import UserConsent
+        from app.services.consent import is_type_allowed, update_consent
 
         # First: create with True
         mock_db = AsyncMock()

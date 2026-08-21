@@ -18,14 +18,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid as _uuid
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.session import ChatSession
-import uuid as _uuid
 
 logger = logging.getLogger(__name__)
 

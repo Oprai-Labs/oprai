@@ -9,9 +9,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional, AsyncGenerator
+from typing import Any, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
@@ -132,7 +133,7 @@ class WebSocketChatHandler:
         self,
         websocket: WebSocket,
         user_wallet: str,
-        character_id: Optional[str] = None,
+        character_id: str | None = None,
     ) -> None:
         """Handle a WebSocket chat session"""
         connection_id = await self.manager.connect(websocket, user_wallet)
@@ -178,7 +179,7 @@ class WebSocketChatHandler:
         connection_id: str,
         user_wallet: str,
         message: dict,
-        character_id: Optional[str],
+        character_id: str | None,
     ) -> None:
         """Handle an incoming WebSocket message"""
         msg_type = message.get("type", "message")
@@ -211,11 +212,11 @@ class WebSocketChatHandler:
         connection_id: str,
         user_wallet: str,
         content: str,
-        character_id: Optional[str],
+        character_id: str | None,
     ) -> None:
         """Handle a chat message with streaming response"""
         from app.llm import get_llm_service
-        from app.services.character import get_character_loader, PromptBuilder
+        from app.services.character import PromptBuilder, get_character_loader
 
         # Send typing indicator
         await self.manager.send(connection_id, WebSocketMessage(
@@ -309,7 +310,7 @@ class WebSocketChatHandler:
 
 
 # Global connection manager
-_connection_manager: Optional[ConnectionManager] = None
+_connection_manager: ConnectionManager | None = None
 
 
 def get_connection_manager() -> ConnectionManager:

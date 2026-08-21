@@ -24,7 +24,6 @@ PnL math (computed at read time, not stored):
 
 from alembic import op
 
-
 revision = "20260519_add_portfolio_costbasis"
 down_revision = "20260517_chat_session_locks"
 branch_labels = None

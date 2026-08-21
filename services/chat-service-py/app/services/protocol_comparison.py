@@ -65,7 +65,7 @@ def get_protocol_category(protocol: str) -> str:
     return PROTOCOL_CATEGORIES.get(protocol.lower(), "unknown")
 
 
-def compare_by_apy(protocols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def compare_by_apy(protocols: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Compare protocols by APY, returns sorted by highest APY"""
     comparisons = []
     for p in protocols:
@@ -81,7 +81,7 @@ def compare_by_apy(protocols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(comparisons, key=lambda x: x["apy"], reverse=True)
 
 
-def compare_by_tvl(protocols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def compare_by_tvl(protocols: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Compare protocols by TVL, returns sorted by highest TVL"""
     comparisons = []
     for p in protocols:
@@ -97,7 +97,7 @@ def compare_by_tvl(protocols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(comparisons, key=lambda x: x["tvl"], reverse=True)
 
 
-def compare_by_risk(protocols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def compare_by_risk(protocols: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Compare protocols by risk score, returns sorted by lowest risk"""
     comparisons = []
     for p in protocols:
@@ -113,7 +113,7 @@ def compare_by_risk(protocols: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(comparisons, key=lambda x: x["risk_score"])
 
 
-def calculate_risk_adjusted_apy(protocol: Dict[str, Any]) -> float:
+def calculate_risk_adjusted_apy(protocol: dict[str, Any]) -> float:
     """Calculate risk-adjusted APY (APY / risk_score)"""
     apy = protocol.get("apy", 0) or 0
     risk = get_protocol_risk_score(protocol.get("protocol", ""))
@@ -123,8 +123,8 @@ def calculate_risk_adjusted_apy(protocol: Dict[str, Any]) -> float:
 
 
 def compare_by_risk_adjusted(
-    protocols: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+    protocols: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Compare protocols by risk-adjusted APY"""
     comparisons = []
     for p in protocols:
@@ -143,10 +143,10 @@ def compare_by_risk_adjusted(
 
 
 def compare_protocols(
-    protocols: List[Dict[str, Any]],
+    protocols: list[dict[str, Any]],
     sort_by: str = "apy",
-    category: Optional[str] = None,
-) -> Dict[str, Any]:
+    category: str | None = None,
+) -> dict[str, Any]:
     """
     Compare protocols with various sorting options.
 
@@ -203,10 +203,10 @@ def compare_protocols(
 
 
 async def get_protocol_comparison(
-    category: Optional[str] = None,
+    category: str | None = None,
     sort_by: str = "apy",
     limit: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get protocol comparison with live yield data"""
     from app.services.yield_aggregator import get_yield_comparison
 

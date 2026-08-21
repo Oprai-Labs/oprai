@@ -26,7 +26,6 @@ recognise as one; the FK cascade does the same when a chat is hard-deleted.
 
 from alembic import op
 
-
 revision = "20260814_add_session_shares"
 down_revision = "20260519_add_portfolio_costbasis"
 branch_labels = None

@@ -4,12 +4,13 @@ Tests for Character Loader Service.
 Tests character loading, caching, filtering and CRUD operations.
 """
 
-import pytest
 import json
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from datetime import datetime
+
+import pytest
 
 
 class TestCharacterLoaderInit:
@@ -48,8 +49,8 @@ class TestLoadFromFile:
 
     def test_load_from_file_success(self):
         """Test loading character from valid JSON file"""
-        from app.services.character.loader import CharacterLoader
         from app.models.character import Character
+        from app.services.character.loader import CharacterLoader
 
         # Create temp character file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -261,8 +262,12 @@ class TestCreateCharacter:
 
     def test_create_character_success(self):
         """Test creating a new character"""
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
         from app.services.character.loader import CharacterLoader
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
 
         loader = CharacterLoader()
 
@@ -281,8 +286,12 @@ class TestCreateCharacter:
 
     def test_create_character_generates_id(self):
         """Test character gets generated ID"""
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
         from app.services.character.loader import CharacterLoader
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
 
         loader = CharacterLoader()
 
@@ -304,8 +313,12 @@ class TestUpdateCharacter:
 
     def test_update_existing_character(self):
         """Test updating existing character"""
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
         from app.services.character.loader import CharacterLoader
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
 
         loader = CharacterLoader()
 
@@ -355,8 +368,12 @@ class TestDeleteCharacter:
 
     def test_delete_existing_character(self):
         """Test deleting existing character"""
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
         from app.services.character.loader import CharacterLoader
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
 
         loader = CharacterLoader()
 
@@ -403,8 +420,12 @@ class TestDuplicateCharacter:
 
     def test_duplicate_existing_character(self):
         """Test duplicating existing character"""
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
         from app.services.character.loader import CharacterLoader
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
 
         loader = CharacterLoader()
 
@@ -469,8 +490,8 @@ class TestStyleInstructions:
 
     def test_get_style_instructions_all(self):
         """Test getting style instructions for all contexts"""
-        from app.services.character.loader import CharacterLoader
         from app.models.character import CharacterStyle
+        from app.services.character.loader import CharacterLoader
 
         mock_char = MagicMock()
         mock_char.style = CharacterStyle(
@@ -487,8 +508,8 @@ class TestStyleInstructions:
 
     def test_get_style_instructions_chat(self):
         """Test getting style instructions for chat"""
-        from app.services.character.loader import CharacterLoader
         from app.models.character import CharacterStyle
+        from app.services.character.loader import CharacterLoader
 
         mock_char = MagicMock()
         mock_char.style = CharacterStyle(
@@ -520,7 +541,7 @@ class TestGetCharacterLoader:
 
     def test_get_character_loader_singleton(self):
         """Test returns singleton instance"""
-        from app.services.character.loader import get_character_loader, CharacterLoader
+        from app.services.character.loader import CharacterLoader, get_character_loader
 
         loader1 = get_character_loader()
         loader2 = get_character_loader()
@@ -529,7 +550,7 @@ class TestGetCharacterLoader:
 
     def test_get_character_loader_type(self):
         """Test returns CharacterLoader instance"""
-        from app.services.character.loader import get_character_loader, CharacterLoader
+        from app.services.character.loader import CharacterLoader, get_character_loader
 
         loader = get_character_loader()
 

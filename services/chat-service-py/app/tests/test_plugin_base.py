@@ -5,16 +5,18 @@ Tests plugin system base classes: PluginContext, PluginResult,
 PluginAction, PluginProvider, PluginEvaluator, BasePlugin.
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+
 from app.plugins.base import (
-    PluginContext,
-    PluginResult,
-    PluginPriority,
-    PluginAction,
-    PluginProvider,
-    PluginEvaluator,
     BasePlugin,
+    PluginAction,
+    PluginContext,
+    PluginEvaluator,
+    PluginPriority,
+    PluginProvider,
+    PluginResult,
 )
 
 

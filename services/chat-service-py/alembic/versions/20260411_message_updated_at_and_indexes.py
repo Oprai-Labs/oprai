@@ -5,8 +5,9 @@ Revises: 20260315_add_characters
 Create Date: 2026-04-11
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260411_message_updated_at"
 down_revision = "20260315_add_characters"

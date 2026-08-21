@@ -4,9 +4,10 @@ Tests for Voice Service module.
 Tests TTS and STT providers.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestVoiceProvider:
@@ -87,8 +88,9 @@ class TestBaseTTSProvider:
 
     def test_is_abstract(self):
         """Test is abstract"""
-        from app.voice import BaseTTSProvider
         from abc import ABC
+
+        from app.voice import BaseTTSProvider
 
         assert issubclass(BaseTTSProvider, ABC)
 
@@ -98,8 +100,9 @@ class TestBaseSTTProvider:
 
     def test_is_abstract(self):
         """Test is abstract"""
-        from app.voice import BaseSTTProvider
         from abc import ABC
+
+        from app.voice import BaseSTTProvider
 
         assert issubclass(BaseSTTProvider, ABC)
 
@@ -172,7 +175,7 @@ class TestVoiceService:
 
     def test_register_tts(self):
         """Test registering TTS provider"""
-        from app.voice import VoiceService, OpenAITTSProvider, VoiceProvider
+        from app.voice import OpenAITTSProvider, VoiceProvider, VoiceService
 
         service = VoiceService()
         provider = OpenAITTSProvider(api_key="key")
@@ -183,7 +186,7 @@ class TestVoiceService:
 
     def test_register_stt(self):
         """Test registering STT provider"""
-        from app.voice import VoiceService, OpenAISTTProvider, VoiceProvider
+        from app.voice import OpenAISTTProvider, VoiceProvider, VoiceService
 
         service = VoiceService()
         provider = OpenAISTTProvider(api_key="key")
@@ -209,7 +212,7 @@ class TestVoiceServiceTTS:
     @pytest.mark.asyncio
     async def test_text_to_speech_success(self):
         """Test successful TTS"""
-        from app.voice import VoiceService, OpenAITTSProvider, TTSResult, VoiceProvider
+        from app.voice import OpenAITTSProvider, TTSResult, VoiceProvider, VoiceService
 
         service = VoiceService()
 
@@ -239,7 +242,7 @@ class TestVoiceServiceSTT:
     @pytest.mark.asyncio
     async def test_speech_to_text_success(self):
         """Test successful STT"""
-        from app.voice import VoiceService, OpenAISTTProvider, STTResult, VoiceProvider
+        from app.voice import OpenAISTTProvider, STTResult, VoiceProvider, VoiceService
 
         service = VoiceService()
 
@@ -273,7 +276,7 @@ class TestListVoices:
 
     def test_list_openai_voices(self):
         """Test listing OpenAI voices"""
-        from app.voice import VoiceService, VoiceProvider
+        from app.voice import VoiceProvider, VoiceService
 
         service = VoiceService()
         voices = service.list_voices(VoiceProvider.OPENAI)
@@ -296,10 +299,9 @@ class TestGlobalVoiceService:
 
     def test_get_voice_service(self):
         """Test getting voice service"""
-        from app.voice import get_voice_service
-
         # Reset global
         import app.voice as voice_module
+        from app.voice import get_voice_service
         voice_module._voice_service = None
 
         service = get_voice_service()
@@ -308,10 +310,9 @@ class TestGlobalVoiceService:
 
     def test_singleton(self):
         """Test singleton behavior"""
-        from app.voice import get_voice_service
-
         # Reset global
         import app.voice as voice_module
+        from app.voice import get_voice_service
         voice_module._voice_service = None
 
         service1 = get_voice_service()

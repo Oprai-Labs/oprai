@@ -4,9 +4,10 @@ Tests for Character Routes.
 Tests API endpoints for character management.
 """
 
-import pytest
 import json
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import HTTPException
 
 
@@ -68,6 +69,7 @@ class TestCharacterImport:
     def test_import_validates_required_fields(self):
         """Test import validates required fields"""
         from pydantic import ValidationError
+
         from app.models.character import CreateCharacterRequest
 
         # Missing required fields should raise validation error
@@ -76,7 +78,11 @@ class TestCharacterImport:
 
     def test_import_accepts_valid_data(self):
         """Test import accepts valid data"""
-        from app.models.character import CreateCharacterRequest, ModelProvider, ClientType
+        from app.models.character import (
+            ClientType,
+            CreateCharacterRequest,
+            ModelProvider,
+        )
 
         req = CreateCharacterRequest(
             name="ImportedBot",
@@ -93,7 +99,7 @@ class TestCharacterModelDump:
 
     def test_model_dump_by_alias(self):
         """Test model_dump with by_alias=True"""
-        from app.models.character import Character, ModelProvider, ClientType
+        from app.models.character import Character, ClientType, ModelProvider
 
         char = Character(
             id="char-123",

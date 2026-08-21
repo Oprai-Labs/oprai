@@ -12,20 +12,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
-from pathlib import Path
-from typing import Any, Optional
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
+from typing import Any, Optional
 
 import httpx
-import PyPDF2
 import pdfplumber
+import PyPDF2
 from bs4 import BeautifulSoup
+from openai import OpenAI
 from playwright.async_api import async_playwright
 
-from openai import OpenAI
 from app.config import settings
-
 from app.plugins.base import PluginContext, PluginResult
 
 logger = logging.getLogger(__name__)
@@ -155,8 +154,8 @@ class IngestionService:
         self,
         file_path: Path,
         document_type: DocumentType,
-        owner_wallet: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None
+        owner_wallet: str | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> dict:
         """Ingest a document and add to processing queue"""
         file_name = file.name
@@ -280,7 +279,7 @@ class IngestionService:
         """Get list of processed files with metadata"""
         return getattr(self, '_processed_files', [])
 
-    async def get_processed_content(self, ingestion_id: str) -> Optional[str]:
+    async def get_processed_content(self, ingestion_id: str) -> str | None:
         """Get processed content for an ingestion"""
         processed = getattr(self, '_processed_files', {})
         if ingestion_id in processed:

@@ -5,8 +5,9 @@ Revises: 20260411_message_updated_at
 Create Date: 2026-04-20
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260420_add_last_message_at"
 down_revision = "20260411_message_updated_at"

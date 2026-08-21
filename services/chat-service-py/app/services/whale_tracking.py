@@ -12,10 +12,10 @@ This wraps the opraios/core/advanced_alerts.py functionality for the backend API
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 
@@ -64,15 +64,15 @@ class WhaleInfo:
     address: str
     name: str
     whale_type: WhaleType
-    description: Optional[str] = None
-    tags: List[str] = field(default_factory=list)
+    description: str | None = None
+    tags: list[str] = field(default_factory=list)
     is_active: bool = True
     first_seen: datetime = field(default_factory=datetime.utcnow)
-    last_activity: Optional[datetime] = None
+    last_activity: datetime | None = None
     total_volume_usd: float = 0
     transaction_count: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "address": self.address,
             "name": self.name,
@@ -95,12 +95,12 @@ class SmartMoneyInfo:
     win_rate: float = 0
     total_pnl_usd: float = 0
     trading_style: str = "unknown"  # swing, scalp, trend, value
-    preferred_tokens: List[str] = field(default_factory=list)
-    preferred_protocols: List[str] = field(default_factory=list)
+    preferred_tokens: list[str] = field(default_factory=list)
+    preferred_protocols: list[str] = field(default_factory=list)
     avg_hold_time_hours: float = 0
     is_active: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "address": self.address,
             "name": self.name,
@@ -120,14 +120,14 @@ class AlertRule:
     id: str
     user_id: str
     name: str
-    condition: Dict[str, Any]
+    condition: dict[str, Any]
     priority: AlertPriority = AlertPriority.MEDIUM
-    channels: List[str] = field(default_factory=lambda: ["in_app"])
+    channels: list[str] = field(default_factory=lambda: ["in_app"])
     is_active: bool = True
     cooldown_minutes: int = 60
     created_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "user_id": self.user_id,
@@ -158,7 +158,7 @@ class WhaleAlert:
     message: str = ""
     created_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "alert_type": self.alert_type,
@@ -187,7 +187,7 @@ class VolumeAnomaly:
     direction: str  # up or down
     detected_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "token_address": self.token_address,
             "token_symbol": self.token_symbol,
@@ -262,7 +262,7 @@ class WhaleTrackingService:
     }
 
     def __init__(self):
-        self._redis: Optional[redis.Redis] = None
+        self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis client"""
@@ -272,9 +272,9 @@ class WhaleTrackingService:
 
     async def get_whales(
         self,
-        whale_type: Optional[WhaleType] = None,
+        whale_type: WhaleType | None = None,
         active_only: bool = True,
-    ) -> List[WhaleInfo]:
+    ) -> list[WhaleInfo]:
         """
         Get list of tracked whales.
 
@@ -309,7 +309,7 @@ class WhaleTrackingService:
         address: str,
         name: str,
         whale_type: WhaleType = WhaleType.UNKNOWN,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
     ) -> WhaleInfo:
         """
         Add a new whale to track.
@@ -354,7 +354,7 @@ class WhaleTrackingService:
         self,
         address: str,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get recent activity for a whale address.
 
@@ -371,8 +371,8 @@ class WhaleTrackingService:
 
     async def get_smart_money(
         self,
-        style: Optional[str] = None,
-    ) -> List[SmartMoneyInfo]:
+        style: str | None = None,
+    ) -> list[SmartMoneyInfo]:
         """
         Get list of smart money wallets.
 
@@ -416,7 +416,7 @@ class WhaleTrackingService:
         self,
         min_ratio: float = 3.0,
         limit: int = 10,
-    ) -> List[VolumeAnomaly]:
+    ) -> list[VolumeAnomaly]:
         """
         Get tokens with volume anomalies.
 
@@ -436,7 +436,7 @@ class WhaleTrackingService:
         wallet_address: str,
         limit: int = 20,
         unread_only: bool = False,
-    ) -> List[WhaleAlert]:
+    ) -> list[WhaleAlert]:
         """
         Get whale alerts for a user.
 
@@ -455,9 +455,9 @@ class WhaleTrackingService:
         self,
         user_id: str,
         name: str,
-        condition: Dict[str, Any],
+        condition: dict[str, Any],
         priority: AlertPriority = AlertPriority.MEDIUM,
-        channels: Optional[List[str]] = None,
+        channels: list[str] | None = None,
     ) -> AlertRule:
         """
         Create a custom alert rule.
@@ -490,7 +490,7 @@ class WhaleTrackingService:
     async def get_alert_rules(
         self,
         user_id: str,
-    ) -> List[AlertRule]:
+    ) -> list[AlertRule]:
         """
         Get alert rules for a user.
 
@@ -520,7 +520,7 @@ class WhaleTrackingService:
         logger.info(f"Deleted alert rule: {rule_id}")
         return True
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """
         Get whale tracking statistics.
 
@@ -543,7 +543,7 @@ class WhaleTrackingService:
 # Global Instance
 # ============================================================================
 
-_whale_service: Optional[WhaleTrackingService] = None
+_whale_service: WhaleTrackingService | None = None
 
 
 def get_whale_service() -> WhaleTrackingService:

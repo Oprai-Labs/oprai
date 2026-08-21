@@ -4,8 +4,9 @@ Tests for Jupiter Plugin module.
 Tests Jupiter DEX swap actions.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestSwapAction:
@@ -56,8 +57,8 @@ class TestSwapAction:
 
     def test_action_priority(self):
         """Test priority"""
-        from app.plugins.jupiter_plugin import SwapAction
         from app.plugins.base import PluginPriority
+        from app.plugins.jupiter_plugin import SwapAction
 
         action = SwapAction()
         assert action.priority == PluginPriority.HIGH
@@ -88,8 +89,8 @@ class TestJupiterPluginActions:
     @pytest.mark.asyncio
     async def test_swap_execute_success(self):
         """Test successful swap execution"""
-        from app.plugins.jupiter_plugin import SwapAction
         from app.plugins.base import PluginContext
+        from app.plugins.jupiter_plugin import SwapAction
 
         action = SwapAction()
 
@@ -114,8 +115,8 @@ class TestJupiterPluginActions:
     @pytest.mark.asyncio
     async def test_swap_execute_error(self):
         """Test swap execution error"""
-        from app.plugins.jupiter_plugin import SwapAction
         from app.plugins.base import PluginContext
+        from app.plugins.jupiter_plugin import SwapAction
 
         action = SwapAction()
 
@@ -140,8 +141,8 @@ class TestGetQuoteExecution:
     @pytest.mark.asyncio
     async def test_quote_execute_success(self):
         """Test successful quote fetch"""
-        from app.plugins.jupiter_plugin import GetQuoteAction
         from app.plugins.base import PluginContext
+        from app.plugins.jupiter_plugin import GetQuoteAction
 
         action = GetQuoteAction()
 

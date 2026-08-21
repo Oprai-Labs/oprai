@@ -4,10 +4,11 @@ Tests for Session Service module.
 Tests session serialization and list operations.
 """
 
-import pytest
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestSessionSerialize:
@@ -15,8 +16,8 @@ class TestSessionSerialize:
 
     def test_serialize_session(self):
         """Test session serialization format"""
-        from app.services.session import _serialize
         from app.models.session import ChatSession
+        from app.services.session import _serialize
 
         # Create mock session
         session = ChatSession(
@@ -25,8 +26,8 @@ class TestSessionSerialize:
             wallet_address="Wallet123",
             title="Test Session",
             pinned=False,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
         result = _serialize(session)
@@ -86,7 +87,7 @@ class TestPagination:
         """Test cursor-based pagination"""
         from app.services.session import list_sessions
 
-        cursor = datetime.now(timezone.utc).isoformat()
+        cursor = datetime.now(UTC).isoformat()
 
         mock_db = AsyncMock()
         mock_result = MagicMock()

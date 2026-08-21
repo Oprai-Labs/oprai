@@ -12,7 +12,7 @@ class VerifiedToken(TypedDict):
     symbol: str
     name: str
     decimals: int
-    logoURI: Optional[str]
+    logoURI: str | None
 
 
 VERIFIED_TOKENS: list[VerifiedToken] = [
@@ -162,12 +162,12 @@ _BY_ADDRESS = {t["address"]: t for t in VERIFIED_TOKENS}
 _BY_SYMBOL = {t["symbol"].upper(): t for t in VERIFIED_TOKENS}
 
 
-def get_verified_token_by_address(addr: str) -> Optional[VerifiedToken]:
+def get_verified_token_by_address(addr: str) -> VerifiedToken | None:
     """Look up a verified token by mint address."""
     return _BY_ADDRESS.get(addr)
 
 
-def get_verified_token_by_symbol(sym: str) -> Optional[VerifiedToken]:
+def get_verified_token_by_symbol(sym: str) -> VerifiedToken | None:
     """Look up a verified token by symbol (case-insensitive)."""
     if not sym:
         return None

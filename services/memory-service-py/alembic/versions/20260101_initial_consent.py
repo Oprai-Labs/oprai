@@ -8,8 +8,9 @@ Revises: (none — first migration)
 Create Date: 2026-01-01
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260101_initial_consent"
 down_revision = None

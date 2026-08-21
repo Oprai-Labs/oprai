@@ -11,8 +11,8 @@ Centralized caching for the chat service:
 
 import json
 import logging
-from typing import Any, Optional
 from dataclasses import dataclass
+from typing import Any, Optional
 
 import redis.asyncio as redis
 from redis.asyncio import Redis
@@ -108,7 +108,7 @@ class CacheService:
 
     def __init__(self, redis_url: str = "redis://localhost:6379"):
         self.redis_url = redis_url
-        self._redis: Optional[Redis] = None
+        self._redis: Redis | None = None
         self._connected = False
 
     async def connect(self) -> None:
@@ -151,7 +151,7 @@ class CacheService:
         self,
         cache_type: str,
         *key_parts: str,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
         Get value from cache.
 
@@ -188,7 +188,7 @@ class CacheService:
         self,
         cache_type: str,
         *key_parts: str,
-    ) -> tuple[Optional[Any], Optional[int]]:
+    ) -> tuple[Any | None, int | None]:
         """Like `get`, but also returns the cached entry's age in seconds.
 
         Age is None on cache miss or for legacy entries written before the
@@ -221,7 +221,7 @@ class CacheService:
         cache_type: str,
         value: Any,
         *key_parts: str,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
     ) -> bool:
         """
         Set value in cache.
@@ -325,8 +325,8 @@ class CacheService:
         self,
         cache_type: str,
         *key_parts: str,
-        factory: Optional[callable] = None,
-        ttl: Optional[int] = None,
+        factory: callable | None = None,
+        ttl: int | None = None,
     ) -> tuple[Any, bool]:
         """
         Get from cache or compute and cache.
@@ -402,7 +402,7 @@ class CacheService:
 
 
 # Global instance
-_cache_service: Optional[CacheService] = None
+_cache_service: CacheService | None = None
 
 
 async def get_redis_client():

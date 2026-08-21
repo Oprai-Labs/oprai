@@ -5,7 +5,7 @@ title, bullet points, and metadata.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from openai import AsyncOpenAI
 
@@ -56,7 +56,7 @@ class SummaryService:
         dict
             ``{"title": str, "summary": str, "tokenCount": int, "timestamp": str}``
         """
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         if not self._client:
             logger.warning("No OpenAI API key -- returning fallback summary")

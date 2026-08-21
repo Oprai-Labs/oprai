@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional, AsyncGenerator
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class PlatformMessage:
     user_name: str
     content: str
     timestamp: datetime
-    reply_to: Optional[str] = None
+    reply_to: str | None = None
     attachments: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -91,7 +92,7 @@ class PlatformMessage:
 class PlatformResponse:
     """Response to send to platform"""
     content: str
-    reply_to: Optional[str] = None
+    reply_to: str | None = None
     attachments: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -111,49 +112,42 @@ class BaseClient(ABC):
     @abstractmethod
     def platform(self) -> PlatformType:
         """Return platform type"""
-        pass
 
     @property
     @abstractmethod
     def is_connected(self) -> bool:
         """Check if client is connected"""
-        pass
 
     @abstractmethod
     async def connect(self) -> None:
         """Connect to the platform"""
-        pass
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Disconnect from the platform"""
-        pass
 
     @abstractmethod
     async def send_message(
         self,
         channel_id: str,
         content: str,
-        reply_to: Optional[str] = None,
+        reply_to: str | None = None,
         **kwargs: Any
     ) -> PlatformMessage:
         """Send a message to a channel"""
-        pass
 
     @abstractmethod
     async def get_messages(
         self,
         channel_id: str,
         limit: int = 50,
-        before: Optional[str] = None,
+        before: str | None = None,
     ) -> list[PlatformMessage]:
         """Get messages from a channel"""
-        pass
 
     @abstractmethod
     async def listen(self) -> AsyncGenerator[PlatformMessage, None]:
         """Listen for incoming messages"""
-        pass
 
     def on_message(self, handler: callable) -> None:
         """Register a message handler"""
@@ -228,7 +222,7 @@ class DiscordClient(BaseClient):
         self,
         channel_id: str,
         content: str,
-        reply_to: Optional[str] = None,
+        reply_to: str | None = None,
         **kwargs: Any
     ) -> PlatformMessage:
         channel = self._client.get_channel(int(channel_id))
@@ -248,7 +242,7 @@ class DiscordClient(BaseClient):
         self,
         channel_id: str,
         limit: int = 50,
-        before: Optional[str] = None,
+        before: str | None = None,
     ) -> list[PlatformMessage]:
         channel = self._client.get_channel(int(channel_id))
         if not channel:
@@ -313,7 +307,7 @@ class TelegramClient(BaseClient):
         self,
         channel_id: str,
         content: str,
-        reply_to: Optional[str] = None,
+        reply_to: str | None = None,
         **kwargs: Any
     ) -> PlatformMessage:
         await self._application.bot.send_message(
@@ -336,7 +330,7 @@ class TelegramClient(BaseClient):
         self,
         channel_id: str,
         limit: int = 50,
-        before: Optional[str] = None,
+        before: str | None = None,
     ) -> list[PlatformMessage]:
         # Telegram doesn't support easy message history retrieval
         return []
@@ -363,7 +357,7 @@ class ClientManager:
         client.on_message(self._handle_message)
         logger.info(f"Registered {client.platform} client")
 
-    def get_client(self, platform: PlatformType) -> Optional[BaseClient]:
+    def get_client(self, platform: PlatformType) -> BaseClient | None:
         """Get a client by platform"""
         return self._clients.get(platform)
 
@@ -410,7 +404,7 @@ class ClientManager:
 
 
 # Global client manager
-_client_manager: Optional[ClientManager] = None
+_client_manager: ClientManager | None = None
 
 
 def get_client_manager() -> ClientManager:

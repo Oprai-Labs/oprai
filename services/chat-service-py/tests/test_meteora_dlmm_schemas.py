@@ -10,6 +10,7 @@ Tests cover:
 from __future__ import annotations
 
 import pytest
+
 from app.services.action_schemas import ActionType, validate_action_params
 
 # ── Real Solana addresses used as test fixtures ─────────────────────────────

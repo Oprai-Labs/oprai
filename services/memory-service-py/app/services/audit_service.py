@@ -23,15 +23,15 @@ async def log_memory_op(
     operation: str,
     collection: str,
     *,
-    user_id: Optional[str] = None,
-    wallet_address: Optional[str] = None,
+    user_id: str | None = None,
+    wallet_address: str | None = None,
     vector_count: int = 0,
     bytes_stored: int = 0,
-    memory_type: Optional[str] = None,
-    metadata: Optional[dict[str, Any]] = None,
-    duration_ms: Optional[int] = None,
+    memory_type: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    duration_ms: int | None = None,
     success: bool = True,
-    error_message: Optional[str] = None,
+    error_message: str | None = None,
 ) -> None:
     """Append an audit record to ``memory_schema.memory_operations``.
 
@@ -73,7 +73,7 @@ async def log_memory_op(
     """
     try:
         # Coerce string UUIDs to uuid.UUID objects; leave None as-is.
-        parsed_user_id: Optional[uuid.UUID] = None
+        parsed_user_id: uuid.UUID | None = None
         if user_id is not None:
             try:
                 parsed_user_id = uuid.UUID(str(user_id))

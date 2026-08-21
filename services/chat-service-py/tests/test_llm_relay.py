@@ -45,6 +45,7 @@ import uuid
 import httpx
 import pytest
 
+
 # Load .env files so tests work without pre-exporting env vars
 def _load_dotenv():
     for path in [
@@ -633,7 +634,6 @@ class TestRelayGetTokenPrice:
     def test_missing_address_asks(self, chat_client):
         r = _chat(chat_client, "Get Relay token price on Ethereum")
         # LLM may trigger the action, ask for clarification, or explain in text — all OK
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -675,7 +675,6 @@ class TestRelayIntentStatus:
     def test_missing_request_id_asks(self, chat_client):
         r = _chat(chat_client, "Check my Relay bridge status")
         # LLM may trigger action, clarify, or explain — all acceptable
-        pass
 
     def test_response_quality(self, chat_client):
         r = _chat(chat_client, f"What's the current status of Relay request {SAMPLE_REQUEST_ID}?")
@@ -1288,7 +1287,6 @@ class TestRelayAlternativeScenarios:
             "Show my pending Relay bridge requests")
         triggered(r, "relay_get_requests")
         # status=pending is ideal but LLM may omit it; just verify action was triggered
-        pass
 
     # ── Provider routing ─────────────────────────────────────────────────────
 

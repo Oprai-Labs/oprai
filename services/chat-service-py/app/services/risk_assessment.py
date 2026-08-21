@@ -24,7 +24,7 @@ def calculate_impermanent_loss(
     initial_price: float,
     current_price: float,
     is_stable_pair: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate impermanent loss for a liquidity position.
 
@@ -82,7 +82,7 @@ def calculate_liquidation_risk(
     collateral_price: float,
     debt_price: float,
     liquidation_threshold: float = 0.5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate liquidation risk for a lending position.
 
@@ -140,9 +140,9 @@ def calculate_liquidation_risk(
 
 
 def assess_position_risk(
-    position: Dict[str, Any],
-    current_prices: Optional[Dict[str, float]] = None,
-) -> Dict[str, Any]:
+    position: dict[str, Any],
+    current_prices: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
     Assess risk for a single position.
 
@@ -263,7 +263,7 @@ def assess_position_risk(
     }
 
 
-def _generate_risk_recommendations(risks: List[Dict], level: str) -> List[str]:
+def _generate_risk_recommendations(risks: list[dict], level: str) -> list[str]:
     """Generate recommendations based on identified risks"""
     recommendations = []
 
@@ -284,9 +284,9 @@ def _generate_risk_recommendations(risks: List[Dict], level: str) -> List[str]:
 
 
 def analyze_portfolio_risk(
-    positions: List[Dict[str, Any]],
-    current_prices: Optional[Dict[str, float]] = None,
-) -> Dict[str, Any]:
+    positions: list[dict[str, Any]],
+    current_prices: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
     Analyze risk for entire portfolio.
 

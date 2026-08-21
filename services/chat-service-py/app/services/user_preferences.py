@@ -14,15 +14,15 @@ Uses Redis for fast access and PostgreSQL for persistence.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.cache import get_redis_client
 
@@ -112,10 +112,10 @@ class NotificationSettings:
     max_per_type_per_day: int = 10
 
     # Telegram/Webhook specifics
-    telegram_chat_id: Optional[str] = None
-    webhook_url: Optional[str] = None
+    telegram_chat_id: str | None = None
+    webhook_url: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "email_enabled": self.email_enabled,
             "push_enabled": self.push_enabled,
@@ -140,7 +140,7 @@ class NotificationSettings:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "NotificationSettings":
+    def from_dict(cls, data: dict[str, Any]) -> "NotificationSettings":
         return cls(
             email_enabled=data.get("email_enabled", False),
             push_enabled=data.get("push_enabled", True),
@@ -186,7 +186,7 @@ class PrivacySettings:
     history_retention_days: int = 90
     analytics_retention_days: int = 365
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "share_portfolio_data": self.share_portfolio_data,
             "share_trading_history": self.share_trading_history,
@@ -201,7 +201,7 @@ class PrivacySettings:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PrivacySettings":
+    def from_dict(cls, data: dict[str, Any]) -> "PrivacySettings":
         return cls(
             share_portfolio_data=data.get("share_portfolio_data", False),
             share_trading_history=data.get("share_trading_history", False),
@@ -231,9 +231,9 @@ class TradingPreferences:
     auto_compound_yield: bool = False
 
     # Preferred protocols (by category)
-    preferred_dex: List[str] = field(default_factory=lambda: ["jupiter"])
-    preferred_lending: List[str] = field(default_factory=lambda: ["kamino", "jupiter"])
-    preferred_staking: List[str] = field(default_factory=lambda: ["jito", "marinade"])
+    preferred_dex: list[str] = field(default_factory=lambda: ["jupiter"])
+    preferred_lending: list[str] = field(default_factory=lambda: ["kamino", "jupiter"])
+    preferred_staking: list[str] = field(default_factory=lambda: ["jito", "marinade"])
 
     # Safety
     enable_simulation: bool = True
@@ -245,7 +245,7 @@ class TradingPreferences:
     weekly_limit_usd: float = 100000
     monthly_limit_usd: float = 500000
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "risk_tolerance": self.risk_tolerance,
             "max_slippage": self.max_slippage,
@@ -266,7 +266,7 @@ class TradingPreferences:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TradingPreferences":
+    def from_dict(cls, data: dict[str, Any]) -> "TradingPreferences":
         return cls(
             risk_tolerance=data.get("risk_tolerance", "moderate"),
             max_slippage=data.get("max_slippage", 5),
@@ -296,7 +296,7 @@ class UserPreferences:
     # Basic settings
     theme: str = "dark"
     language: str = "en"
-    display_name: Optional[str] = None
+    display_name: str | None = None
     timezone: str = "UTC"
 
     # Nested preferences
@@ -308,7 +308,7 @@ class UserPreferences:
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "user_id": self.user_id,
             "wallet_address": self.wallet_address,
@@ -324,7 +324,7 @@ class UserPreferences:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UserPreferences":
+    def from_dict(cls, data: dict[str, Any]) -> "UserPreferences":
         notifications = NotificationSettings.from_dict(data.get("notifications", {}))
         privacy = PrivacySettings.from_dict(data.get("privacy", {}))
         trading = TradingPreferences.from_dict(data.get("trading", {}))
@@ -399,9 +399,9 @@ class UserPreferencesService:
     CACHE_TTL_SECONDS = 3600  # 1 hour
     CACHE_KEY_PREFIX = "user:preferences:"
 
-    def __init__(self, db_session: Optional[AsyncSession] = None):
+    def __init__(self, db_session: AsyncSession | None = None):
         self.db_session = db_session
-        self._redis: Optional[redis.Redis] = None
+        self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis client"""
@@ -417,7 +417,7 @@ class UserPreferencesService:
         self,
         wallet_address: str,
         use_cache: bool = True,
-    ) -> Optional[UserPreferences]:
+    ) -> UserPreferences | None:
         """
         Get user preferences.
 
@@ -558,8 +558,8 @@ class UserPreferencesService:
     async def update_preferences(
         self,
         wallet_address: str,
-        updates: Dict[str, Any],
-    ) -> Optional[UserPreferences]:
+        updates: dict[str, Any],
+    ) -> UserPreferences | None:
         """
         Update specific preference fields.
 
@@ -635,7 +635,7 @@ class UserPreferencesService:
     async def get_notification_channels(
         self,
         wallet_address: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Get enabled notification channels for user"""
         preferences = await self.get_preferences(wallet_address)
         if not preferences:
@@ -707,6 +707,7 @@ class UserPreferencesService:
         """Check if current time is in quiet hours"""
         try:
             from datetime import datetime
+
             import pytz
 
             tz = pytz.timezone(timezone)
@@ -728,7 +729,7 @@ class UserPreferencesService:
     async def export_preferences(
         self,
         wallet_address: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Export all preferences as JSON"""
         preferences = await self.get_preferences(wallet_address)
         return preferences.to_dict() if preferences else None
@@ -759,10 +760,10 @@ def get_default_preferences(
 # Global Instance
 # ============================================================================
 
-_preferences_service: Optional[UserPreferencesService] = None
+_preferences_service: UserPreferencesService | None = None
 
 
-def get_preferences_service(db_session: Optional[AsyncSession] = None) -> UserPreferencesService:
+def get_preferences_service(db_session: AsyncSession | None = None) -> UserPreferencesService:
     """Get or create preferences service"""
     global _preferences_service
     if _preferences_service is None:

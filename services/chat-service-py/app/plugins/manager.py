@@ -18,11 +18,11 @@ from typing import Any, Optional, TypeVar
 from app.plugins.base import (
     BasePlugin,
     PluginAction,
-    PluginProvider,
-    PluginEvaluator,
     PluginContext,
-    PluginResult,
+    PluginEvaluator,
     PluginPriority,
+    PluginProvider,
+    PluginResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class PluginManager:
     - Execution coordination
     """
 
-    def __init__(self, plugins_dir: Optional[Path] = None):
+    def __init__(self, plugins_dir: Path | None = None):
         """
         Initialize plugin manager.
 
@@ -219,19 +219,19 @@ class PluginManager:
             logger.info(f"Unloaded plugin: {plugin_id}")
             return True
 
-    def get_plugin(self, plugin_id: str) -> Optional[BasePlugin]:
+    def get_plugin(self, plugin_id: str) -> BasePlugin | None:
         """Get a plugin by ID"""
         return self._plugins.get(plugin_id)
 
-    def get_action(self, name: str) -> Optional[PluginAction]:
+    def get_action(self, name: str) -> PluginAction | None:
         """Get an action by name or alias"""
         return self._actions.get(name)
 
-    def get_provider(self, name: str) -> Optional[PluginProvider]:
+    def get_provider(self, name: str) -> PluginProvider | None:
         """Get a provider by name"""
         return self._providers.get(name)
 
-    def get_evaluator(self, name: str) -> Optional[PluginEvaluator]:
+    def get_evaluator(self, name: str) -> PluginEvaluator | None:
         """Get an evaluator by name"""
         return self._evaluators.get(name)
 
@@ -368,7 +368,7 @@ class PluginManager:
 
 
 # Global plugin manager instance
-_plugin_manager: Optional[PluginManager] = None
+_plugin_manager: PluginManager | None = None
 
 
 def get_plugin_manager() -> PluginManager:

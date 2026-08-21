@@ -14,16 +14,16 @@ Uses PostgreSQL for persistence with JSONB for flexible event data.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, and_, or_
-
 import redis.asyncio as redis
+from sqlalchemy import and_, desc, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.cache import get_redis_client
 
 logger = logging.getLogger(__name__)
@@ -109,44 +109,44 @@ class AuditEntityType(str, Enum):
 @dataclass
 class AuditEvent:
     """An audit trail event"""
-    id: Optional[str] = None
+    id: str | None = None
 
     # Event identification
     event_type: AuditEventType = AuditEventType.SYSTEM_INFO
     severity: AuditEventSeverity = AuditEventSeverity.INFO
 
     # Entity information
-    entity_type: Optional[AuditEntityType] = None
-    entity_id: Optional[str] = None
+    entity_type: AuditEntityType | None = None
+    entity_id: str | None = None
 
     # User/Wallet information
-    user_id: Optional[str] = None
-    wallet_address: Optional[str] = None
-    session_id: Optional[str] = None
+    user_id: str | None = None
+    wallet_address: str | None = None
+    session_id: str | None = None
 
     # Event data (flexible JSON)
-    event_data: Dict[str, Any] = field(default_factory=dict)
+    event_data: dict[str, Any] = field(default_factory=dict)
 
     # Request context
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
-    request_method: Optional[str] = None
-    request_path: Optional[str] = None
-    request_id: Optional[str] = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    request_method: str | None = None
+    request_path: str | None = None
+    request_id: str | None = None
 
     # Response info
-    response_status: Optional[int] = None
-    response_time_ms: Optional[float] = None
+    response_status: int | None = None
+    response_time_ms: float | None = None
 
     # Transaction specific
-    transaction_signature: Optional[str] = None
-    transaction_amount: Optional[float] = None
-    transaction_token: Optional[str] = None
+    transaction_signature: str | None = None
+    transaction_amount: float | None = None
+    transaction_token: str | None = None
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "event_type": self.event_type.value if isinstance(self.event_type, Enum) else self.event_type,
@@ -174,15 +174,15 @@ class AuditEvent:
 @dataclass
 class AuditQuery:
     """Query parameters for audit events"""
-    user_id: Optional[str] = None
-    wallet_address: Optional[str] = None
-    event_type: Optional[AuditEventType] = None
-    severity: Optional[AuditEventSeverity] = None
-    entity_type: Optional[AuditEntityType] = None
-    entity_id: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    request_path: Optional[str] = None
+    user_id: str | None = None
+    wallet_address: str | None = None
+    event_type: AuditEventType | None = None
+    severity: AuditEventSeverity | None = None
+    entity_type: AuditEntityType | None = None
+    entity_id: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    request_path: str | None = None
     limit: int = 100
     offset: int = 0
 
@@ -261,9 +261,9 @@ class AuditTrailService:
     RECENT_EVENTS_CACHE_KEY = "audit:recent:"
     MAX_CACHED_RECENT = 100
 
-    def __init__(self, db_session: Optional[AsyncSession] = None):
+    def __init__(self, db_session: AsyncSession | None = None):
         self.db_session = db_session
-        self._redis: Optional[redis.Redis] = None
+        self._redis: redis.Redis | None = None
 
     async def _get_redis(self) -> redis.Redis:
         """Get Redis client"""
@@ -364,7 +364,7 @@ class AuditTrailService:
     async def query_events(
         self,
         query: AuditQuery,
-    ) -> List[AuditEvent]:
+    ) -> list[AuditEvent]:
         """
         Query audit events with filters.
 
@@ -379,7 +379,7 @@ class AuditTrailService:
 
         try:
             conditions = []
-            params: Dict[str, Any] = {}
+            params: dict[str, Any] = {}
 
             if query.user_id:
                 conditions.append("user_id = :user_id")
@@ -472,7 +472,7 @@ class AuditTrailService:
         self,
         wallet_address: str,
         limit: int = 50,
-    ) -> List[AuditEvent]:
+    ) -> list[AuditEvent]:
         """Get recent activity for a wallet"""
         query = AuditQuery(
             wallet_address=wallet_address,
@@ -483,9 +483,9 @@ class AuditTrailService:
     async def get_transaction_history(
         self,
         wallet_address: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[AuditEvent]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[AuditEvent]:
         """Get transaction history for a wallet"""
         query = AuditQuery(
             wallet_address=wallet_address,
@@ -498,9 +498,9 @@ class AuditTrailService:
 
     async def get_security_events(
         self,
-        wallet_address: Optional[str] = None,
+        wallet_address: str | None = None,
         hours: int = 24,
-    ) -> List[AuditEvent]:
+    ) -> list[AuditEvent]:
         """Get recent security events"""
         query = AuditQuery(
             wallet_address=wallet_address,
@@ -514,7 +514,7 @@ class AuditTrailService:
 
         try:
             conditions = ["severity IN ('warning', 'error', 'critical')"]
-            params: Dict[str, Any] = {}
+            params: dict[str, Any] = {}
 
             if wallet_address:
                 conditions.append("wallet_address = :wallet_address")
@@ -644,9 +644,9 @@ class AuditTrailService:
 
     async def get_statistics(
         self,
-        wallet_address: Optional[str] = None,
+        wallet_address: str | None = None,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get audit statistics"""
         if not self.db_session:
             return {}
@@ -671,7 +671,7 @@ class AuditTrailService:
                     " WHERE created_at >= :start_date AND wallet_address = :wallet_address"
                     " GROUP BY severity"
                 )
-                params: Dict[str, Any] = {"start_date": start_date, "wallet_address": wallet_address}
+                params: dict[str, Any] = {"start_date": start_date, "wallet_address": wallet_address}
             else:
                 count_sql = _text(
                     "SELECT COUNT(*) FROM chat_schema.audit_events"
@@ -711,10 +711,10 @@ class AuditTrailService:
 
 def create_audit_event(
     event_type: AuditEventType,
-    wallet_address: Optional[str] = None,
-    user_id: Optional[str] = None,
+    wallet_address: str | None = None,
+    user_id: str | None = None,
     severity: AuditEventSeverity = AuditEventSeverity.INFO,
-    event_data: Optional[Dict[str, Any]] = None,
+    event_data: dict[str, Any] | None = None,
     **kwargs,
 ) -> AuditEvent:
     """Helper to create an audit event"""
@@ -732,10 +732,10 @@ def create_audit_event(
 # Global Instance
 # ============================================================================
 
-_audit_service: Optional[AuditTrailService] = None
+_audit_service: AuditTrailService | None = None
 
 
-def get_audit_service(db_session: Optional[AsyncSession] = None) -> AuditTrailService:
+def get_audit_service(db_session: AsyncSession | None = None) -> AuditTrailService:
     """Get or create audit service"""
     global _audit_service
     if _audit_service is None:

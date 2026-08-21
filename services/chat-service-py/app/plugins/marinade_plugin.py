@@ -91,10 +91,10 @@ from app.config import settings
 from app.plugins.base import (
     BasePlugin,
     PluginAction,
-    PluginProvider,
     PluginContext,
-    PluginResult,
     PluginPriority,
+    PluginProvider,
+    PluginResult,
 )
 
 logger = logging.getLogger(__name__)

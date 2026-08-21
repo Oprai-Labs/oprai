@@ -4,10 +4,11 @@ Tests for WebSocket Chat Service module.
 Tests WebSocket connection management and message handling.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 import json
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestWebSocketMessage:
@@ -266,7 +267,7 @@ class TestWebSocketChatHandler:
 
     def test_init(self):
         """Test handler initialization"""
-        from app.websocket import WebSocketChatHandler, ConnectionManager
+        from app.websocket import ConnectionManager, WebSocketChatHandler
 
         manager = ConnectionManager()
         handler = WebSocketChatHandler(manager)
@@ -277,7 +278,7 @@ class TestWebSocketChatHandler:
 
     def test_init_with_services(self):
         """Test handler initialization with services"""
-        from app.websocket import WebSocketChatHandler, ConnectionManager
+        from app.websocket import ConnectionManager, WebSocketChatHandler
 
         manager = ConnectionManager()
         mock_agent = MagicMock()
@@ -298,10 +299,9 @@ class TestGlobalConnectionManager:
 
     def test_get_connection_manager(self):
         """Test getting global connection manager"""
-        from app.websocket import get_connection_manager, ConnectionManager
-
         # Reset global
         import app.websocket as ws_module
+        from app.websocket import ConnectionManager, get_connection_manager
         ws_module._connection_manager = None
 
         manager = get_connection_manager()
@@ -311,10 +311,9 @@ class TestGlobalConnectionManager:
 
     def test_singleton(self):
         """Test singleton behavior"""
-        from app.websocket import get_connection_manager
-
         # Reset global
         import app.websocket as ws_module
+        from app.websocket import get_connection_manager
         ws_module._connection_manager = None
 
         manager1 = get_connection_manager()
