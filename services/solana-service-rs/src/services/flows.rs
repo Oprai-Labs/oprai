@@ -368,7 +368,8 @@ pub async fn best_simple_option_for(
     if let Some(apy) = lst_staking_yield(http, quote_mint).await {
         if apy > best {
             best = apy;
-            label = "simply holding it, which earns its staking yield".to_string();
+            // Reads as "… while simply holding it pays 5.09%".
+            label = "simply holding it".to_string();
         }
     }
 
