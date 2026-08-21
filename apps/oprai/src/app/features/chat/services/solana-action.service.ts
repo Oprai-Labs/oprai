@@ -2001,6 +2001,13 @@ export class SolanaActionService {
       deserializedTx = web3.Transaction.from(txBuffer);
     }
 
+    // WYSIWYS: for a plain SOL transfer, the address receiving the LARGEST amount
+    // in the tx we're about to sign must be the recipient the card showed —
+    // otherwise a swapped-out tx could redirect the funds. Fails OPEN on anything
+    // it can't cleanly decode (SPL/ATA, unusual shapes) so it never blocks a
+    // legitimate action; it only stops a clear redirection.
+    this.verifyTransferWysiwys(deserializedTx, isVersioned, action, web3);
+
     // The final step of a sequential action was built before the earlier steps
     // ran, so its blockhash is as old as their confirmations — refresh it here
     // or the submit fails on expiry after the user has already signed.
@@ -4044,6 +4051,82 @@ export class SolanaActionService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  /**
+   * WYSIWYS for a plain SOL transfer: abort signing if the largest SystemProgram
+   * transfer in the tx does NOT land on the recipient the card displayed. Native
+   * SOL only (SPL transfers land on an ATA, not the wallet — handled separately).
+   * Fails OPEN: any decode uncertainty proceeds, so it never blocks a legit tx —
+   * it only stops a clear fund-redirection.
+   */
+  private verifyTransferWysiwys(
+    tx: VersionedTransaction | Transaction,
+    isVersioned: boolean,
+    action: { type: string; params: Record<string, any> },
+    web3: any,
+  ): void {
+    if (action.type !== 'transfer') return;
+    const intended = String(
+      action.params?.['to'] ?? action.params?.['recipient'] ?? action.params?.['destination'] ?? '',
+    ).trim();
+    if (!intended) return; // nothing to check against → fail-open
+    // SPL token transfers go to the recipient's associated token account, not the
+    // wallet address, so the wallet won't appear as a destination — skip those.
+    const token = String(action.params?.['token'] ?? '').trim().toUpperCase();
+    if (token && token !== 'SOL') return;
+
+    let dests: { to: string; lamports: bigint }[];
+    try {
+      dests = this.systemTransferDestinations(tx, isVersioned);
+    } catch {
+      return; // couldn't decode → fail-open, never block a legit transfer
+    }
+    if (dests.length === 0) return; // no plain SOL transfer found → fail-open
+    // The recipient gets the bulk; the only other SystemProgram transfer is the
+    // small OPRAI fee. Require the LARGEST to be the displayed recipient.
+    const largest = dests.reduce((a, b) => (b.lamports > a.lamports ? b : a));
+    if (largest.to !== intended) {
+      throw new Error(
+        'Bu işlem gösterilen alıcıya gitmiyor — güvenlik için imzalanmadı. Lütfen tekrar deneyin.',
+      );
+    }
+  }
+
+  /** SystemProgram.transfer (index 2) destinations + lamports in a tx. */
+  private systemTransferDestinations(
+    tx: VersionedTransaction | Transaction,
+    isVersioned: boolean,
+  ): { to: string; lamports: bigint }[] {
+    const SYS = '11111111111111111111111111111111';
+    const out: { to: string; lamports: bigint }[] = [];
+    const readTransfer = (data: Uint8Array): bigint | null => {
+      if (data.length < 12) return null;
+      const dv = new DataView(data.buffer, data.byteOffset, data.length);
+      if (dv.getUint32(0, true) !== 2) return null; // 2 = Transfer
+      return dv.getBigUint64(4, true);
+    };
+    if (isVersioned) {
+      const msg = (tx as VersionedTransaction).message as any;
+      const keys: string[] = msg.staticAccountKeys.map((k: any) => k.toBase58());
+      for (const ci of msg.compiledInstructions) {
+        if (keys[ci.programIdIndex] !== SYS) continue;
+        const lamports = readTransfer(ci.data as Uint8Array);
+        if (lamports == null) continue;
+        const toIdx = ci.accountKeyIndexes?.[1];
+        const to = toIdx != null ? keys[toIdx] : undefined;
+        if (to) out.push({ to, lamports });
+      }
+    } else {
+      for (const ix of (tx as Transaction).instructions) {
+        if (ix.programId.toBase58() !== SYS) continue;
+        const lamports = readTransfer(new Uint8Array(ix.data));
+        if (lamports == null) continue;
+        const to = ix.keys?.[1]?.pubkey?.toBase58();
+        if (to) out.push({ to, lamports });
+      }
+    }
+    return out;
+  }
 
   private base64ToUint8Array(base64: string): Uint8Array {
     const binaryString = atob(base64);
