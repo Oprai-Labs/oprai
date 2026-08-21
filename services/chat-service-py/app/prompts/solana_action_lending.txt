@@ -339,6 +339,12 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
   with the largest `totalSupplyUsd`. The empty ones quote rates nobody can get.
 - "What assets can I deposit on Kamino main market?" -> query_onchain("kamino_market_reserves", {"market": "main"})
 - "What does Kamino pay on USDC?" -> query_onchain("kamino_market_reserves", {"market": "main"})
+- A rate made partly of incentives is not the same promise as one made of
+  interest. Jupiter reports both — "5.00% = 4.30% interest + 0.70% rewards" —
+  and interest is paid by borrowers while rewards are paid by the protocol and
+  stop when it decides to stop them. When incentives are what puts a venue
+  ahead, say so: USDC at 5.00% beat Kamino's 4.76% on the combined figure and
+  loses to it on interest alone.
 - "Kamino or Jupiter Lend for my USDC?" -> call BOTH this and `jup_lend_markets`,
   then compare. Never answer a comparison from one side: doing exactly that
   recommended Jupiter at 4.55% over Kamino at 5.38%, having seen only one of

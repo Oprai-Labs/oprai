@@ -192,9 +192,15 @@ pub struct EarnMarket {
     pub mint: String,
     #[allow(dead_code)]
     pub decimals: u8,
+    /// Everything a depositor receives — interest plus incentives.
     pub supply_apy: f64,
+    /// The incentive share of it. Kept apart because the two are not the same
+    /// promise: interest is paid by borrowers and moves with demand, while
+    /// rewards are paid by the protocol and can stop when it decides to stop
+    /// them. A headline rate that is mostly incentives can fall below a lower
+    /// one that is all interest, and a comparison made on the combined figure
+    /// alone cannot see that coming.
     #[serde(rename = "rewards_apy")]
-    #[allow(dead_code)]
     pub rewards_apy: Option<f64>,
 }
 
@@ -265,7 +271,7 @@ pub async fn build_lend_transaction(
             } else {
                 "Withdraw"
             },
-            format!("{:.4} {}", amount, symbol),
+            format_args!("{amount:.4} {symbol}"),
             apy
         ),
         estimated_fee: "5000".to_string(), // ~0.005 SOL
@@ -406,7 +412,14 @@ pub async fn build_jup_lend_markets(
     let earn_entries: Vec<serde_json::Value> = markets
         .earn
         .iter()
-        .map(|m| serde_json::json!({ "symbol": m.symbol, "supplyApy": m.supply_apy }))
+        .map(|m| {
+            serde_json::json!({
+                "symbol": m.symbol,
+                "supplyApy": m.supply_apy,
+                "rewardsApy": m.rewards_apy,
+                "interestApy": m.rewards_apy.map(|r| m.supply_apy - r),
+            })
+        })
         .collect();
     let borrow_entries: Vec<serde_json::Value> = markets
         .borrow
@@ -448,7 +461,21 @@ pub async fn build_jup_lend_markets(
             let earn: Vec<String> = markets
                 .earn
                 .iter()
-                .map(|m| format!("{} ({:.2}%)", m.symbol, m.supply_apy))
+                .map(|m| {
+                    // Name the incentive share when it is enough to change the
+                    // answer: USDC read 5.00% against Kamino's 4.76% and won,
+                    // but 0.70 of it was rewards — on interest alone it loses.
+                    match m.rewards_apy {
+                        Some(r) if r >= 0.1 => format!(
+                            "{} ({:.2}% = {:.2}% interest + {:.2}% rewards)",
+                            m.symbol,
+                            m.supply_apy,
+                            m.supply_apy - r,
+                            r
+                        ),
+                        _ => format!("{} ({:.2}%)", m.symbol, m.supply_apy),
+                    }
+                })
                 .collect();
             let borrow: Vec<String> = markets
                 .borrow
