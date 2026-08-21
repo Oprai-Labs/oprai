@@ -209,12 +209,13 @@ pub async fn build_position_review(
     // What the same money would earn in one step today. Most LP positions are
     // paired against SOL, so "you could have just staked it" is the honest
     // comparison rather than a hand-picked rival pool.
-    let (alt, dlmm, orca, damm, ray) = tokio::join!(
+    let (alt, dlmm, orca, damm, ray, kam) = tokio::join!(
         crate::services::flows::best_simple_option(http),
         read_dlmm_positions(http, wallet),
         read_orca_positions(http, rpc_url, wallet),
         read_dammv2_positions(http, wallet),
         read_raydium_positions(http, wallet),
+        read_kamino_positions(http, wallet),
     );
     let (default_apr, default_label) = alt.unwrap_or((0.0, "lending".to_string()));
 
@@ -256,6 +257,13 @@ pub async fn build_position_review(
         }
         Err(e) => tracing::warn!("position review: Raydium unreadable: {e}"),
     }
+    match kam {
+        Ok(v) => {
+            covers.push("Kamino Lend");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Kamino unreadable: {e}"),
+    }
 
     for pos in all {
         // Judged against what the money could do in its own unit. A USDC pair
@@ -293,12 +301,22 @@ pub async fn build_position_review(
         // so they work against the cost of leaving rather than sitting beside
         // it. On a $1,421 position $4 of fees is 0.28% against a 0.15% exit —
         // enough to decide the question on its own.
-        let exit_cost_pct = match (pos.exit_cost_pct, pos.unclaimed_fees_usd, pos.usd_value) {
+        // Moving a lending position costs no swap, but it does cost a day out
+        // of the market at the rate being moved to — two transactions are
+        // noise beside that. Without this the smallest advantage anywhere
+        // reads as free to chase, and lending rates move daily.
+        let base_exit = if pos.moves_without_swap {
+            Some(alt_apr / 365.0)
+        } else {
+            pos.exit_cost_pct
+        };
+        let exit_cost_pct = match (base_exit, pos.unclaimed_fees_usd, pos.usd_value) {
             (Some(cost), Some(fees), Some(value)) if value > 0.0 => {
                 Some(cost - (fees / value * 100.0))
             }
             (cost, _, _) => cost,
         };
+        let _ = pos.exit_cost_pct;
 
         let facts = PositionFacts {
             // Unknown is carried as the alternative's own rate so the gap is
@@ -477,6 +495,11 @@ struct OpenPosition {
     /// A locked position cannot be withdrawn until it vests, so telling
     /// someone to close it is advice they cannot act on.
     locked: bool,
+    /// True where leaving returns the same asset rather than requiring a swap
+    /// — lending, not liquidity. The cost of moving is then not a swap but a
+    /// day out of the market, which has to be priced from the rate being
+    /// moved to rather than guessed at.
+    moves_without_swap: bool,
     pnl_usd_pct: Option<f64>,
     pnl_sol_pct: Option<f64>,
     unclaimed_fees_usd: Option<f64>,
@@ -1084,6 +1107,7 @@ async fn read_dlmm_positions(
                 quote_mint: mint_y.clone(),
                 pair_mints: (mint_x.clone(), mint_y.clone()),
                 locked: false,
+                moves_without_swap: false,
                 usd_value: value,
                 pool_apr,
                 exit_cost_pct,
@@ -1223,6 +1247,7 @@ async fn read_orca_positions(
             quote_mint: mint_b.clone(),
             pair_mints: (mint_a.clone(), mint_b),
             locked: false,
+            moves_without_swap: false,
             usd_value: value,
             pool_apr,
             apr_24h: pool_apr,
@@ -1367,6 +1392,7 @@ async fn read_dammv2_positions(
                 quote_mint: mint_y.clone(),
                 pair_mints: (mint_x.clone(), mint_y.clone()),
                 locked: p.get("locked").and_then(|v| v.as_bool()).unwrap_or(false),
+                moves_without_swap: false,
                 usd_value: value,
                 pool_apr,
                 apr_24h,
@@ -1487,6 +1513,7 @@ async fn read_raydium_positions(
             quote_mint: mint_b.clone(),
             pair_mints: (mint_a.clone(), mint_b),
             locked: false,
+            moves_without_swap: false,
             usd_value: value,
             pool_apr,
             apr_24h: pool_apr,
@@ -1532,6 +1559,146 @@ async fn raydium_pool_facts(http: &reqwest::Client, pool_id: &str) -> (Option<f6
         ),
         None => (None, None),
     }
+}
+
+/// Kamino lending positions.
+///
+/// A different shape from everything else here: there is no range to fall out
+/// of, and leaving costs a network fee rather than a swap, because the same
+/// asset comes back. So the only question worth asking is whether the rate is
+/// still the best one available for that asset — and answering it needs a
+/// second venue, since Kamino publishes exactly one rate per reserve and
+/// comparing it with itself says nothing.
+///
+/// An obligation holding several assets, or carrying debt, is a structure this
+/// review does not model. It is reported with its value and left unjudged
+/// rather than given a verdict derived from the wrong question.
+async fn read_kamino_positions(
+    http: &reqwest::Client,
+    wallet: &str,
+) -> Result<Vec<OpenPosition>, AppError> {
+    let params = crate::services::kamino::KaminoUserObligationsParams {
+        wallet: Some(wallet.to_string()),
+        market: None,
+        env: None,
+    };
+    let resp =
+        crate::services::kamino::build_kamino_user_obligations(http, wallet, &params).await?;
+    let data = resp
+        .data
+        .clone()
+        .or_else(|| Some(resp.preview.params.clone()))
+        .unwrap_or(serde_json::Value::Null);
+    let obligations = data
+        .get("obligations")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| data.as_array().cloned())
+        .unwrap_or_default();
+    if obligations.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let reserves = crate::services::kamino::fetch_market_reserves(http, None)
+        .await
+        .unwrap_or_default();
+    let num = |v: Option<&serde_json::Value>| -> f64 {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(0.0)
+    };
+
+    let mut out = Vec::new();
+    for o in obligations {
+        let value = num(o.get("collateralUsd"));
+        let debt = num(o.get("debtUsd"));
+        // An empty obligation account is left behind the same way a closed
+        // position leaves its NFT.
+        if value <= 0.0 {
+            continue;
+        }
+        let tokens: Vec<String> = o
+            .get("collateralTokens")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Only a single asset lent with nothing borrowed against it is a
+        // question this review can answer.
+        let simple = tokens.len() == 1 && debt <= 0.0;
+        let symbol = tokens.first().cloned().unwrap_or_else(|| "assets".into());
+        let reserve = simple
+            .then(|| {
+                reserves
+                    .iter()
+                    .filter(|r| {
+                        r.get("liquidityToken")
+                            .and_then(|t| t.as_str())
+                            .map(|t| t.eq_ignore_ascii_case(&symbol))
+                            .unwrap_or(false)
+                    })
+                    .max_by(|a, b| {
+                        num(a.get("totalSupplyUsd"))
+                            .partial_cmp(&num(b.get("totalSupplyUsd")))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+            })
+            .flatten();
+        let mint = reserve
+            .and_then(|r| r.get("liquidityTokenMint"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let rate = reserve.map(|r| num(r.get("supplyApy")) * 100.0);
+
+        out.push(OpenPosition {
+            venue: "Kamino Lend",
+            address: o
+                .get("obligation")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            pool: String::new(),
+            pair: if simple {
+                format!("{symbol} lent")
+            } else if debt > 0.0 {
+                format!("{} borrowed against", tokens.join(" + "))
+            } else {
+                tokens.join(" + ")
+            },
+            // Lending is never idle; the asset earns from the moment it is
+            // supplied.
+            earning: true,
+            in_range_share: None,
+            quote_mint: mint.clone(),
+            pair_mints: (mint.clone(), mint),
+            locked: false,
+            usd_value: Some(value),
+            // Unknown for a structure this review does not model, which stops
+            // it producing a verdict from the wrong question.
+            pool_apr: if simple { rate } else { None },
+            apr_24h: if simple { rate } else { None },
+            apr_life: None,
+            pool_tvl_usd: reserve.map(|r| num(r.get("totalSupplyUsd"))),
+            holdings: None,
+            // Leaving is a withdrawal of the same asset, so there is no swap
+            // to pay for — only the network fee, which is a rounding error
+            // against any position worth reviewing.
+            // Priced by the caller, which knows the rate being moved to.
+            exit_cost_pct: None,
+            moves_without_swap: simple,
+            pnl_usd_pct: None,
+            pnl_sol_pct: None,
+            unclaimed_fees_usd: None,
+        });
+    }
+    Ok(out)
 }
 
 /// A whirlpool's annualised fee rate, from its own 24-hour statistics.

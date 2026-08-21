@@ -259,6 +259,42 @@ mod spread_tests {
 /// with the same number the entry side uses — two different baselines would
 /// let a position look worth keeping on one screen and worth closing on
 /// another.
+/// What Jupiter Lend pays to supply an asset, as a percentage.
+///
+/// `totalRate` is in basis points and includes incentives on top of the plain
+/// supply rate; it is what a depositor actually receives, which is the number
+/// a comparison should use.
+async fn jupiter_lend_rate(http: &reqwest::Client, mint: &str) -> Option<(f64, String)> {
+    let rows: serde_json::Value = http
+        .get("https://lite-api.jup.ag/lend/v1/earn/tokens")
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let rows = rows
+        .as_array()
+        .cloned()
+        .or_else(|| rows.get("data").and_then(|d| d.as_array()).cloned())?;
+    for r in rows {
+        let asset_mint = r
+            .get("assetAddress")
+            .or_else(|| r.get("asset").and_then(|a| a.get("address")))
+            .and_then(|v| v.as_str());
+        if asset_mint != Some(mint) {
+            continue;
+        }
+        let bps = r.get("totalRate").and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })?;
+        let sym = r.get("symbol").and_then(|v| v.as_str()).unwrap_or("it");
+        return Some((bps / 100.0, format!("lending {sym} on Jupiter")));
+    }
+    None
+}
+
 pub async fn best_simple_option(http: &reqwest::Client) -> Option<(f64, String)> {
     best_simple_option_for(http, SOL_MINT).await
 }
@@ -299,6 +335,16 @@ pub async fn best_simple_option_for(
             }
         }
     }
+    // Kamino publishes one rate per asset, so comparing a Kamino position with
+    // Kamino says nothing. A second venue is what makes "is this still the
+    // best rate" a real question.
+    if let Some((rate, jup_label)) = jupiter_lend_rate(http, quote_mint).await {
+        if rate > best {
+            best = rate;
+            label = jup_label;
+        }
+    }
+
     if let Ok(reserves) = reserves {
         // The deepest reserve for this asset, for the same reason the flows
         // engine picks by deposits: a mint can have several and the empty ones

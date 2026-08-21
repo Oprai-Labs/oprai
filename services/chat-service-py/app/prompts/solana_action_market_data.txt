@@ -208,6 +208,17 @@ The `verdict` is already the answer and it is deliberately conservative:
   advised. Never recommend one anyway.
 - `keep` — nothing better is available.
 
+Kamino lending positions appear alongside the liquidity ones. They have no
+range and never sit idle, and leaving one returns the same asset rather than
+requiring a swap — so the only question is whether the rate is still the best
+available for that asset, compared against a second venue rather than against
+Kamino itself. Moving is priced as a day out of the market, which is why a
+tiny advantage elsewhere correctly reads as not worth chasing.
+
+An obligation holding several assets, or carrying debt, is reported with its
+value and no verdict. Say so rather than inventing one — and do not confuse it
+with a liquidation warning, which is watched elsewhere.
+
 `covers` lists which venues actually answered. Never let an answer imply the
 whole wallet is fine when only some venues were read.
 
