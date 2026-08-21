@@ -96,10 +96,13 @@ class TestValidateDlmmGetPairs:
         result = validate_action_params("meteora_dlmm_get_pairs", params)
         assert len(result) == 5
 
-    def test_non_string_values_coerced(self):
-        """int/float values should be coerced to string"""
+    def test_numeric_values_keep_their_type(self):
+        """Numbers stay numbers. validate_action_params used to stringify every
+        value; it now preserves int/float/bool so the payload deserialises
+        against the Rust structs (serde will not read "1" into a u32). Do not
+        "restore" the string form — the Rust side is what depends on this."""
         result = validate_action_params("meteora_dlmm_get_pairs", {"page": 1, "pageSize": 10})
-        assert result.get("page") == "1"
+        assert result.get("page") == 1
 
     def test_value_too_long_rejected(self):
         with pytest.raises(ValueError, match="maximum length"):
@@ -240,12 +243,13 @@ class TestValidateDlmmGetPoolOhlcv:
         })
         assert len(result) == 4
 
-    def test_non_string_timestamps_coerced(self):
+    def test_timestamps_keep_their_type(self):
+        """See TestValidateDlmmGetPairs.test_numeric_values_keep_their_type."""
         result = validate_action_params("meteora_dlmm_get_pool_ohlcv", {
             "address": METEORA_SOL_USDC,
             "startTime": 1700000000, "endTime": 1700086400,
         })
-        assert result["startTime"] == "1700000000"
+        assert result["startTime"] == 1700000000
 
     def test_sol_mint_as_address_passes_schema_validation(self):
         """Schema layer only checks string length; Rust validates pubkey format"""
@@ -309,12 +313,13 @@ class TestValidateDlmmGetPoolVolumeHistory:
         })
         assert "startTime" in result
 
-    def test_non_string_timestamps_coerced(self):
+    def test_timestamps_keep_their_type(self):
+        """See TestValidateDlmmGetPairs.test_numeric_values_keep_their_type."""
         result = validate_action_params("meteora_dlmm_get_pool_volume_history", {
             "address": METEORA_SOL_USDC,
             "startTime": 1700000000, "endTime": 1700086400,
         })
-        assert result["startTime"] == "1700000000"
+        assert result["startTime"] == 1700000000
 
     def test_value_too_long_rejected(self):
         with pytest.raises(ValueError, match="maximum length"):
@@ -348,10 +353,13 @@ class TestDlmmEdgeCases:
             result = validate_action_params(action, {"query": {"nested": "object"}})
             assert "query" not in result
 
-    def test_list_value_skipped(self):
+    def test_scalar_list_is_joined_not_skipped(self):
+        """A list of scalars is joined, not dropped — close_accounts sends its
+        mints that way. Only a list containing objects becomes a JSON string,
+        and a bare dict is still skipped (test_dict_value_skipped)."""
         for action in self.NEW_DLMM_ACTIONS:
             result = validate_action_params(action, {"query": ["a", "b"]})
-            assert "query" not in result
+            assert result["query"] == "a,b"
 
     def test_boolean_value_for_numeric_param_rejected(self):
         """bool True → str 'True' → float('True') fails → ValueError"""

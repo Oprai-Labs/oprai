@@ -287,9 +287,11 @@ class GeminiProvider(BaseLLMProvider):
         import time
 
         genai = self._get_client()
-        model = genai.GenerativeModel(config.model)
 
-        # Convert messages to Gemini format
+        # Convert messages to Gemini format. Gemini takes the system prompt as a
+        # constructor argument, not as a turn in `contents` — so it has to be
+        # collected before the model is built. It used to be collected and then
+        # dropped, which sent every Gemini call out with no system prompt at all.
         contents = []
         system_instruction = None
 
@@ -300,6 +302,11 @@ class GeminiProvider(BaseLLMProvider):
                 contents.append({"role": "user", "parts": [msg["content"]]})
             elif msg["role"] == "assistant":
                 contents.append({"role": "model", "parts": [msg["content"]]})
+
+        model = genai.GenerativeModel(
+            config.model,
+            system_instruction=system_instruction,
+        )
 
         start = time.perf_counter()
 

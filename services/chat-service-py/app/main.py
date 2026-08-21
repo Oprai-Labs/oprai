@@ -195,7 +195,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Start streaming service
     from app.services.streaming import get_stream_service
-    stream_service = await get_stream_service()
+    await get_stream_service()
     logger.info("Streaming service started")
 
     _grpc_server = await start_grpc_server()
