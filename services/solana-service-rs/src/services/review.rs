@@ -591,6 +591,11 @@ async fn read_dlmm_positions(
                 .find(|d| d.get("address").and_then(|v| v.as_str()) == Some(addr.as_str()));
             // The chain detail knows its own range; the pool-level list is the
             // fallback when that read failed.
+            // Same as Orca: a position holding nothing is a leftover, not a
+            // holding to judge.
+            if detail.map(&weight_of).unwrap_or(1.0) <= 0.0 {
+                continue;
+            }
             let earning = detail
                 .and_then(|d| d.get("inRange").and_then(|v| v.as_bool()))
                 .unwrap_or_else(|| !idle.contains(&addr));
@@ -673,6 +678,7 @@ async fn read_orca_positions(
     let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
 
     let mut out = Vec::new();
+    let mut empty = 0usize;
     // One pool lookup per distinct whirlpool, not per position.
     let mut pool_rates: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
 
@@ -681,6 +687,20 @@ async fn read_orca_positions(
         let mint_a = text(p.get("tokenAMint"));
         let mint_b = text(p.get("tokenBMint"));
         if mint_a.is_empty() || mint_b.is_empty() {
+            continue;
+        }
+
+        // A closed position leaves its NFT behind. Market-making wallets carry
+        // hundreds of them — one tested wallet held 300 — and every one would
+        // arrive as "out of range, earning nothing", burying whatever the
+        // person actually holds under a page of alarm about nothing. They are
+        // counted, not reviewed, and the check comes before the price lookups
+        // so three hundred empties do not cost nine hundred requests.
+        let has_liquidity = num(p.get("liquidity")).unwrap_or(0.0) > 0.0
+            || num(p.get("amountA")).unwrap_or(0.0) > 0.0
+            || num(p.get("amountB")).unwrap_or(0.0) > 0.0;
+        if !has_liquidity {
+            empty += 1;
             continue;
         }
 
@@ -740,6 +760,9 @@ async fn read_orca_positions(
             pnl_sol_pct: None,
             unclaimed_fees_usd: fees_usd,
         });
+    }
+    if empty > 0 {
+        tracing::debug!("position review: skipped {empty} empty Orca position NFTs");
     }
     Ok(out)
 }
