@@ -330,6 +330,17 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
 - market: Market address or name (e.g. "main", "jlp", "altcoin")
 - "Show me the Kamino JLP market details" -> query_onchain("kamino_market_detail", {"market": "jlp"})
 
+**lending_rates** — What an asset earns to lend, across every venue, in one call
+- mint: the asset's mint (defaults to USDC)
+- USE THIS for any "where should I lend X" or "A or B for my X" question. It
+  reads every venue, splits interest from incentives, and names the leader on
+  each basis. Answering from two separate tools is what produced a winner
+  chosen on one venue's data, a headline that contradicted its own figures,
+  and a recommendation resting on an incentive nobody mentioned.
+- `summary` is already the answer. `bestByTotal` and `bestByInterest` differ
+  whenever an incentive is doing the work — say both, because that is what
+  tells the reader whether the ranking survives the programme ending.
+
 **kamino_market_reserves** — Every asset in a Kamino market WITH ITS RATES
 - market: Market address
 - This is where Kamino's lending rates live: each row carries `supplyApy`,

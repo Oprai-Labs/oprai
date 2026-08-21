@@ -13,6 +13,7 @@ pub mod jupiter_perp;
 pub mod jupiter_query;
 pub mod jupsol;
 pub mod kamino;
+pub mod lending_rates;
 pub mod limit_order;
 pub mod magic_eden;
 pub mod marinade;

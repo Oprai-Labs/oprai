@@ -2104,6 +2104,25 @@ async def token_strategies(mint: str, amount: str, usdValue: str = "", horizonDa
     return await _solana_action_data("token_strategies", params)
 
 
+async def lending_rates(mint: str = "") -> dict:
+    """What an asset earns to lend, across every venue, in one answer.
+
+    Comparing venues by hand went wrong four separate times: one side failed
+    to load and the other won by default, the headline agreed with neither,
+    and the winner was named on a rate that was mostly incentives. Each of
+    those was a step someone had to remember to take.
+
+    This takes none of them. It reads every venue, splits interest from
+    incentives, and names the leader on each basis — because a venue can pay
+    the most today and trail on what it will still be paying once an incentive
+    programme ends.
+    """
+    params: dict = {}
+    if mint:
+        params["mint"] = mint
+    return await _solana_action_data("lending_rates", params)
+
+
 async def position_review(wallet: str = "") -> dict:
     """Whether each open liquidity position is still worth keeping.
 
@@ -2412,6 +2431,7 @@ _DISPATCH: dict[str, tuple] = {
     "token_strategies":     (token_strategies,     ["mint", "amount"], ["usdValue", "horizonDays"]),
     "strategy_flows":       (strategy_flows,       [],                 ["usdValue", "mint"]),
     "position_review":      (position_review,      [],                 ["wallet"]),
+    "lending_rates":        (lending_rates,        [],                 ["mint"]),
     "wallet_strategies":    (wallet_strategies,    ["wallet"],         ["minUsd"]),
     "marinade_list_tickets":  (marinade_list_tickets,  ["wallet"],      []),
     # Yield / APY comparison (liquid staking + lending)
@@ -2578,6 +2598,7 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "token_strategies",
     "strategy_flows",
     "position_review",
+    "lending_rates",
 })
 
 
