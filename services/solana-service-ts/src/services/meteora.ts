@@ -193,8 +193,34 @@ export async function getMeteoraDlmmPositionDetails(
     new PublicKey(userWallet),
   );
 
-  const decX: number = dlmmPool.tokenX?.decimal ?? 9;
-  const decY: number = dlmmPool.tokenY?.decimal ?? 6;
+  // Decimals come from the mint, never from position.
+  //
+  // This used to fall back to 9 for X and 6 for Y when the SDK field was not
+  // where it was expected — right for SOL/USDC and backwards for every pool
+  // shaped the other way round. On a live PUMP/SOL position it reported
+  // 1,399 PUMP and 12,290 SOL for a $6,581 position: PUMP a thousand times
+  // too small, SOL a thousand times too large, both looking entirely
+  // plausible on screen. A positional guess is worse than no fallback,
+  // because it produces a confident wrong number instead of an obvious gap.
+  const decimalsOf = async (side: any, mintKey: any): Promise<number> => {
+    const direct = side?.decimal ?? side?.decimals ?? side?.mint?.decimals;
+    if (typeof direct === "number") return direct;
+    const mint = side?.publicKey ?? side?.mint?.address ?? side?.mint ?? mintKey;
+    const info: any = await connection.getParsedAccountInfo(
+      mint instanceof PublicKey ? mint : new PublicKey(String(mint)),
+    );
+    const dec = info?.value?.data?.parsed?.info?.decimals;
+    if (typeof dec !== "number") {
+      throw new Error(
+        `Cannot read decimals for pool ${params.poolAddress}; refusing to guess them`,
+      );
+    }
+    return dec;
+  };
+  const [decX, decY] = await Promise.all([
+    decimalsOf(dlmmPool.tokenX, dlmmPool.lbPair?.tokenXMint),
+    decimalsOf(dlmmPool.tokenY, dlmmPool.lbPair?.tokenYMint),
+  ]);
   const toUi = (raw: unknown, dec: number): number => {
     const n = Number(raw?.toString() ?? "0");
     return Number.isFinite(n) ? n / Math.pow(10, dec) : 0;
