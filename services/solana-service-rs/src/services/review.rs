@@ -202,13 +202,25 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
             f.exit_cost_pct.unwrap_or(0.0),
             r.payback_days.unwrap_or(0.0)
         ),
-        Verdict::NotWorthTheSwitch => format!(
-            "{alternative_label} pays {:.2}% against this position's {:.2}%, but closing costs {:.2}% and would take {:.0} days to recover — too long to be worth the trade. Leave it.",
-            f.alternative_apr,
-            f.forward_apr,
-            f.exit_cost_pct.unwrap_or(0.0),
-            r.payback_days.unwrap_or(0.0)
-        ),
+        Verdict::NotWorthTheSwitch => {
+            // A gap near zero sends the payback to five and six figures. "It
+            // would take 175,127 days" is arithmetic printed at the reader
+            // rather than an answer given to them.
+            let days = r.payback_days.unwrap_or(0.0);
+            let how_long = if days > 3_650.0 {
+                "would never realistically pay for itself".to_string()
+            } else if days > 365.0 {
+                format!("would take about {:.0} years to recover", days / 365.0)
+            } else {
+                format!("would take {days:.0} days to recover")
+            };
+            format!(
+                "{alternative_label} pays {:.2}% against this position's {:.2}%, but closing costs {:.2}% and {how_long} — too long to be worth the trade. Leave it.",
+                f.alternative_apr,
+                f.forward_apr,
+                f.exit_cost_pct.unwrap_or(0.0),
+            )
+        }
         Verdict::Locked => format!(
             "This position is locked until it vests, so it cannot be closed or withdrawn yet — whatever {alternative_label} pays in the meantime."
         ),
@@ -1881,6 +1893,26 @@ mod tests {
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Keep, "no data must not become an exit");
         assert_eq!(r.gap_pct, 0.0);
+    }
+
+    #[test]
+    fn an_unreachable_payback_is_said_in_words_not_digits() {
+        // A gap near zero puts the payback in five figures. Printing "175127
+        // days" is arithmetic aimed at the reader instead of an answer.
+        let f = PositionFacts {
+            forward_apr: 0.0,
+            alternative_apr: 0.0003,
+            exit_cost_pct: Some(0.15),
+            earning: true,
+            in_range_share: None,
+            forward_known: true,
+            locked: false,
+        };
+        let r = review_position(&f);
+        assert_eq!(r.verdict, Verdict::NotWorthTheSwitch);
+        let text = explain(&f, &r, "lending");
+        assert!(text.contains("never realistically"), "{text}");
+        assert!(!text.contains("182500"), "{text}");
     }
 
     #[test]

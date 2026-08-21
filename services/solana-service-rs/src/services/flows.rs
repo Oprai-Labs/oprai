@@ -259,6 +259,31 @@ mod spread_tests {
 /// with the same number the entry side uses — two different baselines would
 /// let a position look worth keeping on one screen and worth closing on
 /// another.
+/// What a liquid-staking token earns for its holder, doing nothing.
+///
+/// None for anything that is not one, which is the signal to fall back to
+/// lending rates.
+async fn lst_staking_yield(http: &reqwest::Client, mint: &str) -> Option<f64> {
+    const JITOSOL: &str = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn";
+    const MSOL: &str = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So";
+    let id = match mint {
+        JITOSOL => "jito",
+        MSOL => "marinade",
+        _ => return None,
+    };
+    let resp = crate::services::marinade::query_stake_yields(http)
+        .await
+        .ok()?;
+    resp.data
+        .as_ref()?
+        .get("yields")?
+        .as_array()?
+        .iter()
+        .find(|r| r.get("id").and_then(|x| x.as_str()) == Some(id))
+        .and_then(|r| r.get("apy").and_then(|x| x.as_f64()))
+        .filter(|a| *a > 0.0)
+}
+
 /// What Jupiter Lend pays to supply an asset, as a percentage.
 ///
 /// `totalRate` is in basis points and includes incentives on top of the plain
@@ -335,6 +360,18 @@ pub async fn best_simple_option_for(
             }
         }
     }
+    // A liquid-staking token earns its staking yield just by being held, so
+    // that — not a lending rate — is what doing nothing with it pays. Kamino
+    // lists every LST at 0.00% supply, and quoting that as the alternative
+    // told the holder of a jitoSOL position they were being compared against
+    // nothing, when the real bar is around 5%.
+    if let Some(apy) = lst_staking_yield(http, quote_mint).await {
+        if apy > best {
+            best = apy;
+            label = "simply holding it, which earns its staking yield".to_string();
+        }
+    }
+
     // Kamino publishes one rate per asset, so comparing a Kamino position with
     // Kamino says nothing. A second venue is what makes "is this still the
     // best rate" a real question.
