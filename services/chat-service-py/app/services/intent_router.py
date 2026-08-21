@@ -332,10 +332,13 @@ Detection rules:
   protocol's action. Emitting both costs nothing by comparison.
 - Cross-chain detection: this is a Solana-native app, so any mention of a
   non-Solana chain (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC,
-  Avalanche, Linea, Scroll, zkSync, Celo, Fantom, Polygon zkEVM, Arbitrum
-  Nova) OR a bridge/cross-chain verb, in whatever language the user wrote it,
-  implies cross-chain →
-  emit "relay" in protocols. Relay.link is the default cross-chain
+  Robinhood / Robinhood Chain, Avalanche, Linea, Scroll, zkSync, Celo, Fantom,
+  Polygon zkEVM, Arbitrum Nova) OR a bridge/cross-chain verb, in whatever
+  language the user wrote it, implies cross-chain →
+  emit "relay" in protocols. A memecoin/token name together with an EVM chain
+  ("robinhood ağından seriouscat al", "buy PEPE on Base") is a RELAY trade on
+  that chain — NEVER the Solana pump.fun/memecoin buy flow. If the token isn't
+  on that chain, the answer is "not found on <chain>", not Solana results. Relay.link is the default cross-chain
   provider; only emit "debridge" when the user names it
   explicitly. Wormhole and Mayan have no canonical id — when the user
   names them, still emit "relay" so the cross-chain prompt section loads
