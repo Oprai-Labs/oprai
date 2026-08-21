@@ -43,6 +43,10 @@ const MAX_VENUE_SHARE: f64 = 0.05;
 /// only age does.
 const MIN_POOL_AGE_DAYS: f64 = 30.0;
 
+/// Below this a pool's TVL is too small for any rate derived by dividing by it
+/// to mean anything.
+const MIN_POOL_TVL_FOR_A_RATE_USD: f64 = 100.0;
+
 /// Solana's base fee, per signature, in SOL.
 ///
 /// A protocol constant rather than a market number — the same class of fact as
@@ -190,7 +194,12 @@ pub async fn leg_cost_sol(rpc: &SolanaRpc) -> Option<f64> {
 /// zero and must not be flattened into it.
 pub fn pool_apr_parts(pool: &serde_json::Value) -> (Option<f64>, Option<f64>) {
     let tvl = num(pool.get("tvl"));
-    if !(tvl > 0.0) {
+    // Every rate here divides by TVL, so a pool holding almost nothing yields
+    // a number that is arithmetic rather than information. One live pool with
+    // $0.000026 of liquidity reported a lifetime rate of six billion percent —
+    // printing that once costs more credibility than the figure could ever be
+    // worth. Below the floor the rate is unknown, which is the truth.
+    if !(tvl > MIN_POOL_TVL_FOR_A_RATE_USD) {
         return (None, None);
     }
     let apr_24h = pool
@@ -891,6 +900,44 @@ mod entry_cost_tests {
         assert!(
             cost < 0.5,
             "entry into the deepest pair on the chain should not cost {cost}% — check the base-unit conversion"
+        );
+    }
+}
+
+#[cfg(test)]
+mod pool_rate_tests {
+    use super::*;
+
+    #[test]
+    fn a_pool_holding_almost_nothing_has_no_meaningful_rate() {
+        // Live case: $0.000026 of TVL against real lifetime fees produced a
+        // rate of six billion percent. Every figure here divides by TVL, so
+        // near zero the output is arithmetic, not information.
+        let pool = serde_json::json!({
+            "tvl": 0.000026,
+            "fees": {"24h": 0.0},
+            "cumulative_metrics": {"fees": 431.0},
+            "created_at": 1_700_000_000_000i64,
+        });
+        assert_eq!(pool_apr_parts(&pool), (None, None));
+    }
+
+    #[test]
+    fn a_real_pool_reports_both_rates_apart() {
+        // The other live case: $2.4m of lifetime fees and a day with no
+        // volume at all. Zero for the day is a finding; it must not erase the
+        // lifetime figure that makes it legible.
+        let pool = serde_json::json!({
+            "tvl": 1_210_677.0,
+            "fees": {"24h": 0.0},
+            "cumulative_metrics": {"fees": 2_382_542.0},
+            "created_at": 1_761_130_281_000i64,
+        });
+        let (day, life) = pool_apr_parts(&pool);
+        assert_eq!(day, Some(0.0), "a quiet day is measured, not unknown");
+        assert!(
+            life.unwrap() > 1.0,
+            "the lifetime rate survives a quiet day"
         );
     }
 }
