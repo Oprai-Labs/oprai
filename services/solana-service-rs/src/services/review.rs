@@ -77,9 +77,6 @@ pub enum Verdict {
     /// A shape this review does not model — several assets, or borrowed
     /// against. Reported, not judged.
     Unjudged,
-    /// Worth so little that the flat costs of touching it dominate everything
-    /// else. No yield comparison means anything at this size.
-    Dust,
 }
 
 impl Verdict {
@@ -91,7 +88,6 @@ impl Verdict {
             Verdict::Unpriced => "unpriced",
             Verdict::Locked => "locked",
             Verdict::Unjudged => "unjudged",
-            Verdict::Dust => "dust",
         }
     }
 }
@@ -116,19 +112,6 @@ pub fn review_position(f: &PositionFacts) -> Review {
     // A locked position cannot be closed until it vests. Telling someone to
     // leave it is advice they cannot act on, however wide the gap — so the
     // gap is still reported, and the verdict is not an instruction to move.
-    // Everything below is a percentage of the position, and a percentage of
-    // almost nothing is arithmetic rather than advice — one live position
-    // produced an exit cost of −441% because the rent refunded on closing was
-    // four times what the position held. True, and not a number to put in
-    // front of anyone.
-    if f.usd_value.map(|v| v < DUST_POSITION_USD).unwrap_or(false) {
-        return Review {
-            verdict: Verdict::Dust,
-            gap_pct: 0.0,
-            payback_days: None,
-        };
-    }
-
     if !f.forward_known {
         return Review {
             verdict: Verdict::Unjudged,
@@ -187,8 +170,34 @@ pub fn review_position(f: &PositionFacts) -> Review {
     }
 }
 
+/// Whether the position is too small for its own percentages to mean much.
+///
+/// Reported beside the verdict rather than replacing it. Suppressing the
+/// judgement entirely at this size was worse than the problem it fixed: three
+/// positions paying 17%, 1.6% and 0% collapsed into one indistinguishable
+/// line, when the reader can perfectly well be told which is which *and* that
+/// none of it is worth acting on. The model already adds the second part
+/// unprompted — it does not need the first taken away.
+pub fn too_small_to_matter(f: &PositionFacts) -> bool {
+    f.usd_value.map(|v| v < DUST_POSITION_USD).unwrap_or(false)
+}
+
 /// The sentence a reader acts on.
 pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String {
+    // At this size the cost percentages are arithmetic on a near-zero
+    // denominator — one live position produced −441% because the rent
+    // refunded on closing was four times what it held. The yields still
+    // compare fine, so those are what gets said.
+    if too_small_to_matter(f) {
+        return match (f.forward_known, f.earning) {
+            (false, _) => "This position is too small for any of it to matter, and its return could not be established either.".to_string(),
+            (true, _) => format!(
+                "It earns {:.2}% against {alternative_label} at {:.2}%, but the position is worth so little that neither figure is worth acting on — a single transaction costs more than the difference, and closing it would return more in account rent than the position itself holds.",
+                f.forward_apr, f.alternative_apr
+            ),
+        };
+    }
+
     match r.verdict {
         Verdict::Keep if !f.earning => format!(
             "This position is out of range and earning nothing, but {alternative_label} pays {:.2}% — no better than it, so there is nothing to move to.",
@@ -243,9 +252,6 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
         }
         Verdict::Locked => format!(
             "This position is locked until it vests, so it cannot be closed or withdrawn yet — whatever {alternative_label} pays in the meantime."
-        ),
-        Verdict::Dust => format!(
-            "There is too little here for the arithmetic to mean anything — at this size the fixed cost of a transaction outweighs any difference in yield. Closing it returns the rent its accounts hold, which is worth more than the position itself; keeping it costs nothing either."
         ),
         Verdict::Unjudged => format!(
             "This position holds several assets or is borrowed against, which this review does not model — so it is listed rather than judged. What it holds is shown above."
@@ -449,6 +455,8 @@ pub async fn build_position_review(
             "gapPct": review.gap_pct,
             "paybackDays": review.payback_days,
             "verdict": review.verdict.as_str(),
+            // Said beside the verdict, not instead of it.
+            "tooSmallToMatter": too_small_to_matter(&facts),
             "why": explain(&facts, &review, &alt_label),
             // The question a fee rate cannot answer.
             "vsHolding": vs_holding.as_ref().map(|c| {
@@ -2034,10 +2042,10 @@ mod tests {
     }
 
     #[test]
-    fn a_position_smaller_than_a_transaction_is_not_worth_arithmetic() {
-        // A live $0.12 position produced an exit cost of -441%, because the
-        // rent refunded on closing was four times what it held. True, and not
-        // a number to put in front of anyone.
+    fn a_tiny_position_is_still_told_apart_from_the_others() {
+        // Suppressing the verdict at this size collapsed three positions
+        // paying 17%, 1.6% and 0% into one indistinguishable line. The reader
+        // can be told which is which *and* that none of it is worth acting on.
         let f = PositionFacts {
             forward_apr: 17.0,
             alternative_apr: 4.78,
@@ -2049,10 +2057,13 @@ mod tests {
             usd_value: Some(0.12),
         };
         let r = review_position(&f);
-        assert_eq!(r.verdict, Verdict::Dust);
-        let text = explain(&f, &r, "lending");
+        assert_ne!(r.verdict, Verdict::Unjudged);
+        assert!(too_small_to_matter(&f));
+        let text = explain(&f, &r, "lending USDC");
+        // The yields compare fine; the cost percentages do not.
+        assert!(text.contains("17.00"), "{text}");
         assert!(!text.contains("440"), "{text}");
-        assert!(text.contains("too little"), "{text}");
+        assert!(text.contains("worth so little"), "{text}");
     }
 
     #[test]
