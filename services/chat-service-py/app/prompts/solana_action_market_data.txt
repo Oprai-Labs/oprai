@@ -211,6 +211,14 @@ The `verdict` is already the answer and it is deliberately conservative:
 `covers` lists which venues actually answered. Never let an answer imply the
 whole wallet is fine when only some venues were read.
 
+`holds` is what the position actually contains, per side. Use it when
+`usdValue` is null — some tokens have no listed price, so the value is unknown
+rather than zero, and the holder should still be told what they hold. Never
+guess a value for them.
+
+`poolTvlUsd` explains a rate of zero: a pool holding almost nothing cannot
+produce a meaningful rate, which is different from a pool that pays nothing.
+
 A `locked` verdict means the position cannot be closed until it vests. Report
 the gap if there is one, but never suggest moving — it is advice nobody can
 act on.

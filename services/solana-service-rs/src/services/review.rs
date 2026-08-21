@@ -333,6 +333,9 @@ pub async fn build_position_review(
             "poolApr24hPct": pos.apr_24h,
             "poolAprLifetimePct": pos.apr_life,
             "poolTvlUsd": pos.pool_tvl_usd,
+            "holds": pos.holdings.as_ref().map(|(sa, aa, sb, ab)| {
+                serde_json::json!({ "tokenA": sa, "amountA": aa, "tokenB": sb, "amountB": ab })
+            }),
             "forwardAprKnown": forward_apr.is_some(),
             // What it has actually done, in both denominators.
             "pnlUsdPct": pos.pnl_usd_pct,
@@ -419,6 +422,15 @@ struct OpenPosition {
     /// one live pool held $0.000026 and every rate derived from it was either
     /// zero or astronomical, with nothing on screen to say why.
     pool_tvl_usd: Option<f64>,
+    /// What the position actually holds, as `(symbol, amount)` per side.
+    ///
+    /// Carried so an unpriceable position still says something. Two live
+    /// Raydium positions held tokens Jupiter does not list, so their value
+    /// came back unknown and the row was empty — the holder could see neither
+    /// what they had nor why nothing was said about it. Deriving a price from
+    /// the position's own pool would have filled the gap by marking our own
+    /// book, which for a thin pool is worse than silence.
+    holdings: Option<(String, f64, String, f64)>,
     exit_cost_pct: Option<f64>,
     in_range_share: Option<f64>,
     /// The side the position is denominated in — what it would hold if closed
@@ -700,6 +712,14 @@ async fn read_dlmm_positions(
                 apr_24h,
                 apr_life,
                 pool_tvl_usd,
+                holdings: detail.map(|d| {
+                    (
+                        text(pool.get("tokenX")),
+                        num(d.get("amountX")).unwrap_or(0.0),
+                        text(pool.get("tokenY")),
+                        num(d.get("amountY")).unwrap_or(0.0),
+                    )
+                }),
                 // Y is the quote side of a Meteora pair by construction.
                 quote_mint: mint_y.clone(),
                 locked: false,
@@ -833,6 +853,12 @@ async fn read_orca_positions(
             apr_24h: pool_apr,
             apr_life: None,
             pool_tvl_usd: None,
+            holdings: Some((
+                text(p.get("tokenASymbol")),
+                num(p.get("amountA")).unwrap_or(0.0),
+                text(p.get("tokenBSymbol")),
+                num(p.get("amountB")).unwrap_or(0.0),
+            )),
             exit_cost_pct,
             // Orca's reader carries no profit-and-loss history, so these stay
             // unknown rather than being filled with something else's numbers.
@@ -957,6 +983,7 @@ async fn read_dammv2_positions(
                 apr_24h,
                 apr_life,
                 pool_tvl_usd,
+                holdings: Some((text(pool.get("tokenX")), ax, text(pool.get("tokenY")), ay)),
                 exit_cost_pct,
                 pnl_usd_pct: None,
                 pnl_sol_pct: None,
@@ -993,7 +1020,7 @@ async fn read_raydium_positions(
     let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
 
     let mut out = Vec::new();
-    let mut rates: std::collections::HashMap<String, Option<f64>> =
+    let mut rates: std::collections::HashMap<String, (Option<f64>, Option<f64>)> =
         std::collections::HashMap::new();
 
     for p in positions {
@@ -1012,10 +1039,10 @@ async fn read_raydium_positions(
         }
 
         let pool_id = text(p.get("poolId"));
-        let pool_apr = match rates.get(&pool_id) {
+        let (pool_apr, pool_tvl_usd) = match rates.get(&pool_id) {
             Some(v) => *v,
             None => {
-                let r = raydium_pool_apr(http, &pool_id).await;
+                let r = raydium_pool_facts(http, &pool_id).await;
                 rates.insert(pool_id.clone(), r);
                 r
             }
@@ -1055,7 +1082,13 @@ async fn read_raydium_positions(
             pool_apr,
             apr_24h: pool_apr,
             apr_life: None,
-            pool_tvl_usd: None,
+            pool_tvl_usd,
+            holdings: Some((
+                text(p.get("mintA").and_then(|m| m.get("symbol"))),
+                amount_a,
+                text(p.get("mintB").and_then(|m| m.get("symbol"))),
+                amount_b,
+            )),
             exit_cost_pct,
             pnl_usd_pct: None,
             pnl_sol_pct: None,
@@ -1065,22 +1098,31 @@ async fn read_raydium_positions(
     Ok(out)
 }
 
-/// A Raydium pool's fee rate, from its own daily statistics.
-async fn raydium_pool_apr(http: &reqwest::Client, pool_id: &str) -> Option<f64> {
-    let body: serde_json::Value = http
-        .get(format!(
-            "https://api-v3.raydium.io/pools/info/ids?ids={pool_id}"
-        ))
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-    let row = body.get("data")?.as_array()?.first()?;
-    row.get("day")
-        .and_then(|d| d.get("feeApr"))
-        .and_then(|v| v.as_f64())
+/// A Raydium pool's fee rate and liquidity, from one call.
+async fn raydium_pool_facts(http: &reqwest::Client, pool_id: &str) -> (Option<f64>, Option<f64>) {
+    let fetch = || async {
+        let body: serde_json::Value = http
+            .get(format!(
+                "https://api-v3.raydium.io/pools/info/ids?ids={pool_id}"
+            ))
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        let row = body.get("data")?.as_array()?.first()?.clone();
+        Some(row)
+    };
+    match fetch().await {
+        Some(row) => (
+            row.get("day")
+                .and_then(|d| d.get("feeApr"))
+                .and_then(|v| v.as_f64()),
+            row.get("tvl").and_then(|v| v.as_f64()),
+        ),
+        None => (None, None),
+    }
 }
 
 /// A whirlpool's annualised fee rate, from its own 24-hour statistics.
