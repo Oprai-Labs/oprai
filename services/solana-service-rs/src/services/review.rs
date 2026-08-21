@@ -47,6 +47,9 @@ pub struct PositionFacts {
     /// it could not be measured, in which case the instantaneous flag is all
     /// there is to go on.
     pub in_range_share: Option<f64>,
+    /// Locked until it vests. Nothing can be closed, so nothing should be
+    /// suggested that involves closing it.
+    pub locked: bool,
 }
 
 /// What to do about it.
@@ -60,6 +63,8 @@ pub enum Verdict {
     NotWorthTheSwitch,
     /// The exit could not be priced, so no move is advised.
     Unpriced,
+    /// Locked until it vests; nothing can be done with it either way.
+    Locked,
 }
 
 impl Verdict {
@@ -69,6 +74,7 @@ impl Verdict {
             Verdict::ConsiderExit => "consider_exit",
             Verdict::NotWorthTheSwitch => "not_worth_the_switch",
             Verdict::Unpriced => "unpriced",
+            Verdict::Locked => "locked",
         }
     }
 }
@@ -89,6 +95,17 @@ pub struct Review {
 /// out of a position that was fine.
 pub fn review_position(f: &PositionFacts) -> Review {
     let gap = f.alternative_apr - f.forward_apr;
+
+    // A locked position cannot be closed until it vests. Telling someone to
+    // leave it is advice they cannot act on, however wide the gap — so the
+    // gap is still reported, and the verdict is not an instruction to move.
+    if f.locked {
+        return Review {
+            verdict: Verdict::Locked,
+            gap_pct: gap,
+            payback_days: None,
+        };
+    }
 
     // Already at least as good as anything else on offer.
     if gap <= 0.0 {
@@ -174,6 +191,9 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
             f.exit_cost_pct.unwrap_or(0.0),
             r.payback_days.unwrap_or(0.0)
         ),
+        Verdict::Locked => format!(
+            "This position is locked until it vests, so it cannot be closed or withdrawn yet — whatever {alternative_label} pays in the meantime."
+        ),
         Verdict::Unpriced => format!(
             "{alternative_label} pays more than this position, but the cost of closing could not be priced, so whether the switch is worth making is unknown. Left as it is."
         ),
@@ -189,10 +209,11 @@ pub async fn build_position_review(
     // What the same money would earn in one step today. Most LP positions are
     // paired against SOL, so "you could have just staked it" is the honest
     // comparison rather than a hand-picked rival pool.
-    let (alt, dlmm, orca) = tokio::join!(
+    let (alt, dlmm, orca, damm) = tokio::join!(
         crate::services::flows::best_simple_option(http),
         read_dlmm_positions(http, wallet),
         read_orca_positions(http, rpc_url, wallet),
+        read_dammv2_positions(http, wallet),
     );
     let (default_apr, default_label) = alt.unwrap_or((0.0, "lending".to_string()));
 
@@ -219,6 +240,13 @@ pub async fn build_position_review(
             all.extend(v);
         }
         Err(e) => tracing::warn!("position review: Orca unreadable: {e}"),
+    }
+    match damm {
+        Ok(v) => {
+            covers.push("Meteora DAMM v2");
+            all.extend(v);
+        }
+        Err(e) => tracing::warn!("position review: Meteora DAMM v2 unreadable: {e}"),
     }
 
     for pos in all {
@@ -266,6 +294,7 @@ pub async fn build_position_review(
             exit_cost_pct,
             earning: pos.earning,
             in_range_share: pos.in_range_share,
+            locked: pos.locked,
         };
         let review = review_position(&facts);
         reviewed.push(serde_json::json!({
@@ -366,6 +395,9 @@ struct OpenPosition {
     /// and consolidated. The baseline has to be in this unit or the comparison
     /// is between two different things.
     quote_mint: String,
+    /// A locked position cannot be withdrawn until it vests, so telling
+    /// someone to close it is advice they cannot act on.
+    locked: bool,
     pnl_usd_pct: Option<f64>,
     pnl_sol_pct: Option<f64>,
     unclaimed_fees_usd: Option<f64>,
@@ -628,6 +660,7 @@ async fn read_dlmm_positions(
                 in_range_share,
                 // Y is the quote side of a Meteora pair by construction.
                 quote_mint: mint_y.clone(),
+                locked: false,
                 usd_value: value,
                 pool_apr,
                 exit_cost_pct,
@@ -751,6 +784,7 @@ async fn read_orca_positions(
             earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
             in_range_share: None,
             quote_mint: mint_b,
+            locked: false,
             usd_value: value,
             pool_apr,
             exit_cost_pct,
@@ -763,6 +797,114 @@ async fn read_orca_positions(
     }
     if empty > 0 {
         tracing::debug!("position review: skipped {empty} empty Orca position NFTs");
+    }
+    Ok(out)
+}
+
+/// Meteora DAMM v2 positions, read through the SDK service.
+///
+/// The pool-level `balances` here is a **token count** — the sum of each
+/// position's X side — not a dollar figure, unlike the DLMM endpoint where the
+/// same field name means USD. Reusing the DLMM path would have quietly read a
+/// token count as money, so value is computed from both sides at live prices.
+async fn read_dammv2_positions(
+    http: &reqwest::Client,
+    wallet: &str,
+) -> Result<Vec<OpenPosition>, AppError> {
+    let data = crate::services::protocol_reads::meteora_dammv2_user_positions(http, wallet).await?;
+    let pools = data
+        .get("pools")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let num = |v: Option<&serde_json::Value>| -> Option<f64> {
+        v.and_then(|x| {
+            x.as_f64()
+                .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+        })
+    };
+    let text = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    let mut out = Vec::new();
+    for pool in pools {
+        let pool_addr = text(pool.get("poolAddress"));
+        let mint_x = text(pool.get("tokenXMint"));
+        let mint_y = text(pool.get("tokenYMint"));
+        if mint_x.is_empty() || mint_y.is_empty() {
+            continue;
+        }
+        let pair = format!("{}/{}", text(pool.get("tokenX")), text(pool.get("tokenY")));
+        // A DAMM v2 pool can be created with bounds, and then price can sit
+        // outside them — the same state DLMM calls out of range, with the same
+        // consequence.
+        let earning = !pool
+            .get("priceOutOfRange")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let pool_apr = match crate::services::meteora::meteora_pool_raw(
+            http,
+            crate::services::meteora::DAMM_V2_API,
+            &pool_addr,
+        )
+        .await
+        {
+            Ok(raw) => crate::services::strategies::conservative_pool_apr(&raw),
+            Err(_) => 0.0,
+        };
+
+        let (price_x, price_y) = tokio::join!(
+            crate::services::strategies::mint_price_and_decimals(http, &mint_x),
+            crate::services::strategies::mint_price_and_decimals(http, &mint_y),
+        );
+        let (px, py) = (price_x.map(|t| t.0), price_y.map(|t| t.0));
+
+        for p in pool
+            .get("positions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+        {
+            let ax = num(p.get("amountX")).unwrap_or(0.0);
+            let ay = num(p.get("amountY")).unwrap_or(0.0);
+            if ax <= 0.0 && ay <= 0.0 {
+                continue;
+            }
+            let value = match (px, py) {
+                (Some(px), Some(py)) => {
+                    let v = ax * px + ay * py;
+                    (v > 0.0).then_some(v)
+                }
+                _ => None,
+            };
+            let fees_usd = match (px, py) {
+                (Some(px), Some(py)) => Some(
+                    num(p.get("unclaimedFeeX")).unwrap_or(0.0) * px
+                        + num(p.get("unclaimedFeeY")).unwrap_or(0.0) * py,
+                ),
+                _ => None,
+            };
+            let exit_cost_pct =
+                crate::services::strategies::entry_cost_pct(http, &mint_x, &mint_y, value).await;
+
+            out.push(OpenPosition {
+                venue: "Meteora DAMM v2",
+                address: text(p.get("address")),
+                pool: pool_addr.clone(),
+                pair: pair.clone(),
+                earning,
+                in_range_share: None,
+                quote_mint: mint_y.clone(),
+                locked: p.get("locked").and_then(|v| v.as_bool()).unwrap_or(false),
+                usd_value: value,
+                pool_apr,
+                exit_cost_pct,
+                pnl_usd_pct: None,
+                pnl_sol_pct: None,
+                unclaimed_fees_usd: fees_usd,
+            });
+        }
     }
     Ok(out)
 }
@@ -806,6 +948,7 @@ mod tests {
             exit_cost_pct: cost,
             earning,
             in_range_share: None,
+            locked: false,
         }
     }
 
@@ -879,6 +1022,7 @@ mod tests {
             exit_cost_pct: Some(0.5),
             earning: true,
             in_range_share: Some(0.2),
+            locked: false,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Keep);
@@ -897,6 +1041,25 @@ mod tests {
         let r = review_position(&facts(0.0, 5.0, Some(-0.2), false));
         assert_eq!(r.verdict, Verdict::ConsiderExit);
         assert_eq!(r.payback_days, Some(0.0));
+    }
+
+    #[test]
+    fn a_locked_position_is_never_told_to_leave() {
+        // The widest possible gap, on a position that cannot be closed. Advice
+        // to move here is advice nobody can follow.
+        let f = PositionFacts {
+            forward_apr: 0.0,
+            alternative_apr: 40.0,
+            exit_cost_pct: Some(0.01),
+            earning: false,
+            in_range_share: None,
+            locked: true,
+        };
+        let r = review_position(&f);
+        assert_eq!(r.verdict, Verdict::Locked);
+        assert!(r.gap_pct > 0.0, "the gap is still reported");
+        let text = explain(&f, &r, "lending");
+        assert!(text.contains("locked"), "{text}");
     }
 
     #[test]

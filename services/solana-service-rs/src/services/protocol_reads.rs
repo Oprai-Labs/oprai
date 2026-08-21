@@ -113,6 +113,21 @@ async fn ts_proxy_read(
 /// Meteora DLMM — per-position detail for one pool, read on-chain via the SDK.
 /// Returns the raw `data` payload (not a `BuildResponse`) so callers can merge
 /// it into a larger response.
+/// A wallet's open Meteora DAMM v2 positions, read through the SDK service.
+pub async fn meteora_dammv2_user_positions(
+    http: &Client,
+    wallet: &str,
+) -> Result<serde_json::Value, AppError> {
+    let resp = ts_proxy_read(
+        http,
+        wallet,
+        "meteora_dammv2_get_user_positions",
+        serde_json::json!({}),
+    )
+    .await?;
+    Ok(resp.data.unwrap_or(serde_json::Value::Null))
+}
+
 pub async fn meteora_dlmm_position_details(
     http: &Client,
     wallet: &str,
