@@ -6,7 +6,6 @@ Handles loading, caching, and managing character configurations.
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import logging
 import random
@@ -17,7 +16,6 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 from app.models.character import (
     Character,
@@ -31,32 +29,21 @@ from app.models.character import (
 
 logger = logging.getLogger(__name__)
 
-# Injection patterns shared with message.py — duplicated here to avoid circular import.
-_CHAR_INJECTION_RE = re.compile(
-    r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?|"
-    r"disregard\s+(the\s+)?system\s+prompt|"
-    r"forget\s+(all\s+)?(previous|your)\s+instructions?|"
-    r"override\s+(the\s+)?(system\s+)?prompt|"
-    r"new\s+system\s+prompt\s*:",
-    re.IGNORECASE,
-)
-
 _MAX_SYSTEM_PROMPT_LEN = 8_000  # chars — prevents token flooding via character prompts
 
 
 def _sanitize_system_prompt(text: str | None, field_name: str = "system_prompt") -> str | None:
     """Validate and sanitise a user-supplied system prompt for a character.
 
-    Raises ValueError if an injection pattern is detected.
-    Truncates to _MAX_SYSTEM_PROMPT_LEN characters.
+    Normalises and length-caps. There is deliberately no phrase blocklist: this
+    text is a persona, and prompt_builder now nests it inside our own scaffold
+    under an explicit boundary (style only, no capabilities, no lifting of
+    restrictions), so it is bounded by where it sits rather than by whether the
+    author avoided five English phrases someone thought to write down.
     """
     if text is None:
         return None
-    normalized = unicodedata.normalize("NFKC", text)
-    if _CHAR_INJECTION_RE.search(normalized):
-        raise ValueError(
-            f"'{field_name}' contains disallowed content (prompt injection pattern)."
-        )
+    text = unicodedata.normalize("NFKC", text)
     if len(text) > _MAX_SYSTEM_PROMPT_LEN:
         logger.warning(
             "Character %s truncated from %d to %d chars",
@@ -64,54 +51,6 @@ def _sanitize_system_prompt(text: str | None, field_name: str = "system_prompt")
         )
         text = text[:_MAX_SYSTEM_PROMPT_LEN]
     return text
-
-
-def _validate_character_url(url: str) -> None:
-    """Block SSRF and non-HTTPS URLs for character loading.
-
-    Raises ValueError for:
-    - Non-https schemes (file://, http://, ftp://, etc.)
-    - Private / loopback / link-local / multicast IP ranges
-    - Unresolvable hostnames (defence-in-depth; real DNS happens at connect time)
-    """
-    parsed = urlparse(url)
-    if parsed.scheme != "https":
-        raise ValueError(
-            f"Character URL must use https:// — got scheme '{parsed.scheme}'."
-        )
-    host = parsed.hostname
-    if not host:
-        raise ValueError("Character URL has no hostname.")
-
-    # Block IP literals that are private/loopback/link-local/multicast.
-    try:
-        addr = ipaddress.ip_address(host)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast:
-            raise ValueError(
-                f"Character URL points to a private/reserved IP address: {host}"
-            )
-    except ValueError as exc:
-        # ip_address() raises ValueError for hostnames — that's fine.
-        # Re-raise only if we raised it ourselves (the SSRF message).
-        if "private" in str(exc) or "loopback" in str(exc) or "reserved" in str(exc):
-            raise
-
-    # Attempt DNS pre-resolution to catch internal hostnames (e.g. "localhost").
-    try:
-        resolved = socket.getaddrinfo(host, None)
-        for _, _, _, _, sockaddr in resolved:
-            ip_str = sockaddr[0]
-            try:
-                addr = ipaddress.ip_address(ip_str)
-                if addr.is_private or addr.is_loopback or addr.is_link_local:
-                    raise ValueError(
-                        f"Character URL '{host}' resolves to a private address: {ip_str}"
-                    )
-            except ValueError as inner:
-                if "private" in str(inner) or "loopback" in str(inner):
-                    raise
-    except OSError:
-        pass  # DNS failure — let the HTTP client fail at connect time
 
 
 class CharacterLoader:
@@ -184,42 +123,6 @@ class CharacterLoader:
         self._cache[character.id] = character
 
         logger.info(f"Loaded character from file: {character.name} ({character.id})")
-        return character
-
-    def load_from_url(self, url: str) -> Character:
-        """
-        Load a character from a URL.
-
-        Args:
-            url: URL to character JSON file (must be https://, non-private host)
-
-        Returns:
-            Character instance
-        """
-        import httpx
-
-        _validate_character_url(url)
-        response = httpx.get(url, timeout=30.0, follow_redirects=False)
-        response.raise_for_status()
-
-        data = response.json()
-
-        # Validate
-        if not data.get("name"):
-            raise ValueError("Character file missing 'name' field")
-        if not data.get("modelProvider"):
-            raise ValueError("Character file missing 'modelProvider' field")
-        if not data.get("clients"):
-            raise ValueError("Character file missing 'clients' field")
-
-        # Generate ID if not present
-        if not data.get("id"):
-            data["id"] = str(uuid.uuid4())
-
-        character = Character(**data)
-        self._cache[character.id] = character
-
-        logger.info(f"Loaded character from URL: {character.name} ({character.id})")
         return character
 
     def get_character(self, character_id: str) -> Optional[Character]:

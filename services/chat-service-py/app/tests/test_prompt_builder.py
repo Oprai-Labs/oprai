@@ -281,7 +281,14 @@ class TestBuildSystemPrompt:
         builder = PromptBuilder(character)
         result = builder.build_system_prompt()
 
-        assert "Custom: CustomBot" in result
+        # An author-supplied template no longer REPLACES the scaffold — it is
+        # persona material inside it. A character can be made public and
+        # duplicated by another wallet, so letting its author own the whole
+        # system prompt handed them the assistant.
+        assert result.startswith("You are CustomBot")
+        assert "<persona>" in result and "</persona>" in result
+        assert "Custom: {name} - {bio}" in result          # text survives, verbatim
+        assert "Custom: CustomBot" not in result           # but is not the template
 
 
 class TestBuildMessageHandlerPrompt:
@@ -624,4 +631,9 @@ class TestPromptBuilderEdgeCases:
         builder = PromptBuilder(character)
         result = builder.build_system_prompt(custom_field="custom_value")
 
-        assert "custom_value" in result
+        # kwargs fill placeholders in OUR template. A placeholder written inside
+        # author text stays literal: substituting there would let a persona pull
+        # arbitrary variables into itself, which is the hazard _safe_format is
+        # documented to guard against.
+        assert "Custom: {custom_field}" in result
+        assert "custom_value" not in result
