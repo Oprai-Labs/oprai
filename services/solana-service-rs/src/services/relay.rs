@@ -1171,6 +1171,44 @@ pub async fn get_cross_chain_quote(
 
 /// Build a cross-chain swap transaction via Relay.
 /// Returns the quote with execution steps that the frontend can execute.
+/// Resolve a currency field that may be a NAME/symbol (e.g. "seriouscat", "USDG")
+/// to a concrete address on `chain_id`. Real addresses and the native token pass
+/// through; Solana is left to its own resolver. For EVM, searches Relay's currency
+/// list INCLUDING unverified (memecoins are unverified) and returns the best match
+/// (exact-symbol first). Clear "not found on <chain>" if nothing matches — so the
+/// model can just pass a token name and never has to know the contract.
+pub async fn resolve_evm_currency(
+    http: &reqwest::Client,
+    chain_id: u64,
+    value: &str,
+) -> Result<String, AppError> {
+    let v = value.trim();
+    if v.is_empty() {
+        return Err(AppError::InvalidParams("A token is required".into()));
+    }
+    if !chain_is_evm(chain_id) || is_valid_evm_address(v) {
+        return Ok(v.to_string()); // Solana / already an address / native
+    }
+    let q = RelayCurrenciesQuery {
+        chain_ids: Some(vec![canonical_chain_id(chain_id)]),
+        term: Some(v.to_string()),
+        limit: Some(20),
+        ..Default::default() // NOTE: no `verified` filter → memecoins included
+    };
+    let tokens = get_relay_currencies(http, &q).await.unwrap_or_default();
+    let pick = tokens
+        .iter()
+        .find(|t| t.symbol.eq_ignore_ascii_case(v))
+        .or_else(|| tokens.first());
+    match pick {
+        Some(t) => Ok(t.address.clone()),
+        None => Err(AppError::InvalidParams(format!(
+            "'{v}' not found on {}. Paste its contract address, or check the name.",
+            get_chain_name(chain_id)
+        ))),
+    }
+}
+
 pub async fn build_cross_chain_swap(
     http: &reqwest::Client,
     user_address: &str,
@@ -1178,6 +1216,15 @@ pub async fn build_cross_chain_swap(
     fee_recipient: Option<&str>,
     cashback_pct: u16,
 ) -> Result<CrossChainSwapResult, AppError> {
+    // Resolve token NAMES → addresses before validation, so "buy seriouscat on
+    // robinhood" works without the model knowing the contract.
+    let mut params = params.clone();
+    params.origin_currency =
+        resolve_evm_currency(http, params.origin_chain_id, &params.origin_currency).await?;
+    params.destination_currency =
+        resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency)
+            .await?;
+    let params = &params;
     validate_cross_chain_params(params)?;
 
     let quote =
@@ -1705,6 +1752,15 @@ pub async fn relay_bridge(
     fee_recipient: Option<&str>,
     cashback_pct: u16,
 ) -> Result<CrossChainSwapResult, AppError> {
+    // Resolve token NAMES → addresses (memecoins on EVM), so the model can name a
+    // token without knowing its contract.
+    let mut params = params.clone();
+    params.origin_currency =
+        resolve_evm_currency(http, params.origin_chain_id, &params.origin_currency).await?;
+    params.destination_currency =
+        resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency)
+            .await?;
+    let params = &params;
     let quote =
         get_relay_quote_full(http, params, user_address, fee_recipient, cashback_pct).await?;
 

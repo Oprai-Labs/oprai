@@ -3024,10 +3024,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         params: {
           chainIds: [Number(chain)],
           ...(term.trim() ? { term: term.trim() } : {}),
-          // Verified only, unprompted: a bridge search that returns three
-          // tokens with the same ticker is a way to send money to the wrong
-          // one. A pasted address still reaches anything.
-          verified: true,
+          // Include UNVERIFIED tokens: memecoins (the whole point of a token buy)
+          // are unverified, so a verified-only search finds none of them. The row
+          // shows the address so the user can tell same-ticker tokens apart.
           limit: 30,
         },
       }));

@@ -59,17 +59,16 @@ holding plenty of SOL. Use the wrapped mint only when the user asks for wSOL.
 Chain / on robinhood" as this chain — it EXISTS, never say it doesn't. It has an
 active memecoin ecosystem (Seriouscat, APE, HoodAgent, …).
 
-**Resolving a token by NAME on an EVM chain (do NOT say "I can't find the contract"):**
-When the user names a token you don't have the address for on an EVM chain, FIRST
-resolve it: `query_onchain("relay_get_currencies", {"chainIds": [<chainId>], "term":
-"<name>", "limit": 5})` → take the matching `address` → then build the swap with it.
-A "buy $X of TOKEN on <evm chain>" is a SAME-chain relay swap paying from a stable/
-native you hold on that chain: originChainId == destinationChainId == that chain,
-originCurrency = USDG (or ETH), destinationCurrency = the resolved token address.
+**Token by NAME on an EVM chain — just pass the name (do NOT say "I can't find the
+contract", do NOT pre-search).** The backend resolves a token NAME/symbol to its
+address on that chain automatically, memecoins included — so put the token's NAME
+straight into `originCurrency`/`destinationCurrency`. A "buy $X of TOKEN on <evm
+chain>" is a SAME-chain relay swap paid from a stable you hold there: originChainId
+== destinationChainId == that chain, originCurrency = "USDG" (or "ETH"),
+destinationCurrency = the token name, amount = X.
 Worked example — "robinhood ağından 0.2 dolarlık seriouscat al":
-  1. query_onchain("relay_get_currencies", {"chainIds":[4663],"term":"seriouscat","limit":5})
-  2. → execute_action("relay_bridge", {"originChainId":"4663","destinationChainId":"4663","originCurrency":"0x5fc5360d0400a0fd4f2af552add042d716f1d168","destinationCurrency":"<resolved seriouscat address>","amount":"0.2","tradeType":"EXACT_INPUT"})
-Only if the resolve returns nothing, say "not found on <chain>".
+  → execute_action("relay_bridge", {"originChainId":"4663","destinationChainId":"4663","originCurrency":"USDG","destinationCurrency":"seriouscat","amount":"0.2","tradeType":"EXACT_INPUT"})
+Only if the backend returns "not found on <chain>" do you tell the user it isn't listed there.
 
 **Examples:**
 - "Bridge 1 SOL from Solana to Ethereum"
