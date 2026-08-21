@@ -536,42 +536,57 @@ async fn resolve_close_reserve(
     resolve_reserve_address(http, market, token).await
 }
 
-pub fn validate_kamino_deposit_params(p: &KaminoDepositParams) -> Result<(), AppError> {
-    validate_reserve_address(&p.reserve, "reserve")?;
-    validate_positive_amount(&p.amount, "amount")?;
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
+/// Whether a market argument names something we can resolve.
+///
+/// `resolve_kamino_market` has always accepted "main" and its synonyms, and
+/// the catalogue tells the model to send exactly that — but validation ran
+/// first and rejected anything under 32 characters, so the documented call
+/// returned 400. The assistant then answered a two-venue comparison from one
+/// venue, having done what it was told.
+///
+/// Validation now asks the resolver rather than second-guessing it.
+fn validate_market_alias(market: Option<&String>) -> Result<(), AppError> {
+    let Some(m) = market else { return Ok(()) };
+    let trimmed = m.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let resolved = resolve_kamino_market(Some(trimmed));
+    // The resolver falls back to the main market for anything it does not
+    // recognise, so an unresolvable argument is one it silently replaced.
+    if resolved == KAMINO_MAIN_MARKET && trimmed != KAMINO_MAIN_MARKET {
+        let lower = trimmed.to_ascii_lowercase();
+        let is_alias = matches!(
+            lower.as_str(),
+            "main" | "default" | "primary" | "kamino_main" | "klend_main"
+        );
+        if !is_alias {
             return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
+                "market '{m}' is neither a Solana address nor a known market name"
             )));
         }
     }
+    Ok(())
+}
+
+pub fn validate_kamino_deposit_params(p: &KaminoDepositParams) -> Result<(), AppError> {
+    validate_reserve_address(&p.reserve, "reserve")?;
+    validate_positive_amount(&p.amount, "amount")?;
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
 pub fn validate_kamino_withdraw_params(p: &KaminoWithdrawParams) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
 pub fn validate_kamino_borrow_params(p: &KaminoBorrowParams) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
@@ -687,13 +702,7 @@ pub fn validate_kamino_repay_params(p: &KaminoRepayParams) -> Result<(), AppErro
     if !repay_all_requested(&p.amount, &p.repay_all) {
         validate_positive_amount(&p.amount, "amount")?;
     }
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
@@ -702,13 +711,7 @@ pub fn validate_kamino_add_collateral_params(
 ) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
@@ -717,13 +720,7 @@ pub fn validate_kamino_withdraw_collateral_params(
 ) -> Result<(), AppError> {
     validate_reserve_address(&p.reserve, "reserve")?;
     validate_positive_amount(&p.amount, "amount")?;
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
@@ -1420,26 +1417,14 @@ pub fn validate_kamino_markets_params(_p: &KaminoMarketsParams) -> Result<(), Ap
 pub fn validate_kamino_market_reserves_params(
     p: &KaminoMarketReservesParams,
 ) -> Result<(), AppError> {
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
 pub fn validate_kamino_user_obligations_params(
     p: &KaminoUserObligationsParams,
 ) -> Result<(), AppError> {
-    if let Some(ref m) = p.market {
-        if m.len() < 32 {
-            return Err(AppError::InvalidParams(format!(
-                "market '{m}' is not a valid Solana address"
-            )));
-        }
-    }
+    validate_market_alias(p.market.as_ref())?;
     Ok(())
 }
 
@@ -5923,4 +5908,45 @@ pub async fn build_kamino_farm_transactions(
         is_cross_chain: false,
         data: Some(data),
     })
+}
+
+#[cfg(test)]
+mod market_alias_tests {
+    use super::*;
+
+    #[test]
+    fn the_name_the_catalogue_tells_the_model_to_send_is_accepted() {
+        // The prompt's own example is {"market": "main"}. Rejecting it turned
+        // a documented call into a 400, and the assistant answered a
+        // two-venue comparison from one venue having done as it was told.
+        for alias in ["main", "Main", "default", "primary", "klend_main"] {
+            assert!(
+                validate_market_alias(Some(&alias.to_string())).is_ok(),
+                "{alias} should resolve"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_address_is_accepted() {
+        assert!(validate_market_alias(Some(&KAMINO_MAIN_MARKET.to_string())).is_ok());
+    }
+
+    #[test]
+    fn omitting_it_is_fine() {
+        assert!(validate_market_alias(None).is_ok());
+        assert!(validate_market_alias(Some(&"  ".to_string())).is_ok());
+    }
+
+    #[test]
+    fn a_word_that_means_nothing_is_still_rejected() {
+        // The resolver silently falls back to the main market for anything it
+        // does not know, so without this a typo would quietly answer about a
+        // different market than the one asked for.
+        let err = validate_market_alias(Some(&"jlp-market".to_string()));
+        assert!(
+            err.is_err(),
+            "an unknown name must not pass as the main market"
+        );
+    }
 }
