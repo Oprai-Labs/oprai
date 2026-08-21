@@ -4,20 +4,27 @@ main LLM call gets a *constrained* tool set instead of all 200+ tools.
 
 Why this exists
 ---------------
-Haiku 4.5 is great at filling DeFi parameters but struggles to discriminate
-between "execute an action" and "look up balance" when the verb is in a
-language it parses weakly (Turkish "sat", Spanish "vender", etc.). With the
-full tool list it tends to fall back to `query_onchain('balance', ...)` —
-the safest-looking tool — which makes the user repeat themselves.
+A responder handed all 200+ tools fills DeFi parameters well but discriminates
+badly between "execute an action" and "look up a balance", especially when the
+verb is in a language it parses weakly. It falls back to
+`query_onchain('balance', ...)` — the safest-looking tool — and the user has to
+repeat themselves.
 
-The fix is structural: a tiny classifier (gpt-4o-mini, ~100 ms, ~$0.00002 per
-call, multilingual native) decides intent first. The downstream tool list is
-then filtered so the main model can only pick from the tools that match the
-intent. Balance fallback becomes physically impossible when balance isn't in
-the tool list.
+The fix is structural: a small classifier (`OPRAI_INTENT_CLASSIFIER_MODEL`,
+gpt-5.4-nano by default, ~100 ms, natively multilingual) decides intent first,
+and the tool list is filtered to match. Balance fallback becomes physically
+impossible once balance is not in the list.
+
+This classifier is also where every intent question in chat-service is
+answered. `IntentResult` carries the token category, whether the turn wants
+venues, chitchat, a price, a balance, a comparison or an analysis — each of
+those used to be a keyword table in another module, matching a handful of
+languages and silently missing every other one. Adding a new signal belongs
+here, in the prompt, not in a word list somewhere downstream.
 
 Failure mode: any classifier error → returns `ambiguous` so the existing
-"send all tools, let the model decide" path runs (no regression).
+"send all tools, let the model decide" path runs (no regression), and every
+`IntentResult` flag defaults to its cautious value.
 """
 
 from __future__ import annotations
