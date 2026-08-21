@@ -2112,20 +2112,36 @@ async def token_strategies(mint: str, amount: str, usdValue: str = "", horizonDa
 # about something that does. Everything below is read from the same tables that
 # decide what the model may call, so the answer is true by construction.
 
+# Registered, implemented, and deliberately not offered.
+#
+# Being in the registry is not the same as working, and the difference is not
+# visible from here: every one of these dispatches and validates when called.
+# Advertising them promised users features that are not live. The list is the
+# one thing here that cannot be derived — it is an operator's judgement about
+# their own product — so it is small, explicit, and the only hand-maintained
+# part of the answer.
+_NOT_OFFERED: frozenset[str] = frozenset({
+    "tensor",       # NFT trading — not live
+    "streamflow",   # payment streaming — not live
+    "debridge",     # second bridge route — not live; Relay carries bridging
+    "solend",       # Save — not live
+})
+
 _NETWORKS: dict[str, dict] = {
     "Solana": {
-        "note": "Every protocol integration and all analysis lives here.",
+        "note": "Where the protocol integrations and the DeFi analysis live.",
         "protocol_tags": None,  # all of them
     },
-    # Relay and deBridge reach these; nothing protocol-specific runs on them.
     "EVM chains and Robinhood": {
         "note": (
-            "Reached through bridging and cross-chain swaps — Ethereum, Base, "
-            "Arbitrum, Optimism, Polygon, BSC, Avalanche, Linea, zkSync, "
-            "Scroll and others, plus the Robinhood chain. Balances can be read "
-            "and assets moved; the DeFi protocol actions are Solana-only."
+            "Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, "
+            "Linea, zkSync, Scroll and others, plus the Robinhood chain. "
+            "Assets can be bridged to and from Solana, and swapped on the "
+            "chain itself. The lending, staking and liquidity integrations "
+            "are Solana-only — say so rather than letting someone look for a "
+            "lending market on Base."
         ),
-        "protocol_tags": {"relay", "debridge"},
+        "protocol_tags": {"relay"},
     },
 }
 
@@ -2172,6 +2188,8 @@ async def capabilities() -> dict:
     # Which protocols are actually wired, and how much of each.
     protocols = []
     for proto, tags in sorted(PROTOCOL_TO_TAGS.items()):
+        if proto in _NOT_OFFERED:
+            continue
         acts = [a for a, t in ACTION_TAGS.items() if t & tags]
         queries = [q for q, t in QUERY_TAGS.items() if t & tags]
         if not acts and not queries:
@@ -2187,8 +2205,18 @@ async def capabilities() -> dict:
     groups = []
     for label, wanted in _CAPABILITY_GROUPS.items():
         want = frozenset(wanted)
-        acts = sorted(a for a, t in ACTION_TAGS.items() if t & want)
-        reads = sorted(q for q, t in QUERY_TAGS.items() if t & want)
+        # A capability whose only implementation belongs to a protocol we do
+        # not offer is not a capability — NFT trading counted sixteen actions
+        # while both venues behind it were switched off.
+        hidden = frozenset().union(
+            *(PROTOCOL_TO_TAGS[p] for p in _NOT_OFFERED if p in PROTOCOL_TO_TAGS)
+        )
+        acts = sorted(
+            a for a, t in ACTION_TAGS.items() if t & want and not (t & hidden and not (t - hidden - want))
+        )
+        reads = sorted(
+            q for q, t in QUERY_TAGS.items() if t & want and not (t & hidden and not (t - hidden - want))
+        )
         if not acts and not reads:
             continue
         groups.append({
@@ -2200,12 +2228,13 @@ async def capabilities() -> dict:
         })
 
     cross_chain = {p["name"] for p in protocols if p["id"] in {"relay", "debridge"}}
+    bridged_only = {"relay", "debridge"}
     networks = []
     for name, meta in _NETWORKS.items():
         entry = {"network": name, "note": meta["note"]}
         if meta["protocol_tags"] is None:
             entry["protocols"] = [
-                p["name"] for p in protocols if p["id"] not in {"relay", "debridge"}
+                p["name"] for p in protocols if p["id"] not in bridged_only
             ]
         else:
             entry["protocols"] = sorted(cross_chain)
