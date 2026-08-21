@@ -11,8 +11,8 @@
     </div>
     @if (holdings().length > 0) {
       <div class="stake-summary">
-        <span class="stake-summary__label">{{ holdings().length }} LST position{{ holdings().length !== 1 ? 's' : '' }}</span>
-        <span class="stake-summary__value">{{ solBalance().toFixed(4) }} SOL available</span>
+        <span class="stake-summary__label">{{ (holdings().length === 1 ? '{n} LST position' : '{n} LST positions') | t:{ n: holdings().length } }}</span>
+        <span class="stake-summary__value">{{ '{n} SOL available' | t:{ n: solBalance().toFixed(4) } }}</span>
       </div>
     }
   </div>
@@ -135,7 +135,7 @@
             />
             <button class="btn-sm" (click)="setMaxStake()">{{ 'MAX' | t }}</button>
           </div>
-          <p class="balance-hint">Available: {{ solBalance().toFixed(4) }} SOL</p>
+          <p class="balance-hint">{{ 'Available:' | t }} {{ solBalance().toFixed(4) }} SOL</p>
         </div>
 
         @if (stakeAmountError()) {
@@ -152,7 +152,7 @@
             (click)="previewStake()"
           >
             @if (phase() === 'loading') { <div class="spinner spinner--sm"></div> }
-            Preview Stake
+            {{ 'Preview Stake' | t }}
           </button>
         </div>
       </div>
@@ -213,7 +213,7 @@
             }
 
             <div class="form-group">
-              <label>Amount ({{ selectedHolding()!.symbol }})</label>
+              <label>{{ 'Amount' | t }} ({{ selectedHolding()!.symbol }})</label>
               <div class="amount-input-wrap">
                 <input
                   type="text"
@@ -226,7 +226,7 @@
                 />
                 <button class="btn-sm" (click)="setMaxUnstake()">{{ 'MAX' | t }}</button>
               </div>
-              <p class="balance-hint">Balance: {{ selectedHolding()!.balance.toFixed(6) }} {{ selectedHolding()!.symbol }}</p>
+              <p class="balance-hint">{{ 'Balance:' | t }} {{ selectedHolding()!.balance.toFixed(6) }} {{ selectedHolding()!.symbol }}</p>
             </div>
           }
 
@@ -244,7 +244,7 @@
               (click)="previewUnstake()"
             >
               @if (phase() === 'loading') { <div class="spinner spinner--sm"></div> }
-              Preview Unstake
+              {{ 'Preview Unstake' | t }}
             </button>
           </div>
         }
@@ -255,7 +255,7 @@
     @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
       <div class="preview-panel">
         <h3 class="preview-title">{{ 'Confirm Transaction' | t }}</h3>
-        <p class="preview-description">{{ preview()!.description }}</p>
+        <p class="preview-description">{{ preview()!.description | t }}</p>
 
         <div class="preview-fees">
           <div class="preview-fee-row">
@@ -284,9 +284,9 @@
             (click)="confirmAction()"
           >
             @if (phase() === 'signing') {
-              <div class="spinner spinner--sm"></div> Signing…
+              <div class="spinner spinner--sm"></div> {{ 'Signing…' | t }}
             } @else {
-              Confirm
+              {{ 'Confirm' | t }}
             }
           </button>
         </div>

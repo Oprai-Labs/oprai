@@ -10,7 +10,7 @@
           } @else {
             {{ accounts().length }} open account{{ accounts().length === 1 ? '' : 's' }}
             ·
-            <strong>{{ totalReclaimableSol() | number:'1.4-6' }} SOL</strong> total rent reclaimable
+            <strong>{{ totalReclaimableSol() | number:'1.4-6' }} SOL</strong> {{ 'total rent reclaimable' | t }}
           }
         </p>
       </div>
@@ -21,13 +21,13 @@
 
     <div class="modal__toolbar">
       <button class="chip" type="button" (click)="selectAllEmpty()" [disabled]="isBusy() || emptyAccounts().length === 0">
-        Select all empty ({{ emptyAccounts().length }})
+        {{ 'Select all empty ({n})' | t:{ n: emptyAccounts().length } }}
       </button>
       <button class="chip" type="button" (click)="selectAll()" [disabled]="isBusy() || accounts().length === 0">
-        Select all ({{ accounts().length }})
+        {{ 'Select all ({n})' | t:{ n: accounts().length } }}
       </button>
       @if (selectedCount() > 0) {
-        <button class="chip chip--ghost" type="button" (click)="clearSelection()">Clear ({{ selectedCount() }})</button>
+        <button class="chip chip--ghost" type="button" (click)="clearSelection()">{{ 'Clear ({n})' | t:{ n: selectedCount() } }}</button>
       }
       <button
         class="chip chip--ghost"
@@ -36,7 +36,7 @@
         [class.is-active]="hideZeroValue()"
         [title]="hideZeroValue() ? 'Show all accounts' : 'Only show empty accounts'"
       >
-        {{ hideZeroValue() ? 'Showing empty only' : 'Hide non-empty' }}
+        {{ (hideZeroValue() ? 'Showing empty only' : 'Hide non-empty') | t }}
       </button>
       <button class="chip chip--ghost chip--right" type="button" (click)="loadAccounts()" [disabled]="isBusy()" [attr.title]="'Refresh' | t">
         <lucide-icon name="refresh-cw" [size]="12" [class.spinning]="phase() === 'loading'" />
@@ -119,14 +119,14 @@
           </div>
           <div class="footer__split">
             @if (selectedSplit().empty.length > 0) {
-              <span class="pill pill--empty">{{ selectedSplit().empty.length }} close</span>
+              <span class="pill pill--empty">{{ '{n} close' | t:{ n: selectedSplit().empty.length } }}</span>
             }
             @if (selectedSplit().nonEmpty.length > 0) {
-              <span class="pill pill--burn">{{ selectedSplit().nonEmpty.length }} burn</span>
+              <span class="pill pill--burn">{{ '{n} burn' | t:{ n: selectedSplit().nonEmpty.length } }}</span>
             }
             @if (closeBatchCount() > 1) {
               <span class="footer__note">
-                Will sign {{ closeBatchCount() }} transactions ({{ closeBatchLimit }} accounts each)
+                {{ 'Will sign {n} transactions ({m} accounts each)' | t:{ n: closeBatchCount(), m: closeBatchLimit } }}
               </span>
             }
           </div>
@@ -139,7 +139,7 @@
         }
         @if (successInfo(); as s) {
           <div class="footer__success">
-            ✓ Closed {{ s.count }} account{{ s.count === 1 ? '' : 's' }} ·
+            ✓ {{ (s.count === 1 ? 'Closed {n} account' : 'Closed {n} accounts') | t:{ n: s.count } }} ·
             <a [href]="'https://solscan.io/tx/' + s.signature" target="_blank" rel="noopener noreferrer">{{ 'View tx ↗' | t }}</a>
           </div>
         }
@@ -151,7 +151,7 @@
                will fire if any non-empty row is in the selection. -->
           <label class="burn-confirm" [class.is-checked]="burnConfirmation()">
             <input type="checkbox" [checked]="burnConfirmation()" (change)="toggleBurnConfirmation()" />
-            <span>I understand burning destroys the balance of {{ selectedSplit().nonEmpty.length }} token{{ selectedSplit().nonEmpty.length === 1 ? '' : 's' }}.</span>
+            <span>{{ (selectedSplit().nonEmpty.length === 1 ? 'I understand burning destroys the balance of {n} token.' : 'I understand burning destroys the balance of {n} tokens.') | t:{ n: selectedSplit().nonEmpty.length } }}</span>
           </label>
         }
         <button

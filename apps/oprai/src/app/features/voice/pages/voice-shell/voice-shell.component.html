@@ -45,7 +45,7 @@
           } @else {
             <lucide-icon name="mic" [size]="20" />
           }
-          <span class="ctrl-label">{{ isMuted() ? 'Unmute' : 'Mute' }}</span>
+          <span class="ctrl-label">{{ (isMuted() ? 'Unmute' : 'Mute') | t }}</span>
         </button>
 
         <button class="ctrl-btn ctrl--end" (click)="endVoice()" [attr.aria-label]="'End conversation' | t">
@@ -64,7 +64,7 @@
           } @else {
             <lucide-icon name="volume-x" [size]="20" />
           }
-          <span class="ctrl-label">{{ isSpeakerOn() ? 'Speaker' : 'Off' }}</span>
+          <span class="ctrl-label">{{ (isSpeakerOn() ? 'Speaker' : 'Off') | t }}</span>
         </button>
       </div>
     </div>

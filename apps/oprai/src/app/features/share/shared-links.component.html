@@ -26,9 +26,9 @@
           <div class="links-row__main">
             <p class="links-row__title">{{ share.title | t }}</p>
             <p class="links-row__meta">
-              Shared {{ share.createdAt | date:'MMM d, y' }}
-              · snapshot {{ share.sharedUpTo | date:'MMM d, HH:mm' }}
-              · {{ share.viewCount }} view{{ share.viewCount === 1 ? '' : 's' }}
+              {{ 'Shared' | t }} {{ share.createdAt | date:'MMM d, y' }}
+              · {{ 'snapshot' | t }} {{ share.sharedUpTo | date:'MMM d, HH:mm' }}
+              · {{ (share.viewCount === 1 ? '{n} view' : '{n} views') | t:{ n: share.viewCount } }}
             </p>
             <p class="links-row__url">{{ shareUrl(share) }}</p>
           </div>
@@ -41,13 +41,13 @@
             <button class="links-btn" [class.is-copied]="copiedToken() === share.token"
                     (click)="copy(share)">
               <lucide-icon [name]="copiedToken() === share.token ? 'check' : 'copy'" [size]="14" />
-              <span>{{ copiedToken() === share.token ? 'Copied' : 'Copy' }}</span>
+              <span>{{ (copiedToken() === share.token ? 'Copied' : 'Copy') | t }}</span>
             </button>
             <button class="links-btn links-btn--danger"
                     [disabled]="revoking() === share.sessionId"
                     (click)="revoke(share)">
               <lucide-icon name="trash-2" [size]="14" />
-              <span>{{ revoking() === share.sessionId ? 'Revoking…' : 'Revoke' }}</span>
+              <span>{{ (revoking() === share.sessionId ? 'Revoking…' : 'Revoke') | t }}</span>
             </button>
           </div>
         </li>

@@ -99,7 +99,7 @@
                       <span class="balance-amount">{{ pos.stakedSol | number:'1.4-4' }} SOL</span>
                     </td>
                     <td class="col-status">
-                      <span class="status-badge" [class]="'status-' + pos.status">{{ pos.status }}</span>
+                      <span class="status-badge" [class]="'status-' + pos.status">{{ pos.status | t }}</span>
                     </td>
                     <td class="col-value">
                       @if (pos.usdValue !== null) {

@@ -102,7 +102,7 @@
       </button>
       <button class="toolbar-toggle" [class.active]="oldestFirst()" (click)="toggleOldestFirst()">
         <lucide-icon name="arrow-up-down" [size]="12" />
-        {{ oldestFirst() ? 'Oldest First' : 'Newest First' }}
+        {{ (oldestFirst() ? 'Oldest First' : 'Newest First') | t }}
       </button>
 
       <!-- Type filter chips -->
@@ -356,7 +356,7 @@
     </div>
 
     @if (filteredTransactions().length === 0) {
-      <div class="empty-filter">No {{ activeFilter() === 'all' ? '' : activeFilter() }} transactions found</div>
+      <div class="empty-filter">{{ (activeFilter() === 'all' ? 'No transactions found' : 'No {k} transactions found') | t:{ k: activeFilter() } }}</div>
     }
   } @else if (transactions().length > 0) {
     <!-- Fallback: raw signature table -->
@@ -392,7 +392,7 @@
               </td>
               <td class="col-status">
                 <span class="status-dot" [class.success]="tx.success" [class.fail]="!tx.success"></span>
-                {{ tx.success ? 'Success' : 'Failed' }}
+                {{ (tx.success ? 'Success' : 'Failed') | t }}
               </td>
             </tr>
           }
@@ -471,7 +471,7 @@
                 <span class="detail-label">{{ 'Status' | t }}</span>
                 <span class="detail-value">
                   <span class="status-dot" [class.success]="tx.success" [class.fail]="!tx.success"></span>
-                  {{ tx.success ? 'Success' : 'Failed' }}
+                  {{ (tx.success ? 'Success' : 'Failed') | t }}
                 </span>
               </div>
 
@@ -491,7 +491,7 @@
               <!-- Description -->
               <div class="detail-row full-width">
                 <span class="detail-label">{{ 'Description' | t }}</span>
-                <span class="detail-value">{{ tx.description }}</span>
+                <span class="detail-value">{{ tx.description | t }}</span>
               </div>
 
               <!-- Details -->

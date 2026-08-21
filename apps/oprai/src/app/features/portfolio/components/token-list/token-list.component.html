@@ -16,12 +16,12 @@
         (click)="toggleHideHidden()"
         [title]="hideHidden() ? 'Show ' + hiddenTokenCount + ' hidden token(s)' : 'Hide them again'"
       >
-        {{ hideHidden() ? hiddenTokenCount + ' hidden' : 'Hide hidden' }}
+        {{ hideHidden() ? ('{n} hidden' | t:{ n: hiddenTokenCount }) : ('Hide hidden' | t) }}
       </button>
     }
     @if (smallTokenCount > 0) {
       <button class="filter-btn" (click)="toggleHideSmall()">
-        {{ hideSmall() ? 'Show all tokens' : 'Hide small balances' }}
+        {{ (hideSmall() ? 'Show all tokens' : 'Hide small balances') | t }}
       </button>
     }
     <!-- Manage Accounts entrypoint — opens a modal listing every open SPL
@@ -46,7 +46,7 @@
     <thead>
       <tr>
         <th class="col-token sortable" (click)="toggleSort('name')">
-          Token{{ getSortIcon('name') }}
+          {{ 'Token' | t }}{{ getSortIcon('name') }}
         </th>
         <th class="col-price">{{ 'Price' | t }}</th>
         <th class="col-change sortable" (click)="toggleSort('change24h')">
@@ -58,7 +58,7 @@
         </th>
         <th class="col-pnl">{{ 'PnL (all time)' | t }}</th>
         <th class="col-value sortable" (click)="toggleSort('value')">
-          USD Value{{ getSortIcon('value') }}
+          {{ 'USD Value' | t }}{{ getSortIcon('value') }}
         </th>
         <th class="col-actions" [attr.aria-label]="'Row actions' | t"></th>
       </tr>

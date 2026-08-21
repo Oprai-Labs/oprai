@@ -89,7 +89,7 @@
     </button>
     <button class="dropdown-item" (click)="togglePin(menuSessionId()!)">
       <lucide-icon [name]="sessionStorage.isPinned(menuSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
-      {{ sessionStorage.isPinned(menuSessionId()!) ? 'Unpin' : 'Pin' }}
+      {{ (sessionStorage.isPinned(menuSessionId()!) ? 'Unpin' : 'Pin') | t }}
     </button>
     <div class="dropdown-divider"></div>
     <button class="dropdown-item dropdown-item--danger" (click)="requestDelete(menuSessionId()!)">

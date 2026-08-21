@@ -29,7 +29,7 @@
                             [disabled]="streaming"
                             [title]="streaming ? 'Wait for the current reply to finish' : ''"
                             (click)="saveEdit(message)">
-                      Save &amp; Send
+                      {{ 'Save & Send' | t }}
                     </button>
                   </div>
                 </div>
@@ -202,7 +202,7 @@
                   @if (isBatchRunning(message.id)) {
                     <div class="run-all-progress">
                       <span class="run-all-spinner"></span>
-                      Running {{ (batchIndex().get(message.id) ?? 0) + 1 }} of {{ getActionsForMessage(message.id).length }}…
+                      {{ 'Running {a} of {b}' | t:{ a: (batchIndex().get(message.id) ?? 0) + 1, b: getActionsForMessage(message.id).length } }}…
                     </div>
                   }
                   @for (action of getActionsForMessage(message.id); track $index; let i = $index) {

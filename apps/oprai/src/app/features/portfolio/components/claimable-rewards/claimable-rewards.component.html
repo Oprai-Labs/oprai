@@ -6,9 +6,9 @@
           <lucide-icon name="sparkles" [size]="16" />
         </span>
         <div class="rewards-title-block">
-          <h3 class="rewards-title">Active positions &amp; rewards</h3>
+          <h3 class="rewards-title">{{ 'Active positions & rewards' | t }}</h3>
           <span class="rewards-sub">
-            {{ totalPositionsCount() }} position{{ totalPositionsCount() === 1 ? '' : 's' }} across {{ groups().length }} protocol{{ groups().length === 1 ? '' : 's' }}
+            {{ (totalPositionsCount() === 1 ? '{n} position across' : '{n} positions across') | t:{ n: totalPositionsCount() } }} {{ groups().length }} protocol{{ groups().length === 1 ? '' : 's' }}
           </span>
         </div>
       </div>

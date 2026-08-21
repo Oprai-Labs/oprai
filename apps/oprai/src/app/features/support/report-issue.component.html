@@ -24,7 +24,7 @@
                     [class.is-active]="category() === cat.id"
                     (click)="category.set(cat.id)">
               <span class="report-cat__label">{{ cat.label | t }}</span>
-              <span class="report-cat__hint">{{ cat.hint }}</span>
+              <span class="report-cat__hint">{{ cat.hint | t }}</span>
             </button>
           }
         </div>
@@ -46,7 +46,7 @@
 
       <div class="report-actions">
         <button type="submit" class="report-submit" [disabled]="!canSubmit()">
-          {{ submitting() ? 'Sending…' : 'Send report' }}
+          {{ (submitting() ? 'Sending…' : 'Send report') | t }}
         </button>
         @if (description.trim().length > 0 && description.trim().length < 10) {
           <span class="report-hint">{{ 'A little more detail, please.' | t }}</span>
@@ -77,7 +77,7 @@
               <span class="report-row__date">{{ r.createdAt | date:'MMM d, y' }}</span>
             </div>
             <p class="report-row__subject">{{ r.subject }}</p>
-            <p class="report-row__body">{{ r.description }}</p>
+            <p class="report-row__body">{{ r.description | t }}</p>
 
             <!-- Where the report stands. A closed one shows the track greyed
                  rather than half-lit: it stopped, it did not stall. -->

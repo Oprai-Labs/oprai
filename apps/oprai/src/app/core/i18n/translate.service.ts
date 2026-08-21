@@ -38,7 +38,7 @@ export class TranslateService {
   }
 
   /** Translate `key`, filling `{name}` placeholders from `params`. */
-  t(key: string, params?: Record<string, string | number>): string {
+  t(key: string, params?: Record<string, string | number | null | undefined>): string {
     const table = this._lang() === 'tr' ? TR : undefined;
     let out = table?.[key] ?? key;
     if (params) {

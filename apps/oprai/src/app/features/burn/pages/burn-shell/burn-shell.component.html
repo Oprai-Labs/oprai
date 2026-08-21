@@ -6,11 +6,11 @@
       <span class="burn-icon">🔥</span>
       <div>
         <h1>{{ 'Token Manager' | t }}</h1>
-        <p class="burn-header__sub">Close empty accounts &amp; reclaim SOL · Burn unwanted tokens</p>
+        <p class="burn-header__sub">{{ 'Close empty accounts & reclaim SOL · Burn unwanted tokens' | t }}</p>
       </div>
     </div>
     <button class="btn-faq" (click)="toggleFaq()">
-      {{ faqOpen() ? 'Hide' : 'How does it work?' }}
+      {{ (faqOpen() ? 'Hide' : 'How does it work?') | t }}
     </button>
   </div>
 
@@ -76,7 +76,7 @@
         [class.burn-tab--active]="activeTab() === 'close'"
         (click)="setTab('close')"
       >
-        🔓 Close Empty Accounts
+        🔓 {{ 'Close Empty Accounts' | t }}
         @if (emptyAccounts().length > 0) {
           <span class="tab-badge tab-badge--safe">{{ emptyAccounts().length }}</span>
         }
@@ -86,7 +86,7 @@
         [class.burn-tab--active]="activeTab() === 'burn'"
         (click)="setTab('burn')"
       >
-        🔥 Burn Tokens
+        🔥 {{ 'Burn Tokens' | t }}
         @if (nonEmptyAccounts().length > 0) {
           <span class="tab-badge tab-badge--danger">{{ nonEmptyAccounts().length }}</span>
         }
@@ -113,7 +113,7 @@
     @if (activeTab() === 'close' && accounts().length > 0 && phase() !== 'preview' && phase() !== 'signing' && phase() !== 'success') {
       <div class="tab-content">
         <div class="tab-description tab-description--safe">
-          <span>✅ Safe &amp; Reversible</span>
+          <span>✅ {{ 'Safe & Reversible' | t }}</span>
           <p>{{ 'Closing empty accounts reclaims locked SOL rent. Your wallet recreates accounts automatically when needed.' | t }}</p>
         </div>
 
@@ -131,13 +131,13 @@
                 [indeterminate]="selectedClose().length > 0 && selectedClose().length < emptyAccounts().length"
                 (change)="selectAllClose($any($event.target).checked)"
               />
-              Select all ({{ emptyAccounts().length }} accounts)
+              {{ 'Select all ({n} accounts)' | t:{ n: emptyAccounts().length } }}
             </label>
             @if (selectedClose().length > 0) {
               <div class="refund-summary">
                 <span class="refund-label">{{ 'Estimated refund:' | t }}</span>
                 <span class="refund-amount">+{{ formatSol(totalRefundLamports()) }} SOL</span>
-                <span class="refund-sub">({{ selectedClose().length }} accounts × ~0.002 SOL)</span>
+                <span class="refund-sub">{{ '({n} accounts × ~0.002 SOL)' | t:{ n: selectedClose().length } }}</span>
               </div>
             }
           </div>
@@ -176,7 +176,7 @@
 
           @if (closeOverLimit()) {
             <div class="limit-warning">
-              ⚠️ Maximum {{ MAX_CLOSE_PER_TX }} accounts per transaction. Only the first {{ MAX_CLOSE_PER_TX }} selected will be closed. Deselect some or run multiple transactions.
+              ⚠️ {{ 'Maximum {n} accounts per transaction. Only the first {n} selected will be closed. Deselect some or run multiple transactions.' | t:{ n: MAX_CLOSE_PER_TX } }}
             </div>
           }
 
@@ -193,7 +193,7 @@
               @if (phase() === 'loading') {
                 <div class="spinner spinner--sm"></div>
               }
-              Close {{ selectedClose().length || '' }} Account{{ selectedClose().length === 1 ? '' : 's' }}
+              {{ (selectedClose().length === 1 ? 'Close {n} Account' : 'Close {n} Accounts') | t:{ n: selectedClose().length || '' } }}
               @if (selectedClose().length > 0) {
                 &nbsp;→ Reclaim +{{ formatSol(totalRefundLamports()) }} SOL
               }
@@ -207,7 +207,7 @@
     @if (activeTab() === 'burn' && accounts().length > 0 && phase() !== 'preview' && phase() !== 'signing' && phase() !== 'success') {
       <div class="tab-content">
         <div class="tab-description tab-description--danger">
-          <span>⚠️ Permanent &amp; Irreversible</span>
+          <span>⚠️ {{ 'Permanent & Irreversible' | t }}</span>
           <p>{{ 'Burned tokens cannot be recovered. Double-check before confirming.' | t }}</p>
         </div>
 
@@ -269,7 +269,7 @@
                 </div>
                 @if (selectedBurnAccount()) {
                   <div class="balance-hint">
-                    Available: {{ formatBalance(selectedBurnAccount()!.balance) }} {{ selectedBurnAccount()!.symbol }}
+                    {{ 'Available:' | t }} {{ formatBalance(selectedBurnAccount()!.balance) }} {{ selectedBurnAccount()!.symbol }}
                   </div>
                 }
               </div>
@@ -277,7 +277,7 @@
               <div class="form-group form-group--checkbox">
                 <label class="checkbox-row">
                   <input type="checkbox" [checked]="burnCloseAfter()" (change)="burnCloseAfter.set($any($event.target).checked)" />
-                  Close account after burning (reclaim ~{{ formatSol(selectedBurnAccount()?.rentLamports ?? 2039280) }} SOL)
+                  {{ 'Close account after burning (reclaim ~{n} SOL)' | t:{ n: formatSol(selectedBurnAccount()?.rentLamports ?? 2039280) } }}
                 </label>
               </div>
 
@@ -304,7 +304,7 @@
               @if (phase() === 'loading') {
                 <div class="spinner spinner--sm"></div>
               }
-              Preview Burn
+              {{ 'Preview Burn' | t }}
             </button>
           </div>
         }
@@ -315,7 +315,7 @@
     @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
       <div class="preview-panel">
         <h3 class="preview-title">{{ 'Confirm Action' | t }}</h3>
-        <p class="preview-description">{{ preview()!.description }}</p>
+        <p class="preview-description">{{ preview()!.description | t }}</p>
 
         <div class="preview-fees">
           <div class="preview-fee-row">
@@ -354,9 +354,9 @@
             (click)="confirmAction()"
           >
             @if (phase() === 'signing') {
-              <div class="spinner spinner--sm"></div> Signing…
+              <div class="spinner spinner--sm"></div> {{ 'Signing…' | t }}
             } @else {
-              Confirm
+              {{ 'Confirm' | t }}
             }
           </button>
         </div>

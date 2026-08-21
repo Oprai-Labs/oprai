@@ -69,12 +69,12 @@
       }
       @if (heldResults().length === 0) {
         <div class="tp-empty">
-          {{ holdingsLoading() ? 'Reading your wallet…' : 'This wallet holds no tokens yet.' }}
+          {{ (holdingsLoading() ? 'Reading your wallet…' : 'This wallet holds no tokens yet.') | t }}
         </div>
       }
     } @else {
       @if (results().length === 0) {
-        <div class="tp-empty">{{ tabLoading() ? 'Loading…' : 'No tokens match.' }}</div>
+        <div class="tp-empty">{{ (tabLoading() ? 'Loading…' : 'No tokens match.') | t }}</div>
       }
       @for (t of results(); track t.address) {
         <button class="tp-row" type="button"

@@ -29,7 +29,7 @@
       <div class="shared-title-row">
         <h1 class="shared-title">{{ title() }}</h1>
         @if (sharedAtLabel()) {
-          <p class="shared-meta">Shared on {{ sharedAtLabel() }}</p>
+          <p class="shared-meta">{{ 'Shared on {d}' | t:{ d: sharedAtLabel() } }}</p>
         }
       </div>
 

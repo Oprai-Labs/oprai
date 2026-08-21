@@ -271,7 +271,7 @@
                   <div class="chat-menu-dropdown">
                     <button class="dropdown-item" (click)="togglePin(sessionStorage.activeSessionId()!)">
                       <lucide-icon [name]="isPinned(sessionStorage.activeSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
-                      {{ isPinned(sessionStorage.activeSessionId()!) ? 'Unpin' : 'Pin' }}
+                      {{ (isPinned(sessionStorage.activeSessionId()!) ? 'Unpin' : 'Pin') | t }}
                     </button>
                     <!-- Projects don't exist yet — `moveToProject` was a
                          console.log and "New project" did nothing, so the
@@ -303,7 +303,7 @@
                   <span>{{ 'Copied!' | t }}</span>
                 } @else {
                   <lucide-icon name="share-2" [size]="15" />
-                  <span>{{ shareBusy() ? 'Sharing…' : 'Share' }}</span>
+                  <span>{{ (shareBusy() ? 'Sharing…' : 'Share') | t }}</span>
                 }
               </button>
               @if (shareError()) {
@@ -325,7 +325,7 @@
                   <span class="private-btn-label">{{ 'Private' | t }}</span>
                 }
                 <span class="private-btn-tooltip">
-                  {{ incognitoMode() ? 'Switch Public' : 'Switch Private' }} &#8984;&#8679;J
+                  {{ (incognitoMode() ? 'Switch Public' : 'Switch Private') | t }} &#8984;&#8679;J
                 </span>
               </button>
             }
@@ -357,7 +357,7 @@
     </button>
     <button class="dropdown-item" (click)="togglePin(menuSessionId()!); closeMenu()">
       <lucide-icon [name]="isPinned(menuSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
-      {{ isPinned(menuSessionId()!) ? 'Unpin' : 'Pin' }}
+      {{ (isPinned(menuSessionId()!) ? 'Unpin' : 'Pin') | t }}
     </button>
     <div class="context-dropdown-divider"></div>
     <button class="dropdown-item dropdown-item--danger" (click)="requestDelete(menuSessionId()!)">
@@ -402,7 +402,7 @@
 
           @if (debouncedSearchQuery().trim()) {
             <div class="search-result-count">
-              {{ searchResults().length }} result{{ searchResults().length !== 1 ? 's' : '' }}
+              {{ (searchResults().length === 1 ? '{n} result' : '{n} results') | t:{ n: searchResults().length } }}
             </div>
           }
 
@@ -699,7 +699,7 @@
               <div class="settings-row">
                 <div class="settings-row-info">
                   <span class="settings-row-label">{{ 'Wallet' | t }}</span>
-                  <span class="settings-row-value">{{ walletService.walletName() || 'None' }}</span>
+                  <span class="settings-row-value">{{ (walletService.walletName() || 'None') | t }}</span>
                 </div>
               </div>
 
@@ -936,7 +936,7 @@
                 </label>
               </div>
 
-              <h3 class="settings-section-title" style="margin-top: 24px;">Export & Delete</h3>
+              <h3 class="settings-section-title" style="margin-top: 24px;">{{ 'Export & Delete' | t }}</h3>
               <div class="settings-row">
                 <div class="settings-row-info">
                   <lucide-icon name="download" [size]="16" class="settings-row-icon" />

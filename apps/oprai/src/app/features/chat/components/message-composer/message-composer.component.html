@@ -47,7 +47,7 @@
           >
             <img class="protocol-logo" [src]="proto.logo" [alt]="proto.label" />
             <span class="protocol-picker-label">{{ proto.label | t }}</span>
-            <span class="protocol-picker-desc">{{ proto.description }}</span>
+            <span class="protocol-picker-desc">{{ proto.description | t }}</span>
           </button>
         }
       </div>
@@ -95,7 +95,7 @@
         <div class="plus-menu">
           <button class="plus-menu-item" (click)="onAddFiles()">
             <lucide-icon name="paperclip" [size]="16" />
-            <span>Add photos & files</span>
+            <span>{{ 'Add photos & files' | t }}</span>
           </button>
           <button class="plus-menu-item" (click)="onAddFromDrive()">
             <lucide-icon name="hard-drive" [size]="16" />
@@ -139,7 +139,7 @@
           [size]="14"
           class="mode-chip-icon"
         />
-        <span>{{ activeMode() === 'thinking' ? 'Think' : 'Search' }}</span>
+        <span>{{ (activeMode() === 'thinking' ? 'Think' : 'Search') | t }}</span>
         <button class="mode-chip-remove" (click)="clearActiveMode()" [attr.aria-label]="'Remove mode' | t">
           <lucide-icon name="x" [size]="12" />
         </button>

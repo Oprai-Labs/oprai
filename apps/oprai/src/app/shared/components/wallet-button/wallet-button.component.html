@@ -32,9 +32,9 @@
     >
       @if (walletService.connecting() || authService.authenticating()) {
         <span class="spinner"></span>
-        Connecting...
+        {{ 'Connecting...' | t }}
       } @else {
-        Connect Wallet
+        {{ 'Connect Wallet' | t }}
       }
     </button>
   }
@@ -77,7 +77,7 @@
           <!-- More — known wallets not installed, as install prompts. -->
           @if (installableWallets.length > 0) {
             <div class="wallet-section-label">
-              {{ detectedWallets.length > 0 ? 'More wallets' : 'Popular wallets' }}
+              {{ (detectedWallets.length > 0 ? 'More wallets' : 'Popular wallets') | t }}
             </div>
             <div class="wallet-list">
               @for (wallet of installableWallets; track wallet.name) {

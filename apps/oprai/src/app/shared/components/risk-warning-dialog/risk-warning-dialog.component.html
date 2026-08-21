@@ -47,7 +47,7 @@
         @for (item of p.items; track $index) {
           <li class="dialog-item">
             <span class="dialog-item__mark" aria-hidden="true"></span>
-            <span class="dialog-item__text">{{ item.text }}</span>
+            <span class="dialog-item__text">{{ item.text | t }}</span>
           </li>
         }
       </ul>
@@ -60,7 +60,7 @@
         <span class="dialog-mint__label">{{ 'Mint' | t }}</span>
         <span class="dialog-mint__value" [title]="p.mint">{{ shortMint(p.mint) }}</span>
         <button class="dialog-mint__copy" type="button" (click)="copyMint(p.mint, $event)">
-          {{ copied() ? 'Copied' : 'Copy' }}
+          {{ (copied() ? 'Copied' : 'Copy') | t }}
         </button>
       </div>
     }

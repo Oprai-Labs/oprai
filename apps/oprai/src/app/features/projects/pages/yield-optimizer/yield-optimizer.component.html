@@ -24,10 +24,10 @@
         >
           @if (isScanning()) {
             <lucide-icon name="loader-circle" [size]="16" class="spin" />
-            Scanning...
+            {{ 'Scanning...' | t }}
           } @else {
             <lucide-icon name="scan-search" [size]="16" />
-            Run Scan
+            {{ 'Run Scan' | t }}
           }
         </button>
       </div>
@@ -46,7 +46,7 @@
       <nav class="tabs">
         <button class="tab" [class.tab--active]="activeTab() === 'opportunities'" (click)="setTab('opportunities')">
           <lucide-icon name="trending-up" [size]="14" />
-          Opportunities
+          {{ 'Opportunities' | t }}
           @if (pendingProposals().length > 0) {
             <span class="tab-badge">{{ pendingProposals().length }}</span>
           }
@@ -126,7 +126,7 @@
           <div class="empty-state">
             <lucide-icon name="alert-circle" [size]="40" class="empty-icon error-icon" />
             <p class="empty-title">{{ 'Scan failed' | t }}</p>
-            <p class="empty-sub">{{ currentRun()?.error ?? 'Unknown error' }}</p>
+            <p class="empty-sub">{{ (currentRun()?.error ?? 'Unknown error') | t }}</p>
             <button class="btn-primary" (click)="runScan()">{{ 'Retry' | t }}</button>
           </div>
 
@@ -140,7 +140,7 @@
           } @else {
             <div class="proposals-list">
               <p class="proposals-header">
-                Found {{ proposals().length }} opportunity{{ proposals().length !== 1 ? 's' : '' }}
+                {{ (proposals().length === 1 ? 'Found {n} opportunity' : 'Found {n} opportunities') | t:{ n: proposals().length } }}
               </p>
 
               @for (proposal of proposals(); track proposal.id) {
@@ -177,7 +177,7 @@
                     <div class="proposal-meta">
                       <span class="meta-chip" [style.color]="riskColor(proposal.opportunity.bestProtocol.riskScore)">
                         <lucide-icon name="shield" [size]="11" />
-                        Risk: {{ riskLabel(proposal.opportunity.bestProtocol.riskScore) }}
+                        {{ 'Risk:' | t }} {{ riskLabel(proposal.opportunity.bestProtocol.riskScore) }}
                       </span>
                       @if (proposal.opportunity.bestProtocol.tvlUsd) {
                         <span class="meta-chip">
@@ -203,7 +203,7 @@
                   } @else if (proposal.status === 'approved' || proposal.status === 'executed') {
                     <div class="proposal-executed">
                       <lucide-icon name="check-circle-2" [size]="16" />
-                      {{ proposal.status === 'executed' ? 'Executed' : 'Approved' }}
+                      {{ (proposal.status === 'executed' ? 'Executed' : 'Approved') | t }}
                       @if (proposal.txSignature) {
                         <span class="tx-sig">{{ proposal.txSignature.slice(0, 8) }}...</span>
                       }
@@ -270,9 +270,9 @@
                 <div class="history-row">
                   <span class="history-date">{{ run.startedAt | date:'MMM d, HH:mm' }}</span>
                   <div class="history-stats">
-                    <span class="history-chip">{{ historyProposalCount(run) }} found</span>
+                    <span class="history-chip">{{ '{n} found' | t:{ n: historyProposalCount(run) } }}</span>
                     @if (historyExecutedCount(run) > 0) {
-                      <span class="history-chip history-chip--success">{{ historyExecutedCount(run) }} executed</span>
+                      <span class="history-chip history-chip--success">{{ '{n} executed' | t:{ n: historyExecutedCount(run) } }}</span>
                     }
                     @if (run.error) {
                       <span class="history-chip history-chip--error">{{ 'Error' | t }}</span>
@@ -280,7 +280,7 @@
                   </div>
                 </div>
                 <div class="history-config">
-                  Min gain: {{ run.config.minGainPct }}% &middot; Risk: &le;{{ run.config.maxRisk }}
+                  {{ 'Min gain: {g}% · Risk: ≤{r}' | t:{ g: run.config.minGainPct, r: run.config.maxRisk } }}
                 </div>
               </div>
             }

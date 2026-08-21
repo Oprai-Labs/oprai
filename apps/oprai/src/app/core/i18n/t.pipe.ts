@@ -16,7 +16,7 @@ export class TPipe implements PipeTransform {
   private lastParams?: string;
   private lastValue = '';
 
-  transform(key: string | null | undefined, params?: Record<string, string | number>): string {
+  transform(key: string | null | undefined, params?: Record<string, string | number | null | undefined>): string {
     if (!key) return '';
     const lang = this.i18n.lang();
     const paramKey = params ? JSON.stringify(params) : '';

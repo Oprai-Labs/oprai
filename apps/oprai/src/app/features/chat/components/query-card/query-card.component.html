@@ -92,7 +92,7 @@
             </div>
           }
           @if (filteredBalanceResults().length === 0 && balanceSearchRaw()) {
-            <div class="balance-empty">No tokens match "{{ balanceSearchRaw() }}"</div>
+            <div class="balance-empty">{{ 'No tokens match "{q}"' | t:{ q: balanceSearchRaw() } }}</div>
           }
           @if (!loading() && !error() && balanceResults.length === 0 && !balanceSearchRaw()) {
             <div class="balance-empty">
@@ -200,7 +200,7 @@
                      should not be two different products. -->
                 <div class="me-detail__bar me-nft__bar">
                   <div class="me-detail__price">
-                    <span class="me-detail__price-k">{{ t.price ? 'Price' : 'Not listed' }}</span>
+                    <span class="me-detail__price-k">{{ (t.price ? 'Price' : 'Not listed') | t }}</span>
                     @if (meMarketPrice(t); as price) {
                       <span class="me-detail__price-v mono">{{ price | number:'1.0-3' }} SOL</span>
                     }
@@ -221,7 +221,7 @@
                           <span class="me-detail__trait-foot">
                             @if (tr.count) {
                               <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
-                                {{ tr.count }} listed
+                                {{ '{n} listed' | t:{ n: tr.count } }}
                               </span>
                             }
                             @if (tr.floor) {
@@ -317,7 +317,7 @@
                 }
                 <div class="me-detail__bar me-nft__bar">
                   <div class="me-detail__price">
-                    <span class="me-detail__price-k">{{ meIsOwnOffer(o) ? 'Your offer' : 'Offer' }}</span>
+                    <span class="me-detail__price-k">{{ (meIsOwnOffer(o) ? 'Your offer' : 'Offer') | t }}</span>
                     @if (o.price) {
                       <span class="me-detail__price-v mono">{{ o.price | number:'1.0-4' }} SOL</span>
                     }
@@ -475,7 +475,7 @@
 
                 <div class="me-detail__bar">
                   <div class="me-detail__price">
-                    <span class="me-detail__price-k">{{ meIsListed(n) ? 'Price' : 'Not listed' }}</span>
+                    <span class="me-detail__price-k">{{ (meIsListed(n) ? 'Price' : 'Not listed') | t }}</span>
                     @if (meMarketPrice(n); as price) {
                       <span class="me-detail__price-v mono">{{ price | number:'1.0-3' }} SOL</span>
                     }
@@ -526,7 +526,7 @@
                         <span class="me-detail__trait-foot">
                           @if (tr.count) {
                             <span class="me-rar" [class]="'me-rar ' + meRarityClass(tr.share)">
-                              {{ tr.count }} listed
+                              {{ '{n} listed' | t:{ n: tr.count } }}
                             </span>
                           }
                           @if (tr.floor) {
@@ -548,7 +548,7 @@
                       <div class="me-check" [class.me-check--bad]="!c.ok">
                         <lucide-icon [name]="c.ok ? 'shield-check' : 'shield-alert'" [size]="13" />
                         <span class="me-check__k">{{ c.label | t }}</span>
-                        <span class="me-check__v">{{ c.note }}</span>
+                        <span class="me-check__v">{{ c.note | t }}</span>
                       </div>
                     }
                   </div>
@@ -587,7 +587,7 @@
                   }
                   <div class="me-detail__row"><span>{{ 'Marketplace fee' | t }}</span><span class="mono">2%</span></div>
                   <div class="me-detail__row"><span>{{ 'Status' | t }}</span>
-                    <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
+                    <span>{{ (meIsListed(n) ? 'Listed' : 'Not listed') | t }}</span></div>
                   <div class="me-detail__row"><span>{{ 'Magic Eden' | t }}</span>
                     <a class="me-link" [href]="'https://magiceden.io/item-details/' + n.mintAddress"
                        target="_blank" rel="noopener noreferrer">
@@ -620,7 +620,7 @@
                 </span>
               </div>
               @if (st.description) {
-                <p class="me-stats-card__desc">{{ st.description }}</p>
+                <p class="me-stats-card__desc">{{ st.description | t }}</p>
               }
               <!-- The four the API actually returns. It sends volume7d and
                    avgPrice24hr; the 24h and all-time volumes this used to show
@@ -637,25 +637,25 @@
                   <span class="me-kpi__v mono">@if (st.topOffer) { {{ st.topOffer | number:'1.0-3' }} SOL } @else { — }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Listed' | t }}</span>
                   <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}@if (st.listedShare) {
-                      <span class="me-kpi__sub">{{ st.listedShare * 100 | number:'1.0-1' }}% of supply</span>
+                      <span class="me-kpi__sub">{{ '{n}% of supply' | t:{ n: st.listedShare * 100 | number:'1.0-1' } }}</span>
                     }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Holders' | t }}</span>
                   <span class="me-kpi__v mono">{{ st.ownerCount ? (st.ownerCount | number) : '—' }}@if (st.supply) {
-                      <span class="me-kpi__sub">of {{ st.supply | number }} pieces</span>
+                      <span class="me-kpi__sub">{{ 'of {n} pieces' | t:{ n: st.supply | number } }}</span>
                     }</span></div>
               </div>
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">{{ '24h volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ (st.volume24h ?? 0) | number:'1.0-1' }} SOL@if (st.sales24h) {
-                      <span class="me-kpi__sub">{{ st.sales24h }} sales</span>
+                      <span class="me-kpi__sub">{{ '{n} sales' | t:{ n: st.sales24h } }}</span>
                     }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ '7d volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ meSolOrRaw(st.volume7d) ?? 0 | number:'1.0-0' }} SOL@if (st.sales7d) {
-                      <span class="me-kpi__sub">{{ st.sales7d }} sales</span>
+                      <span class="me-kpi__sub">{{ '{n} sales' | t:{ n: st.sales7d } }}</span>
                     }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ '30d volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ (st.volume30d ?? 0) | number:'1.0-0' }} SOL@if (st.sales30d) {
-                      <span class="me-kpi__sub">{{ st.sales30d }} sales</span>
+                      <span class="me-kpi__sub">{{ '{n} sales' | t:{ n: st.sales30d } }}</span>
                     }</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Average sale' | t }}</span>
                   <span class="me-kpi__v mono">@if (st.avgPrice7d) { {{ st.avgPrice7d | number:'1.0-2' }} SOL } @else { — }<span class="me-kpi__sub">{{ 'last 7 days' | t }}</span></span></div>
@@ -708,7 +708,7 @@
                           <lucide-icon name="shield-check" [size]="11" class="me-badge me-badge--inline" />
                         }</span>
                       @if (c.supply) {
-                        <span class="km-pair__sub">{{ c.listedCount ?? 0 | number }} of {{ c.supply | number }} listed</span>
+                        <span class="km-pair__sub">{{ '{a} of {b} listed' | t:{ a: c.listedCount ?? 0 | number, b: c.supply | number } }}</span>
                       }
                     </span>
                   </span>
@@ -723,7 +723,7 @@
                 </div>
               }
             </div>
-            <div class="me-escrow__note">By volume, {{ meWindowLabel(tr.window) }}.</div>
+            <div class="me-escrow__note">{{ 'By volume, {w}.' | t:{ w: meWindowLabel(tr.window) } }}</div>
           }
         }
 
@@ -750,7 +750,7 @@
                         <lucide-icon name="shield-check" [size]="12" class="me-badge me-badge--inline" />
                       }</span>
                     @if (h.floorPrice) {
-                      <span class="me-stats-card__sym mono">Floor {{ h.floorPrice | number:'1.0-3' }} SOL</span>
+                      <span class="me-stats-card__sym mono">{{ 'Floor' | t }} {{ h.floorPrice | number:'1.0-3' }} SOL</span>
                     }
                   </span>
                 </div>
@@ -763,7 +763,7 @@
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Average each' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.averageHeld | number:'1.0-2' }}</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Hold just one' | t }}</span>
-                  <span class="me-kpi__v mono">{{ h.singleItemHolders | number }}<span class="me-kpi__sub">{{ h.singleItemShare * 100 | number:'1.0-1' }}% of holders</span></span></div>
+                  <span class="me-kpi__v mono">{{ h.singleItemHolders | number }}<span class="me-kpi__sub">{{ '{n}% of holders' | t:{ n: h.singleItemShare * 100 | number:'1.0-1' } }}</span></span></div>
               </div>
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Top holder' | t }}</span>
@@ -776,7 +776,7 @@
                   <span class="me-kpi__v mono">{{ h.top20Share * 100 | number:'1.0-1' }}%</span></div>
               </div>
               @if (!h.complete) {
-                <div class="me-escrow__note">Counted the first {{ h.scanned | number }} pieces — the collection is larger than one scan.</div>
+                <div class="me-escrow__note">{{ 'Counted the first {n} pieces — the collection is larger than one scan.' | t:{ n: h.scanned } }}</div>
               }
               <div class="result-table">
                 <div class="result-table__header result-table__header--me-holder">
@@ -820,14 +820,14 @@
                         <lucide-icon name="shield-check" [size]="12" class="me-badge me-badge--inline" />
                       }</span>
                     @if (sh.floorPrice) {
-                      <span class="me-stats-card__sym mono">Floor {{ sh.floorPrice | number:'1.0-3' }} SOL</span>
+                      <span class="me-stats-card__sym mono">{{ 'Floor' | t }} {{ sh.floorPrice | number:'1.0-3' }} SOL</span>
                     }
                   </span>
                 </div>
               }
               <div class="me-stats-card__grid">
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Sales' | t }}</span>
-                  <span class="me-kpi__v mono">{{ sh.sales | number }}<span class="me-kpi__sub">last {{ sh.days }} days</span></span></div>
+                  <span class="me-kpi__v mono">{{ sh.sales | number }}<span class="me-kpi__sub">{{ 'last {n} days' | t:{ n: sh.days } }}</span></span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ sh.volume | number:'1.0-1' }} SOL</span></div>
                 <div class="me-kpi"><span class="me-kpi__k">{{ 'Average sale' | t }}</span>
@@ -1048,13 +1048,9 @@
           <div class="dlmm-showing">
             {{ 'Showing' | t }} <strong>{{ (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + 1 }}–{{
               (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + orcaPagedRows().length
-            }}</strong> of
-            @if (orcaCapped()) {
-              the top <strong>{{ orcaRows().length }}</strong> pools by TVL
-            } @else {
-              <strong>{{ orcaRows().length }}</strong> pools
-            }
-            over {{ ORCA_MIN_TVL_LABEL }} TVL
+            }}</strong>
+            {{ (orcaCapped() ? 'of the top {n} pools by TVL over {tvl} TVL' : 'of {n} pools over {tvl} TVL')
+               | t:{ n: orcaRows().length, tvl: ORCA_MIN_TVL_LABEL } }}
           </div>
           <div class="dlmm-pagination">
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(1)"
@@ -1145,7 +1141,7 @@
                     <span class="ray-pos__amount">{{ pos.liquidity }}</span>
                   }
                   <span class="ray-pos__amount-label">
-                    Position {{ i + 1 }} · pool {{ pos.whirlpool.slice(0, 4) }}…{{ pos.whirlpool.slice(-4) }}
+                    {{ 'Position {n}' | t:{ n: i + 1 } }} · {{ 'pool' | t }} {{ pos.whirlpool.slice(0, 4) }}…{{ pos.whirlpool.slice(-4) }}
                   </span>
                 </span>
                 <span class="ray-pos__actions">
@@ -1233,7 +1229,7 @@
             <span class="dlmm-pos-summary__seg">
               <span class="dlmm-pos-summary__label">{{ 'Positions' | t }}</span>
               <span class="dlmm-pos-summary__value mono">
-                {{ sum.positionCount }} in {{ sum.poolCount }} pool{{ sum.poolCount === 1 ? '' : 's' }}
+                {{ (sum.poolCount === 1 ? '{a} in {b} pool' : '{a} in {b} pools') | t:{ a: sum.positionCount, b: sum.poolCount } }}
               </span>
             </span>
           </div>
@@ -1266,7 +1262,7 @@
                   </span>
                 </span>
                 <span class="ray-pos__pair">{{ row.pool.tokenX }} / {{ row.pool.tokenY }}</span>
-                <span class="type-badge">{{ isDammV2Positions() ? 'DAMM V2' : 'DLMM' }}</span>
+                <span class="type-badge">{{ (isDammV2Positions() ? 'DAMM V2' : 'DLMM') | t }}</span>
                 @if (row.detail?.permanentlyLocked) {
                   <span class="type-badge dlmm-oor">{{ 'Permanently locked' | t }}</span>
                 } @else if (row.detail?.locked) {
@@ -1294,7 +1290,7 @@
                       {{ row.detail.amountY | number:'1.0-6' }} {{ row.pool.tokenY }}
                     </span>
                     <span class="ray-pos__amount-label">
-                      Position {{ row.index + 1 }}
+                      {{ 'Position {n}' | t:{ n: row.index + 1 } }}
                       @if (dlmmPositionValue(row); as usd) {
                         · {{ formatUsd(usd) }}
                       }
@@ -1308,7 +1304,7 @@
                   } @else {
                     <span class="ray-pos__amount">{{ formatUsd(row.pool.balances) }}</span>
                     <span class="ray-pos__amount-label">
-                      Position {{ row.index + 1 }} · pool total · {{ row.pool.binStep }} bin step
+                      {{ 'Position {n} · pool total · {b} bin step' | t:{ n: row.index + 1, b: row.pool.binStep } }}
                     </span>
                   }
                 </span>
@@ -1386,9 +1382,9 @@
           @if (!dlmmPositionsFetching() && dlmmUserPools().length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No open Meteora {{ isDammV2Positions() ? 'DAMM v2' : 'DLMM' }} positions.</div>
+              <div>{{ 'No open Meteora {k} positions.' | t:{ k: isDammV2Positions() ? 'DAMM v2' : 'DLMM' } }}</div>
               <div class="dlmm-empty__hint">
-                Add liquidity to a {{ isDammV2Positions() ? 'DAMM v2' : 'DLMM' }} pool to open one.
+                {{ 'Add liquidity to a {k} pool to open one.' | t:{ k: isDammV2Positions() ? 'DAMM v2' : 'DLMM' } }}
               </div>
             </div>
           }
@@ -1487,8 +1483,8 @@
               <span class="text-right mono">{{ formatUsd(dlmmVolume24h(p)) }}</span>
               <span class="text-right mono change-up">{{ p.apy.toFixed(2) }}%</span>
               <span class="text-right dlmm-pool-config">
-                <span class="dlmm-pool-config__step mono">{{ dlmmBinStepPct(p).toFixed(2) }}% step</span>
-                <span class="dlmm-pool-config__fee mono">{{ p.pool_config.base_fee_pct.toFixed(2) }}% fee</span>
+                <span class="dlmm-pool-config__step mono">{{ '{n}% step' | t:{ n: dlmmBinStepPct(p).toFixed(2) } }}</span>
+                <span class="dlmm-pool-config__fee mono">{{ '{n}% fee' | t:{ n: p.pool_config.base_fee_pct.toFixed(2) } }}</span>
               </span>
               <span class="text-right">
                 <button
@@ -1803,7 +1799,7 @@
                   </span>
                   <span class="km-pair__text">
                     <span class="km-pair__name">{{ m.collToken }}/{{ m.debtToken }}</span>
-                    <span class="km-pair__sub">Max LTV {{ m.maxLtvPct }}% · avg {{ m.avgLeverage }}x</span>
+                    <span class="km-pair__sub">{{ 'Max LTV {l}% · avg {a}x' | t:{ l: m.maxLtvPct, a: m.avgLeverage } }}</span>
                   </span>
                 </span>
                 <span class="text-right"><span class="km-lev-badge">{{ m.maxLeverage }}x</span></span>
@@ -2231,7 +2227,7 @@
                 @for (a of sp.stakeAccounts; track a.stakeAccount) {
                   <div class="mrn-ticket">
                     <span class="mrn-ticket__amt mono">{{ a.stakedSol | number:'1.0-4' }} SOL</span>
-                    <span class="mrn-ticket__state">{{ a.status }}</span>
+                    <span class="mrn-ticket__state">{{ a.status | t }}</span>
                     <span class="mrn-ticket__mono mono">{{ a.stakeAccount.slice(0, 4) }}…{{ a.stakeAccount.slice(-4) }}</span>
                   </div>
                 }
@@ -2296,7 +2292,7 @@
               <div class="mrn-ticket" [class.mrn-ticket--ready]="t.isClaimable">
                 <span class="mrn-ticket__amt mono">{{ +t.solAmount | number:'1.0-4' }} SOL</span>
                 <span class="mrn-ticket__state">
-                  {{ t.isClaimable ? 'Ready to claim' : 'Matures in ' + t.epochsRemaining + ' epoch' + (t.epochsRemaining === 1 ? '' : 's') }}
+                  {{ t.isClaimable ? ('Ready to claim' | t) : ((t.epochsRemaining === 1 ? 'Matures in {n} epoch' : 'Matures in {n} epochs') | t:{ n: t.epochsRemaining }) }}
                 </span>
                 @if (t.isClaimable) {
                   <button type="button" class="dlmm-page-btn mrn-ticket__btn"
@@ -2382,7 +2378,7 @@
                     <span class="ray-pos__amount-label">{{ 'Position value' | t }}</span>
                   } @else {
                     <span class="ray-pos__amount">{{ pos.kind === 'lp' ? (pos.lpAmount | number:'1.0-6') : (pos.liquidity || '0') }}</span>
-                    <span class="ray-pos__amount-label">{{ pos.kind === 'lp' ? 'LP tokens' : 'Liquidity' }}</span>
+                    <span class="ray-pos__amount-label">{{ (pos.kind === 'lp' ? 'LP tokens' : 'Liquidity') | t }}</span>
                   }
                 </span>
                 <span class="ray-pos__actions">
@@ -2467,7 +2463,7 @@
                        number on the row a user would act on. Absent unless
                        something actually measured it. -->
                   <span class="ray-pos__amount-label">
-                    {{ pos.apy !== null ? (pos.apy.toFixed(1) + '% APR') : 'Value' }}
+                    {{ pos.apy !== null ? (pos.apy.toFixed(1) + '% APR') : ('Value' | t) }}
                   </span>
                 </span>
               </div>
@@ -2497,7 +2493,7 @@
                 />
               </div>
               <div class="tx-row__info">
-                <span class="tx-row__desc">{{ tx.description }}</span>
+                <span class="tx-row__desc">{{ tx.description | t }}</span>
                 <span class="tx-row__time">{{ tx.time }}</span>
               </div>
               <span class="tx-row__amount mono" [class.change-up]="tx.amount.startsWith('+')" [class.change-down]="tx.amount.startsWith('-')">
@@ -2681,7 +2677,7 @@
               <span class="text-right">
                 <span class="airdrop-badge" [class.airdrop-badge--claimable]="a.status === 'Claimable'"
                       [class.airdrop-badge--upcoming]="a.status === 'Upcoming'"
-                      [class.airdrop-badge--expired]="a.status === 'Expired'">{{ a.status }}</span>
+                      [class.airdrop-badge--expired]="a.status === 'Expired'">{{ a.status | t }}</span>
               </span>
               <span class="text-right mono">{{ a.deadline }}</span>
             </div>
@@ -2748,7 +2744,7 @@
             </div>
           </div>
           <div class="wallet-info__footer">
-            <span>First transaction: {{ walletInfoResult.firstTx }}</span>
+            <span>{{ 'First transaction: {d}' | t:{ d: walletInfoResult.firstTx } }}</span>
             <span>Label: {{ walletInfoResult.label | t }}</span>
           </div>
         </div>
@@ -2758,8 +2754,8 @@
       @if (query.type === 'tax_report' && taxResult) {
         <div class="tax-summary">
           <div class="tax-summary__header">
-            <span class="tax-summary__year">Tax Year {{ taxResult.year }}</span>
-            <span class="tax-summary__txs mono">{{ taxResult.totalTxs }} transactions</span>
+            <span class="tax-summary__year">{{ 'Tax Year {y}' | t:{ y: taxResult.year } }}</span>
+            <span class="tax-summary__txs mono">{{ '{n} transactions' | t:{ n: taxResult.totalTxs } }}</span>
           </div>
           <div class="tax-summary__grid">
             <div class="tax-summary__stat">
@@ -2827,7 +2823,7 @@
               <div class="result-table__row result-table__row--6col">
                 <span class="token-cell">
                   <span class="token-symbol">{{ order.inputToken }} → {{ order.outputToken }}</span>
-                  <span class="token-name">{{ order.status }}</span>
+                  <span class="token-name">{{ order.status | t }}</span>
                 </span>
                 <span class="text-right mono">{{ formatBalance(order.amount) }} {{ order.inputToken }}</span>
                 <span class="text-right">{{ order.frequency }}</span>
@@ -2858,7 +2854,7 @@
         @if (limitOrderResults.length === 0) {
           <div class="empty-state">
             <lucide-icon name="book-open" [size]="20" />
-            <span>{{ limitOrderStatusFilter === 'open' ? 'No open limit orders' : 'No order history' }}</span>
+            <span>{{ (limitOrderStatusFilter === 'open' ? 'No open limit orders' : 'No order history') | t }}</span>
           </div>
         } @else {
           <div class="result-table">
@@ -2888,7 +2884,7 @@
                   <span class="airdrop-badge"
                         [class.airdrop-badge--claimable]="order.status === 'filled'"
                         [class.airdrop-badge--upcoming]="order.status === 'open'"
-                        [class.airdrop-badge--expired]="order.status === 'cancelled'">{{ order.status }}</span>
+                        [class.airdrop-badge--expired]="order.status === 'cancelled'">{{ order.status | t }}</span>
                 </span>
                 <span class="text-right">
                   @if (order.status === 'open' && order.id) {
@@ -3048,7 +3044,7 @@
                 <span class="airdrop-badge"
                       [class.airdrop-badge--claimable]="alert.status === 'triggered'"
                       [class.airdrop-badge--upcoming]="alert.status === 'active'"
-                      [class.airdrop-badge--expired]="alert.status === 'expired'">{{ alert.status }}</span>
+                      [class.airdrop-badge--expired]="alert.status === 'expired'">{{ alert.status | t }}</span>
               </span>
             </div>
           }

@@ -133,7 +133,7 @@
         <div class="modal-body">
           <section class="issue-section">
             <p class="issue-section__label">{{ 'What they reported' | t }}</p>
-            <p class="issue-body">{{ report.description }}</p>
+            <p class="issue-body">{{ report.description | t }}</p>
           </section>
 
           @if (contextEntries(report).length > 0) {

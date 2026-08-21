@@ -32,7 +32,7 @@
         [class.stake-tab--active]="activeTab() === 'my-stakes'"
         (click)="setTab('my-stakes')"
       >
-        📋 My Stakes
+        📋 {{ 'My Stakes' | t }}
         @if (stakeAccounts().length > 0) {
           <span class="tab-badge">{{ stakeAccounts().length }}</span>
         }
@@ -216,7 +216,7 @@
                 @if (phase() === 'loading') {
                   <div class="spinner spinner--sm"></div>
                 }
-                Preview
+                {{ 'Preview' | t }}
               </button>
             </div>
           </div>
@@ -302,7 +302,7 @@
               @if (phase() === 'loading') {
                 <div class="spinner spinner--sm"></div>
               }
-              Preview Stake
+              {{ 'Preview Stake' | t }}
             </button>
           </div>
         </div>
@@ -313,7 +313,7 @@
     @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
       <div class="preview-panel">
         <h3 class="preview-title">{{ 'Confirm Transaction' | t }}</h3>
-        <p class="preview-description">{{ preview()!.description }}</p>
+        <p class="preview-description">{{ preview()!.description | t }}</p>
 
         <div class="preview-fees">
           <div class="preview-fee-row">
@@ -348,9 +348,9 @@
             (click)="confirmAction()"
           >
             @if (phase() === 'signing') {
-              <div class="spinner spinner--sm"></div> Signing…
+              <div class="spinner spinner--sm"></div> {{ 'Signing…' | t }}
             } @else {
-              Confirm
+              {{ 'Confirm' | t }}
             }
           </button>
         </div>

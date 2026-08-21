@@ -19,17 +19,17 @@
           @if (bannerLevel() === 'danger') {
             <span class="alert-title">{{ 'Liquidation Risk' | t }}</span>
             <span class="alert-detail">
-              {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
+              {{ formatProtocol(pos.protocol) }} {{ 'position' | t }} · HF {{ formatHf(pos.healthFactor) }}
               @if (extraCount() > 0) {
-                <span class="alert-extra"> +{{ extraCount() }} more</span>
+                <span class="alert-extra"> {{ '+{n} more' | t:{ n: extraCount() } }}</span>
               }
             </span>
           } @else {
             <span class="alert-title">{{ 'Health Factor Warning' | t }}</span>
             <span class="alert-detail">
-              {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
+              {{ formatProtocol(pos.protocol) }} {{ 'position' | t }} · HF {{ formatHf(pos.healthFactor) }}
               @if (extraCount() > 0) {
-                <span class="alert-extra"> +{{ extraCount() }} more</span>
+                <span class="alert-extra"> {{ '+{n} more' | t:{ n: extraCount() } }}</span>
               }
             </span>
           }
@@ -42,10 +42,9 @@
                  user would ever find out is being told. -->
             <span class="alert-title">{{ 'Not earning' | t }}</span>
             <span class="alert-detail">
-              {{ formatProtocol(idle.protocol) }} · {{ idle.pairLabel }} — the price has left this
-              position's range, so it collects no fees until it comes back.
+              {{ '{p} · {pair} — the price has left this position\'s range, so it collects no fees until it comes back.' | t:{ p: formatProtocol(idle.protocol), pair: idle.pairLabel } }}
               @if (idlePositions().length > 1) {
-                <span class="alert-extra"> +{{ idlePositions().length - 1 }} more</span>
+                <span class="alert-extra"> {{ '+{n} more' | t:{ n: idlePositions().length - 1 } }}</span>
               }
             </span>
           }

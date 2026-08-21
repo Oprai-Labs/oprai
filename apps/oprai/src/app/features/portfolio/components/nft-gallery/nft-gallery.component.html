@@ -18,23 +18,23 @@
 } @else if (loadingState === 'loaded') {
   <div class="nft-header">
     <span class="nft-count">
-      {{ visibleNfts().length }} NFTs
+      {{ '{n} NFTs' | t:{ n: visibleNfts().length } }}
       @if (hideSpam() && spamCount() > 0) {
-        <span class="nft-spam-hint">· {{ spamCount() }} spam hidden</span>
+        <span class="nft-spam-hint">· {{ '{n} spam hidden' | t:{ n: spamCount() } }}</span>
       }
     </span>
     <div class="nft-header-actions">
       <button class="view-toggle" (click)="toggleHideSpam()" [title]="hideSpam() ? 'Show spam' : 'Hide spam'">
         <lucide-icon [name]="hideSpam() ? 'shield' : 'shield-off'" [size]="14" />
-        {{ hideSpam() ? 'Spam hidden' : 'Show all' }}
+        {{ (hideSpam() ? 'Spam hidden' : 'Show all') | t }}
       </button>
       <button class="view-toggle" (click)="toggleView()">
         @if (viewMode() === 'all') {
           <lucide-icon name="grid-2x2" [size]="16" />
-          By Collection
+          {{ 'By Collection' | t }}
         } @else {
           <lucide-icon name="layout-grid" [size]="16" />
-          All
+          {{ 'All' | t }}
         }
       </button>
     </div>
@@ -63,7 +63,7 @@
               <span class="nft-collection">{{ nft.collectionName }}</span>
             }
             @if (nft.floorPrice !== null) {
-              <span class="nft-floor">Floor: {{ nft.floorPrice | number:'1.2-2' }} SOL</span>
+              <span class="nft-floor">{{ 'Floor:' | t }} {{ nft.floorPrice | number:'1.2-2' }} SOL</span>
             }
           </div>
         </div>
@@ -76,7 +76,7 @@
           <span class="collection-name">{{ collection.name }}</span>
           <span class="collection-count">{{ collection.items.length }}</span>
           @if (collection.floorPrice !== null) {
-            <span class="collection-floor">Floor: {{ collection.floorPrice | number:'1.2-2' }} SOL</span>
+            <span class="collection-floor">{{ 'Floor:' | t }} {{ collection.floorPrice | number:'1.2-2' }} SOL</span>
           }
         </div>
         <div class="nft-grid">

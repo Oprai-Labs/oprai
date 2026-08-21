@@ -119,9 +119,9 @@
               <span class="pf-opt__text">
                 <span class="pf-opt__title">{{ 'Cash back for traders' | t }}</span>
                 <span class="pf-opt__sub">
-                  {{ editCashback()
+                  {{ (editCashback()
                      ? 'Your creator fee is paid back to whoever trades the coin. You earn nothing from trading fees. Set at launch — permanent.'
-                     : 'You keep the creator fee on every trade. Turn on to pay it back to traders instead.' }}
+                     : 'You keep the creator fee on every trade. Turn on to pay it back to traders instead.') | t }}
                 </span>
               </span>
               <span class="pf-switch" [class.pf-switch--on]="editCashback()"><span class="pf-switch__knob"></span></span>
@@ -132,7 +132,7 @@
         <!-- 5. Initial buy -->
         <div class="pf-field pf-field--half">
           <label class="pf-field-label">
-            Initial buy (SOL)
+            {{ 'Initial buy (SOL)' | t }}
             @if (initialBuyUsd(); as usd) {
               <span class="pf-field-hint">≈ ${{ usd | number:'1.0-2' }}</span>
             }
@@ -198,7 +198,7 @@
             </ul>
           </div>
           <div class="pf-spec">
-            <div class="pf-spec__head"><lucide-icon name="image" [size]="12" /> Resolution &amp; aspect ratio</div>
+            <div class="pf-spec__head"><lucide-icon name="image" [size]="12" /> {{ 'Resolution & aspect ratio' | t }}</div>
             <ul>
               <li>{{ 'Image — min 1000×1000px, 1:1 square' | t }}</li>
               <li>{{ 'Video — 16:9 or 9:16, 1080p+' | t }}</li>
@@ -285,15 +285,15 @@
           <button class="pf-btn-launch" (click)="approve()" [disabled]="!canApprove()">
             @switch (launchBlock()) {
               @case ('image') {
-                <lucide-icon name="image" [size]="14" /> Add image to launch
+                <lucide-icon name="image" [size]="14" /> {{ 'Add image to launch' | t }}
               }
               @case ('identity') {
-                <lucide-icon name="type" [size]="14" /> Enter name &amp; ticker
+                <lucide-icon name="type" [size]="14" /> {{ 'Enter name & ticker' | t }}
               }
               @default {
                 <img src="assets/icons/pumpfun.png"
                      width="15" height="15" alt="" style="border-radius:3px" />
-                Launch token
+                {{ 'Launch token' | t }}
               }
             }
           </button>
@@ -339,7 +339,7 @@
             } @else {
               <lucide-icon name="undo-2" [size]="12" />
             }
-            {{ undoInProgress() ? 'Undoing...' : 'Undo' }}
+            {{ (undoInProgress() ? 'Undoing...' : 'Undo') | t }}
           </button>
         }
       }
@@ -442,7 +442,7 @@
               }
             </div>
             <div class="me-act__body">
-              <div class="me-act__name">{{ meNftName() || 'This NFT' }}</div>
+              <div class="me-act__name">{{ (meNftName() || 'This NFT') | t }}</div>
               @if (meCollectionName()) {
                 <div class="me-act__coll">{{ meCollectionName() }}</div>
               }
@@ -486,7 +486,7 @@
                        the collection's royalty are added on top of the ask. -->
                   @if (meRoyaltySol(); as roy) {
                     <div class="me-act__fee">
-                      <span>Creator royalty {{ (meRoyaltyPct() ?? 0) * 100 | number:'1.0-2' }}%</span>
+                      <span>{{ 'Creator royalty {p}%' | t:{ p: (meRoyaltyPct() ?? 0) * 100 | number:'1.0-2' } }}</span>
                       <span class="mono">{{ meIsProceedsSide() ? '−' : '+' }}{{ roy | number:'1.0-4' }} SOL</span>
                     </div>
                   }
@@ -642,7 +642,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -742,7 +742,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('inputMint')">{{ 'Max' | t }}</button>
                       }
@@ -873,7 +873,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="limitSetMaxSell()">{{ 'Max' | t }}</button>
                       }
@@ -941,8 +941,8 @@
               <div class="limit-size" [class.limit-size--warn]="limitBelowMin()">
                 @if (limitBelowMin()) { <lucide-icon name="triangle-alert" [size]="13" /> }
                 <span>
-                  Order size ≈ ${{ limitOrderUsd() | number:'1.2-2' }}
-                  @if (limitBelowMin()) { — below the ${{ MIN_LIMIT_USD }} minimum, increase the sell amount }
+                  {{ 'Order size ≈ ${v}' | t:{ v: limitOrderUsd() | number:'1.2-2' } }}
+                  @if (limitBelowMin()) { {{ '— below the ${m} minimum, increase the sell amount' | t:{ m: MIN_LIMIT_USD } }} }
                 </span>
               </div>
             }
@@ -979,7 +979,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="dcaSetHalf()">{{ 'Half' | t }}</button>
                         <button class="pump-panel__max" type="button" (click)="dcaSetMax()">{{ 'Max' | t }}</button>
@@ -1094,8 +1094,8 @@
               <div class="limit-size" [class.limit-size--warn]="dcaBelowMin()">
                 @if (dcaBelowMin()) { <lucide-icon name="triangle-alert" [size]="13" /> }
                 <span>
-                  Each order ≈ ${{ dcaPerOrderUsd() | number:'1.2-2' }}
-                  @if (dcaBelowMin()) { — below the ${{ MIN_DCA_ORDER_USD }} minimum, raise the total or lower the order count }
+                  {{ 'Each order ≈ ${v}' | t:{ v: dcaPerOrderUsd() | number:'1.2-2' } }}
+                  @if (dcaBelowMin()) { {{ '— below the ${m} minimum, raise the total or lower the order count' | t:{ m: MIN_DCA_ORDER_USD } }} }
                 </span>
               </div>
             }
@@ -1104,9 +1104,9 @@
             @if (dcaPer !== null && dcaIntervalLabel()) {
               <div class="pump-summary">
                 {{ 'Swap' | t }} <strong>{{ dcaPer | number:'1.0-6' }} {{ dcaSpendTd.symbol }}</strong>
-                to {{ dcaBuyTd.symbol }} every <strong>{{ dcaIntervalLabel() }}</strong>
-                {{ 'over' | t }} <strong>{{ getEditParam('numberOfOrders') }}</strong> orders
-                ({{ getEditParam('totalAmount') }} {{ dcaSpendTd.symbol }} total).
+                {{ 'to' | t }} {{ dcaBuyTd.symbol }} {{ 'every' | t }} <strong>{{ dcaIntervalLabel() }}</strong>
+                {{ 'over' | t }} <strong>{{ getEditParam('numberOfOrders') }}</strong> {{ 'orders' | t }}
+                ({{ 'total of {n} {s}' | t:{ n: getEditParam('totalAmount'), s: dcaSpendTd.symbol } }}).
               </div>
             }
           </div>
@@ -1151,7 +1151,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="perpSetHalfCollateral()">{{ 'Half' | t }}</button>
                         <button class="pump-panel__max" type="button" (click)="perpSetMaxCollateral()">{{ 'Max' | t }}</button>
@@ -1247,7 +1247,7 @@
             <div class="limit-size" [class.limit-size--warn]="perpBelowMinCollateral()">
               @if (perpBelowMinCollateral()) { <lucide-icon name="triangle-alert" [size]="13" /> }
               <span>
-                Minimum ${{ PERP_MIN_COLLATERAL_USD }} collateral
+                {{ 'Minimum ${n} collateral' | t:{ n: PERP_MIN_COLLATERAL_USD } }}
                 @if (perpBelowMinCollateral()) { — add more collateral to open the position }
               </span>
             </div>
@@ -1273,11 +1273,9 @@
                    to see which pool was avoided and what it would have paid. -->
               <div class="clmm-min-hint">
                 <lucide-icon name="shield-check" [size]="13" />
-                Moved to this pair's main pool. The one first picked holds
-                {{ formatUsdCompact(swap.fromTvl) }} and earned fees worth about
-                {{ swap.fromApr.toFixed(1) }}% a year over the last day; this one holds
-                {{ formatUsdCompact(swap.toTvl) }} and earned about
-                {{ swap.toApr.toFixed(1) }}% — same deposit, same risk.
+                {{ 'Moved to this pair\'s main pool. The one first picked holds {fromTvl} and earned fees worth about {fromApr}% a year over the last day; this one holds {toTvl} and earned about {toApr}% — same deposit, same risk.'
+                   | t:{ fromTvl: formatUsdCompact(swap.fromTvl), fromApr: swap.fromApr.toFixed(1),
+                         toTvl: formatUsdCompact(swap.toTvl), toApr: swap.toApr.toFixed(1) } }}
               </div>
             }
 
@@ -1326,7 +1324,7 @@
               </div>
 
               @if (clmmSetupCostLine(); as line) {
-                <p class="clmm-setup-cost" [class.clmm-setup-cost--warn]="!line.ok">{{ line.text }}</p>
+                <p class="clmm-setup-cost" [class.clmm-setup-cost--warn]="!line.ok">{{ line.text | t }}</p>
               }
             </div>
 
@@ -1595,15 +1593,11 @@
                      [class.clmm-min-hint--warn]="editParams()['poolPriceOutOfRange'] === 'true'">
                   @if (editParams()['poolPriceOutOfRange'] === 'true') {
                     <lucide-icon name="alert-circle" [size]="13" />
-                    This pool's price has left its liquidity band, so a deposit goes in
-                    one-sided and earns no fees until the price comes back.
+                    {{ 'This pool\'s price has left its liquidity band, so a deposit goes in one-sided and earns no fees until the price comes back.' | t }}
                   } @else if (editParams()['poolConcentrated'] === 'true') {
-                    This DAMM v2 pool concentrates its liquidity in a price band set when
-                    the pool was created — you can't change it here. Both sides go in at
-                    the pool's current ratio.
+                    {{ 'This DAMM v2 pool concentrates its liquidity in a price band set when the pool was created — you can\'t change it here. Both sides go in at the pool\'s current ratio.' | t }}
                   } @else {
-                    DAMM v2 is a constant-product pool — liquidity covers every price, so
-                    there is no range to set. Both sides go in at the pool's current ratio.
+                    {{ 'DAMM v2 is a constant-product pool — liquidity covers every price, so there is no range to set. Both sides go in at the pool\'s current ratio.' | t }}
                   }
                 </div>
 
@@ -1613,11 +1607,8 @@
                        person should be able to see what was avoided. -->
                   <div class="clmm-min-hint">
                     <lucide-icon name="shield-check" [size]="13" />
-                    Moved to the main pool for this pair. The one first picked holds only
-                    {{ formatUsdCompact(swap.fromTvl) }} of liquidity — your deposit would have
-                    been most of it, and you would be trading against yourself. This one holds
-                    {{ formatUsdCompact(swap.toTvl) }} and, at the last day's trading, is
-                    earning fees worth about {{ swap.toApr.toFixed(1) }}% a year.
+                    {{ 'Moved to the main pool for this pair. The one first picked holds only {fromTvl} of liquidity — your deposit would have been most of it, and you would be trading against yourself. This one holds {toTvl} and, at the last day\'s trading, is earning fees worth about {toApr}% a year.'
+                       | t:{ fromTvl: formatUsdCompact(swap.fromTvl), toTvl: formatUsdCompact(swap.toTvl), toApr: swap.toApr.toFixed(1) } }}
                   </div>
                 }
               </div>
@@ -1625,11 +1616,9 @@
               @if (dlmmPoolSwap(); as swap) {
                 <div class="clmm-min-hint">
                   <lucide-icon name="shield-check" [size]="13" />
-                  Moved to this pair's main pool. The one first picked holds
-                  {{ formatUsdCompact(swap.fromTvl) }} and earned fees worth about
-                  {{ swap.fromApr.toFixed(1) }}% a year over the last day; this one holds
-                  {{ formatUsdCompact(swap.toTvl) }} and earned about
-                  {{ swap.toApr.toFixed(1) }}% — same deposit, same risk.
+                  {{ 'Moved to this pair\'s main pool. The one first picked holds {fromTvl} and earned fees worth about {fromApr}% a year over the last day; this one holds {toTvl} and earned about {toApr}% — same deposit, same risk.'
+                     | t:{ fromTvl: formatUsdCompact(swap.fromTvl), fromApr: swap.fromApr.toFixed(1),
+                           toTvl: formatUsdCompact(swap.toTvl), toApr: swap.toApr.toFixed(1) } }}
                 </div>
               }
               <div class="clmm-section">
@@ -1672,30 +1661,28 @@
                   }
                 </div>
                 <div class="clmm-min-hint" [class.clmm-min-hint--warn]="meteoraBinsOverflow()">
-                  Total bins: {{ meteoraTotalBins() }}{{ meteoraBinsOverflow() ? ' — past the ' + METEORA_MAX_BINS + ' bins one transaction can carry; narrow the range' : '' }}.
+                  {{ 'Total bins: {n}' | t:{ n: meteoraTotalBins() } }}{{ meteoraBinsOverflow() ? ('  — past the {m} bins one transaction can carry; narrow the range' | t:{ m: METEORA_MAX_BINS }) : '' }}.
                   Liquidity is shaped
-                  {{ meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly across the range' }}.
+                  {{ (meteoraStrategy() === 'curve' ? 'toward the current price' : meteoraStrategy() === 'bidask' ? 'toward the range edges' : 'evenly across the range') | t }}.
                 </div>
               </div>
             }
 
             <div class="clmm-section">
-              <div class="clmm-section__title">{{ isMeteoraAddToPosition() ? 'Amount to add' : 'Add Deposit Amount' }}</div>
+              <div class="clmm-section__title">{{ (isMeteoraAddToPosition() ? 'Amount to add' : 'Add Deposit Amount') | t }}</div>
               <div class="clmm-min-hint">
-                Type either amount — the other follows at the pool's current ratio.
+                {{ 'Type either amount — the other follows at the pool\'s current ratio.' | t }}
                 @if (isMeteoraDlmm() && !isMeteoraAddToPosition()) {
                   <!-- Only a NEW position creates an account to pay rent on;
                        adding to one that already exists does not. -->
-                  Opening the position also locks ~{{ METEORA_POSITION_RENT }} SOL of rent, refunded when you close it.
+                  {{ 'Opening the position also locks ~{n} SOL of rent, refunded when you close it.' | t:{ n: METEORA_POSITION_RENT } }}
                 }
                 @if (dlmmSingleSidedX()) {
-                  <br />The range sits entirely above the current price, so the pool only takes
-                  {{ editParams()['tokenASymbol'] || 'token A' }} here — it converts to
-                  {{ editParams()['tokenBSymbol'] || 'token B' }} as the price rises through your bins.
+                  <br />{{ 'The range sits entirely above the current price, so the pool only takes {a} here — it converts to {b} as the price rises through your bins.'
+                        | t:{ a: editParams()['tokenASymbol'] || 'token A', b: editParams()['tokenBSymbol'] || 'token B' } }}
                 } @else if (dlmmSingleSidedY()) {
-                  <br />The range sits entirely below the current price, so the pool only takes
-                  {{ editParams()['tokenBSymbol'] || 'token B' }} here — it converts to
-                  {{ editParams()['tokenASymbol'] || 'token A' }} as the price falls through your bins.
+                  <br />{{ 'The range sits entirely below the current price, so the pool only takes {b} here — it converts to {a} as the price falls through your bins.'
+                        | t:{ a: editParams()['tokenASymbol'] || 'token A', b: editParams()['tokenBSymbol'] || 'token B' } }}
                 }
               </div>
 
@@ -1712,7 +1699,7 @@
                 <div class="clmm-amount-row__body">
                   <input class="clmm-amount-input" type="text" inputmode="decimal"
                          pattern="[0-9]*[.,]?[0-9]*"
-                         [placeholder]="dlmmSingleSidedY() ? 'Not used at this range' : '0'"
+                         [placeholder]="dlmmSingleSidedY() ? ('Not used at this range' | t) : '0'"
                          [disabled]="dlmmSingleSidedY()"
                          [value]="dlmmSingleSidedY() ? '' : (editParams()['amountA'] ?? '')"
                          (input)="setEditParam('amountA', normalizeDecimal($any($event.target).value)); noteAmountEdit('A')" />
@@ -1742,7 +1729,7 @@
                 <div class="clmm-amount-row__body">
                   <input class="clmm-amount-input" type="text" inputmode="decimal"
                          pattern="[0-9]*[.,]?[0-9]*"
-                         [placeholder]="dlmmSingleSidedX() ? 'Not used at this range' : '0'"
+                         [placeholder]="dlmmSingleSidedX() ? ('Not used at this range' | t) : '0'"
                          [disabled]="dlmmSingleSidedX()"
                          [value]="dlmmSingleSidedX() ? '' : (editParams()['amountB'] ?? '')"
                          (input)="setEditParam('amountB', normalizeDecimal($any($event.target).value)); noteAmountEdit('B')" />
@@ -1793,7 +1780,7 @@
                       <span class="ray-wd__icon ray-wd__icon--b ray-wd__icon--letter">{{ (rv.symB || '?').charAt(0) }}</span>
                     }
                   </span>
-                  <span class="ray-wd__pair">{{ rv.pair || 'Position' }}</span>
+                  <span class="ray-wd__pair">{{ (rv.pair || 'Position') | t }}</span>
                   <span class="ray-wd__kind">{{ rv.kind }}</span>
                 </div>
                 @if (rv.ref) {
@@ -1868,9 +1855,9 @@
 
               <div class="clmm-min-hint">
                 @if (rpct >= 100) {
-                  Pulls all liquidity out of the bins.
+                  {{ 'Pulls all liquidity out of the bins.' | t }}
                 } @else {
-                  Leaves {{ 100 - rpct | number:'1.0-1' }}% of the position in the pool, still earning fees.
+                  {{ 'Leaves {p}% of the position in the pool, still earning fees.' | t:{ p: 100 - rpct | number:'1.0-1' } }}
                 }
               </div>
 
@@ -1880,11 +1867,11 @@
               @if (rpct >= 100) {
                 <div class="clmm-min-hint clmm-min-hint--warn">
                   <lucide-icon name="alert-circle" [size]="13" />
-                  This does not close the position or claim fees.
+                  {{ 'This does not close the position or claim fees.' | t }}
                   @if (meteoraPositionDetail()?.hasFees) {
                     Claim first, or the accrued fees stay behind.
                   }
-                  The position account keeps holding {{ meteoraRentRefund() | number:'1.0-6' }} SOL of rent —
+                  {{ 'The position account keeps holding {n} SOL of rent —' | t:{ n: meteoraRentRefund() | number:'1.0-6' } }}
                   use <strong>{{ 'Close' | t }}</strong> {{ 'instead if you are done with this position, since that
                   withdraws, claims and returns the rent in one go.' | t }}
                 </div>
@@ -1921,7 +1908,7 @@
               <div class="clmm-section__title">{{ 'Amount' | t }}</div>
               <div class="clmm-amount-row">
                 <div class="clmm-amount-row__top">
-                  <span class="clmm-amount-row__label">{{ sTd.symbol || 'Token' }}</span>
+                  <span class="clmm-amount-row__label">{{ (sTd.symbol || 'Token') | t }}</span>
                   <span class="clmm-amount-row__bal">
                     @if (sBal !== null) { Balance: {{ sBal | number:'1.0-6' }} }
                     @if (sBal !== null && sBal > 0) {
@@ -1940,7 +1927,7 @@
                     } @else {
                       <span class="clmm-token-pill__icon clmm-token-pill__icon--letter">{{ (sTd.symbol || '?').charAt(0) }}</span>
                     }
-                    <span class="clmm-token-pill__sym">{{ sTd.symbol || 'Token' }}</span>
+                    <span class="clmm-token-pill__sym">{{ (sTd.symbol || 'Token') | t }}</span>
                   </div>
                 </div>
               </div>
@@ -1984,7 +1971,7 @@
               @let pd = meteoraPositionDetail();
               @if (meOfferBelowMin()) {
             <lucide-icon name="alert-circle" [size]="14" />
-            Minimum offer {{ ME_MIN_OFFER_SOL }} SOL
+            {{ 'Minimum offer {n} SOL' | t:{ n: ME_MIN_OFFER_SOL } }}
           } @else if (meteoraPositionGone()) {
                 <div class="clmm-min-hint clmm-min-hint--warn">
                   <lucide-icon name="alert-circle" [size]="13" />
@@ -2068,7 +2055,7 @@
                 </div>
               } @else {
                 <div class="clmm-min-hint">
-                  Nothing to fill in — confirm to sign this action for the {{ cv.refLabel | lowercase }} above.
+                  {{ 'Nothing to fill in — confirm to sign this action for the {r} above.' | t:{ r: cv.refLabel | lowercase } }}
                 </div>
               }
             </div>
@@ -2124,7 +2111,7 @@
               <div class="clmm-amount-row">
                 <div class="clmm-amount-row__top">
                   <span class="clmm-amount-row__label">{{ dv.symA }}</span>
-                  <span class="clmm-amount-row__bal">In position: {{ dv.currentA }}</span>
+                  <span class="clmm-amount-row__bal">{{ 'In position:' | t }} {{ dv.currentA }}</span>
                 </div>
                 <div class="clmm-amount-row__body">
                   <input
@@ -2152,7 +2139,7 @@
               <div class="clmm-amount-row">
                 <div class="clmm-amount-row__top">
                   <span class="clmm-amount-row__label">{{ dv.symB }}</span>
-                  <span class="clmm-amount-row__bal">In position: {{ dv.currentB }}</span>
+                  <span class="clmm-amount-row__bal">{{ 'In position:' | t }} {{ dv.currentB }}</span>
                 </div>
                 <div class="clmm-amount-row__body">
                   <input
@@ -2177,14 +2164,14 @@
               @if (dv.closes) {
                 <div class="clmm-min-hint">
                   @if (dv.kind === 'LP') {
-                    Burns all your LP tokens and returns both sides of the pool to your wallet.
+                    {{ 'Burns all your LP tokens and returns both sides of the pool to your wallet.' | t }}
                   } @else {
-                    Withdrawing everything also closes the position and refunds its rent.
+                    {{ 'Withdrawing everything also closes the position and refunds its rent.' | t }}
                   }
                 </div>
               } @else {
                 <div class="clmm-min-hint">
-                  The position stays open with the remaining {{ 100 - dpct | number:'1.0-1' }}% and keeps earning fees.
+                  {{ 'The position stays open with the remaining {p}% and keeps earning fees.' | t:{ p: 100 - dpct | number:'1.0-1' } }}
                 </div>
               }
             </div>
@@ -2481,7 +2468,7 @@
                 </div>
                 @if (wv.ref) {
                   <div class="ray-wd__ref">
-                    <span class="ray-wd__ref-label">{{ wv.kind === 'LP' ? 'Pool' : 'Position' }}</span>
+                    <span class="ray-wd__ref-label">{{ (wv.kind === 'LP' ? 'Pool' : 'Position') | t }}</span>
                     <code class="ray-wd__ref-value">{{ wv.ref.slice(0, 6) }}…{{ wv.ref.slice(-6) }}</code>
                     <button type="button" class="ray-wd__copy" (click)="copyValue(wv.ref)" [attr.title]="'Copy address' | t">
                       <lucide-icon [name]="copiedField() === wv.ref ? 'check' : 'copy'" [size]="12" />
@@ -2490,9 +2477,9 @@
                 }
               </div>
               <div class="clmm-min-hint">
-                {{ wv.kind === 'LP'
+                {{ (wv.kind === 'LP'
                    ? 'Burns your LP tokens and returns both sides of the pool to your wallet.'
-                   : 'Withdraws all liquidity + earned fees, closes the position, and refunds its rent.' }}
+                   : 'Withdraws all liquidity + earned fees, closes the position, and refunds its rent.') | t }}
               </div>
             </div>
           </div>
@@ -2530,7 +2517,7 @@
             <div class="perp-summary">
               <div class="perp-summary__row">
                 <span class="perp-summary__k">{{ 'Action' | t }}</span>
-                <span class="perp-summary__v">Close {{ perpMarket() }}-PERP {{ perpSide() }}</span>
+                <span class="perp-summary__v">{{ 'Close' | t }} {{ perpMarket() }}-PERP {{ perpSide() }}</span>
               </div>
               <div class="perp-summary__row">
                 <span class="perp-summary__k">{{ 'Amount' | t }}</span>
@@ -2551,7 +2538,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -2636,7 +2623,7 @@
                 <span class="pump-panel__label">{{ 'Withdraw' | t }}</span>
                 @if (wlDeposited != null && wlDeposited > 0) {
                   <span class="pump-panel__bal">
-                    Deposited: {{ wlDeposited | number:'1.0-4' }} {{ wlTd.symbol }}
+                    {{ 'Deposited:' | t }} {{ wlDeposited | number:'1.0-4' }} {{ wlTd.symbol }}
                     @if (isEditable()) {
                       <button class="pump-panel__max" type="button" (click)="setMaxLendWithdraw()">{{ 'Max' | t }}</button>
                     }
@@ -2674,7 +2661,7 @@
               </div>
               <div class="pump-panel__row">
                 <span class="pump-panel__amount pump-panel__amount--muted">
-                  {{ wlTd.symbol }} back to your wallet
+                  {{ '{s} back to your wallet' | t:{ s: wlTd.symbol } }}
                 </span>
               </div>
             </div>
@@ -2704,7 +2691,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -2741,7 +2728,7 @@
                 @if (jlpQuote(); as jq) {
                   <span class="pump-panel__amount">≈ {{ jq.out | number:'1.0-4' }}</span>
                 } @else {
-                  <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpQuoteLoading() ? 'Estimating…' : 'JLP at pool rate' }}</span>
+                  <span class="pump-panel__amount pump-panel__amount--muted">{{ (jlpQuoteLoading() ? 'Estimating…' : 'JLP at pool rate') | t }}</span>
                 }
                 @let jlpTok = jlpMintTd();
                 <span class="pump-token">
@@ -2768,7 +2755,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }} JLP
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }} JLP
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -2806,7 +2793,7 @@
                 @if (jlpQuote(); as jq) {
                   <span class="pump-panel__amount">≈ {{ jq.out | number:'1.0-4' }}</span>
                 } @else {
-                  <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpQuoteLoading() ? 'Estimating…' : jlpRecvTd.symbol + ' at pool rate' }}</span>
+                  <span class="pump-panel__amount pump-panel__amount--muted">{{ jlpQuoteLoading() ? ('Estimating…' | t) : ('{s} at pool rate' | t:{ s: jlpRecvTd.symbol }) }}</span>
                 }
                 <span class="pump-token">
                   @if (jlpRecvTd.logoURI) {
@@ -2836,7 +2823,7 @@
                 <span class="pump-panel__label">{{ 'Collateral' | t }}</span>
                 @if (selCol && selCol.balance > 0) {
                   <span class="pump-panel__bal">
-                    Balance: {{ selCol.balance | number:'1.0-4' }} {{ selCol.symbol }}
+                    {{ 'Balance:' | t }} {{ selCol.balance | number:'1.0-4' }} {{ selCol.symbol }}
                     @if (isEditable()) {
                       <button class="pump-panel__max" type="button" (click)="setMaxCollateral()">{{ 'Max' | t }}</button>
                     }
@@ -2887,7 +2874,7 @@
                 </div>
                 @if (selCol && selCol.balance <= 0) {
                   <div class="bc-no-balance-hint">
-                    No {{ selCol.symbol }} in your wallet — enter an amount to simulate.
+                    {{ 'No {s} in your wallet — enter an amount to simulate.' | t:{ s: selCol.symbol } }}
                   </div>
                 }
               }
@@ -2994,7 +2981,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -3021,7 +3008,7 @@
 
             <div class="lend-hf-explain">
               <lucide-icon name="info" [size]="11" />
-              Repays your outstanding {{ repayTd.symbol }} debt on Jupiter Lend. Use Max to clear it in full.
+              {{ 'Repays your outstanding {s} debt on Jupiter Lend. Use Max to clear it in full.' | t:{ s: repayTd.symbol } }}
             </div>
           </div>
         } @else if (action.type === 'kamino_deposit') {
@@ -3036,7 +3023,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -3063,7 +3050,7 @@
 
             <div class="lend-hf-explain">
               <lucide-icon name="info" [size]="11" />
-              Supplies {{ kmDepTd.symbol }} to Kamino Lend — earns yield and can back borrows.
+              {{ 'Supplies {s} to Kamino Lend — earns yield and can back borrows.' | t:{ s: kmDepTd.symbol } }}
             </div>
           </div>
         } @else if (action.type === 'kamino_borrow') {
@@ -3076,7 +3063,7 @@
                 <span class="pump-panel__label">{{ 'Borrow' | t }}</span>
                 @if (kmbStats && kmbStats.hasPosition && kmbStats.maxBorrowable > 0 && isEditable()) {
                   <span class="pump-panel__bal">
-                    Max: {{ kmbStats.maxBorrowable | number:'1.0-4' }}
+                    {{ 'Max:' | t }} {{ kmbStats.maxBorrowable | number:'1.0-4' }}
                     <button class="pump-panel__max" type="button" (click)="setKaminoBorrowMax(0.5)">{{ 'Half' | t }}</button>
                     <button class="pump-panel__max" type="button" (click)="setKaminoBorrowMax(1)">{{ 'Max' | t }}</button>
                   </span>
@@ -3159,12 +3146,12 @@
                       <span class="bc-stat-value">${{ kmbStats.borrowUsd | number:'1.0-2' }}</span>
                     </div>
                     <div class="bc-stat">
-                      <span class="bc-stat-label">{{ 'Collateral needed' | t }} <span style="opacity:.6">(at {{ kmbStats.maxLtvPct | number:'1.0-0' }}% Max LTV)</span></span>
+                      <span class="bc-stat-label">{{ 'Collateral needed' | t }} <span style="opacity:.6">{{ '(at {p}% Max LTV)' | t:{ p: kmbStats.maxLtvPct | number:'1.0-0' } }}</span></span>
                       <span class="bc-stat-value bc-stat-value--brand">≈ ${{ kmbStats.requiredCollateralUsd | number:'1.0-2' }}</span>
                     </div>
                     <div class="bc-error">
                       <lucide-icon name="alert-circle" [size]="12" />
-                      No collateral on Kamino yet — deposit ≈ ${{ kmbStats.requiredCollateralUsd | number:'1.0-2' }} first, then borrow. Risk (LTV, health factor, liquidation) goes live once you have collateral.
+                      {{ 'No collateral on Kamino yet — deposit ≈ ${v} first, then borrow. Risk (LTV, health factor, liquidation) goes live once you have collateral.' | t:{ v: kmbStats.requiredCollateralUsd | number:'1.0-2' } }}
                     </div>
                   </div>
                 } @else {
@@ -3190,7 +3177,7 @@
             } @else {
               <div class="lend-hf-explain">
                 <lucide-icon name="info" [size]="11" />
-                Borrows {{ kmBorTd.symbol }} against your Kamino collateral — keep an eye on your health factor to avoid liquidation.
+                {{ 'Borrows {s} against your Kamino collateral — keep an eye on your health factor to avoid liquidation.' | t:{ s: kmBorTd.symbol } }}
               </div>
             }
           </div>
@@ -3207,7 +3194,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable() && kmrStats && kmrStats.hasDebt) {
                         <button class="pump-panel__max" type="button" (click)="setKaminoRepayMax()">{{ 'Max' | t }}</button>
                       }
@@ -3293,7 +3280,7 @@
               } @else {
                 <div class="lend-hf-explain">
                   <lucide-icon name="info" [size]="11" />
-                  No open {{ kmRepTd.symbol }} debt on Kamino for this wallet.
+                  {{ 'No open {s} debt on Kamino for this wallet.' | t:{ s: kmRepTd.symbol } }}
                 </div>
               }
 
@@ -3310,7 +3297,7 @@
             } @else {
               <div class="lend-hf-explain">
                 <lucide-icon name="info" [size]="11" />
-                Repays {{ kmRepTd.symbol }} debt on Kamino Lend — lowers your LTV and raises your health factor.
+                {{ 'Repays {s} debt on Kamino Lend — lowers your LTV and raises your health factor.' | t:{ s: kmRepTd.symbol } }}
               </div>
             }
           </div>
@@ -3324,7 +3311,7 @@
                 <span class="pump-panel__label">{{ 'Withdraw' | t }}</span>
                 @if (kmwStats && kmwStats.hasSupply && isEditable()) {
                   <span class="pump-panel__bal">
-                    Supplied: {{ kmwStats.suppliedToken | number:'1.0-4' }}
+                    {{ 'Supplied:' | t }} {{ kmwStats.suppliedToken | number:'1.0-4' }}
                     <button class="pump-panel__max" type="button" (click)="setKaminoWithdrawMax()">{{ 'Max' | t }}</button>
                   </span>
                 }
@@ -3408,7 +3395,7 @@
               } @else {
                 <div class="lend-hf-explain">
                   <lucide-icon name="info" [size]="11" />
-                  You have no {{ kmWTd.symbol }} supplied on Kamino to withdraw.
+                  {{ 'You have no {s} supplied on Kamino to withdraw.' | t:{ s: kmWTd.symbol } }}
                 </div>
               }
 
@@ -3425,7 +3412,7 @@
             } @else {
               <div class="lend-hf-explain">
                 <lucide-icon name="info" [size]="11" />
-                Withdraws {{ kmWTd.symbol }} you supplied to Kamino Lend back to your wallet.
+                {{ 'Withdraws {s} you supplied to Kamino Lend back to your wallet.' | t:{ s: kmWTd.symbol } }}
               </div>
             }
           </div>
@@ -3442,7 +3429,7 @@
                     @if (inputBalanceLoading()) {
                       <span class="proto-balance-dots">···</span>
                     } @else {
-                      Balance: {{ inputBalance() | number:'1.0-4' }}
+                      {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                       @if (isEditable()) {
                         <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                       }
@@ -3488,7 +3475,7 @@
                   </div>
                   <div class="bc-stat">
                     <span class="bc-stat-label">{{ 'You receive' | t }}</span>
-                    <span class="bc-stat-value bc-stat-value--brand">≈ {{ kmvStats.sharesReceived | number:'1.0-4' }} shares</span>
+                    <span class="bc-stat-value bc-stat-value--brand">≈ {{ '{n} shares' | t:{ n: kmvStats.sharesReceived | number:'1.0-4' } }}</span>
                   </div>
                 }
                 <div class="bc-stat">
@@ -3499,7 +3486,7 @@
 
               <div class="lend-hf-explain">
                 <lucide-icon name="info" [size]="11" />
-                Auto-managed vault — deposits your {{ kmVTd.symbol }} across Kamino Lend markets and rebalances for yield. You receive vault shares that grow in value.
+                {{ 'Auto-managed vault — deposits your {s} across Kamino Lend markets and rebalances for yield. You receive vault shares that grow in value.' | t:{ s: kmVTd.symbol } }}
               </div>
             } @else if (kaminoVaultLoading()) {
               <div class="lend-hf-explain">
@@ -3509,7 +3496,7 @@
             } @else {
               <div class="lend-hf-explain">
                 <lucide-icon name="info" [size]="11" />
-                Deposits {{ kmVTd.symbol }} into an automated Kamino Earn vault.
+                {{ 'Deposits {s} into an automated Kamino Earn vault.' | t:{ s: kmVTd.symbol } }}
               </div>
             }
           </div>
@@ -3527,7 +3514,7 @@
                 <span class="pump-panel__label">{{ 'Withdraw' | t }}</span>
                 @if (kmvwStats && kmvwStats.sharesHeld > 0) {
                   <span class="pump-panel__bal">
-                    Position: {{ kmvwStats.sharesHeld | number:'1.0-4' }}
+                    {{ 'Position:' | t }} {{ kmvwStats.sharesHeld | number:'1.0-4' }}
                     @if (isEditable()) {
                       <button class="pump-panel__max" type="button" (click)="setKaminoVaultWithdrawMax()">{{ 'Max' | t }}</button>
                     }
@@ -3634,12 +3621,12 @@
                      address on chain 56 and refused, which read as our bug. -->
                 @if (relayOriginIsEvm() && !relaySenderReady()) {
                   <div class="relay-out__connect">
-                    <span class="relay-out__idle">{{ relayChainName(getEditParam('originChainId')) }} needs a wallet to send from.</span>
+                    <span class="relay-out__idle">{{ '{c} needs a wallet to send from.' | t:{ c: relayChainName(getEditParam('originChainId')) } }}</span>
                     <button type="button" class="proto-btn-confirm relay-out__connect-btn"
                             [disabled]="!isEditable() || evmConnecting()"
                             (click)="connectEvmWallet('sender')">
                       <lucide-icon name="wallet" [size]="13" />
-                      {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                      {{ (evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet') | t }}
                     </button>
                   </div>
                 } @else if (relayEvmChainMismatch()) {
@@ -3650,7 +3637,7 @@
                     <button type="button" class="proto-btn-confirm relay-out__connect-btn"
                             [disabled]="!isEditable() || relayEvmSwitching()"
                             (click)="switchEvmChain()">
-                      {{ relayEvmSwitching() ? 'Check your wallet…' : 'Switch to ' + relayChainName(getEditParam('originChainId')) }}
+                      {{ relayEvmSwitching() ? ('Check your wallet…' | t) : ('Switch to {c}' | t:{ c: relayChainName(getEditParam('originChainId')) }) }}
                     </button>
                   </div>
                 }
@@ -3755,12 +3742,12 @@
                 <!-- Where it lands: connected and named, or asked for. -->
                 @if (relayDestinationIsEvm() && !relayRecipientReady()) {
                   <div class="relay-out__connect">
-                    <span class="relay-out__idle">{{ relayChainName(getEditParam('destinationChainId')) }} needs a wallet to land in.</span>
+                    <span class="relay-out__idle">{{ '{c} needs a wallet to land in.' | t:{ c: relayChainName(getEditParam('destinationChainId')) } }}</span>
                     <button type="button" class="proto-btn-confirm relay-out__connect-btn"
                             [disabled]="!isEditable() || evmConnecting()"
                             (click)="connectEvmWallet('recipient')">
                       <lucide-icon name="wallet" [size]="13" />
-                      {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                      {{ (evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet') | t }}
                     </button>
                     @if (evmError(); as e) { <span class="relay-out__err">{{ e }}</span> }
                   </div>
@@ -3777,9 +3764,9 @@
 
                 @if (relayQuote(); as q) {
                   <div class="relay-out__meta">
-                    @if (q.feeUsd) { <span>Fee {{ q.feeUsd }}</span> }
+                    @if (q.feeUsd) { <span>{{ 'Fee' | t }} {{ q.feeUsd }}</span> }
                     @if (q.seconds !== null) { <span>·</span><span>~{{ q.seconds }}s</span> }
-                    @if (q.impact) { <span>·</span><span>Impact {{ q.impact }}%</span> }
+                    @if (q.impact) { <span>·</span><span>{{ 'Impact' | t }} {{ q.impact }}%</span> }
                   </div>
                 } @else if (relayQuoteError()) {
                   <div class="relay-out__err">{{ relayQuoteError() | t }}</div>
@@ -3804,7 +3791,7 @@
                   @if (field.hint) {
                     <span class="proto-field-info" tabindex="0" [attr.aria-label]="'More info' | t">
                       <lucide-icon name="info" [size]="12" />
-                      <span class="proto-field-info__tip" role="tooltip">{{ field.hint }}</span>
+                      <span class="proto-field-info__tip" role="tooltip">{{ field.hint | t }}</span>
                     </span>
                   }
                 </label>
@@ -3866,7 +3853,7 @@
                   <div class="proto-amount-row" [class.proto-amount-row--paired]="!!amountEst">
                     <div class="proto-input-wrap" [class.proto-input-wrap--locked]="dlmmLocked">
                       <input type="number" class="proto-input"
-                             [placeholder]="dlmmLocked ? 'Not used in this range' : (field.placeholder ?? '0')"
+                             [placeholder]="dlmmLocked ? ('Not used in this range' | t) : (field.placeholder ?? '0')"
                              [min]="field.min ?? null"
                              [max]="field.max ?? null"
                              [step]="field.step ?? 'any'"
@@ -3893,7 +3880,7 @@
                           {{ sufTd.symbol || field.suffix }}
                         </span>
                       } @else if (field.suffix) {
-                        <span class="proto-input-suffix">{{ field.suffix }}</span>
+                        <span class="proto-input-suffix">{{ field.suffix | t }}</span>
                       }
                     </div>
                     @if (amountEst; as est) {
@@ -3960,12 +3947,12 @@
                                 [disabled]="!isEditable() || evmConnecting()"
                                 (click)="connectEvmWallet(field.key)">
                           <lucide-icon name="wallet" [size]="13" />
-                          {{ evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet' }}
+                          {{ (evmConnecting() ? 'Check your wallet…' : 'Connect EVM wallet') | t }}
                         </button>
                         <button type="button" class="proto-evm-connect__link"
                                 [disabled]="!isEditable()"
                                 (click)="relayPasteRecipient.set(!relayPasteRecipient())">
-                          {{ relayPasteRecipient() ? 'Use a wallet' : 'Paste an address' }}
+                          {{ (relayPasteRecipient() ? 'Use a wallet' : 'Paste an address') | t }}
                         </button>
                       }
                       @if (evmError(); as e) { <span class="proto-evm-connect__err">{{ e }}</span> }
@@ -3978,7 +3965,7 @@
                   <div class="proto-address-wrap"
                        [hidden]="needsEvmRecipient(field.key) && !relayPasteRecipient() && !relayRecipientReady()">
                     <input type="text" class="proto-input proto-input--mono"
-                           [placeholder]="field.placeholder ?? 'Enter address...'"
+                           [placeholder]="field.placeholder ?? ('Enter address...' | t)"
                            [value]="getEditParam(field.key)"
                            (input)="setEditParam(field.key, $any($event.target).value); relayMaybeQuote(); recipientMaybeCheck()"
                            [disabled]="!isEditable()" />
@@ -4054,7 +4041,7 @@
                           (click)="isEditable() && toggleEditParam(field.key)"
                           [disabled]="!isEditable()">
                     <span class="proto-toggle-dot"></span>
-                    <span>{{ getEditParam(field.key) === 'true' ? 'Enabled' : 'Disabled' }}</span>
+                    <span>{{ (getEditParam(field.key) === 'true' ? 'Enabled' : 'Disabled') | t }}</span>
                   </button>
                 }
 
@@ -4169,7 +4156,7 @@
                   <span class="proto-dlmm-info__value">
                     {{ dr.binCount }} bins
                     @if (dlmmSingleSidedX()) {
-                      · single-sided ({{ inputBalanceSymbol() || 'A' }} only)
+                      · {{ 'single-sided' | t }} ({{ inputBalanceSymbol() || 'A' }} only)
                     } @else if (dlmmSingleSidedY()) {
                       · single-sided ({{ secondaryBalanceSymbol() || 'B' }} only)
                     } @else {
@@ -4278,10 +4265,10 @@
       <div class="stake-panels">
         <div class="pump-panel">
           <div class="pump-panel__top">
-            <span class="pump-panel__label">{{ cfg.direction === 'stake' ? 'You stake' : 'You unstake' }}</span>
+            <span class="pump-panel__label">{{ (cfg.direction === 'stake' ? 'You stake' : 'You unstake') | t }}</span>
             @if (inputBalance() !== null) {
               <span class="pump-panel__bal">
-                Balance: {{ inputBalance() | number:'1.0-4' }}
+                {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                 @if (isEditable()) {
                   <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                 }
@@ -4355,7 +4342,7 @@
             <span class="pump-panel__label">{{ 'You send' | t }}</span>
             @if (inputBalance() !== null) {
               <span class="pump-panel__bal">
-                Balance: {{ inputBalance() | number:'1.0-4' }}
+                {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                 @if (isEditable()) {
                   <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                 }
@@ -4379,7 +4366,7 @@
               } @else {
                 <span class="pump-token__icon pump-token__icon--ph">{{ (sendTd.symbol || '?').charAt(0) }}</span>
               }
-              <span class="pump-token__sym">{{ sendTd.symbol || 'Select' }}</span>
+              <span class="pump-token__sym">{{ (sendTd.symbol || 'Select') | t }}</span>
               <lucide-icon name="chevron-down" [size]="13" />
             </button>
           </div>
@@ -4450,7 +4437,7 @@
             <span class="pump-panel__label">{{ 'You burn' | t }}</span>
             @if (inputBalance() !== null) {
               <span class="pump-panel__bal">
-                Balance: {{ inputBalance() | number:'1.0-4' }}
+                {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                 @if (isEditable()) {
                   <button class="pump-panel__max" type="button" (click)="setBurnAll()">{{ 'All' | t }}</button>
                 }
@@ -4474,13 +4461,13 @@
               } @else {
                 <span class="pump-token__icon pump-token__icon--ph">{{ (burnTd.symbol || '?').charAt(0) }}</span>
               }
-              <span class="pump-token__sym">{{ burnTd.symbol || 'Select' }}</span>
+              <span class="pump-token__sym">{{ (burnTd.symbol || 'Select') | t }}</span>
               <lucide-icon name="chevron-down" [size]="13" />
             </button>
           </div>
           @if (burnAmountIsAll() && inputBalance() !== null) {
             <span class="pump-panel__usd">
-              Everything this wallet holds: {{ inputBalance() | number:'1.0-6' }} {{ burnTd.symbol }}.
+              {{ 'Everything this wallet holds: {n} {s}.' | t:{ n: inputBalance() | number:'1.0-6', s: burnTd.symbol } }}
             </span>
           }
         </div>
@@ -4495,7 +4482,7 @@
         <div class="pump-panel">
           <div class="pump-panel__top">
             <span class="pump-panel__label">
-              {{ isEditable() ? 'Empty token accounts' : 'Accounts closed' }}
+              {{ (isEditable() ? 'Empty token accounts' : 'Accounts closed') | t }}
             </span>
             @if (emptyAccountsLoading()) { <span class="proto-balance-dots">···</span> }
           </div>
@@ -4535,10 +4522,10 @@
                       [class.me-quick__btn--active]="emptyAllSelected()"
                       [disabled]="!isEditable()"
                       (click)="toggleAllEmptyAccounts()">
-                {{ emptyAllSelected() ? 'Clear all' : 'Select all' }}
+                {{ (emptyAllSelected() ? 'Clear all' : 'Select all') | t }}
               </button>
               <span class="close-head__count">
-                {{ emptySelected().size }} of {{ emptyAccounts().length }} selected
+                {{ '{a} of {b} selected' | t:{ a: emptySelected().size, b: emptyAccounts().length } }}
               </span>
             </div>
 
@@ -4561,10 +4548,10 @@
                     }
                   </span>
                   <span class="close-row__text">
-                    <span class="close-row__sym">{{ td.symbol || 'Unknown token' }}</span>
+                    <span class="close-row__sym">{{ (td.symbol || 'Unknown token') | t }}</span>
                     <span class="close-row__mint mono">
                       @if (stillHeld(a.mint); as bal) {
-                        <span class="close-row__held">You still hold {{ bal | number:'1.0-4' }}</span>
+                        <span class="close-row__held">{{ 'You still hold {n}' | t:{ n: bal | number:'1.0-4' } }}</span>
                       } @else {
                         {{ a.mint.slice(0, 4) }}…{{ a.mint.slice(-4) }}
                       }
@@ -4593,7 +4580,7 @@
             <span class="pump-panel__label">{{ 'You stake' | t }}</span>
             @if (inputBalance() !== null) {
               <span class="pump-panel__bal">
-                Balance: {{ inputBalance() | number:'1.0-4' }}
+                {{ 'Balance:' | t }} {{ inputBalance() | number:'1.0-4' }}
                 @if (isEditable()) {
                   <button class="pump-panel__max" type="button" (click)="setMaxAmount('amount')">{{ 'Max' | t }}</button>
                 }
@@ -4636,7 +4623,7 @@
           <span class="validator-picker__title">{{ 'Validator' | t }}</span>
           <button class="validator-picker__custom-btn" type="button"
                   (click)="validatorCustom.set(!validatorCustom())">
-            {{ validatorCustom() ? 'Pick from list' : 'Enter manually' }}
+            {{ (validatorCustom() ? 'Pick from list' : 'Enter manually') | t }}
           </button>
         </div>
 
@@ -4719,10 +4706,10 @@
                       @if (v.isJito) { <span class="vrow__tag">{{ 'Jito' | t }}</span> }
                     </span>
                     <span class="vrow__meta">
-                      {{ v.commission }}% fee
+                      {{ '{n}% fee' | t:{ n: v.commission } }}
                       <span class="vrow__dot">·</span>{{ (v.activatedStakeSol / 1000).toFixed(0) }}K SOL
-                      @if (v.uptimePct) { <span class="vrow__dot">·</span>{{ v.uptimePct }}% uptime }
-                      @if (v.jitoApyPct) { <span class="vrow__dot">·</span>incl. {{ v.jitoApyPct }}% MEV }
+                      @if (v.uptimePct) { <span class="vrow__dot">·</span>{{ '{n}% uptime' | t:{ n: v.uptimePct } }} }
+                      @if (v.jitoApyPct) { <span class="vrow__dot">·</span>{{ 'incl. {n}% MEV' | t:{ n: v.jitoApyPct } }} }
                     </span>
                   </span>
 
@@ -4776,7 +4763,7 @@
       <div class="validator-picker">
         <div class="validator-picker__header">
           <span class="validator-picker__title">
-            {{ isStakeMerge() ? 'Merge into' : 'Stake account' }}
+            {{ (isStakeMerge() ? 'Merge into' : 'Stake account') | t }}
           </span>
         </div>
 
@@ -4875,7 +4862,7 @@
               </span>
             </div>
             <div class="lend-info-row lend-info-row--sub">
-              <span class="lend-info-label">1 {{ $any(earn).jlSymbol }} value</span>
+              <span class="lend-info-label">1 {{ $any(earn).jlSymbol }} {{ 'value' | t }}</span>
               <span class="lend-info-value">≈ {{ $any(earn).assetsPerJlToken | number:'1.4-6' }} {{ $any(earn).assetSymbol }}</span>
             </div>
             @if ($any(earn).userDepositedAssets !== undefined) {
@@ -4917,7 +4904,7 @@
           <div class="proto-warn-body">
             <span class="proto-warn-title">{{ 'Insufficient balance' | t }}</span>
             <span class="proto-warn-desc">
-              Required: {{ editParams()['amount'] }} {{ inputBalanceSymbol() }} — Available: {{ inputBalance() | number:'1.0-6' }} {{ inputBalanceSymbol() }}
+              {{ 'Required:' | t }} {{ editParams()['amount'] }} {{ inputBalanceSymbol() }} — {{ 'Available:' | t }} {{ inputBalance() | number:'1.0-6' }} {{ inputBalanceSymbol() }}
             </span>
           </div>
           @if (inputBalanceMint()) {
@@ -4925,7 +4912,7 @@
               <img src="assets/icons/protocols/jupiter.webp" width="13" height="13"
                    style="border-radius:3px" [attr.alt]="'Jupiter' | t" onerror="this.style.display='none'" />
               <lucide-icon name="arrow-right-left" [size]="11" />
-              Buy {{ inputBalanceSymbol() }}
+              {{ 'Buy' | t }} {{ inputBalanceSymbol() }}
             </button>
           }
         </div>
@@ -4996,7 +4983,7 @@
                       </div>
                       <div class="qs-token-info">
                         <span class="qs-token-sym">{{ qsFromToken.symbol }}</span>
-                        <span class="qs-token-bal">{{ qsFromBalance | number:'1.0-4' }} available</span>
+                        <span class="qs-token-bal">{{ '{n} available' | t:{ n: qsFromBalance | number:'1.0-4' } }}</span>
                       </div>
                     </div>
                   }
@@ -5052,7 +5039,7 @@
                 <img src="assets/icons/protocols/jupiter.webp" width="14" height="14"
                      style="border-radius:3px" alt="" onerror="this.style.display='none'" />
                 <lucide-icon name="arrow-right-left" [size]="13" />
-                {{ qsNeededAmount }} {{ qsToTokenData.symbol }} — Swap
+                {{ qsNeededAmount }} {{ qsToTokenData.symbol }} — {{ 'Swap' | t }}
               }
             </button>
           }
@@ -5068,7 +5055,7 @@
         <div class="proto-warn-body">
           <span class="proto-warn-title">{{ 'Minimum amount' | t }}</span>
           <span class="proto-warn-desc">
-            Minimum {{ belowMinAmount() }} {{ belowMinAmount() !== null ? 'SOL' : '' }} required for this action.
+            {{ 'Minimum {n} SOL required for this action.' | t:{ n: belowMinAmount() } }}
           </span>
         </div>
       </div>
@@ -5149,22 +5136,22 @@
                   (click)="approve()">
             @if (meteoraPositionGone()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              Position already closed
+              {{ 'Position already closed' | t }}
             } @else if (nothingToClaim()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              Nothing to claim
+              {{ 'Nothing to claim' | t }}
             } @else if (meteoraPoolUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              Pick a pool first
+              {{ 'Pick a pool first' | t }}
             } @else if (meteoraBinsOverflow()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              Range too wide ({{ meteoraTotalBins() }} bins)
+              {{ 'Range too wide ({n} bins)' | t:{ n: meteoraTotalBins() } }}
             } @else if (meteoraInsufficient() !== null) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ meteoraInsufficient() }}
             } @else if (clmmUnresolved()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              Select a token pair
+              {{ 'Select a token pair' | t }}
             } @else if (clmmInsufficient() !== null) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ clmmInsufficient() }}
@@ -5176,10 +5163,10 @@
               {{ ammInsufficient() }}
             } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              Insufficient balance
+              {{ 'Insufficient balance' | t }}
             } @else if (swapBlockedByImpact()) {
               <lucide-icon name="alert-circle" [size]="14" />
-              {{ swapNoRoute() ? 'No route' : 'Price impact too high' }}
+              {{ (swapNoRoute() ? 'No route' : 'Price impact too high') | t }}
             } @else if (!canApprove()) {
               <lucide-icon name="alert-circle" [size]="14" />
               <!-- The reason travels with the gate that set it, so a new gate
@@ -5263,7 +5250,7 @@
             } @else {
               <lucide-icon name="undo-2" [size]="12" />
             }
-            {{ undoInProgress() ? 'Undoing...' : 'Undo' }}
+            {{ (undoInProgress() ? 'Undoing...' : 'Undo') | t }}
           </button>
         }
       }
@@ -5318,14 +5305,14 @@
         </div>
         <div class="tx-preview-header__text">
           <span class="tx-preview-header__title">
-            {{ preview()?.actionType?.includes('swap') ? 'Swap Preview' :
+            {{ (preview()?.actionType?.includes('swap') ? 'Swap Preview' :
                preview()?.actionType?.includes('transfer') ? 'Transfer Preview' :
                preview()?.actionType?.includes('stake') ? 'Stake Preview' :
                preview()?.actionType?.includes('unstake') ? 'Unstake Preview' :
                preview()?.actionType?.includes('lend') || preview()?.actionType?.includes('deposit') ? 'Deposit Preview' :
-               preview()?.actionType?.includes('borrow') ? 'Borrow Preview' : 'Transaction Preview' }}
+               preview()?.actionType?.includes('borrow') ? 'Borrow Preview' : 'Transaction Preview') | t }}
           </span>
-          <span class="tx-preview-header__subtitle">{{ preview()?.description }}</span>
+          <span class="tx-preview-header__subtitle">{{ preview()?.description | t }}</span>
         </div>
         <button class="tx-preview-close" type="button" (click)="cancelPreview()">
           <lucide-icon name="x" [size]="18" />
@@ -5444,7 +5431,7 @@
                         <span class="tx-preview-hop__pct">{{ hop.percent }}%</span>
                         @if (hop.feeAmount && hop.feeAmount > 0) {
                           <span class="tx-preview-hop__fee">
-                            fee {{ hop.feeAmount | number:'1.0-6' }} {{ hop.feeMint }}
+                            {{ 'fee' | t }} {{ hop.feeAmount | number:'1.0-6' }} {{ hop.feeMint }}
                           </span>
                         }
                       </span>
@@ -5478,12 +5465,12 @@
         <div class="tok-safety" [class.tok-safety--block]="safetyBlocks()">
           <div class="tok-safety__head">
             <lucide-icon [name]="safetyBlocks() ? 'shield-alert' : 'alert-circle'" [size]="15" />
-            <span>{{ safetyBlocks() ? 'This token can trap your money' : 'Worth knowing before you buy' }}</span>
+            <span>{{ (safetyBlocks() ? 'This token can trap your money' : 'Worth knowing before you buy') | t }}</span>
           </div>
           @for (f of safetyAlerts(); track f.title) {
             <div class="tok-safety__item">
               <div class="tok-safety__title">{{ f.title | t }}</div>
-              <div class="tok-safety__detail">{{ f.detail }}</div>
+              <div class="tok-safety__detail">{{ f.detail | t }}</div>
             </div>
           }
           @if (safetyBlocks()) {
@@ -5507,7 +5494,7 @@
                 (click)="confirmPreview()">
           @if (preview()?.canExecute) {
             <lucide-icon name="check" [size]="16" />
-            <span>Confirm & Sign</span>
+            <span>{{ 'Confirm & Sign' | t }}</span>
           } @else {
             <lucide-icon name="alert-circle" [size]="16" />
             <span>{{ 'Cannot Execute' | t }}</span>
@@ -5531,7 +5518,7 @@
       </button>
     </div>
     <p class="wallet-dialog__lede">
-      Where the bridge lands on {{ relayChainName(getEditParam('destinationChainId')) }}.
+      {{ 'Where the bridge lands on {c}.' | t:{ c: relayChainName(getEditParam('destinationChainId')) } }}
     </p>
     <div class="wallet-dialog__list">
       @for (w of evmWallets(); track w.id) {
@@ -5605,7 +5592,7 @@
             <div class="token-dialog__empty">{{ 'Searching…' | t }}</div>
           } @else if (!relayPickerRows().length) {
             <div class="token-dialog__empty">
-              Nothing on {{ relayChainName(relayPickerChain()) }} by that name.
+              {{ 'Nothing on {c} by that name.' | t:{ c: relayChainName(relayPickerChain()) } }}
             </div>
           }
           @for (r of relayPickerRows(); track r.address) {
