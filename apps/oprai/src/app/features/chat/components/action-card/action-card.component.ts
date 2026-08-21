@@ -3276,6 +3276,77 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  /**
+   * "Buy $X of TOKEN on <evm chain>" pays from what the wallet actually holds.
+   *
+   * The model denominates a dollar buy in a stablecoin (USDG) so "$0.2" maps to
+   * "0.2 USDG" — trivially, because a stablecoin is worth $1. But a wallet that
+   * holds no USDG cannot pay with it: Relay simulates the swap, it reverts on a
+   * zero balance, and the card shows "insufficient funds" for money the user
+   * plainly has — just in ETH, not USDG. Native ETH is the one asset every EVM
+   * wallet holds (it pays gas), so it is the safe pay default. Repoint the pay
+   * side to native ETH and convert the dollar figure to an ETH amount with a
+   * price-only quote. A held stablecoin is still selectable in the token picker.
+   *
+   * Same-chain EVM buys only. Cross-chain and Solana origins are untouched, and
+   * any failure leaves the card exactly as the model built it.
+   */
+  private async relayPreferNativeEvmPay(): Promise<void> {
+    if (!this.isRelayBridge() || !this.relayOriginIsEvm()) return;
+    const origin = this.relayCanonicalChain(this.getEditParam('originChainId'));
+    const dest = this.relayCanonicalChain(this.getEditParam('destinationChainId'));
+    if (!origin || origin !== dest) return; // same-chain only
+    const NATIVE = '0x0000000000000000000000000000000000000000';
+    const rawCur = (this.getEditParam('originCurrency') || '').trim();
+    if (!rawCur || /^0x0{40}$/.test(rawCur)) return; // already native
+    // Only reinterpret when the pay-token is a stablecoin — that is the case
+    // where the amount is a dollar figure rather than a token quantity.
+    const STABLES = new Set(['USDG', 'USDC', 'USDT', 'DAI', 'USDC.E', 'USDBC', 'USDB', 'FDUSD', 'PYUSD']);
+    const sym = (this.relayTokenDisplay('originCurrency')?.symbol ?? '').toUpperCase();
+    if (!STABLES.has(sym) && !STABLES.has(rawCur.toUpperCase())) return;
+    const usdAmount = Number(this.getEditParam('amount')) || 0;
+    if (usdAmount <= 0) return;
+    const dst = this.getEditParam('destinationCurrency').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(dst)) return; // destination not resolved yet
+    const ethUsd = await this.relayNativeUsdPrice(Number(origin), dst);
+    if (!ethUsd || ethUsd <= 0) return; // no price → leave the model's build alone
+    const ethAmount = usdAmount / ethUsd;
+    this.setEditParam('originCurrency', NATIVE);
+    this.setEditParam('amount', String(Number(ethAmount.toPrecision(6))));
+    // The pay token changed under it, so both caches must re-fire.
+    this.relayEvmBalanceKey = '';
+    this.relayQuoteKey = '';
+    this.relayMaybeQuote();
+  }
+
+  /**
+   * Dollars per 1 native ETH on `chain`, read from a price-only Relay quote.
+   * `currencyIn.amountUsd` is the USD value of the amount sent, independent of
+   * the token received, so any liquid destination yields the native price. Uses
+   * the same placeholder-sender quote the estimate does, so no wallet is needed.
+   */
+  private async relayNativeUsdPrice(chain: number, destinationCurrency: string): Promise<number | null> {
+    const probeEth = 0.01;
+    try {
+      const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'relay_get_quote',
+        params: {
+          originChainId: chain,
+          destinationChainId: chain,
+          originCurrency: '0x0000000000000000000000000000000000000000',
+          destinationCurrency,
+          amount: String(probeEth),
+          tradeType: 'EXACT_INPUT',
+        },
+      }));
+      const d = resp?.quote?.details ?? resp?.details ?? {};
+      const inUsd = Number(d?.currencyIn?.amountUsd);
+      return Number.isFinite(inUsd) && inUsd > 0 ? inUsd / probeEth : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Point the wallet at the chain the route leaves from. It has to happen
    *  before signing anyway; doing it here means the balance is true. */
   async switchEvmChain(): Promise<void> {
@@ -5819,7 +5890,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.ensureMeCancelTarget();
     this.relaySeedChains();
     if (this.isRelayBridge()) {
-      void this.resolveRelayNamedCurrencies();
+      // Resolve the named tokens to addresses first, then let a dollar-buy pick
+      // a pay token the wallet can actually spend — both read the resolved
+      // originCurrency/destinationCurrency.
+      void this.resolveRelayNamedCurrencies().then(() => this.relayPreferNativeEvmPay());
       this.startEvmDiscovery();
       void this.autoConnectEvm();
     }
