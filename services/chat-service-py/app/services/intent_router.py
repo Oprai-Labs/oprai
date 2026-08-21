@@ -340,6 +340,10 @@ Detection rules:
   explicitly. Wormhole and Mayan have no canonical id — when the user
   names them, still emit "relay" so the cross-chain prompt section loads
   (they route through `cross_chain_swap` inside that section).
+  This also covers a SAME-chain swap on an EVM chain: "swap USDC to WETH
+  on Base" is "relay" too, not Jupiter — there is no Jupiter on EVM, so
+  Relay is how OPRAI swaps within Base/Arbitrum/BSC/Polygon/Optimism/
+  Ethereum. Jupiter is only for Solana↔Solana.
 - Multiple protocols in one message: include all of them. "swap on Raydium
   then deposit to Kamino" → ["raydium","kamino"]. "swap 1 SOL to ETH on
   Base" → ["relay"] (cross-chain dominates; same-chain DEX is not Jupiter

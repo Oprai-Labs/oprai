@@ -29,6 +29,8 @@ pub async fn record_pending(
     fee_mint: Option<String>,
     fee_usd: Option<f64>,
     usd_price_source: Option<String>,
+    chain: String,
+    account_id: Option<String>,
 ) {
     let mut conn = match pool.get().await {
         Ok(c) => c,
@@ -42,10 +44,10 @@ pub async fn record_pending(
         INSERT INTO solana_schema.tx_economics
           (transaction_id, user_wallet, protocol, action, input_mint, output_mint,
            input_amount, output_amount, notional_usd, fee_bps, fee_mint, fee_usd,
-           usd_price_source, outcome)
+           usd_price_source, chain, account_id, outcome)
         VALUES ($1::uuid, $2, $3, $4, $5, $6,
                 NULLIF($7,'')::numeric, NULLIF($8,'')::numeric,
-                $9::numeric, $10, $11, $12::numeric, $13, 'pending')
+                $9::numeric, $10, $11, $12::numeric, $13, $14, $15, 'pending')
         ON CONFLICT (transaction_id) DO NOTHING
     "#;
 
@@ -63,6 +65,8 @@ pub async fn record_pending(
         .bind::<Nullable<Text>, _>(fee_mint)
         .bind::<Nullable<Double>, _>(fee_usd)
         .bind::<Nullable<Text>, _>(usd_price_source)
+        .bind::<Text, _>(chain)
+        .bind::<Nullable<Text>, _>(account_id)
         .execute(&mut conn)
         .await;
 
@@ -114,6 +118,11 @@ pub async fn finalize_confirmed(
         }
     }
 
+    // The account that owns this wallet — cashback tier is computed from the
+    // account's POOLED volume across all its wallets/chains (the "volume is
+    // common to all chains" rule), read from within solana_schema.
+    let account_id = account_id_for_tx(pool, transaction_id).await;
+
     // Server-authoritative volume: read the value actually moved on chain and
     // overwrite notional_usd (+ fee_usd, from the server-computed fee_bps column)
     // before the rollups read it. Only for rows that carry a signature.
@@ -122,10 +131,10 @@ pub async fn finalize_confirmed(
             crate::services::onchain_value::confirmed_trade_notional_usd(http, sig, &wallet).await
         {
             // Cashback earned on this trade = tier % of the (server-computed) fee.
-            // The tier comes from the wallet's volume BEFORE this tx is rolled up,
-            // i.e. the tier it held while trading.
+            // The tier comes from the account's pooled volume BEFORE this tx is
+            // rolled up, i.e. the tier it held while trading.
             let cashback_pct = crate::services::fees::cashback_pct_for_volume(
-                wallet_volume_usd(pool, &wallet).await,
+                account_tier_volume_usd(pool, account_id.as_deref(), &wallet).await,
             ) as f64;
             if let Err(e) = diesel::sql_query(
                 r#"UPDATE solana_schema.tx_economics
@@ -146,19 +155,23 @@ pub async fn finalize_confirmed(
         }
     }
 
-    // Wallet cumulative rollup (source of truth for tiers / points / top-wallets).
+    // Wallet cumulative rollup, keyed per (wallet, chain) — one row per chain a
+    // wallet trades on, so per-chain cashback views populate correctly. account_id
+    // is carried so the pooled-tier query can sum a whole account in one place.
     if let Err(e) = diesel::sql_query(
         r#"INSERT INTO solana_schema.wallet_economics_rollup
-             (user_wallet, lifetime_notional_usd, lifetime_fee_usd, lifetime_cashback_usd,
-              confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
-           SELECT user_wallet, COALESCE(notional_usd,0), COALESCE(fee_usd,0),
+             (user_wallet, chain, account_id, lifetime_notional_usd, lifetime_fee_usd,
+              lifetime_cashback_usd, confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
+           SELECT user_wallet, COALESCE(chain,'solana'), account_id,
+                  COALESCE(notional_usd,0), COALESCE(fee_usd,0),
                   COALESCE(cashback_usd,0), 1, now(), now(), now()
            FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid
-           ON CONFLICT (user_wallet) DO UPDATE SET
+           ON CONFLICT (user_wallet, chain) DO UPDATE SET
              lifetime_notional_usd = wallet_economics_rollup.lifetime_notional_usd + EXCLUDED.lifetime_notional_usd,
              lifetime_fee_usd      = wallet_economics_rollup.lifetime_fee_usd      + EXCLUDED.lifetime_fee_usd,
              lifetime_cashback_usd = wallet_economics_rollup.lifetime_cashback_usd + EXCLUDED.lifetime_cashback_usd,
              confirmed_tx_count    = wallet_economics_rollup.confirmed_tx_count    + 1,
+             account_id = COALESCE(EXCLUDED.account_id, wallet_economics_rollup.account_id),
              last_tx_at = now(), updated_at = now()"#,
     )
     .bind::<Text, _>(transaction_id.to_string())
@@ -215,6 +228,212 @@ pub async fn wallet_volume_usd(pool: &DbPool, wallet: &str) -> f64 {
     .await
     .map(|r| r.v)
     .unwrap_or(0.0)
+}
+
+/// The account_id recorded on a tx's economics row, if any.
+async fn account_id_for_tx(pool: &DbPool, transaction_id: Uuid) -> Option<String> {
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Nullable<Text>)]
+        account_id: Option<String>,
+    }
+    let mut conn = pool.get().await.ok()?;
+    diesel::sql_query(
+        r#"SELECT account_id FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid"#,
+    )
+    .bind::<Text, _>(transaction_id.to_string())
+    .get_result::<Row>(&mut conn)
+    .await
+    .ok()
+    .and_then(|r| r.account_id)
+}
+
+/// The volume (USD) the cashback tier is computed from — the account's POOLED
+/// lifetime volume across all its wallets and chains when an account_id is known,
+/// else the single wallet's own volume. This keeps a user's tier "common to all
+/// chains": trading on Base counts toward the tier that sets Solana cashback and
+/// vice-versa. Stays inside solana_schema (no cross-schema read) because the
+/// rollup now carries account_id.
+pub async fn account_tier_volume_usd(pool: &DbPool, account_id: Option<&str>, wallet: &str) -> f64 {
+    let Some(acct) = account_id.filter(|a| !a.is_empty()) else {
+        return wallet_volume_usd(pool, wallet).await;
+    };
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Double)]
+        v: f64,
+    }
+    let mut conn = match pool.get().await {
+        Ok(c) => c,
+        Err(_) => return 0.0,
+    };
+    diesel::sql_query(
+        r#"SELECT COALESCE(sum(lifetime_notional_usd), 0)::double precision AS v
+           FROM solana_schema.wallet_economics_rollup
+           WHERE account_id = $1"#,
+    )
+    .bind::<Text, _>(acct)
+    .get_result::<Row>(&mut conn)
+    .await
+    .map(|r| r.v)
+    .unwrap_or(0.0)
+}
+
+/// Record a CONFIRMED EVM (Relay) swap's economics in one authoritative call.
+///
+/// EVM swaps have no Solana `transactions` lifecycle (no quote→build→sign→confirm
+/// through this service) and their volume can't be read from a Solana RPC, so the
+/// dedicated `/actions/relay/record` handler verifies the fill with Relay, takes
+/// `notional_usd` + `fee_usd` from Relay's own quote, and calls this. It inserts
+/// a `transactions` row (for history), a confirmed `tx_economics` row, and folds
+/// both into the wallet + daily rollups — the same rollups the Solana path writes,
+/// so tiers/points/rewards see every chain uniformly.
+///
+/// `cashback_usd` is computed here from the account's pooled tier. Idempotent on
+/// `tx_signature` (the EVM tx hash): a replayed confirm inserts nothing twice.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_evm_confirmed(
+    pool: &DbPool,
+    user_wallet: String,
+    account_id: Option<String>,
+    chain: String,
+    tx_signature: String,
+    protocol: String,
+    action: String,
+    input_symbol: Option<String>,
+    output_symbol: Option<String>,
+    notional_usd: f64,
+    fee_bps: i32,
+    fee_usd: f64,
+) -> Result<Uuid, String> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| format!("pool.get failed: {e}"))?;
+
+    // Idempotency: if this EVM tx hash was already recorded, return its id and
+    // roll up nothing more.
+    #[derive(diesel::QueryableByName)]
+    struct IdRow {
+        #[diesel(sql_type = Text)]
+        id: String,
+    }
+    if let Ok(existing) = diesel::sql_query(
+        r#"SELECT transaction_id::text AS id FROM solana_schema.tx_economics
+           WHERE tx_signature = $1 AND chain = $2 LIMIT 1"#,
+    )
+    .bind::<Text, _>(&tx_signature)
+    .bind::<Text, _>(&chain)
+    .get_result::<IdRow>(&mut conn)
+    .await
+    {
+        if let Ok(id) = Uuid::parse_str(&existing.id) {
+            return Ok(id);
+        }
+    }
+
+    // Pooled-tier cashback, from the account's cross-chain volume BEFORE this tx.
+    let cashback_pct = crate::services::fees::cashback_pct_for_volume(
+        account_tier_volume_usd(pool, account_id.as_deref(), &user_wallet).await,
+    ) as f64;
+    let cashback_usd = fee_usd * cashback_pct / 100.0;
+
+    // A transactions row for history. user_id is required (NOT NULL, UUID); the
+    // owning account is a UUID, so use it, falling back to nil for a wallet with
+    // no account yet.
+    let user_id = account_id
+        .as_deref()
+        .and_then(|a| Uuid::parse_str(a).ok())
+        .unwrap_or(Uuid::nil());
+    let tx_id = Uuid::new_v4();
+    if let Err(e) = diesel::sql_query(
+        r#"INSERT INTO solana_schema.transactions
+             (id, user_id, user_wallet, tx_hash, chain, status, action, protocol,
+              submitted_at, confirmed_at)
+           VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'confirmed', $6, $7, now(), now())"#,
+    )
+    .bind::<Text, _>(tx_id.to_string())
+    .bind::<Text, _>(user_id.to_string())
+    .bind::<Text, _>(&user_wallet)
+    .bind::<Text, _>(&tx_signature)
+    .bind::<Text, _>(&chain)
+    .bind::<Text, _>(&action)
+    .bind::<Text, _>(&protocol)
+    .execute(&mut conn)
+    .await
+    {
+        return Err(format!("transactions insert failed: {e}"));
+    }
+
+    // Confirmed economics row.
+    if let Err(e) = diesel::sql_query(
+        r#"INSERT INTO solana_schema.tx_economics
+             (transaction_id, tx_signature, user_wallet, protocol, action,
+              input_mint, output_mint, notional_usd, fee_bps, fee_usd, cashback_usd,
+              usd_price_source, chain, account_id, outcome, confirmed_at)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::numeric, $9, $10::numeric,
+                   $11::numeric, 'relay', $12, $13, 'confirmed', now())
+           ON CONFLICT (transaction_id) DO NOTHING"#,
+    )
+    .bind::<Text, _>(tx_id.to_string())
+    .bind::<Text, _>(&tx_signature)
+    .bind::<Text, _>(&user_wallet)
+    .bind::<Text, _>(&protocol)
+    .bind::<Text, _>(&action)
+    .bind::<Nullable<Text>, _>(input_symbol)
+    .bind::<Nullable<Text>, _>(output_symbol)
+    .bind::<Double, _>(notional_usd)
+    .bind::<Integer, _>(fee_bps)
+    .bind::<Double, _>(fee_usd)
+    .bind::<Double, _>(cashback_usd)
+    .bind::<Text, _>(&chain)
+    .bind::<Nullable<Text>, _>(account_id.clone())
+    .execute(&mut conn)
+    .await
+    {
+        return Err(format!("tx_economics insert failed: {e}"));
+    }
+
+    // Fold into the same rollups the Solana path writes (per wallet+chain, daily).
+    let _ = diesel::sql_query(
+        r#"INSERT INTO solana_schema.wallet_economics_rollup
+             (user_wallet, chain, account_id, lifetime_notional_usd, lifetime_fee_usd,
+              lifetime_cashback_usd, confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
+           SELECT user_wallet, COALESCE(chain,'solana'), account_id,
+                  COALESCE(notional_usd,0), COALESCE(fee_usd,0),
+                  COALESCE(cashback_usd,0), 1, now(), now(), now()
+           FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid
+           ON CONFLICT (user_wallet, chain) DO UPDATE SET
+             lifetime_notional_usd = wallet_economics_rollup.lifetime_notional_usd + EXCLUDED.lifetime_notional_usd,
+             lifetime_fee_usd      = wallet_economics_rollup.lifetime_fee_usd      + EXCLUDED.lifetime_fee_usd,
+             lifetime_cashback_usd = wallet_economics_rollup.lifetime_cashback_usd + EXCLUDED.lifetime_cashback_usd,
+             confirmed_tx_count    = wallet_economics_rollup.confirmed_tx_count    + 1,
+             account_id = COALESCE(EXCLUDED.account_id, wallet_economics_rollup.account_id),
+             last_tx_at = now(), updated_at = now()"#,
+    )
+    .bind::<Text, _>(tx_id.to_string())
+    .execute(&mut conn)
+    .await
+    .map_err(|e| tracing::warn!(error = %e, "evm rollup: wallet failed"));
+
+    let _ = diesel::sql_query(
+        r#"INSERT INTO solana_schema.daily_economics_rollup
+             (stat_date, protocol, volume_usd, fee_usd, tx_count, updated_at)
+           SELECT (now() AT TIME ZONE 'UTC')::date, COALESCE(protocol,'unknown'),
+                  COALESCE(notional_usd,0), COALESCE(fee_usd,0), 1, now()
+           FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid
+           ON CONFLICT (stat_date, protocol) DO UPDATE SET
+             volume_usd = daily_economics_rollup.volume_usd + EXCLUDED.volume_usd,
+             fee_usd    = daily_economics_rollup.fee_usd    + EXCLUDED.fee_usd,
+             tx_count   = daily_economics_rollup.tx_count   + 1,
+             updated_at = now()"#,
+    )
+    .bind::<Text, _>(tx_id.to_string())
+    .execute(&mut conn)
+    .await
+    .map_err(|e| tracing::warn!(error = %e, "evm rollup: daily failed"));
+
+    Ok(tx_id)
 }
 
 /// Finalize a failed/cancelled transaction — marks the ledger row (kept as

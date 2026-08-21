@@ -943,6 +943,12 @@ export class SolanaActionService {
       }
       switch ((status?.status ?? '').toLowerCase()) {
         case 'success':
+          // Book the trade's economics so it feeds per-chain rewards. The server
+          // re-verifies the fill and takes the amounts from Relay itself, so this
+          // is fire-and-forget — a failed record must never block the receipt.
+          this.api.post('/actions/relay/record', { requestId }).subscribe({
+            error: () => { /* recorded best-effort; server is authoritative */ },
+          });
           callbacks.onConfirm?.(originTx);
           return;
         case 'refunded':

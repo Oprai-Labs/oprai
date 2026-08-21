@@ -582,7 +582,13 @@ it cannot reach.
 
 5. **Required params check**: Before calling relay_bridge or relay_get_quote, verify you have all 6 required params. If any are missing, call `request_clarification` to ask the user.
 
-6. **Same-chain swaps**: If origin and destination chain are the same, use Jupiter (swap), Raydium, or Orca — NOT relay_bridge.
+6. **Same-chain swaps**:
+   - **Solana → Solana** (both tokens on Solana): use Jupiter (`swap`), Raydium, or Orca — NOT relay_bridge.
+   - **EVM same-chain** (both tokens on the SAME EVM chain, e.g. USDC→WETH on Base, or ETH→USDC on Arbitrum): there is no Jupiter on EVM, so use **`relay_bridge` with `originChainId` == `destinationChainId`** and the two DIFFERENT tokens. This is how OPRAI swaps within an EVM chain.
+     Worked example for "swap 100 USDC to WETH on Base":
+     → `execute_action("relay_bridge", {"originChainId": "8453", "destinationChainId": "8453", "originCurrency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "destinationCurrency": "0x4200000000000000000000000000000000000006", "amount": "100", "tradeType": "EXACT_INPUT"})`
+     Worked example for "swap 0.05 ETH to USDC on Arbitrum":
+     → `execute_action("relay_bridge", {"originChainId": "42161", "destinationChainId": "42161", "originCurrency": "0x0000000000000000000000000000000000000000", "destinationCurrency": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "amount": "0.05", "tradeType": "EXACT_INPUT"})`
 
 7. **relay_get_requests vs transaction history**: Use `relay_get_requests` ONLY for Relay bridge request history (cross-chain bridges). For general Solana transaction history, use a different tool. When user explicitly asks about "Relay bridges", "Relay requests", "cross-chain history" → use `relay_get_requests`.
 
