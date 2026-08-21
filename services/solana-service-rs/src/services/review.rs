@@ -161,7 +161,7 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
             // was live a fifth of the time. Saying "leave it alone" without
             // this describes a return the position never had.
             Some(share) if share < 0.6 => format!(
-                "Its range was only live {:.0}% of the last ten days, so it captures about {:.2}% of the pool's rate rather than the headline. That still beats {alternative_label} at {:.2}%, but a tighter range that tracked the price would earn considerably more.",
+                "Its range was only live {:.0}% of the last fourteen days, so it captures about {:.2}% of the pool's rate rather than the headline. That still beats {alternative_label} at {:.2}%, but a tighter range that tracked the price would earn considerably more.",
                 share * 100.0,
                 f.forward_apr,
                 f.alternative_apr
@@ -445,46 +445,115 @@ struct OpenPosition {
     unclaimed_fees_usd: Option<f64>,
 }
 
-/// Share of a window during which a position's range was actually live.
+/// Hourly USD prices for one mint, from Birdeye.
 ///
-/// A concentrated position earns only while the price sits inside its range,
-/// and "in range right now" says nothing about the rest of the week. Measured
-/// on a live wallet, three positions all reporting in-range had covered their
-/// ranges 16-19% of the previous ten days — so crediting them the pool's full
-/// APR, which is what reading the instantaneous flag does, described a return
-/// none of them earned.
+/// Returned keyed by timestamp so two mints can be joined into a pair price
+/// without assuming their series line up — they usually do, and a gap in one
+/// of them must drop the hour rather than pair it with a neighbour.
+async fn hourly_prices(
+    http: &reqwest::Client,
+    mint: &str,
+    days: i64,
+) -> Option<std::collections::HashMap<i64, f64>> {
+    let key = std::env::var("BIRDEYE_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let body: serde_json::Value = http
+        .get("https://public-api.birdeye.so/defi/history_price")
+        .header("X-API-KEY", key)
+        .header("x-chain", "solana")
+        .query(&[
+            ("address", mint),
+            ("address_type", "token"),
+            ("type", "1H"),
+            ("time_from", &(now - days * 86_400).to_string()),
+            ("time_to", &now.to_string()),
+        ])
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let items = body.get("data")?.get("items")?.as_array()?;
+    let out: std::collections::HashMap<i64, f64> = items
+        .iter()
+        .filter_map(|i| {
+            let t = i.get("unixTime")?.as_i64()?;
+            let v = i.get("value")?.as_f64()?;
+            (v > 0.0).then_some((t, v))
+        })
+        .collect();
+    (!out.is_empty()).then_some(out)
+}
+
+/// The price of one token in terms of the other, hour by hour.
 ///
-/// Each candle contributes the fraction of its own low-to-high span that falls
-/// inside the range, rather than a yes/no. Counting a whole day as live
-/// because the price touched the range once overstates badly: on the same data
-/// the yes/no reading gave one position 30% where the weighted reading gives
-/// 15.8%. The weighting assumes price covers a candle's span evenly, which is
-/// an approximation — but a far better one than assuming it sat in the range
-/// all day because it passed through.
+/// A concentrated position's range is quoted in exactly this unit, so the
+/// comparison needs no conversion. Built from two USD series rather than a
+/// pool's own candles because those cap at ten points however they are asked,
+/// exist only for Meteora, and — being daily — can only say whether price
+/// touched a range during a day, not how long it stayed.
 ///
-/// None when there are no candles, since a share of nothing is not zero.
-fn in_range_share(candles: &[(f64, f64)], lower: f64, upper: f64) -> Option<f64> {
-    if candles.is_empty() || !(upper > lower) {
+/// Measured against the same position and window, the daily reading gave 14%
+/// where the hourly truth was 8.8%.
+async fn pair_price_series(
+    http: &reqwest::Client,
+    mint_x: &str,
+    mint_y: &str,
+    days: i64,
+) -> Option<Vec<f64>> {
+    let (x, y) = tokio::join!(
+        hourly_prices(http, mint_x, days),
+        hourly_prices(http, mint_y, days),
+    );
+    let (x, y) = (x?, y?);
+    let mut out: Vec<f64> = x
+        .iter()
+        .filter_map(|(t, px)| {
+            let py = y.get(t)?;
+            (*py > 0.0).then(|| px / py)
+        })
+        .collect();
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    (!out.is_empty()).then_some(out)
+}
+
+/// A concentrated-liquidity tick, as a price of B per A in display units.
+///
+/// `1.0001^tick` is the ratio in raw base units; the decimals of the two sides
+/// have to be folded back in or the number is wrong by a factor of ten to the
+/// difference between them — for a 6/9 pair, a thousand. Getting the direction
+/// of that adjustment backwards produces a range that looks plausible and
+/// never contains the price, so it is pinned by a test.
+fn tick_to_price(tick: f64, dec_a: u8, dec_b: u8) -> f64 {
+    1.0001f64.powf(tick) * 10f64.powi(dec_a as i32 - dec_b as i32)
+}
+
+/// Share of the sampled hours the price sat inside a position's range.
+///
+/// Each sample is one hour at one price, so this is a plain count — no
+/// weighting, and none of the guesswork that came with reading a candle's
+/// span. None when there is nothing to measure, which is not zero.
+fn share_inside(prices: &[f64], lower: f64, upper: f64) -> Option<f64> {
+    if prices.is_empty() || !(upper > lower) {
         return None;
     }
-    let mut total = 0.0;
-    for (low, high) in candles {
-        let (low, high) = (*low, *high);
-        if !(high >= low) || low <= 0.0 {
-            continue;
-        }
-        if high == low {
-            // A flat candle is either in or out; there is no span to weight.
-            if low >= lower && low <= upper {
-                total += 1.0;
-            }
-            continue;
-        }
-        let overlap = (high.min(upper) - low.max(lower)).max(0.0);
-        total += overlap / (high - low);
-    }
-    Some((total / candles.len() as f64).clamp(0.0, 1.0))
+    let inside = prices
+        .iter()
+        .filter(|p| **p >= lower && **p <= upper)
+        .count();
+    Some(inside as f64 / prices.len() as f64)
 }
+
+/// How long the price has been recorded for. Fourteen days is what Birdeye
+/// returns at hourly resolution, and every message that quotes a share has to
+/// name the window it is a share of.
+const PRICE_WINDOW_DAYS: i64 = 14;
 
 /// Split a pool's balance across the positions inside it, by what each holds.
 ///
@@ -604,30 +673,11 @@ async fn read_dlmm_positions(
             ax * pool_price + ay
         };
 
-        // Ten daily candles — the endpoint caps at ten however it is asked, so
-        // the widest honest window is a daily one.
-        let candles: Vec<(f64, f64)> = {
-            let p = crate::services::meteora::MeteoraDlmmGetPoolOhlcvParams {
-                address: pool_addr.clone(),
-                timeframe: Some("24h".to_string()),
-                start_time: None,
-                end_time: None,
-            };
-            match crate::services::meteora::build_meteora_dlmm_get_pool_ohlcv(http, &p).await {
-                Ok(r) => r
-                    .data
-                    .as_ref()
-                    .and_then(|d| d.get("data"))
-                    .and_then(|d| d.as_array())
-                    .map(|rows| {
-                        rows.iter()
-                            .filter_map(|c| Some((num(c.get("low"))?, num(c.get("high"))?)))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                Err(_) => Vec::new(),
-            }
-        };
+        // Hourly pair prices for the window. One fetch per pool, shared by
+        // every position in it, since they all trade the same pair.
+        let prices = pair_price_series(http, &mint_x, &mint_y, PRICE_WINDOW_DAYS)
+            .await
+            .unwrap_or_default();
 
         let idle: Vec<String> = pool
             .get("positionsOutOfRange")
@@ -698,7 +748,7 @@ async fn read_dlmm_positions(
                 detail.and_then(|d| num(d.get("lowerPrice"))),
                 detail.and_then(|d| num(d.get("upperPrice"))),
             ) {
-                (Some(lo), Some(hi)) => in_range_share(&candles, lo, hi),
+                (Some(lo), Some(hi)) => share_inside(&prices, lo, hi),
                 _ => None,
             };
 
@@ -835,6 +885,19 @@ async fn read_orca_positions(
         let exit_cost_pct =
             crate::services::strategies::entry_cost_pct(http, &mint_a, &mint_b, value).await;
 
+        // Orca publishes no candles of its own, which is why these positions
+        // used to be credited the pool's headline rate whatever their range
+        // had been doing.
+        let in_range_share = match (num(p.get("priceLower")), num(p.get("priceUpper"))) {
+            (Some(lo), Some(hi)) => {
+                match pair_price_series(http, &mint_a, &mint_b, PRICE_WINDOW_DAYS).await {
+                    Some(prices) => share_inside(&prices, lo, hi),
+                    None => None,
+                }
+            }
+            _ => None,
+        };
+
         out.push(OpenPosition {
             venue: "Orca",
             address: text(p.get("positionAddress")),
@@ -845,7 +908,7 @@ async fn read_orca_positions(
                 text(p.get("tokenBSymbol"))
             ),
             earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
-            in_range_share: None,
+            in_range_share,
             quote_mint: mint_b,
             locked: false,
             usd_value: value,
@@ -941,6 +1004,19 @@ async fn read_dammv2_positions(
         );
         let (px, py) = (price_x.map(|t| t.0), price_y.map(|t| t.0));
 
+        // A DAMM v2 pool carries its bounds itself rather than per position,
+        // so one share covers every position in it. A full-range pool has no
+        // bounds worth measuring and keeps the whole window.
+        let pool_share = match (num(pool.get("minPrice")), num(pool.get("maxPrice"))) {
+            (Some(lo), Some(hi)) if hi > lo && lo > 0.0 && hi.is_finite() => {
+                match pair_price_series(http, &mint_x, &mint_y, PRICE_WINDOW_DAYS).await {
+                    Some(prices) => share_inside(&prices, lo, hi),
+                    None => None,
+                }
+            }
+            _ => None,
+        };
+
         for p in pool
             .get("positions")
             .and_then(|v| v.as_array())
@@ -975,7 +1051,7 @@ async fn read_dammv2_positions(
                 pool: pool_addr.clone(),
                 pair: pair.clone(),
                 earning,
-                in_range_share: None,
+                in_range_share: pool_share,
                 quote_mint: mint_y.clone(),
                 locked: p.get("locked").and_then(|v| v.as_bool()).unwrap_or(false),
                 usd_value: value,
@@ -1062,6 +1138,25 @@ async fn read_raydium_positions(
         let exit_cost_pct =
             crate::services::strategies::entry_cost_pct(http, &mint_a, &mint_b, value).await;
 
+        // Raydium reports ticks rather than prices, so the range has to be
+        // converted before it can be compared with anything.
+        let in_range_share = match (
+            num(p.get("tickLower")),
+            num(p.get("tickUpper")),
+            price_a.map(|t| t.1),
+            price_b.map(|t| t.1),
+        ) {
+            (Some(t_lo), Some(t_hi), Some(dec_a), Some(dec_b)) => {
+                let lo = tick_to_price(t_lo, dec_a, dec_b);
+                let hi = tick_to_price(t_hi, dec_a, dec_b);
+                match pair_price_series(http, &mint_a, &mint_b, PRICE_WINDOW_DAYS).await {
+                    Some(prices) => share_inside(&prices, lo, hi),
+                    None => None,
+                }
+            }
+            _ => None,
+        };
+
         out.push(OpenPosition {
             venue: "Raydium CLMM",
             address: text(p.get("positionId")),
@@ -1075,7 +1170,7 @@ async fn read_raydium_positions(
                 }
             },
             earning: amount_a > 0.0 && amount_b > 0.0,
-            in_range_share: None,
+            in_range_share,
             quote_mint: mint_b,
             locked: false,
             usd_value: value,
@@ -1352,76 +1447,47 @@ mod split_tests {
 }
 
 #[cfg(test)]
-mod in_range_tests {
+mod tick_tests {
     use super::*;
 
     #[test]
-    fn a_range_covering_every_candle_is_fully_live() {
-        let c = [(10.0, 12.0), (11.0, 13.0)];
-        assert_eq!(in_range_share(&c, 0.0, 100.0), Some(1.0));
+    fn equal_decimals_leave_the_ratio_alone() {
+        // At tick zero the ratio is one, and with matching decimals there is
+        // nothing to fold back in.
+        assert!((tick_to_price(0.0, 6, 6) - 1.0).abs() < 1e-12);
     }
 
     #[test]
-    fn a_range_the_price_never_reaches_is_never_live() {
-        let c = [(10.0, 12.0), (11.0, 13.0)];
-        assert_eq!(in_range_share(&c, 50.0, 60.0), Some(0.0));
+    fn the_decimal_adjustment_goes_the_right_way() {
+        // A six-decimal token priced in a nine-decimal one: the raw ratio has
+        // to be divided by a thousand, not multiplied. Backwards, a range
+        // comes out a million times off and never contains the price — which
+        // reads as "this position has never been in range" rather than as a
+        // bug.
+        let p = tick_to_price(0.0, 6, 9);
+        assert!((p - 0.001).abs() < 1e-12, "{p}");
+        let q = tick_to_price(0.0, 9, 6);
+        assert!((q - 1000.0).abs() < 1e-9, "{q}");
     }
 
     #[test]
-    fn a_candle_counts_only_the_part_of_its_span_inside_the_range() {
-        // Half of the 10-12 span sits above 11.
-        let share = in_range_share(&[(10.0, 12.0)], 11.0, 20.0).unwrap();
-        assert!((share - 0.5).abs() < 1e-9, "{share}");
+    fn a_higher_tick_is_a_higher_price() {
+        assert!(tick_to_price(100.0, 6, 6) > tick_to_price(0.0, 6, 6));
     }
 
     #[test]
-    fn touching_the_range_is_not_the_same_as_living_in_it() {
-        // The bug this replaces: a yes/no reading would call this a full day
-        // in range because the top of the candle grazes the bottom of the
-        // range. The weighted reading gives it a tenth.
-        let share = in_range_share(&[(10.0, 20.0)], 19.0, 30.0).unwrap();
-        assert!((share - 0.1).abs() < 1e-9, "{share}");
-    }
-
-    #[test]
-    fn a_flat_candle_is_in_or_out_with_no_span_to_weight() {
-        assert_eq!(in_range_share(&[(10.0, 10.0)], 9.0, 11.0), Some(1.0));
-        assert_eq!(in_range_share(&[(10.0, 10.0)], 11.0, 12.0), Some(0.0));
-    }
-
-    #[test]
-    fn no_candles_is_unknown_rather_than_zero() {
-        // Zero would read as "this range never earned", which is a claim.
-        assert_eq!(in_range_share(&[], 1.0, 2.0), None);
-    }
-
-    #[test]
-    fn an_inverted_or_empty_range_is_unknown() {
-        assert_eq!(in_range_share(&[(1.0, 2.0)], 5.0, 5.0), None);
-        assert_eq!(in_range_share(&[(1.0, 2.0)], 6.0, 5.0), None);
-    }
-
-    #[test]
-    fn the_measured_case_reproduces() {
-        // The live MET/SOL position: ten daily candles, of which the range
-        // covered a sixth. Pinned because this is the number that turns
-        // "earns 120%" into "earns a fraction of 120%".
-        let candles = [
-            (0.00207, 0.00230),
-            (0.00215, 0.00238),
-            (0.00220, 0.00252),
-            (0.00225, 0.00266),
-            (0.00210, 0.00240),
-            (0.00208, 0.00232),
-            (0.00212, 0.00236),
-            (0.00218, 0.00244),
-            (0.00214, 0.00239),
-            (0.00209, 0.00233),
-        ];
-        let share = in_range_share(&candles, 0.0023564, 0.0026993).unwrap();
+    fn a_real_range_brackets_its_own_pair_price() {
+        // A PUMP/SOL position: PUMP has six decimals, SOL nine, and the pair
+        // trades near 4.2e-05 SOL per PUMP. The ticks either side of that must
+        // convert to a range containing it.
+        let target = 4.2e-05f64;
+        let tick = (target / 10f64.powi(6 - 9)).ln() / 1.0001f64.ln();
+        let lo = tick_to_price(tick - 500.0, 6, 9);
+        let hi = tick_to_price(tick + 500.0, 6, 9);
         assert!(
-            share > 0.0 && share < 0.35,
-            "expected a small share, got {share}"
+            lo < target && target < hi,
+            "lo {lo} target {target} hi {hi}"
         );
+        assert_eq!(share_inside(&[target], lo, hi), Some(1.0));
     }
 }

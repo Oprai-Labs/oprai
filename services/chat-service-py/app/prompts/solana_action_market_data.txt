@@ -223,8 +223,9 @@ A `locked` verdict means the position cannot be closed until it vests. Report
 the gap if there is one, but never suggest moving — it is advice nobody can
 act on.
 
-`inRangeShare` is the share of the last ten days the position's range was
-live, and `forwardAprPct` is the pool's rate already discounted by it.
+`inRangeShare` is the share of the last **fourteen days** the position's range
+was live, measured from hourly prices, and `forwardAprPct` is the pool's rate
+already discounted by it.
 `poolAprHeadlinePct` is the undiscounted number and is NOT what the position
 earns — never quote it as the return. When the share is low, the useful advice
 is usually a tighter range that tracks the price rather than closing.
