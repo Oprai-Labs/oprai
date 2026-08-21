@@ -422,6 +422,20 @@ async def _resolve_account_id(s, wallet: str, account_hdr: str | None) -> str | 
     return str(row[0]) if row else None
 
 
+async def _resolve_evm_recipient(s, wallet: str, account_id: str | None) -> str | None:
+    """The EVM address an EVM-chain payout should land on. If the caller is signed
+    in with their EVM wallet, that IS the recipient; otherwise fall back to the
+    account's linked EVM wallet (via the wallet->account map)."""
+    if wallet and wallet.startswith("0x") and len(wallet) == 42:
+        return wallet
+    if account_id:
+        row = (await s.execute(sa_text(
+            "SELECT wallet FROM admin_schema.v_wallet_account "
+            "WHERE account_id=:a AND wallet LIKE '0x%' LIMIT 1"), {"a": account_id})).first()
+        return str(row[0]) if row else None
+    return None
+
+
 @app.get("/me/rewards")
 async def get_rewards(
     x_user_wallet: str = Header(..., alias="X-User-Wallet"),
@@ -567,18 +581,31 @@ async def claim_cashback(
     a retry can't double-spend. Lock is per (account, chain).
     """
     import os
+    from app.services import evm_payout
     w = x_user_wallet
     chain = (chain or "solana").lower()
     if chain not in CLAIM_CHAINS:
         raise HTTPException(status_code=400, detail="Unknown chain")
-    # EVM payouts need per-chain treasuries + real EVM rewards (none yet).
-    if chain != "solana":
-        raise HTTPException(
-            status_code=400,
-            detail=f"{CHAIN_TOKEN.get(chain, 'EVM')} claiming opens when EVM trading goes live.")
+
+    is_evm = chain != "solana"
+    # EVM payouts need the treasury key configured AND an EVM address to land on.
+    # Check both BEFORE reserving anything, so a config-off chain never leaves a
+    # dangling reservation.
+    evm_recipient: str | None = None
+    if is_evm:
+        if not evm_payout.treasury_configured():
+            raise HTTPException(
+                status_code=400,
+                detail=f"{CHAIN_TOKEN.get(chain, 'EVM')} claiming isn't enabled yet — check back soon.")
 
     async with async_session_factory() as s:
         account_id = await _resolve_account_id(s, w, x_user_account)
+        if is_evm:
+            evm_recipient = await _resolve_evm_recipient(s, w, account_id)
+            if not evm_recipient:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Link an EVM wallet to claim rewards on EVM chains.")
         lock_key = f"{account_id or w}:{chain}"
         await s.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"), {"k": lock_key})
 
@@ -616,25 +643,34 @@ async def claim_cashback(
             {"w": w, "acc": account_id, "c": chain, "a": claimable})).scalar()
         await s.commit()
 
+    # Pay out the NET (claimable minus the claim fee). A rejection BEFORE any
+    # transfer (treasury off, amount below floor) is safe to release; any other
+    # failure is ambiguous (the transfer may have broadcast) -> keep the row
+    # 'pending' for review, never a double payout.
+    #
+    # Solana pays via solana-service (it holds the SOL treasury key); EVM pays
+    # here via eth_account (the EVM treasury key lives in this service's env).
     solana = os.getenv("SOLANA_SERVICE_HTTP", "http://solana-service-rs:3030")
-    # A 400 from solana means the payout was rejected BEFORE any transfer (treasury
-    # not configured, amount below floor) -> safe to release the reservation. Any
-    # other failure is ambiguous (the transfer may have broadcast) -> keep the row
-    # 'pending' so the amount stays reserved and gets a manual review, never a
-    # double payout.
     released = False
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                f"{solana}/actions/cashback-payout",
-                headers={"X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY, "X-User-Wallet": w},
-                json={"amountUsd": net})  # pay the net (claimable minus the claim fee)
-        if r.status_code == 400:
-            released = True
-            raise RuntimeError(f"payout rejected: {r.text[:200]}")
-        if r.status_code != 200:
-            raise RuntimeError(f"payout returned {r.status_code}: {r.text[:200]}")
-        sig = r.json().get("signature")
+        if is_evm:
+            try:
+                sig = await evm_payout.payout(chain, evm_recipient, net)
+            except evm_payout.EvmPayoutError as e:
+                released = True
+                raise RuntimeError(f"payout rejected: {e}")
+        else:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    f"{solana}/actions/cashback-payout",
+                    headers={"X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY, "X-User-Wallet": w},
+                    json={"amountUsd": net})
+            if r.status_code == 400:
+                released = True
+                raise RuntimeError(f"payout rejected: {r.text[:200]}")
+            if r.status_code != 200:
+                raise RuntimeError(f"payout returned {r.status_code}: {r.text[:200]}")
+            sig = r.json().get("signature")
     except Exception as e:
         logger.warning("cashback payout failed for %s (released=%s): %r", w[:8], released, e)
         async with async_session_factory() as s:
