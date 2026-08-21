@@ -910,6 +910,30 @@ _PARTIAL_TOOL_NAME_RE = re.compile(
 # (If the user actually wrote in CJK / Thai, the model's reply would be
 # routed through LANGUAGE LOCK and would contain MOSTLY non-Latin text —
 # this pattern only triggers on isolated short clusters.)
+def _is_non_latin_island(line: str) -> bool:
+    """True when a non-Latin cluster sits inside an otherwise Latin line.
+
+    The distinction the caller needs is between a vocabulary-collision leak and
+    a reply written in the user's own script. A leak is an island: a few CJK or
+    Arabic glyphs stranded in a line that is otherwise Latin. A reply in
+    Chinese, Japanese, Korean, Thai, Hindi or Arabic is the opposite — the line
+    is mostly those glyphs, and deleting it deletes the answer.
+
+    The old check tested only for a cluster and dropped the line either way. Its
+    comment claimed the reply "would contain MOSTLY non-Latin text" and so would
+    be spared, but nothing measured that, so every line of a Chinese or Arabic
+    answer matched and every one was discarded.
+    """
+    if not _NON_LATIN_CLUSTER_RE.search(line):
+        return False
+    letters = [c for c in line if c.isalpha()]
+    if not letters:
+        return False
+    non_latin = sum(1 for c in letters if ord(c) > 0x2FF)
+    # Mostly the user's script → the reply itself. Only a minority → an island.
+    return non_latin / len(letters) < 0.5
+
+
 _NON_LATIN_CLUSTER_RE = re.compile(
     # CJK ideographs + Hiragana/Katakana + Hangul + Thai + Devanagari
     # + Arabic. Arabic block was missed in first pass — caught by the
@@ -963,7 +987,7 @@ def _drop_leak_lines(text: str) -> str:
             continue
         if _PARTIAL_TOOL_NAME_RE.search(ln):
             continue
-        if _NON_LATIN_CLUSTER_RE.search(ln):
+        if _is_non_latin_island(ln):
             continue
         if _BARE_TOOL_NAME_RE.match(ln):
             continue
