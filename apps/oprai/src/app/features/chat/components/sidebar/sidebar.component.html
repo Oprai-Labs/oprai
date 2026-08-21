@@ -54,7 +54,7 @@
             } @else {
               <div
                 class="session-item"
-                [class.active]="session.id === activeSessionId()"
+                [class.active]="isActive(session)"
                 (click)="onSelect(session)"
                 (contextmenu)="onContextMenu($event, session.id)"
               >

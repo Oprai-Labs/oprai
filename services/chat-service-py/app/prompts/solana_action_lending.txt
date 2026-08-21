@@ -341,6 +341,16 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
   whenever an incentive is doing the work — say both, because that is what
   tells the reader whether the ranking survives the programme ending.
 
+- The cost of borrowing against collateral is the **borrowed** asset's rate,
+  never the collateral's. Asked how to raise cash against cbBTC, an answer
+  quoted "0.19% — very low", which is what it costs to borrow *cbBTC*. The
+  loan was in USDC, costing around 10%, and 0.19% made a real expense look
+  like a rounding error. Name the asset each rate belongs to.
+- A rate at high utilisation is not a rate you can rely on. Kamino's USDC
+  reserve sat at 95% utilisation and moved between 10% and 21% within
+  minutes; the curve is near-vertical there. When utilisation is above ~90%,
+  say that the rate can move sharply rather than quoting it as a steady one.
+
 **kamino_market_reserves** — Every asset in a Kamino market WITH ITS RATES
 - market: Market address
 - This is where Kamino's lending rates live: each row carries `supplyApy`,

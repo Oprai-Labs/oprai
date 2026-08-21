@@ -42,8 +42,17 @@ PROTOCOLS: dict[str, dict] = {
     },
     "marinade": {
         "name": "Marinade (mSOL)",
-        # Returns {"value": 0.0678, "end_time": "...", ...} — APY is in "value"
-        "url": "https://api.marinade.finance/msol/apy/1y",
+        # Returns {"value": 0.0678, "end_time": "...", ...} — APY is in "value".
+        #
+        # Thirty days, not one year. Both windows are honest numbers and the
+        # system was quoting them interchangeably: this card read 6.24% (the
+        # one-year average) while the staking-yields tool read 5.57% (thirty
+        # days). A leveraged-staking answer then compared the one-year average
+        # against a borrow rate quoted for today and found a positive spread
+        # that does not exist — on the same window it is clearly negative.
+        # One fact, one number, and the shorter window is the one that can be
+        # compared with a rate that moves hourly.
+        "url": "https://api.marinade.finance/msol/apy/30d",
         "method": "GET",
         "category": "liquid_staking",
         "mint": _verified_mint("mSOL"),

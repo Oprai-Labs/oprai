@@ -26,6 +26,31 @@ export class SidebarComponent implements OnInit {
   readonly sessions = this.sessionStorage.sessions;
   readonly groupedSessions = this.sessionStorage.groupedSessions;
   readonly activeSessionId = this.sessionStorage.activeSessionId;
+
+  /**
+   * Whether this row is the conversation on screen.
+   *
+   * A session keeps its `local:` id in the list even after the server assigns
+   * a real one — `aliasSession` records the server id alongside rather than
+   * replacing it. Navigating to /c/<uuid> then sets the active id to the
+   * server form, so a direct `session.id === activeSessionId()` compares two
+   * names for the same thread and finds them different. The row stayed
+   * unhighlighted and there was no way to tell which chat you were in.
+   *
+   * Both sides are resolved through the alias map, and the server id is
+   * checked too, so the match holds whichever name each side happens to hold.
+   */
+  isActive(session: { id: string; serverId?: string }): boolean {
+    const active = this.activeSessionId();
+    if (!active) return false;
+    const resolvedActive = this.sessionStorage.resolveId(active);
+    return (
+      session.id === active ||
+      session.serverId === active ||
+      this.sessionStorage.resolveId(session.id) === resolvedActive ||
+      session.serverId === resolvedActive
+    );
+  }
   readonly sessionsLoading = signal(false);
 
   readonly menuSessionId = signal<string | null>(null);
