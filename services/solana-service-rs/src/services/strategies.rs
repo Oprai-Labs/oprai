@@ -551,7 +551,10 @@ pub async fn build_token_strategies(
                 "yieldPct": apy,
                 "yieldBasis": "current supply rate",
                 "venueSizeUsd": supplied,
-                "depositShare": share,
+                // Null when no size was given — there is no share of a pool
+                // without an amount, and reporting zero read as "takes none
+                // of it".
+                "depositShare": params.usd_value.filter(|_| supplied > 0.0).map(|v| v / supplied),
                 // Upfront is what the wallet must have; refundable comes back
                 // on withdrawal; net is what the yield has to earn back.
                 "upfrontSol": lend_rent,
@@ -616,9 +619,23 @@ pub async fn build_token_strategies(
             } else {
                 0.0
             };
-            let share = params.usd_value.map(|v| v / tvl).unwrap_or(0.0);
-            if share > MAX_VENUE_SHARE {
-                continue;
+            // A position that would be most of the pool cannot get in or out
+            // at the price the pool advertises. With no size given there is no
+            // share to compute — and treating that as "share zero" turned the
+            // guard off entirely, which is how a question with no amount in it
+            // came back recommending a $41 pool. Unknown size falls back to an
+            // absolute floor instead: no size makes a pool that small usable.
+            match params.usd_value {
+                Some(v) if tvl > 0.0 => {
+                    if v / tvl > MAX_VENUE_SHARE {
+                        continue;
+                    }
+                }
+                _ => {
+                    if tvl < MIN_POOL_TVL_FOR_A_HEADLINE_USD {
+                        continue;
+                    }
+                }
             }
 
             let apr_24h = fees24 * 365.0 / tvl * 100.0;
@@ -692,7 +709,11 @@ pub async fn build_token_strategies(
                 // Said outright rather than left to be inferred from a number.
                 "tooNewToJudge": age_days < MIN_POOL_AGE_DAYS,
                 "venueSizeUsd": tvl,
-                "depositShare": share,
+                // Null when no size was given — there is no share of a pool
+                // without an amount, and reporting zero read as "takes none of
+                // it", which is what disabled the size guard in the first
+                // place.
+                "depositShare": params.usd_value.filter(|_| tvl > 0.0).map(|v| v / tvl),
                 "upfrontSol": rent,
                 "refundableSol": rent,
                 // Entry swap included: it is the part that actually costs

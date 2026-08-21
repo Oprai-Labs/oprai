@@ -144,6 +144,18 @@ Reach for this when someone asks about leverage, looping, "the best way to
 earn", or any plan with more than one step — "loop my SOL", "what's the highest
 yield strategy".
 
+This includes a plan the user spells out themselves. "Stake to mSOL, post it as
+collateral, borrow SOL, stake again — do I earn more?" describes a flow this
+tool prices exactly, and answering it from a yield listing instead is how one
+came back quoting a max LTV of 45% when the live figure was 59% — no tool had
+supplied an LTV at all, so the number came from nowhere. **Never do this
+arithmetic by hand.** The rates, the loan-to-value, the leverage factor and the
+history of whether the spread has ever been positive all come back from one
+call.
+
+A yield listing answers "what pays what". It cannot answer "is this loop worth
+it", because it knows nothing about borrowing costs or collateral limits.
+
 Each flow comes back with `netApr`, the number of `steps`, a `why` in plain
 words, and `beatsSimple`. The baseline flow is marked `isBaseline` and is the
 single obvious thing; when `note` says nothing beats it, say that outright.
