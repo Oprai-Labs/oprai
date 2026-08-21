@@ -3178,19 +3178,11 @@ async def edit_message_stream(
             _ChatMessageORM.created_at >= target.created_at,
         )
     )
+    # Counted here for the audit entry, but NOT yet deleted. The supersede
+    # happens inside the stream, immediately before the replacement turn is
+    # written — see below for why.
     affected = (await db.execute(affected_stmt)).scalars().all()
     now_iso = _dt.now(UTC).isoformat()
-    for m in affected:
-        meta = dict(m.metadata_ or {})
-        if meta.get("superseded_at"):
-            continue  # already gone — skip
-        meta["superseded_at"] = now_iso
-        meta["superseded_by_edit_of"] = str(target.id)
-        m.metadata_ = meta
-        # SQLAlchemy with JSONB needs the attribute marked dirty for the
-        # in-place dict mutation to be flushed. Re-assign the whole field.
-
-    await db.commit()
 
     _audit(db, AuditEvent(
         event_type=AuditEventType.ACTION_EXECUTED,
@@ -3225,6 +3217,39 @@ async def edit_message_stream(
 
         async with async_session_factory() as stream_db:
             try:
+                # Delete the old turn only now, with the replacement about to
+                # be written in the same session.
+                #
+                # This used to be committed in the handler, before the stream
+                # existed. Anything that went wrong afterwards — the client
+                # hanging up, the generator raising — left the user's message
+                # deleted with nothing put in its place, and the only way out
+                # was to type it again. Which is exactly what it looks like
+                # from the outside: a retry that behaves as though you had
+                # sent a new message.
+                superseded_stmt = (
+                    select(_ChatMessageORM)
+                    .where(
+                        _ChatMessageORM.session_id == session_uuid,
+                        _ChatMessageORM.wallet_address == wallet,
+                        _ChatMessageORM.created_at >= target.created_at,
+                    )
+                )
+                for m in (await stream_db.execute(superseded_stmt)).scalars().all():
+                    meta = dict(m.metadata_ or {})
+                    if meta.get("superseded_at"):
+                        continue  # already gone — skip
+                    meta["superseded_at"] = now_iso
+                    meta["superseded_by_edit_of"] = str(target.id)
+                    # JSONB needs the whole field reassigned for an in-place
+                    # dict mutation to be flushed.
+                    m.metadata_ = meta
+                # Deliberately not committed on its own. The replacement turn
+                # flushes in this same session, so the old messages disappear
+                # at the moment the new one is written and not a step before
+                # it. If the stream raises first, the session rolls back and
+                # the conversation is exactly as the user left it.
+
                 async for chunk in message_svc.stream_chat_response(
                     stream_db, session_id, wallet, content,
                     is_first_message=False,
