@@ -47,6 +47,12 @@ pub struct PositionFacts {
     /// it could not be measured, in which case the instantaneous flag is all
     /// there is to go on.
     pub in_range_share: Option<f64>,
+    /// None when what the position earns could not be established. Substituting
+    /// the alternative's rate to make the gap zero was tidy and produced a
+    /// sentence claiming the position earned a number belonging to something
+    /// else — a live multi-asset Kamino obligation was told it "earns 5.57%",
+    /// which was the rate it was being compared against.
+    pub forward_known: bool,
     /// Locked until it vests. Nothing can be closed, so nothing should be
     /// suggested that involves closing it.
     pub locked: bool,
@@ -65,6 +71,9 @@ pub enum Verdict {
     Unpriced,
     /// Locked until it vests; nothing can be done with it either way.
     Locked,
+    /// A shape this review does not model — several assets, or borrowed
+    /// against. Reported, not judged.
+    Unjudged,
 }
 
 impl Verdict {
@@ -75,6 +84,7 @@ impl Verdict {
             Verdict::NotWorthTheSwitch => "not_worth_the_switch",
             Verdict::Unpriced => "unpriced",
             Verdict::Locked => "locked",
+            Verdict::Unjudged => "unjudged",
         }
     }
 }
@@ -99,6 +109,14 @@ pub fn review_position(f: &PositionFacts) -> Review {
     // A locked position cannot be closed until it vests. Telling someone to
     // leave it is advice they cannot act on, however wide the gap — so the
     // gap is still reported, and the verdict is not an instruction to move.
+    if !f.forward_known {
+        return Review {
+            verdict: Verdict::Unjudged,
+            gap_pct: 0.0,
+            payback_days: None,
+        };
+    }
+
     if f.locked {
         return Review {
             verdict: Verdict::Locked,
@@ -193,6 +211,9 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
         ),
         Verdict::Locked => format!(
             "This position is locked until it vests, so it cannot be closed or withdrawn yet — whatever {alternative_label} pays in the meantime."
+        ),
+        Verdict::Unjudged => format!(
+            "This position holds several assets or is borrowed against, which this review does not model — so it is listed rather than judged. What it holds is shown above."
         ),
         Verdict::Unpriced => format!(
             "{alternative_label} pays more than this position, but the cost of closing could not be priced, so whether the switch is worth making is unknown. Left as it is."
@@ -321,7 +342,8 @@ pub async fn build_position_review(
         let facts = PositionFacts {
             // Unknown is carried as the alternative's own rate so the gap is
             // zero and the verdict is Keep — no advice from no data.
-            forward_apr: forward_apr.unwrap_or(alt_apr),
+            forward_apr: forward_apr.unwrap_or(0.0),
+            forward_known: forward_apr.is_some(),
             alternative_apr: alt_apr,
             exit_cost_pct,
             earning: pos.earning,
@@ -1237,11 +1259,16 @@ async fn read_orca_positions(
             venue: "Orca",
             address: text(p.get("positionAddress")),
             pool: whirlpool,
-            pair: format!(
-                "{}/{}",
-                text(p.get("tokenASymbol")),
-                text(p.get("tokenBSymbol"))
-            ),
+            pair: {
+                // A missing symbol left labels like "USDC/" on screen.
+                let (a, b) = (text(p.get("tokenASymbol")), text(p.get("tokenBSymbol")));
+                match (a.is_empty(), b.is_empty()) {
+                    (false, false) => format!("{a}/{b}"),
+                    (false, true) => format!("{a}/?"),
+                    (true, false) => format!("?/{b}"),
+                    (true, true) => "liquidity position".to_string(),
+                }
+            },
             earning: p.get("inRange").and_then(|v| v.as_bool()).unwrap_or(false),
             in_range_share,
             quote_mint: mint_b.clone(),
@@ -1740,6 +1767,7 @@ mod tests {
             exit_cost_pct: cost,
             earning,
             in_range_share: None,
+            forward_known: true,
             locked: false,
         }
     }
@@ -1814,6 +1842,7 @@ mod tests {
             exit_cost_pct: Some(0.5),
             earning: true,
             in_range_share: Some(0.2),
+            forward_known: true,
             locked: false,
         };
         let r = review_position(&f);
@@ -1846,11 +1875,37 @@ mod tests {
             exit_cost_pct: Some(0.5),
             earning: true,
             in_range_share: None,
+            forward_known: true,
             locked: false,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Keep, "no data must not become an exit");
         assert_eq!(r.gap_pct, 0.0);
+    }
+
+    #[test]
+    fn an_unjudged_position_never_claims_a_return() {
+        // A live multi-asset Kamino obligation was told it "earns 5.57%" —
+        // the rate it was being compared against, not one it had. Filling an
+        // unknown with the alternative made the gap zero and the sentence a
+        // fabrication.
+        let f = PositionFacts {
+            forward_apr: 0.0,
+            alternative_apr: 5.57,
+            exit_cost_pct: None,
+            earning: true,
+            in_range_share: None,
+            forward_known: false,
+            locked: false,
+        };
+        let r = review_position(&f);
+        assert_eq!(r.verdict, Verdict::Unjudged);
+        let text = explain(&f, &r, "staking SOL");
+        assert!(
+            !text.contains("5.57"),
+            "must not quote a rate it does not have: {text}"
+        );
+        assert!(text.contains("does not model"), "{text}");
     }
 
     #[test]
@@ -1863,6 +1918,7 @@ mod tests {
             exit_cost_pct: Some(0.01),
             earning: false,
             in_range_share: None,
+            forward_known: true,
             locked: true,
         };
         let r = review_position(&f);

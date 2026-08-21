@@ -215,9 +215,10 @@ available for that asset, compared against a second venue rather than against
 Kamino itself. Moving is priced as a day out of the market, which is why a
 tiny advantage elsewhere correctly reads as not worth chasing.
 
-An obligation holding several assets, or carrying debt, is reported with its
-value and no verdict. Say so rather than inventing one — and do not confuse it
-with a liquidation warning, which is watched elsewhere.
+An obligation holding several assets, or carrying debt, comes back with the
+verdict `unjudged`: it is listed, not assessed. Say that plainly and do not
+attach a rate to it — the review deliberately does not claim one. Do not confuse it with a
+liquidation warning, which is watched elsewhere.
 
 `covers` lists which venues actually answered. Never let an answer imply the
 whole wallet is fine when only some venues were read.
