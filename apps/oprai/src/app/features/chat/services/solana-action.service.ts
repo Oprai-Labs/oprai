@@ -1984,6 +1984,23 @@ export class SolanaActionService {
         }
       }
       callbacks.onSign?.();
+      // Relay returns value/gas/fees as DECIMAL strings ("82839763666438"), but
+      // eth_sendTransaction expects hex quantities. Passing the decimal verbatim
+      // made the wallet read "82839763666438" as hex — a value ~440× too large —
+      // which showed as a network-fee / insufficient-funds warning for a swap
+      // that was actually a few cents. Also forward Relay's own gas + EIP-1559
+      // fees so the wallet doesn't self-estimate (which warns on an L2 like
+      // Robinhood whose gas oracle the wallet doesn't know).
+      const toHexQty = (v: unknown): string | undefined => {
+        if (v == null) return undefined;
+        const s = String(v).trim();
+        if (s === '') return undefined;
+        if (/^0x[0-9a-fA-F]*$/.test(s)) return s; // already hex
+        try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+      };
+      const gasHex = toHexQty(txData.gas ?? txData.gasLimit);
+      const maxFeeHex = toHexQty(txData.maxFeePerGas);
+      const maxPrioHex = toHexQty(txData.maxPriorityFeePerGas);
       const evmTxHash = await withTimeout(
         ethereum.request({
           method: 'eth_sendTransaction',
@@ -1991,8 +2008,10 @@ export class SolanaActionService {
             from: evmAccount,
             to: txData.to,
             data: txData.data ?? '0x',
-            value: txData.value ?? '0x0',
-            ...(txData.gasLimit ? { gas: txData.gasLimit } : {}),
+            value: toHexQty(txData.value) ?? '0x0',
+            ...(gasHex ? { gas: gasHex } : {}),
+            // Pass 1559 fees only as a pair; a lone maxFeePerGas confuses wallets.
+            ...(maxFeeHex && maxPrioHex ? { maxFeePerGas: maxFeeHex, maxPriorityFeePerGas: maxPrioHex } : {}),
           }],
         }),
         120_000,
