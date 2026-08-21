@@ -1105,16 +1105,17 @@ html.dark .scrollbar-thin {
 
   &:hover { color: var(--op-text-secondary); }
 
+  // Four items now share the bar, and a truncated address is wider than a
+  // one-word label. Let the items shrink and keep the address on one line
+  // rather than letting it wrap and shove the row taller. Declared above the
+  // nested rules because Sass deprecates declarations that follow one.
+  min-width: 0;
+  padding-inline: 8px;
+
   &--active,
   &.active {
     color: var(--op-brand);
   }
-
-  // Four items now share the bar, and a truncated address is wider than a
-  // one-word label. Let the items shrink and keep the address on one line
-  // rather than letting it wrap and shove the row taller.
-  min-width: 0;
-  padding-inline: 8px;
 
   > span {
     max-width: 100%;

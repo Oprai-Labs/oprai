@@ -2521,6 +2521,11 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px;
+  // Kept above the nested rules on purpose: Sass deprecates declarations that
+  // follow a nested rule, because their resolution order is due to change.
+  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: var(--op-radius-md, 10px);
+  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
 
   // The row form: the same parts, laid on their side. Art keeps its square,
   // the text column takes the rest, and the action sits with the text rather
@@ -2575,9 +2580,6 @@
       margin-top: 14px;
     }
   }
-  border: 1px solid var(--op-border-subtle, rgba(255, 255, 255, 0.07));
-  border-radius: var(--op-radius-md, 10px);
-  background: var(--op-bg-surface-2, rgba(255, 255, 255, 0.03));
 
   &__art {
     position: relative;

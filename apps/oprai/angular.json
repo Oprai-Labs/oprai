@@ -36,7 +36,19 @@
               }
             ],
             "styles": ["src/styles.scss"],
-            "scripts": []
+            "scripts": [],
+            "allowedCommonJsDependencies": [
+              "@coral-xyz/borsh",
+              "@solana/buffer-layout",
+              "bigint-buffer",
+              "bn.js",
+              "borsh",
+              "bs58",
+              "buffer",
+              "camelcase",
+              "eventemitter3",
+              "jayson"
+            ]
           },
           "configurations": {
             "production": {
@@ -56,7 +68,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "100kB",
+                  "maximumWarning": "130kB",
                   "maximumError": "200kB"
                 }
               ],
