@@ -332,6 +332,7 @@ pub async fn build_position_review(
             // taken $2.4m in fees over its life and nothing at all in 24h.
             "poolApr24hPct": pos.apr_24h,
             "poolAprLifetimePct": pos.apr_life,
+            "poolTvlUsd": pos.pool_tvl_usd,
             "forwardAprKnown": forward_apr.is_some(),
             // What it has actually done, in both denominators.
             "pnlUsdPct": pos.pnl_usd_pct,
@@ -414,6 +415,10 @@ struct OpenPosition {
     pool_apr: Option<f64>,
     apr_24h: Option<f64>,
     apr_life: Option<f64>,
+    /// The pool's own liquidity. Without it a rate of zero is unexplainable —
+    /// one live pool held $0.000026 and every rate derived from it was either
+    /// zero or astronomical, with nothing on screen to say why.
+    pool_tvl_usd: Option<f64>,
     exit_cost_pct: Option<f64>,
     in_range_share: Option<f64>,
     /// The side the position is denominated in — what it would hold if closed
@@ -541,23 +546,25 @@ async fn read_dlmm_positions(
 
         // What the pool pays now, on the same conservative basis the entry
         // options use — the lower of the last day and the pool's lifetime.
-        let (pool_apr, apr_24h, apr_life) = match crate::services::meteora::meteora_pool_raw(
-            http,
-            crate::services::meteora::DLMM_API,
-            &pool_addr,
-        )
-        .await
-        {
-            Ok(raw) => {
-                let (a, l) = crate::services::strategies::pool_apr_parts(&raw);
-                (
-                    Some(crate::services::strategies::conservative_pool_apr(&raw)),
-                    a,
-                    l,
-                )
-            }
-            Err(_) => (None, None, None),
-        };
+        let (pool_apr, apr_24h, apr_life, pool_tvl_usd) =
+            match crate::services::meteora::meteora_pool_raw(
+                http,
+                crate::services::meteora::DLMM_API,
+                &pool_addr,
+            )
+            .await
+            {
+                Ok(raw) => {
+                    let (a, l) = crate::services::strategies::pool_apr_parts(&raw);
+                    (
+                        Some(crate::services::strategies::conservative_pool_apr(&raw)),
+                        a,
+                        l,
+                        raw.get("tvl").and_then(|v| v.as_f64()),
+                    )
+                }
+                Err(_) => (None, None, None, None),
+            };
 
         // Leaving costs what arriving cost: half the position swaps back.
         let exit_cost_pct = if mint_x.is_empty() || mint_y.is_empty() {
@@ -692,6 +699,7 @@ async fn read_dlmm_positions(
                 in_range_share,
                 apr_24h,
                 apr_life,
+                pool_tvl_usd,
                 // Y is the quote side of a Meteora pair by construction.
                 quote_mint: mint_y.clone(),
                 locked: false,
@@ -824,6 +832,7 @@ async fn read_orca_positions(
             pool_apr,
             apr_24h: pool_apr,
             apr_life: None,
+            pool_tvl_usd: None,
             exit_cost_pct,
             // Orca's reader carries no profit-and-loss history, so these stay
             // unknown rather than being filled with something else's numbers.
@@ -880,23 +889,25 @@ async fn read_dammv2_positions(
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let (pool_apr, apr_24h, apr_life) = match crate::services::meteora::meteora_pool_raw(
-            http,
-            crate::services::meteora::DAMM_V2_API,
-            &pool_addr,
-        )
-        .await
-        {
-            Ok(raw) => {
-                let (a, l) = crate::services::strategies::pool_apr_parts(&raw);
-                (
-                    Some(crate::services::strategies::conservative_pool_apr(&raw)),
-                    a,
-                    l,
-                )
-            }
-            Err(_) => (None, None, None),
-        };
+        let (pool_apr, apr_24h, apr_life, pool_tvl_usd) =
+            match crate::services::meteora::meteora_pool_raw(
+                http,
+                crate::services::meteora::DAMM_V2_API,
+                &pool_addr,
+            )
+            .await
+            {
+                Ok(raw) => {
+                    let (a, l) = crate::services::strategies::pool_apr_parts(&raw);
+                    (
+                        Some(crate::services::strategies::conservative_pool_apr(&raw)),
+                        a,
+                        l,
+                        raw.get("tvl").and_then(|v| v.as_f64()),
+                    )
+                }
+                Err(_) => (None, None, None, None),
+            };
 
         let (price_x, price_y) = tokio::join!(
             crate::services::strategies::mint_price_and_decimals(http, &mint_x),
@@ -945,6 +956,7 @@ async fn read_dammv2_positions(
                 pool_apr,
                 apr_24h,
                 apr_life,
+                pool_tvl_usd,
                 exit_cost_pct,
                 pnl_usd_pct: None,
                 pnl_sol_pct: None,
@@ -1043,6 +1055,7 @@ async fn read_raydium_positions(
             pool_apr,
             apr_24h: pool_apr,
             apr_life: None,
+            pool_tvl_usd: None,
             exit_cost_pct,
             pnl_usd_pct: None,
             pnl_sol_pct: None,
