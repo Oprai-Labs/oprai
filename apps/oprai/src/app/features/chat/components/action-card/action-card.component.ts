@@ -22,6 +22,7 @@ import { JupiterSwapService } from '@core/services/market/jupiter-swap.service';
 import { RollbackService } from '@core/services/rollback.service';
 import { SolanaRpcService } from '../../../../features/portfolio/services/solana-rpc.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
+import { AccountService } from '@core/services/account.service';
 import { JitoService } from '@core/services/market/jito.service';
 import { MarinadeService } from '@core/services/market/marinade.service';
 import { JupSolService } from '@core/services/market/jupsol.service';
@@ -1132,6 +1133,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly intentParser = inject(IntentParserService);
   private readonly solanaRpc = inject(SolanaRpcService);
   private readonly priceFeed = inject(PriceFeedService);
+  private readonly account = inject(AccountService);
   private readonly jitoService = inject(JitoService);
   private readonly marinadeService = inject(MarinadeService);
   private readonly jupSolService = inject(JupSolService);
@@ -3474,8 +3476,22 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const key = this.relayOriginIsEvm() ? 'sender'
               : this.relayDestinationIsEvm() ? 'recipient' : null;
     if (!key || this.getEditParam(key)) return;
+    // 1. The account's LINKED EVM wallet (the address shown on /wallets) IS the
+    //    sender/recipient — use it directly so the card quotes and Confirm enables
+    //    without a live provider handshake. The provider is connected later, only
+    //    to sign (the execute path calls eth_requestAccounts then).
+    try {
+      const me = await firstValueFrom(this.account.getMe());
+      const evm = me.identities?.find(
+        (i) => i.type === 'evm_wallet' && /^0x[0-9a-fA-F]{40}$/.test(i.identifier),
+      );
+      if (evm && !this.getEditParam(key)) this.applyEvmAccount(key, evm.identifier);
+    } catch { /* no account link; fall through to a silent provider probe */ }
+    if (this.getEditParam(key)) return;
+    // 2. Fallback: a browser wallet already authorized for this site (eth_accounts
+    //    is silent — no popup). A truly unconnected wallet still shows Connect.
     await new Promise(r => setTimeout(r, 350)); // let discovery announce providers
-    if (this.getEditParam(key)) return; // a manual connect may have won the race
+    if (this.getEditParam(key)) return;
     for (const [id, provider] of this.evmProviders) {
       try {
         const accounts = await provider.request({ method: 'eth_accounts' });
