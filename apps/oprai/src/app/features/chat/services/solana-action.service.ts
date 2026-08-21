@@ -979,6 +979,42 @@ export class SolanaActionService {
    * origin transaction was accepted. One wrapper puts the same, later question
    * in front of both.
    */
+  /**
+   * Wait for a same-chain EVM swap's own transaction to settle, polling the
+   * connected provider for the receipt. Returns true on a mined success (status
+   * 0x1), false on a revert (0x0), and null if the receipt never appears within
+   * the window — in which case the caller treats it like the Solana watcher's
+   * "no answer": confirm optimistically rather than claim a failure that may not
+   * have happened. Same-chain fills mine in seconds; the long deadline only
+   * covers a congested block.
+   */
+  private async watchEvmReceipt(
+    provider: { request: (a: { method: string; params?: unknown[] }) => Promise<any> },
+    txHash: string,
+  ): Promise<boolean | null> {
+    const deadline = Date.now() + 3 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 3_000));
+      let receipt: { status?: string } | null = null;
+      try {
+        receipt = await provider.request({
+          method: 'eth_getTransactionReceipt',
+          params: [txHash],
+        });
+      } catch {
+        continue; // A failed poll says nothing about the transaction.
+      }
+      if (!receipt) continue; // Not mined yet.
+      // status is a hex quantity: 0x1 success, 0x0 revert.
+      const status = String(receipt.status ?? '').toLowerCase();
+      if (status === '0x1' || status === '0x01') return true;
+      if (status === '0x0' || status === '0x00') return false;
+      return true; // Mined but no status field (pre-Byzantium shape) — treat as landed.
+    }
+    console.warn('[relay] same-chain receipt unresolved', txHash);
+    return null;
+  }
+
   private wrapRelaySettlement(callbacks: ActionCallbacks, requestId: string): ActionCallbacks {
     let originTx = '';
     return {
@@ -1833,9 +1869,23 @@ export class SolanaActionService {
 
     // A bridge is not finished when its first transaction is. Both origins go
     // through this from here on, so neither can report success early.
-    const relayRequestId = buildResult.isCrossChain
+    const relayRawRequestId = buildResult.isCrossChain
       ? (buildResult.quote as any)?.requestId ?? (buildResult.quote as any)?.request_id
       : null;
+    // A SAME-chain EVM swap has no far side to wait for: the origin transaction
+    // IS the settlement, so Relay's cross-chain intent-status never reports
+    // 'success' for it and the card spins forever. Detect it here and confirm on
+    // the EVM receipt instead (below), rather than routing through the intent
+    // watch. Origin is EVM when it isn't one of Relay's Solana chain ids.
+    const SOLANA_RELAY_IDS = new Set([792703809, 900]);
+    const originChainNum = Number(action.params['originChainId'] ?? 0);
+    const destChainNum = Number(action.params['destinationChainId'] ?? 0);
+    const sameChainEvm =
+      originChainNum !== 0 &&
+      originChainNum === destChainNum &&
+      !SOLANA_RELAY_IDS.has(originChainNum);
+    // Wrap with the intent watch only for a genuine cross-chain hop.
+    const relayRequestId = sameChainEvm ? null : relayRawRequestId;
     if (relayRequestId) {
       callbacks = this.wrapRelaySettlement(callbacks, String(relayRequestId));
     }
@@ -1949,7 +1999,29 @@ export class SolanaActionService {
         'transaction sign'
       );
       callbacks.onSubmit?.(evmTxHash as string);
-      // Wrapped for a relay bridge, so this hands off to the intent watch
+      // A same-chain EVM swap finishes on THIS chain — there is no far side and
+      // no cross-chain intent to poll (which is why the intent watch spun
+      // forever). Wait for the origin transaction's own receipt: a mined success
+      // is the settlement, a revert is a failure. A hash alone is neither.
+      if (sameChainEvm) {
+        const ok = await this.watchEvmReceipt(ethereum, evmTxHash as string);
+        if (ok === false) {
+          callbacks.onFail?.(
+            'The swap transaction reverted on-chain — nothing was swapped. Your funds are safe minus the network fee.',
+            evmTxHash as string,
+          );
+          return evmTxHash as string;
+        }
+        // Book economics best-effort (server re-verifies the fill from Relay).
+        if (relayRawRequestId) {
+          this.api.post('/actions/relay/record', { requestId: String(relayRawRequestId) }).subscribe({
+            error: () => { /* recorded best-effort; server is authoritative */ },
+          });
+        }
+        callbacks.onConfirm?.(evmTxHash as string);
+        return evmTxHash as string;
+      }
+      // Wrapped for a cross-chain bridge, so this hands off to the intent watch
       // rather than declaring the bridge done. A hash is a receipt for the
       // deposit, not for the arrival.
       callbacks.onConfirm?.();
