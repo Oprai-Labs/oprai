@@ -662,8 +662,41 @@ fn wallet_token_deltas(tx: &serde_json::Value, wallet: &str) -> Vec<(String, f64
             out.push((mint.clone(), d));
         }
     }
+
+    if let Some(native) = native_sol_delta(tx, wallet).filter(|n| n.abs() > 1e-12) {
+        // Reported against the wrapped mint, because that is what the pool
+        // holds and what every price lookup here is keyed by.
+        match out.iter_mut().find(|(m, _)| m == WSOL_MINT) {
+            Some((_, existing)) => *existing += native,
+            None => out.push((WSOL_MINT.to_string(), native)),
+        }
+    }
     out
 }
+
+/// The wallet's own lamport change, less the fee it paid.
+fn native_sol_delta(tx: &serde_json::Value, wallet: &str) -> Option<f64> {
+    let meta = tx.get("meta")?;
+    let keys = tx
+        .get("transaction")?
+        .get("message")?
+        .get("accountKeys")?
+        .as_array()?;
+    let index = keys.iter().position(|k| {
+        k.get("pubkey").and_then(|p| p.as_str()) == Some(wallet) || k.as_str() == Some(wallet)
+    })?;
+    let pre = meta.get("preBalances")?.as_array()?.get(index)?.as_f64()?;
+    let post = meta.get("postBalances")?.as_array()?.get(index)?.as_f64()?;
+    // The payer is index 0 and is the only account charged the fee.
+    let fee_paid = if index == 0 {
+        meta.get("fee").and_then(|f| f.as_f64()).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+    Some((post - pre + fee_paid) / 1e9)
+}
+
+const WSOL_MINT: &str = "So11111111111111111111111111111111111111112";
 
 /// Whether simply holding the two tokens would have done better.
 ///
@@ -1835,6 +1868,51 @@ mod holding_tests {
             "{}",
             r.difference_pct
         );
+    }
+
+    #[test]
+    fn a_sol_funded_deposit_is_not_read_as_token_only() {
+        // The live failure: a PUMP/SOL deposit moved PUMP through the token
+        // balances and SOL through the native ones, because the wrapped
+        // account was opened and closed in the same transaction. Reading only
+        // the token balances halved the deposit and made the position look
+        // like it had doubled against holding.
+        let tx = serde_json::json!({
+            "transaction": { "message": { "accountKeys": [{ "pubkey": "WALLET" }] } },
+            "meta": {
+                "fee": 5000,
+                "preBalances": [30_000_000_000i64],
+                "postBalances": [1_873_767_000i64],
+                "preTokenBalances": [{
+                    "owner": "WALLET", "mint": "PUMP",
+                    "uiTokenAmount": { "uiAmountString": "586272.79" }
+                }],
+                "postTokenBalances": [{
+                    "owner": "WALLET", "mint": "PUMP",
+                    "uiTokenAmount": { "uiAmountString": "0" }
+                }],
+            }
+        });
+        let deltas = wallet_token_deltas(&tx, "WALLET");
+        let pump = deltas.iter().find(|(m, _)| m == "PUMP").expect("PUMP side");
+        assert!((pump.1 + 586_272.79).abs() < 1e-6);
+        let sol = deltas
+            .iter()
+            .find(|(m, _)| m == WSOL_MINT)
+            .expect("the SOL side must be read from the native balances");
+        // 30 SOL before, 1.873767 after, fee added back: 28.126228 went out.
+        assert!((sol.1 + 28.126228).abs() < 1e-6, "{}", sol.1);
+    }
+
+    #[test]
+    fn the_fee_is_not_a_deposit() {
+        // A transaction that moves nothing but still costs a fee must read as
+        // no deposit at all, or every position acquires a phantom one.
+        let tx = serde_json::json!({
+            "transaction": { "message": { "accountKeys": [{ "pubkey": "W" }] } },
+            "meta": { "fee": 5000, "preBalances": [1_000_000i64], "postBalances": [995_000i64] }
+        });
+        assert!(wallet_token_deltas(&tx, "W").is_empty());
     }
 
     #[test]
