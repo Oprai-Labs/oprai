@@ -104,12 +104,32 @@ generate_go() {
 
     mkdir -p "$out_dir"
 
+    # Each service vendors its own copy of the stubs, so the import path baked
+    # into them must be THAT service's module — not the `go_package` written in
+    # the .proto, which names a module nothing provides. Without these M
+    # overrides the files compile in isolation but `go vet ./...` and
+    # `go test ./...` fail on every service (only `./cmd/...` builds, which is
+    # why the binaries still shipped while CI was red).
+    local svc_module
+    svc_module="$(awk '/^module /{print $2; exit}' "$REPO_ROOT/services/$svc/go.mod")"
+    local gen_module="$svc_module/proto/gen/go"
+
+    local m_opts=()
+    for pf in "${PROTO_FILES[@]}"; do
+      local rel pkg
+      rel="${pf#$REPO_ROOT/}"
+      pkg="$(sed -nE 's|.*go_package[[:space:]]*=[[:space:]]*".*/([A-Za-z0-9_]+)".*|\1|p' "$pf" | head -1)"
+      [[ -z "$pkg" ]] && { fail "$rel: no go_package option"; continue; }
+      m_opts+=("--go_opt=M$rel=$gen_module/$pkg" "--go-grpc_opt=M$rel=$gen_module/$pkg")
+    done
+
     if protoc \
       --proto_path="$REPO_ROOT" \
       --go_out="$out_dir" \
-      --go_opt=module="github.com/oprai/oprai/proto/gen/go" \
+      --go_opt=module="$gen_module" \
       --go-grpc_out="$out_dir" \
-      --go-grpc_opt=module="github.com/oprai/oprai/proto/gen/go" \
+      --go-grpc_opt=module="$gen_module" \
+      "${m_opts[@]}" \
       "${PROTO_FILES[@]}"; then
       ok "$svc: Go stubs generated"
       record_success "go:$svc"

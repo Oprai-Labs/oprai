@@ -4,14 +4,17 @@
 
 name: Go Services CI
 
-# NOTE: temporarily PR-only (no push:main trigger). The generated proto stubs
-# import the module path `github.com/oprai/oprai/proto/gen/go/*`, which no
-# service go.mod provides (needs a go.mod in proto/gen/go + a replace directive,
-# or per-service --go_opt=module). Until that layout is fixed this workflow
-# fails on `go vet`; keeping it off push:main stops the false-failure noise
-# while still running on PRs. Re-add `push: {branches:[main], paths:[...]}` once
-# the module wiring lands.
+# The module wiring this workflow was waiting on has landed: build-protos.sh
+# now stamps each service's own module into the stubs it vendors, so `go vet`
+# and `go test` see a resolvable import path. Back on push:main.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "services/auth-service-go/**"
+      - "services/admin-service-go/**"
+      - "services/gateway-go/**"
+      - "proto/**"
   pull_request:
     branches: [main]
     paths:
@@ -79,13 +82,12 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: go build -o bin/${{ matrix.service }} ./cmd/...
 
-      # Catch known-vulnerable dependencies before they ship. Scoped to ./cmd/...
-      # to match the build step above: `./...` fails to load because the
-      # generated proto stubs declare an import path (github.com/oprai/oprai/
-      # proto/gen/go/*) that no go.mod provides — a known structural debt. From
-      # the cmd entrypoint govulncheck does a real reachability analysis and
-      # reports only the vulnerabilities the service actually calls, not
-      # everything linked in. Advisory for now (continue-on-error): a
+      # Catch known-vulnerable dependencies before they ship. Still scoped to
+      # ./cmd/... — not because `./...` fails to load any more (the proto module
+      # paths are fixed), but because entering from the binary's entrypoint is
+      # what makes govulncheck's reachability analysis meaningful: it reports
+      # the vulnerabilities the service actually calls, not everything linked
+      # in. Advisory for now (continue-on-error): a
       # newly-published stdlib CVE shouldn't block an unrelated PR, but it stays
       # visible in the run. Flip to blocking once the team wants a hard gate.
       - name: Vulnerability scan (govulncheck)
