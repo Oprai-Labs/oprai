@@ -123,34 +123,80 @@ pub async fn finalize_confirmed(
     // common to all chains" rule), read from within solana_schema.
     let account_id = account_id_for_tx(pool, transaction_id).await;
 
-    // Server-authoritative volume: read the value actually moved on chain and
-    // overwrite notional_usd (+ fee_usd, from the server-computed fee_bps column)
-    // before the rollups read it. Only for rows that carry a signature.
+    // Server-authoritative volume AND fee: read both off the chain and overwrite
+    // the row before the rollups see it. Only for rows that carry a signature.
+    //
+    // The fee has to be read, not computed. On the paths where the commission is
+    // a plain transfer instruction, a user signing their own transaction can drop
+    // it and the trade still settles. Deriving fee_usd from the rate we intended
+    // booked revenue that never arrived — and, because cashback is a percentage
+    // of that number, paid real SOL out against it.
     if let Some(sig) = tx_signature.as_deref() {
-        if let Some(notional) =
-            crate::services::onchain_value::confirmed_trade_notional_usd(http, sig, &wallet).await
+        if let Some(v) =
+            crate::services::onchain_value::confirmed_trade_value(http, sig, &wallet).await
         {
-            // Cashback earned on this trade = tier % of the (server-computed) fee.
+            // Cashback earned on this trade = tier % of the fee actually paid.
             // The tier comes from the account's pooled volume BEFORE this tx is
             // rolled up, i.e. the tier it held while trading.
             let cashback_pct = crate::services::fees::cashback_pct_for_volume(
                 account_tier_volume_usd(pool, account_id.as_deref(), &wallet).await,
             ) as f64;
-            if let Err(e) = diesel::sql_query(
-                r#"UPDATE solana_schema.tx_economics
-                   SET notional_usd = $2::numeric,
-                       fee_usd = ($2::numeric * fee_bps / 10000.0),
-                       cashback_usd = ($2::numeric * fee_bps / 10000.0) * $3::numeric / 100.0,
-                       usd_price_source = 'onchain'
-                   WHERE transaction_id = $1::uuid"#,
-            )
-            .bind::<Text, _>(transaction_id.to_string())
-            .bind::<Double, _>(notional)
-            .bind::<Double, _>(cashback_pct)
-            .execute(&mut conn)
-            .await
-            {
+
+            // `None` = no fee wallet configured, so nothing was meant to be
+            // charged; fall back to the declared rate rather than recording a
+            // shortfall that does not exist.
+            let (fee_usd, observed) = match v.fee_paid_usd {
+                Some(paid) => (paid, true),
+                None => (f64::NAN, false),
+            };
+
+            let res = if observed {
+                diesel::sql_query(
+                    r#"UPDATE solana_schema.tx_economics
+                       SET notional_usd = $2::numeric,
+                           fee_usd = $4::numeric,
+                           cashback_usd = $4::numeric * $3::numeric / 100.0,
+                           usd_price_source = 'onchain'
+                       WHERE transaction_id = $1::uuid"#,
+                )
+                .bind::<Text, _>(transaction_id.to_string())
+                .bind::<Double, _>(v.notional_usd)
+                .bind::<Double, _>(cashback_pct)
+                .bind::<Double, _>(fee_usd)
+                .execute(&mut conn)
+                .await
+            } else {
+                diesel::sql_query(
+                    r#"UPDATE solana_schema.tx_economics
+                       SET notional_usd = $2::numeric,
+                           fee_usd = ($2::numeric * fee_bps / 10000.0),
+                           cashback_usd = ($2::numeric * fee_bps / 10000.0) * $3::numeric / 100.0,
+                           usd_price_source = 'onchain'
+                       WHERE transaction_id = $1::uuid"#,
+                )
+                .bind::<Text, _>(transaction_id.to_string())
+                .bind::<Double, _>(v.notional_usd)
+                .bind::<Double, _>(cashback_pct)
+                .execute(&mut conn)
+                .await
+            };
+            if let Err(e) = res {
                 tracing::warn!(error = %e, tx = %transaction_id, "tx_economics: onchain notional update failed");
+            }
+
+            // Expected-versus-landed. Logged rather than acted on: a shortfall
+            // can be a stripped instruction, but it can also be a route whose
+            // fee the protocol itself takes in a form this read does not see, so
+            // the first thing it needs is a rate we can look at.
+            if observed {
+                let expected = expected_fee_usd(pool, transaction_id, v.notional_usd).await;
+                if expected > 0.0 && fee_usd < expected * 0.5 {
+                    tracing::warn!(
+                        tx = %transaction_id, wallet = %wallet, signature = %sig,
+                        expected_usd = expected, paid_usd = fee_usd,
+                        "fee_shortfall: commission that landed is under half the declared rate"
+                    );
+                }
             }
         }
     }
@@ -246,6 +292,37 @@ async fn account_id_for_tx(pool: &DbPool, transaction_id: Uuid) -> Option<String
     .await
     .ok()
     .and_then(|r| r.account_id)
+}
+
+/// The commission this row declared at build time, in USD, for `notional_usd`.
+///
+/// Read back from `fee_bps` — the rate the server chose when it built the
+/// transaction — so the comparison is against what we asked for, not against
+/// whatever the row now says was collected.
+async fn expected_fee_usd(pool: &DbPool, transaction_id: uuid::Uuid, notional_usd: f64) -> f64 {
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Integer)]
+        fee_bps: i32,
+    }
+    let mut conn = match pool.get().await {
+        Ok(c) => c,
+        Err(_) => return 0.0,
+    };
+    let bps = diesel::sql_query(
+        r#"SELECT COALESCE(fee_bps, 0) AS fee_bps
+           FROM solana_schema.tx_economics
+           WHERE transaction_id = $1::uuid"#,
+    )
+    .bind::<Text, _>(transaction_id.to_string())
+    .get_result::<Row>(&mut conn)
+    .await
+    .map(|r| r.fee_bps)
+    .unwrap_or(0);
+    if bps <= 0 {
+        return 0.0;
+    }
+    notional_usd * (bps as f64) / 10_000.0
 }
 
 /// The volume (USD) the cashback tier is computed from — the account's POOLED
