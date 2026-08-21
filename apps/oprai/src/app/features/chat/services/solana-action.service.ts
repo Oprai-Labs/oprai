@@ -3557,6 +3557,10 @@ export class SolanaActionService {
           slippageBps: p['slippageBps'] ? parseInt(p['slippageBps']) : 50,
           referrer: p['referrer'],
           provider: xProvider,
+          // EVM-origin routes need the sending address the same way relay_bridge does
+          // (see that case): the login wallet is Solana, so the backend can't infer it.
+          ...(p['sender'] ? { sender: p['sender'] } : {}),
+          ...(p['fromAddress'] ? { fromAddress: p['fromAddress'] } : {}),
         };
         // Squid-specific fields: originToken / destinationToken / slippage (%)
         if (xProvider === 'squid') {
@@ -3932,6 +3936,12 @@ export class SolanaActionService {
           destinationCurrency: p['destinationCurrency'] ?? p['toToken'],
           amount: p['amount'],
           tradeType: p['tradeType'] ?? 'EXACT_INPUT',
+          // The sending wallet. On an EVM origin the backend's resolve_bridge_sender
+          // REQUIRES this — the logged-in wallet is Solana, so without it the build
+          // 400s with "This bridge leaves an EVM chain, so it needs an EVM wallet to
+          // send from." The quote path (relay_get_quote) already forwards sender and
+          // placeholders a missing one; execute must forward the real address too.
+          ...(p['sender'] ? { sender: p['sender'] } : {}),
           ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
           ...(p['refundTo'] ? { refundTo: p['refundTo'] } : {}),
           ...(p['refundType'] ? { refundType: p['refundType'] } : {}),
