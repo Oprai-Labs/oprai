@@ -48,7 +48,7 @@ const KAMINO_MAIN_MARKET: &str = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF";
 /// API would 400 otherwise, and a 400 turn produces a confused user
 /// experience while masking the real issue (the model said "main" instead of
 /// looking up a pubkey).
-fn resolve_kamino_market<'a>(market: Option<&'a str>) -> &'a str {
+fn resolve_kamino_market(market: Option<&str>) -> &str {
     match market.map(str::trim) {
         None => KAMINO_MAIN_MARKET,
         Some("") => KAMINO_MAIN_MARKET,
@@ -1946,7 +1946,7 @@ pub async fn build_kamino_user_obligations(
                             })
                             .filter_map(|it| it.get(res_key).and_then(|v| v.as_str()))
                             .filter(|r| *r != "11111111111111111111111111111111")
-                            .map(|r| sym_of(r))
+                            .map(sym_of)
                             .collect()
                     })
                     .unwrap_or_default()

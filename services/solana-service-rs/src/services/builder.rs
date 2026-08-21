@@ -4666,7 +4666,7 @@ async fn build_action_inner(
                 .filter(|w| !w.is_empty() && !w.eq_ignore_ascii_case("self"))
                 .map(str::to_string)
                 .unwrap_or_else(|| user_pubkey.to_string());
-            crate::services::review::build_position_review(http, &rpc.endpoint(), &w).await
+            crate::services::review::build_position_review(http, rpc.endpoint(), &w).await
         }
         "strategy_flows" => {
             let mint = params
@@ -5256,7 +5256,7 @@ async fn build_action_inner(
                         data: Some(serde_json::to_value(&status)?),
                     })
                 }
-                "relay" | _ => {
+                _ => {
                     // Default to relay
                     let p: relay::CrossChainSwapParams = serde_json::from_value(params)?;
                     let result = relay::build_cross_chain_swap(
@@ -6717,6 +6717,9 @@ async fn build_unstake(
     }
 }
 
+// Every argument is a distinct field of the response being assembled; the
+// alternative is a struct that exists only to be destructured immediately.
+#[allow(clippy::too_many_arguments)]
 fn serialize_stake_response(
     transaction: Transaction,
     id: String,

@@ -179,7 +179,7 @@ pub async fn create_dca_transaction(
     });
 
     let mut req = http
-        .post(&format!("{JUPITER_RECURRING_BASE}/createOrder"))
+        .post(format!("{JUPITER_RECURRING_BASE}/createOrder"))
         .header("Content-Type", "application/json")
         .json(&body);
     if let Some(key) = jupiter_api_key {
@@ -322,7 +322,7 @@ pub async fn cancel_dca_transaction(
     });
 
     let mut req = http
-        .post(&format!("{JUPITER_RECURRING_BASE}/cancelOrder"))
+        .post(format!("{JUPITER_RECURRING_BASE}/cancelOrder"))
         .header("Content-Type", "application/json")
         .json(&body);
     if let Some(key) = jupiter_api_key {

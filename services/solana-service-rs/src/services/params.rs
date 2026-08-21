@@ -95,6 +95,34 @@ fn from_json(v: &serde_json::Value) -> Option<String> {
     })
 }
 
+/// A list that may arrive as a list, or as one comma-separated string.
+///
+/// The action card holds every parameter as a `Record<string, string>`, so a
+/// list of mints reaches the wire as `"mintA,mintB"` while the model writes a
+/// real JSON array. A `Vec<String>` field accepts only the second, which meant
+/// the close-accounts card could not submit the one parameter the action
+/// requires — it would have failed on "missing field `mints`" whatever the user
+/// selected.
+pub fn string_or_vec<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(match v {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|i| i.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect(),
+        serde_json::Value::String(s) => s
+            .split(',')
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,32 +168,4 @@ mod tests {
     fn nonsense_is_still_rejected() {
         assert!(serde_json::from_str::<T>(r#"{"count": "abc"}"#).is_err());
     }
-}
-
-/// A list that may arrive as a list, or as one comma-separated string.
-///
-/// The action card holds every parameter as a `Record<string, string>`, so a
-/// list of mints reaches the wire as `"mintA,mintB"` while the model writes a
-/// real JSON array. A `Vec<String>` field accepts only the second, which meant
-/// the close-accounts card could not submit the one parameter the action
-/// requires — it would have failed on "missing field `mints`" whatever the user
-/// selected.
-pub fn string_or_vec<'de, D>(d: D) -> Result<Vec<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let v = serde_json::Value::deserialize(d)?;
-    Ok(match v {
-        serde_json::Value::Array(items) => items
-            .iter()
-            .filter_map(|i| i.as_str().map(|s| s.trim().to_string()))
-            .filter(|s| !s.is_empty())
-            .collect(),
-        serde_json::Value::String(s) => s
-            .split(',')
-            .map(|p| p.trim().to_string())
-            .filter(|p| !p.is_empty())
-            .collect(),
-        _ => Vec::new(),
-    })
 }

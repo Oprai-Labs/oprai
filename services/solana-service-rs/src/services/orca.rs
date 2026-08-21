@@ -1583,7 +1583,7 @@ pub async fn build_orca_add_liquidity(
         0.0
     };
     let measured_fee = crate::services::tx_cost::cost_label(
-        crate::services::tx_cost::simulated_sol_delta_b64(&rpc_url, &tx_b64, &user_pk).await,
+        crate::services::tx_cost::simulated_sol_delta_b64(rpc_url, &tx_b64, &user_pk).await,
         sol_deposited,
         &format!("~{:.4} SOL (init + tx)", init_cost as f64 / 1e9),
     );
@@ -1786,7 +1786,7 @@ pub async fn build_orca_open_position(
             0.0
         };
     let measured_fee = crate::services::tx_cost::cost_label(
-        crate::services::tx_cost::simulated_sol_delta_b64(&rpc_url, &tx_b64, &user_pk).await,
+        crate::services::tx_cost::simulated_sol_delta_b64(rpc_url, &tx_b64, &user_pk).await,
         sol_deposited,
         &format!("~{:.4} SOL (init + tx)", init_cost as f64 / 1e9),
     );
@@ -2613,10 +2613,7 @@ pub async fn build_orca_search_pools(
                 if head.is_empty() {
                     format!("Orca pool search: \"{}\"", params.q)
                 } else {
-                    format!(
-                        "{}. Fee APR — {head}",
-                        format!("Orca pool search: \"{}\"", params.q)
-                    )
+                    format!("Orca pool search: \"{}\". Fee APR — {head}", params.q)
                 }
             },
             estimated_fee: "0".to_string(),

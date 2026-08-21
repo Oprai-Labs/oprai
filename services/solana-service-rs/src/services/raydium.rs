@@ -1181,7 +1181,7 @@ pub async fn build_raydium_open_position(
         input_amount: input_base,
         tick_lower,
         tick_upper,
-        slippage_bps: slippage_bps as u32,
+        slippage_bps,
         with_metadata: false,
         position_nft_mint,
     };
@@ -1622,6 +1622,7 @@ pub async fn build_raydium_get_pools(
 ///   1. `{tokenA: "USDS", tokenB: "USDC"}`        — canonical
 ///   2. `{query: "USDS-USDC"}` / `{query: "USDS USDC"}` — shorthand
 ///   3. `{tokenA: "USDS-USDC"}`                   — model crammed both into tokenA
+///
 /// All three resolve to the same upstream query — see `normalize_pair` below.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1655,7 +1656,7 @@ fn normalize_pair(
 ) -> Option<(String, Option<String>)> {
     let split_pair = |s: &str| -> Option<(String, Option<String>)> {
         let parts: Vec<&str> = s
-            .split(|c: char| matches!(c, '-' | '/' | ' ' | '_' | ','))
+            .split(['-', '/', ' ', '_', ','])
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .collect();

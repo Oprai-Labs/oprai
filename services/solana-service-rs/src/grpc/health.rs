@@ -41,13 +41,14 @@ impl HealthService for HealthServiceImpl {
         };
 
         // Check DB pool.
-        let db_status = match self.state.pool.status() {
-            status => ServiceStatus {
+        let db_status = {
+            let status = self.state.pool.status();
+            ServiceStatus {
                 name: "postgres".into(),
                 status: ServingStatus::Serving.into(),
                 message: format!("pool size={}, available={}", status.size, status.available),
                 latency_ms: 0.0,
-            },
+            }
         };
 
         let response = HealthCheckResponse {

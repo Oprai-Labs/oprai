@@ -1206,7 +1206,7 @@ pub async fn build_helius_wallet_funded_by(
     let funder = data
         .get("wallet")
         .and_then(|v| v.as_str())
-        .map(|w| short_addr(w))
+        .map(short_addr)
         .unwrap_or_else(|| "unknown".into());
 
     Ok(BuildResponse {
@@ -1718,7 +1718,7 @@ pub async fn build_helius_create_webhook(
     let key = require_key(api_key)?;
     validate_helius_create_webhook_params(params)?;
 
-    let url = format!("{HELIUS_WEBHOOKS_API}");
+    let url = HELIUS_WEBHOOKS_API.to_string();
     let mut body = json!({
         "webhookURL": params.url,
         "accountAddresses": params.addresses,
@@ -1770,7 +1770,7 @@ pub async fn build_helius_list_webhooks(
     api_key: Option<&str>,
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
-    let url = format!("{HELIUS_WEBHOOKS_API}");
+    let url = HELIUS_WEBHOOKS_API.to_string();
     let data = helius_get(http, &url, key).await?;
     let count = data.as_array().map(|a| a.len()).unwrap_or(0);
 

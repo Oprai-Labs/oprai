@@ -345,7 +345,7 @@ pub async fn build_borrow_transaction(
             } else {
                 "Repay"
             },
-            format!("{:.4} {}", amount, symbol),
+            format_args!("{amount:.4} {symbol}"),
             if params.operation == "borrow" {
                 format!("@ {:.2}% APY", borrow_apy)
             } else {

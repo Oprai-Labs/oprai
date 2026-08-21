@@ -178,7 +178,10 @@ pub fn validate_pumpfun_trade_params(params: &PumpFunTradeParams) -> Result<(), 
         ));
     }
     if let Some(slippage) = params.slippage {
-        if slippage < 0.0 || slippage > 100.0 {
+        // `!(0.0..=100.0).contains(&x)` is TRUE for NaN, so a NaN slippage is
+        // rejected here. The old `x < 0.0 || x > 100.0` was FALSE for NaN and
+        // let it through into the curve maths.
+        if !(0.0..=100.0).contains(&slippage) {
             return Err(AppError::InvalidParams(
                 "slippage must be between 0 and 100 percent".into(),
             ));
@@ -1571,6 +1574,9 @@ fn build_sell_instruction(
 ///   If coin_creator != default: remaining[N] = poolV2Pda(base_mint) (readonly)
 ///   Always: remaining[N+0] = buyback_fee_recipient (readonly)
 ///           remaining[N+1] = buyback_fee_recipient_wsol_ata (writable)
+// The argument list mirrors the on-chain instruction's account list, which is
+// fixed by the program. Grouping them into a struct would hide that mapping.
+#[allow(clippy::too_many_arguments)]
 fn build_pumpswap_buy_instruction(
     buyer: &Pubkey,
     pool: &Pubkey,
@@ -1706,6 +1712,7 @@ fn build_pumpswap_buy_instruction(
 ///
 /// 21 declared accounts + remaining_accounts for buyback (same structure as buy).
 /// Sell cashback has 2 remaining accounts (wsol_ata + user_vol_acc) instead of buy's 1.
+#[allow(clippy::too_many_arguments)] // see build_pumpswap_buy_instruction
 fn build_pumpswap_sell_instruction(
     seller: &Pubkey,
     pool: &Pubkey,
@@ -2266,11 +2273,11 @@ const PUMP_TOKEN_DECIMALS: u64 = 1_000_000; // 10^6
 /// Optional `params` for deterministic on-server math (model can delegate
 /// arithmetic instead of doing it itself):
 ///   - `from_mc_sol` + `to_mc_sol` (both required together):
-///         returns net + gross SOL needed to push market cap from one to
-///         the other on the bonding curve, plus intermediate v_sol values.
+///     returns net + gross SOL needed to push market cap from one to
+///     the other on the bonding curve, plus intermediate v_sol values.
 ///   - `sol_in_fresh`: SOL spent on a brand-new curve → `tokens_received`.
 ///   - `tokens_out_fresh`: tokens to receive on a brand-new curve →
-///         `sol_needed_net` + `sol_needed_gross`.
+///     `sol_needed_net` + `sol_needed_gross`.
 ///   - `mc_to_v_sol`: market cap (SOL) → corresponding `v_sol` along the curve.
 ///
 /// All compute paths use the constant-product invariant (v_sol × v_tok =
@@ -3354,7 +3361,6 @@ pub async fn build_pumpfun_buy(
     {
         instructions.push(ix);
     }
-    let mut instructions = instructions;
     if !instructions.iter().any(is_oprai_fee_transfer) {
         if let Some(fee_ix) = oprai_fee_transfer_ix(
             &buyer,
@@ -3466,9 +3472,8 @@ pub async fn build_pumpfun_sell(
         token_amount,
         min_sol_output,
     )?;
-    let instructions = vec![cu_limit_ix, cu_price_ix, sell_ix];
+    let mut instructions = vec![cu_limit_ix, cu_price_ix, sell_ix];
 
-    let mut instructions = instructions;
     if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis, params.fee_discount_pct) {
         instructions.push(fee_ix);
     }
@@ -3637,7 +3642,6 @@ pub async fn build_pumpswap_buy(
     instructions.push(swap_ix);
     instructions.push(close_wsol_ix);
 
-    let mut instructions = instructions;
     if !instructions.iter().any(is_oprai_fee_transfer) {
         if let Some(fee_ix) = oprai_fee_transfer_ix(
             &buyer,
@@ -3792,7 +3796,7 @@ pub async fn build_pumpswap_sell(
     )?;
     let close_wsol_ix = build_close_wsol_instruction(&seller);
 
-    let instructions = vec![
+    let mut instructions = vec![
         cu_limit_ix,
         cu_price_ix,
         create_quote_ata_ix,
@@ -3800,7 +3804,6 @@ pub async fn build_pumpswap_sell(
         close_wsol_ix,
     ];
 
-    let mut instructions = instructions;
     if let Some(fee_ix) = oprai_sell_fee_ix(&seller, oprai_sell_basis, params.fee_discount_pct) {
         instructions.push(fee_ix);
     }

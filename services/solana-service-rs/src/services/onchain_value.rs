@@ -178,6 +178,9 @@ pub async fn confirmed_trade_value(
     let fee_wallet_task = fee_wallet.clone();
 
     // The RPC client is blocking; keep it off the async runtime.
+    // (credits, debits) as (mint, amount) pairs. A named type for a closure
+    // return used once reads worse than the tuple it stands for.
+    #[allow(clippy::type_complexity)]
     let fetched = tokio::task::spawn_blocking(
         move || -> Option<(Vec<(String, f64)>, Vec<(String, f64)>)> {
             let rpc = crate::solana::connection::SolanaRpc::new(&endpoint);
@@ -185,7 +188,6 @@ pub async fn confirmed_trade_value(
                 encoding: Some(UiTransactionEncoding::JsonParsed),
                 commitment: Some(CommitmentConfig::confirmed()),
                 max_supported_transaction_version: Some(0),
-                ..Default::default()
             };
             let tx = rpc.client().get_transaction_with_config(&sig, cfg).ok()?;
             let meta = tx.transaction.meta?;

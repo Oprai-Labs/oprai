@@ -521,8 +521,13 @@ mod tests {
                 solana_sdk::instruction::AccountMeta::new_readonly(in_table[3], false),
             ],
         );
-        let msg = v0::Message::try_compile(&payer.pubkey(), &[ix], &[lut.clone()], Hash::default())
-            .expect("compiles");
+        let msg = v0::Message::try_compile(
+            &payer.pubkey(),
+            &[ix],
+            std::slice::from_ref(&lut),
+            Hash::default(),
+        )
+        .expect("compiles");
         let tx = VersionedTransaction {
             signatures: vec![Signature::default()],
             message: VersionedMessage::V0(msg),

@@ -9,6 +9,13 @@
     unused_macros,
     non_upper_case_globals
 )]
+// `if !(x > 0.0) { reject }` is deliberate, not a clumsy `x <= 0.0`. Every
+// value guarded this way is a price, TVL, APR or amount parsed from an
+// external API, so NaN is reachable. `!(x > 0.0)` is TRUE for NaN and rejects
+// it; `x <= 0.0` is FALSE for NaN and lets it through — straight into a
+// financial calculation. Clippy is right that the intent is not obvious from
+// the syntax, which is what this comment is for. Do not "simplify" these.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 mod config;
 mod db;

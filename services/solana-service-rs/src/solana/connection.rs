@@ -41,6 +41,10 @@ impl SolanaRpc {
     }
 
     /// Fetch the latest blockhash with retry (up to 3 attempts).
+    // The Err type is solana_client's ClientError, which is genuinely large.
+    // Boxing it would change the signature of every caller for no benefit —
+    // these two are called once per request, not in a hot loop.
+    #[allow(clippy::result_large_err)]
     pub fn get_latest_blockhash_with_retry(
         &self,
     ) -> Result<solana_sdk::hash::Hash, solana_client::client_error::ClientError> {
@@ -63,6 +67,7 @@ impl SolanaRpc {
     }
 
     /// Health-check: try to fetch the latest slot.
+    #[allow(clippy::result_large_err)] // see get_latest_blockhash_with_retry
     pub fn health_check(&self) -> Result<u64, solana_client::client_error::ClientError> {
         self.client.get_slot()
     }

@@ -253,9 +253,9 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
         Verdict::Locked => format!(
             "This position is locked until it vests, so it cannot be closed or withdrawn yet — whatever {alternative_label} pays in the meantime."
         ),
-        Verdict::Unjudged => format!(
+        Verdict::Unjudged =>
             "This position holds several assets or is borrowed against, which this review does not model — so it is listed rather than judged. What it holds is shown above."
-        ),
+                .to_string(),
         Verdict::Unpriced => format!(
             "{alternative_label} pays more than this position, but the cost of closing could not be priced, so whether the switch is worth making is unknown. Left as it is."
         ),
@@ -840,6 +840,7 @@ const MAX_POSITION_TX: usize = 60;
 /// compare — the answer could not change what anyone does about it.
 const MIN_VALUE_FOR_HISTORY_USD: f64 = 50.0;
 
+#[allow(clippy::too_many_arguments)] // one argument per input of the comparison
 async fn compare_with_holding(
     http: &reqwest::Client,
     rpc_url: &str,

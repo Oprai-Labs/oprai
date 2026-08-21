@@ -181,7 +181,7 @@ pub async fn create_limit_order_transaction(
     });
 
     let mut req = http
-        .post(&format!("{JUPITER_TRIGGER_BASE}/createOrder"))
+        .post(format!("{JUPITER_TRIGGER_BASE}/createOrder"))
         .header("Content-Type", "application/json")
         .json(&body);
     if let Some(key) = jupiter_api_key {
@@ -267,7 +267,7 @@ pub async fn cancel_limit_order_transaction(
     });
 
     let mut req = http
-        .post(&format!("{JUPITER_TRIGGER_BASE}/cancelOrder"))
+        .post(format!("{JUPITER_TRIGGER_BASE}/cancelOrder"))
         .header("Content-Type", "application/json")
         .json(&body);
     if let Some(key) = jupiter_api_key {
@@ -473,23 +473,19 @@ pub async fn build_jup_limit_orders(
     if params.input_token.is_some() || params.output_token.is_some() {
         if let Some(orders) = data.get_mut("orders").and_then(|v| v.as_array_mut()) {
             orders.retain(|order| {
-                let input_ok = params.input_token.as_ref().map_or(true, |tok| {
+                let input_ok = params.input_token.as_ref().is_none_or(|tok| {
                     let resolved = crate::solana::tokens::resolve_token_address(tok.trim());
                     order
                         .get("inputMint")
                         .and_then(|v| v.as_str())
-                        .map_or(false, |m| {
-                            m == resolved || m.eq_ignore_ascii_case(tok.trim())
-                        })
+                        .is_some_and(|m| m == resolved || m.eq_ignore_ascii_case(tok.trim()))
                 });
-                let output_ok = params.output_token.as_ref().map_or(true, |tok| {
+                let output_ok = params.output_token.as_ref().is_none_or(|tok| {
                     let resolved = crate::solana::tokens::resolve_token_address(tok.trim());
                     order
                         .get("outputMint")
                         .and_then(|v| v.as_str())
-                        .map_or(false, |m| {
-                            m == resolved || m.eq_ignore_ascii_case(tok.trim())
-                        })
+                        .is_some_and(|m| m == resolved || m.eq_ignore_ascii_case(tok.trim()))
                 });
                 input_ok && output_ok
             });

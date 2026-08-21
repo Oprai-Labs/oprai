@@ -1100,7 +1100,7 @@ pub async fn list_transactions(
         .parse()
         .map_err(|_| AppError::InvalidParams("Invalid wallet UUID".into()))?;
 
-    let limit = query.limit.min(100).max(1);
+    let limit = query.limit.clamp(1, 100);
 
     let mut conn = state
         .pool
@@ -1581,6 +1581,9 @@ pub async fn post_relay_record(
     let fee_usd = notional_usd * (fee_bps as f64) / 10_000.0;
     // Prefer the origin-chain deposit hash; fall back to the requestId so the row
     // is still idempotent and traceable.
+    // `.first()` here resolves to diesel's QueryDsl::first, which is in scope
+    // and does not compile against a Vec — hence the explicit iterator.
+    #[allow(clippy::iter_next_slice)]
     let tx_hash = status
         .in_tx_hashes
         .iter()

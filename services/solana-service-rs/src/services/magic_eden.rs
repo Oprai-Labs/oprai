@@ -2956,9 +2956,7 @@ const ME_STATS_API: &str = "https://stats-mainnet.magiceden.io/collection_stats"
 async fn me_collection_overview(http: &reqwest::Client, symbol: &str) -> Option<serde_json::Value> {
     let url = format!("{ME_STATS_API}/stats?collectionId={symbol}&window=1d");
     let d = me_get_json(http, &url).await.ok()?;
-    if d.get("collectionSymbol").is_none() {
-        return None;
-    }
+    d.get("collectionSymbol")?;
 
     // Amounts arrive either as `{amount, native}` or as bare lamports. Read
     // `native` when it is there and divide when it is not — mistaking one for
