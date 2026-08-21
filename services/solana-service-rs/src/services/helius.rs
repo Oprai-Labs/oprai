@@ -129,7 +129,7 @@ pub async fn build_helius_tx_history(
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let limit = params.limit.unwrap_or(25).min(100).max(1);
+    let limit = params.limit.unwrap_or(25).clamp(1, 100);
 
     let mut url =
         format!("{HELIUS_ENHANCED_TX_API}/v0/addresses/{target}/transactions?limit={limit}");
@@ -275,7 +275,7 @@ pub async fn build_helius_get_assets(
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
     let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(100).min(1000).max(1);
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let sort_by = params.sort_by.as_deref().unwrap_or("recent_action");
     let token_type = params.token_type.as_deref().unwrap_or("all");
     let show_native = params.show_native_balance.unwrap_or(false);
@@ -451,7 +451,7 @@ pub async fn build_helius_search_assets(
     validate_helius_search_assets_params(params)?;
 
     let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(100).min(1000).max(1);
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
 
     let owner = params.owner.as_deref().unwrap_or(wallet);
     let mut search_params = json!({
@@ -546,7 +546,7 @@ pub async fn build_helius_nft_editions(
     validate_helius_nft_editions_params(params)?;
 
     let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(100).min(1000).max(1);
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
 
     let url = format!("{HELIUS_RPC_API}/");
     let body = json!({
@@ -637,7 +637,7 @@ pub async fn build_helius_get_token_accounts(
     validate_helius_get_token_accounts_params(params)?;
 
     let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(100).min(1000).max(1);
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let owner = params.owner.as_deref().unwrap_or(wallet);
 
     let mut das_params = json!({
@@ -730,7 +730,7 @@ pub async fn build_helius_asset_signatures(
     validate_helius_asset_signatures_params(params)?;
 
     let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(100).min(1000).max(1);
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
 
     let url = format!("{HELIUS_RPC_API}/");
     let body = json!({
@@ -823,7 +823,7 @@ pub async fn build_helius_priority_fee(
 
     let level = params.level.as_deref().unwrap_or("Medium");
     let include_all = params.include_all_levels.unwrap_or(true);
-    let lookback = params.lookback_slots.unwrap_or(150).min(150).max(1);
+    let lookback = params.lookback_slots.unwrap_or(150).clamp(1, 150);
 
     let mut options = json!({
         "priorityLevel": level,
@@ -1083,7 +1083,7 @@ pub async fn build_helius_wallet_history(
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let limit = params.limit.unwrap_or(25).min(100).max(1);
+    let limit = params.limit.unwrap_or(25).clamp(1, 100);
 
     let mut url = format!("{HELIUS_WALLET_API}/v1/wallet/{target}/history?limit={limit}");
     if let Some(before) = &params.before {
@@ -1143,7 +1143,7 @@ pub async fn build_helius_wallet_transfers(
 ) -> Result<BuildResponse, AppError> {
     let key = require_key(api_key)?;
     let target = params.wallet.as_deref().unwrap_or(wallet);
-    let limit = params.limit.unwrap_or(25).min(100).max(1);
+    let limit = params.limit.unwrap_or(25).clamp(1, 100);
 
     let mut url = format!("{HELIUS_WALLET_API}/v1/wallet/{target}/transfers?limit={limit}");
     if let Some(before) = &params.before {

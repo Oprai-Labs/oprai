@@ -41,11 +41,20 @@ const MAX_VENUE_SHARE: f64 = 0.05;
 /// quoting 3,300%, and their "lifetime" average was the same spike over the
 /// same day. No fee window separates noise from yield on a pool that new —
 /// only age does.
-const MIN_POOL_AGE_DAYS: f64 = 30.0;
+pub const MIN_POOL_AGE_DAYS: f64 = 30.0;
 
 /// Below this a pool's TVL is too small for any rate derived by dividing by it
 /// to mean anything.
-const MIN_POOL_TVL_FOR_A_RATE_USD: f64 = 100.0;
+pub const MIN_POOL_TVL_FOR_A_RATE_USD: f64 = 100.0;
+
+/// Depth a pool needs before its rate is worth *leading with*.
+///
+/// A different question from whether the rate can be computed at all. A pool
+/// holding a few hundred dollars can honestly show four figures of APR — one
+/// listing headline read 19,848% — and putting that at the front of a summary
+/// buries every pool anyone could actually use. The rate is still in the
+/// payload; it is simply not the headline.
+pub const MIN_POOL_TVL_FOR_A_HEADLINE_USD: f64 = 25_000.0;
 
 /// Solana's base fee, per signature, in SOL.
 ///
@@ -212,7 +221,11 @@ pub fn rate_summary(
     let mut rated: Vec<(String, f64)> = rows
         .iter()
         .filter_map(|r| {
-            let name = r.get(label)?.as_str()?.to_string();
+            let name = r.get(label)?.as_str()?.trim().to_string();
+            // A pool whose name did not resolve reads as "-USDC" on screen.
+            if name.is_empty() || name.starts_with('-') || name.ends_with('-') {
+                return None;
+            }
             let pct = rate_pct(r)?;
             (pct > 0.0 && pct.is_finite()).then_some((name, pct))
         })
@@ -1022,6 +1035,100 @@ mod every_protocol_rate_tests {
         assert!(!quotes_a_rate("Top 8 of 172 Kamino Earn vaults by TVL"));
         // A percent sign with no number in front of it is a label, not a rate.
         assert!(!quotes_a_rate("percentage: %"));
+    }
+
+    /// Ask every rate source, for real, whether it still leads with its numbers.
+    ///
+    /// The two tests beside this one check the detector and the contract. They
+    /// do not call anything — writing them and calling the job done is exactly
+    /// how a check ends up looking like coverage without being it. This one
+    /// makes the calls.
+    #[tokio::test]
+    #[ignore = "hits every protocol's live API"]
+    async fn every_protocol_still_quotes_its_rates() {
+        let http = reqwest::Client::new();
+        let mut failures: Vec<String> = Vec::new();
+
+        macro_rules! check {
+            ($name:expr, $call:expr) => {
+                match $call.await {
+                    Ok(resp) => {
+                        let d = resp.preview.description;
+                        if quotes_a_rate(&d) {
+                            eprintln!("  ✓ {:28} {}", $name, &d[..d.len().min(96)]);
+                        } else {
+                            failures.push(format!("{} quotes no rate: {d}", $name));
+                        }
+                    }
+                    // A venue that will not answer is a failure, not a skip —
+                    // silence here is how a rate source goes missing unnoticed.
+                    Err(e) => failures.push(format!("{} unreachable: {e}", $name)),
+                }
+            };
+        }
+
+        check!(
+            "kamino_market_reserves",
+            crate::services::kamino::build_kamino_market_reserves(
+                &http,
+                "",
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+        check!(
+            "kamino_vaults",
+            crate::services::kamino::build_kamino_vaults(
+                &http,
+                "",
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+        check!(
+            "jup_lend_markets",
+            crate::services::jupiter_lend::build_jup_lend_markets(
+                &http,
+                "",
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+        check!(
+            "orca_get_pools",
+            crate::services::orca::build_orca_get_pools(
+                &http,
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+        check!(
+            "stake_yields",
+            crate::services::marinade::query_stake_yields(&http)
+        );
+        check!(
+            "meteora_dlmm_get_pairs",
+            crate::services::meteora::build_meteora_dlmm_get_pairs(
+                &http,
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+        check!(
+            "meteora_dammv2_get_pools",
+            crate::services::meteora::build_meteora_dammv2_get_pools(
+                &http,
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+        check!(
+            "raydium_get_pools",
+            crate::services::raydium::build_raydium_get_pools(
+                &http,
+                &serde_json::from_value(serde_json::json!({})).unwrap()
+            )
+        );
+
+        assert!(
+            failures.is_empty(),
+            "rate sources not quoting a rate:\n  {}",
+            failures.join("\n  ")
+        );
     }
 
     #[test]

@@ -4580,6 +4580,44 @@ fn meteora_rate_summary(rows: &[serde_json::Value], take: usize) -> String {
         rows,
         "name",
         &|r| {
+            // Every rate here divides by TVL, so a pool holding almost nothing
+            // produces arithmetic rather than information — one listing led
+            // with 173,018,985%. A headline is the worst place for it.
+            let tvl = r
+                .get("tvl")
+                .and_then(|v| {
+                    v.as_f64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
+                .unwrap_or(0.0);
+            if tvl < crate::services::strategies::MIN_POOL_TVL_FOR_A_HEADLINE_USD {
+                return None;
+            }
+            // A pool with no track record cannot be tempered by one. The
+            // conservative rate takes the lower of the last day and the
+            // lifetime, which for a pool eight hours old are the same number:
+            // one headline read 19,848%, arithmetically correct on $25k of
+            // liquidity that had taken $13.7k of fees in its first day. True
+            // today, gone tomorrow, and the first thing a reader would see.
+            let created_ms = r
+                .get("created_at")
+                .and_then(|v| {
+                    v.as_f64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
+                .unwrap_or(0.0);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let age_days = if created_ms > 0.0 && now > 0.0 {
+                (now - created_ms / 1000.0) / 86_400.0
+            } else {
+                0.0
+            };
+            if age_days < crate::services::strategies::MIN_POOL_AGE_DAYS {
+                return None;
+            }
             let apr = crate::services::strategies::conservative_pool_apr(r);
             (apr > 0.0).then_some(apr)
         },
@@ -4624,7 +4662,16 @@ pub async fn build_meteora_dlmm_get_pairs(
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dlmm_get_pairs".into(),
             description: {
-                let rows = data.as_array().cloned().unwrap_or_default();
+                // The listing endpoints answer with a paginated envelope,
+                // not a bare array. Reading only the array shape produced an
+                // empty summary that silently fell back to the old wording —
+                // the edit compiled and did nothing.
+                let rows = data
+                    .get("data")
+                    .and_then(|d| d.as_array())
+                    .or_else(|| data.as_array())
+                    .cloned()
+                    .unwrap_or_default();
                 let head = meteora_rate_summary(&rows, 5);
                 if head.is_empty() {
                     "Meteora DLMM pair list".to_string()
@@ -5019,7 +5066,16 @@ pub async fn build_meteora_dammv2_get_pools(
             id: Uuid::new_v4().to_string(),
             action_type: "meteora_dammv2_get_pools".into(),
             description: {
-                let rows = data.as_array().cloned().unwrap_or_default();
+                // The listing endpoints answer with a paginated envelope,
+                // not a bare array. Reading only the array shape produced an
+                // empty summary that silently fell back to the old wording —
+                // the edit compiled and did nothing.
+                let rows = data
+                    .get("data")
+                    .and_then(|d| d.as_array())
+                    .or_else(|| data.as_array())
+                    .cloned()
+                    .unwrap_or_default();
                 let head = meteora_rate_summary(&rows, 5);
                 if head.is_empty() {
                     "Meteora DAMM v2 pool list".to_string()
