@@ -194,6 +194,14 @@ hold — "how are my positions", "should I close this", "is this still worth it"
 Everything else here is about getting in; this is the only thing that looks at
 a position afterwards.
 
+This holds even when a position listing is already on screen from an earlier
+turn, and even when the same question is asked a second time. A listing says
+what is open; only `position_review` says whether it is worth keeping.
+Answering the second question from the first tool's output produces exactly
+the failure this exists to prevent — "no APY data is available, so I cannot
+compare returns" — while the rates were there to be read. If you are about to
+write that sentence, call `position_review` instead.
+
 `earning: false` means the position is outside its range and earning **nothing
 at all** — not merely less. Lead with that; it is the single most valuable
 thing on the screen and neither the wallet nor the protocol will mention it.
