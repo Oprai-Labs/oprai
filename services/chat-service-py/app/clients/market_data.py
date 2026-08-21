@@ -2127,23 +2127,87 @@ _NOT_OFFERED: frozenset[str] = frozenset({
     "solend",       # Save — not live
 })
 
-_NETWORKS: dict[str, dict] = {
-    "Solana": {
-        "note": "Where the protocol integrations and the DeFi analysis live.",
-        "protocol_tags": None,  # all of them
-    },
-    "EVM chains and Robinhood": {
-        "note": (
-            "Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, "
-            "Linea, zkSync, Scroll and others, plus the Robinhood chain. "
-            "Assets can be bridged to and from Solana, and swapped on the "
-            "chain itself. The lending, staking and liquidity integrations "
-            "are Solana-only — say so rather than letting someone look for a "
-            "lending market on Base."
-        ),
-        "protocol_tags": {"relay"},
-    },
+_SOLANA_NOTE = "Where the protocol integrations and the DeFi analysis live."
+
+_BRIDGED_NOTE = (
+    "Assets move between any of these and Solana, and can be swapped on the "
+    "chain itself. They are not all EVM chains — the families below say which "
+    "is which, and a chain that runs the EVM (Robinhood Chain among them) is "
+    "one of that family rather than a heading of its own. What is Solana-only "
+    "is the lending, staking and liquidity work; say so rather than letting "
+    "someone go looking for a lending market on Base."
+)
+
+# Relay's `vmType` → the family a reader recognises. Only the label is written
+# here; which chains exist, and which family each is in, is read live.
+_VM_FAMILIES: dict[str, str] = {
+    "evm": "EVM",
+    "svm": "Solana VM",
+    "bvm": "Bitcoin",
+    "tvm": "Tron",
+    "tonvm": "TON",
+    "hypevm": "Hyperliquid",
+    "lvm": "Lighter",
+    "xrpvm": "XRP",
 }
+
+# Relay's id for Solana, and the one we used to send. Solana is a network in
+# its own right in this answer, not somewhere to bridge to.
+_SOLANA_CHAIN_IDS: frozenset[int] = frozenset({792_703_809, 900})
+
+
+def _group_bridged_chains(chains: list) -> dict:
+    """Sort a live Relay chain list into families, dropping what cannot be used.
+
+    Pure so it can be tested without a bridge: the grouping is where the two
+    mistakes lived, not the fetching.
+    """
+    by_family: dict[str, list[str]] = {}
+    for c in chains:
+        if not isinstance(c, dict):
+            continue
+        # `disabled` is the chain being off; `depositEnabled: false` is it
+        # being unreachable in the direction that matters here. Arbitrum Nova
+        # is live and undepositable — listing it offers a route that is not
+        # there.
+        if c.get("disabled") or c.get("depositEnabled") is False:
+            continue
+        if c.get("id") in _SOLANA_CHAIN_IDS:
+            continue
+        name = c.get("displayName") or c.get("name")
+        if not name:
+            continue
+        family = _VM_FAMILIES.get(str(c.get("vmType") or "").lower(), "Other")
+        by_family.setdefault(family, []).append(str(name))
+    return {
+        "chainCount": sum(len(v) for v in by_family.values()),
+        # EVM first because it is much the largest, then the rest by size.
+        "chainsByFamily": {
+            k: sorted(v)
+            for k, v in sorted(by_family.items(), key=lambda kv: -len(kv[1]))
+        },
+    }
+
+
+async def _bridged_chains() -> dict | None:
+    """The chains assets can move to and from, read live from the bridge.
+
+    Naming them from memory was wrong twice over. The constants listed
+    eighteen chains where the bridge routes sixty-five, and called them all
+    EVM when Bitcoin, TON, Tron, XRP and Hyperliquid are not EVM at all — and
+    Robinhood Chain, given a heading of its own, is simply one of the EVM ones.
+    A chain list is exactly the thing that goes stale between releases, so it
+    is read rather than remembered. When the read fails the answer says the
+    list is unavailable instead of reciting one nobody checked.
+    """
+    try:
+        chains = await _solana_action_data("relay_get_chains", {})
+    except Exception:
+        return None
+    if not isinstance(chains, list) or not chains:
+        return None
+    grouped = _group_bridged_chains(chains)
+    return grouped if grouped["chainCount"] else None
 
 # Human names for the protocol tags. Only the label is hand-written; whether a
 # protocol appears at all comes from the registry.
@@ -2227,17 +2291,30 @@ async def capabilities() -> dict:
             "examples": (acts[:4] or reads[:4]),
         })
 
-    cross_chain = {p["name"] for p in protocols if p["id"] in {"relay", "debridge"}}
     bridged_only = {"relay", "debridge"}
-    networks = []
-    for name, meta in _NETWORKS.items():
-        entry = {"network": name, "note": meta["note"]}
-        if meta["protocol_tags"] is None:
-            entry["protocols"] = [
-                p["name"] for p in protocols if p["id"] not in bridged_only
-            ]
+    cross_chain = sorted(p["name"] for p in protocols if p["id"] in bridged_only)
+
+    networks = [{
+        "network": "Solana",
+        "note": _SOLANA_NOTE,
+        "protocols": [p["name"] for p in protocols if p["id"] not in bridged_only],
+    }]
+    # Only claim other chains if something actually routes to them.
+    if cross_chain:
+        live = await _bridged_chains()
+        entry = {
+            "network": "Other chains",
+            "note": _BRIDGED_NOTE,
+            "protocols": cross_chain,
+        }
+        if live:
+            entry.update(live)
         else:
-            entry["protocols"] = sorted(cross_chain)
+            entry["chainsUnavailable"] = True
+            entry["note"] += (
+                " The live chain list could not be read just now — say that "
+                "rather than naming chains from memory."
+            )
         networks.append(entry)
 
     return {
