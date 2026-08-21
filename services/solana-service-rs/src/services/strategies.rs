@@ -177,6 +177,43 @@ pub async fn leg_cost_sol(rpc: &SolanaRpc) -> Option<f64> {
 ///
 /// Same rule the single-step ranking uses: a quiet day must not be hidden by
 /// a busy history, and a spike must not be sold as a rate.
+/// The two rates behind the conservative one, kept separate.
+///
+/// `conservative_pool_apr` returns their minimum, which is right when choosing
+/// a pool to enter — a spike should not be sold as normal. It is too twitchy
+/// when judging a position already held: a pool that has earned millions over
+/// its life and simply had a quiet day collapses to zero, and "earns 0%" reads
+/// as a dud rather than as the day off it actually is. Reporting both lets the
+/// difference be named.
+///
+/// Either may be None when its inputs are missing, which is not the same as
+/// zero and must not be flattened into it.
+pub fn pool_apr_parts(pool: &serde_json::Value) -> (Option<f64>, Option<f64>) {
+    let tvl = num(pool.get("tvl"));
+    if !(tvl > 0.0) {
+        return (None, None);
+    }
+    let apr_24h = pool
+        .get("fees")
+        .and_then(|v| v.get("24h"))
+        .map(|_| num(pool.get("fees").and_then(|v| v.get("24h"))) * 365.0 / tvl * 100.0);
+
+    let life_fees = num(pool.get("cumulative_metrics").and_then(|v| v.get("fees")));
+    let created_ms = num(pool.get("created_at"));
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let age_days = if created_ms > 0.0 && now_secs > 0.0 {
+        (now_secs - created_ms / 1000.0) / 86_400.0
+    } else {
+        0.0
+    };
+    let apr_life =
+        (age_days > 0.0 && life_fees > 0.0).then(|| life_fees / age_days * 365.0 / tvl * 100.0);
+    (apr_24h, apr_life)
+}
+
 pub fn conservative_pool_apr(pool: &serde_json::Value) -> f64 {
     let tvl = num(pool.get("tvl"));
     if !(tvl > 0.0) {

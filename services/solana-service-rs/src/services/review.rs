@@ -269,12 +269,16 @@ pub async fn build_position_review(
         // What this position actually captures, rather than what the pool
         // advertises. A range live a fifth of the time earns a fifth of the
         // rate; crediting the headline is the error this replaces.
-        let forward_apr = match pos.in_range_share {
-            Some(share) => pos.pool_apr * share,
-            // No history to go on, so fall back to the instantaneous read —
-            // out of range still means earning nothing right now.
-            None if pos.earning => pos.pool_apr,
-            None => 0.0,
+        // None when the pool itself could not be read: not knowing what a
+        // position earns is different from knowing it earns nothing, and only
+        // one of those is grounds for telling someone to close it.
+        let forward_apr: Option<f64> = match (pos.pool_apr, pos.in_range_share, pos.earning) {
+            (Some(rate), Some(share), _) => Some(rate * share),
+            // No range history to go on, so fall back to the instantaneous
+            // read — out of range still means earning nothing right now.
+            (Some(rate), None, true) => Some(rate),
+            (Some(_), None, false) => Some(0.0),
+            (None, _, _) => None,
         };
 
         // Fees already earned but not yet collected come back on the way out,
@@ -289,7 +293,9 @@ pub async fn build_position_review(
         };
 
         let facts = PositionFacts {
-            forward_apr,
+            // Unknown is carried as the alternative's own rate so the gap is
+            // zero and the verdict is Keep — no advice from no data.
+            forward_apr: forward_apr.unwrap_or(alt_apr),
             alternative_apr: alt_apr,
             exit_cost_pct,
             earning: pos.earning,
@@ -313,6 +319,12 @@ pub async fn build_position_review(
             // Share of the last ten days this range was live, 0..1.
             "inRangeShare": pos.in_range_share,
             "poolAprHeadlinePct": pos.pool_apr,
+            // Kept apart so a pool that simply had a quiet day is
+            // distinguishable from one that never earned: one tested pool had
+            // taken $2.4m in fees over its life and nothing at all in 24h.
+            "poolApr24hPct": pos.apr_24h,
+            "poolAprLifetimePct": pos.apr_life,
+            "forwardAprKnown": forward_apr.is_some(),
             // What it has actually done, in both denominators.
             "pnlUsdPct": pos.pnl_usd_pct,
             "pnlSolPct": pos.pnl_sol_pct,
@@ -388,7 +400,12 @@ struct OpenPosition {
     pair: String,
     earning: bool,
     usd_value: Option<f64>,
-    pool_apr: f64,
+    /// None when the pool could not be read at all. Zero means measured and
+    /// genuinely nothing; the two must not be confused, because one is a
+    /// finding and the other is our own failure.
+    pool_apr: Option<f64>,
+    apr_24h: Option<f64>,
+    apr_life: Option<f64>,
     exit_cost_pct: Option<f64>,
     in_range_share: Option<f64>,
     /// The side the position is denominated in — what it would hold if closed
@@ -516,15 +533,22 @@ async fn read_dlmm_positions(
 
         // What the pool pays now, on the same conservative basis the entry
         // options use — the lower of the last day and the pool's lifetime.
-        let pool_apr = match crate::services::meteora::meteora_pool_raw(
+        let (pool_apr, apr_24h, apr_life) = match crate::services::meteora::meteora_pool_raw(
             http,
             crate::services::meteora::DLMM_API,
             &pool_addr,
         )
         .await
         {
-            Ok(raw) => crate::services::strategies::conservative_pool_apr(&raw),
-            Err(_) => 0.0,
+            Ok(raw) => {
+                let (a, l) = crate::services::strategies::pool_apr_parts(&raw);
+                (
+                    Some(crate::services::strategies::conservative_pool_apr(&raw)),
+                    a,
+                    l,
+                )
+            }
+            Err(_) => (None, None, None),
         };
 
         // Leaving costs what arriving cost: half the position swaps back.
@@ -658,6 +682,8 @@ async fn read_dlmm_positions(
                 pair: pair.clone(),
                 earning,
                 in_range_share,
+                apr_24h,
+                apr_life,
                 // Y is the quote side of a Meteora pair by construction.
                 quote_mint: mint_y.clone(),
                 locked: false,
@@ -713,7 +739,8 @@ async fn read_orca_positions(
     let mut out = Vec::new();
     let mut empty = 0usize;
     // One pool lookup per distinct whirlpool, not per position.
-    let mut pool_rates: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut pool_rates: std::collections::HashMap<String, Option<f64>> =
+        std::collections::HashMap::new();
 
     for p in positions {
         let whirlpool = text(p.get("whirlpool"));
@@ -740,7 +767,7 @@ async fn read_orca_positions(
         let pool_apr = match pool_rates.get(&whirlpool) {
             Some(v) => *v,
             None => {
-                let rate = orca_pool_apr(http, &whirlpool).await.unwrap_or(0.0);
+                let rate = orca_pool_apr(http, &whirlpool).await;
                 pool_rates.insert(whirlpool.clone(), rate);
                 rate
             }
@@ -787,6 +814,8 @@ async fn read_orca_positions(
             locked: false,
             usd_value: value,
             pool_apr,
+            apr_24h: pool_apr,
+            apr_life: None,
             exit_cost_pct,
             // Orca's reader carries no profit-and-loss history, so these stay
             // unknown rather than being filled with something else's numbers.
@@ -843,15 +872,22 @@ async fn read_dammv2_positions(
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let pool_apr = match crate::services::meteora::meteora_pool_raw(
+        let (pool_apr, apr_24h, apr_life) = match crate::services::meteora::meteora_pool_raw(
             http,
             crate::services::meteora::DAMM_V2_API,
             &pool_addr,
         )
         .await
         {
-            Ok(raw) => crate::services::strategies::conservative_pool_apr(&raw),
-            Err(_) => 0.0,
+            Ok(raw) => {
+                let (a, l) = crate::services::strategies::pool_apr_parts(&raw);
+                (
+                    Some(crate::services::strategies::conservative_pool_apr(&raw)),
+                    a,
+                    l,
+                )
+            }
+            Err(_) => (None, None, None),
         };
 
         let (price_x, price_y) = tokio::join!(
@@ -899,6 +935,8 @@ async fn read_dammv2_positions(
                 locked: p.get("locked").and_then(|v| v.as_bool()).unwrap_or(false),
                 usd_value: value,
                 pool_apr,
+                apr_24h,
+                apr_life,
                 exit_cost_pct,
                 pnl_usd_pct: None,
                 pnl_sol_pct: None,
@@ -1041,6 +1079,25 @@ mod tests {
         let r = review_position(&facts(0.0, 5.0, Some(-0.2), false));
         assert_eq!(r.verdict, Verdict::ConsiderExit);
         assert_eq!(r.payback_days, Some(0.0));
+    }
+
+
+    #[test]
+    fn an_unreadable_pool_produces_no_advice() {
+        // A pool we could not read is not a pool earning nothing. Reporting it
+        // as zero told a live wallet to close a position holding $1.2m of
+        // liquidity because one request failed.
+        let f = PositionFacts {
+            forward_apr: 5.0,
+            alternative_apr: 5.0,
+            exit_cost_pct: Some(0.5),
+            earning: true,
+            in_range_share: None,
+            locked: false,
+        };
+        let r = review_position(&f);
+        assert_eq!(r.verdict, Verdict::Keep, "no data must not become an exit");
+        assert_eq!(r.gap_pct, 0.0);
     }
 
     #[test]
