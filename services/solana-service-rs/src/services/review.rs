@@ -56,6 +56,9 @@ pub struct PositionFacts {
     /// Locked until it vests. Nothing can be closed, so nothing should be
     /// suggested that involves closing it.
     pub locked: bool,
+    /// What the position is worth, where it is known. Percentages stop meaning
+    /// anything once this falls below what a transaction costs.
+    pub usd_value: Option<f64>,
 }
 
 /// What to do about it.
@@ -74,6 +77,9 @@ pub enum Verdict {
     /// A shape this review does not model — several assets, or borrowed
     /// against. Reported, not judged.
     Unjudged,
+    /// Worth so little that the flat costs of touching it dominate everything
+    /// else. No yield comparison means anything at this size.
+    Dust,
 }
 
 impl Verdict {
@@ -85,6 +91,7 @@ impl Verdict {
             Verdict::Unpriced => "unpriced",
             Verdict::Locked => "locked",
             Verdict::Unjudged => "unjudged",
+            Verdict::Dust => "dust",
         }
     }
 }
@@ -109,6 +116,19 @@ pub fn review_position(f: &PositionFacts) -> Review {
     // A locked position cannot be closed until it vests. Telling someone to
     // leave it is advice they cannot act on, however wide the gap — so the
     // gap is still reported, and the verdict is not an instruction to move.
+    // Everything below is a percentage of the position, and a percentage of
+    // almost nothing is arithmetic rather than advice — one live position
+    // produced an exit cost of −441% because the rent refunded on closing was
+    // four times what the position held. True, and not a number to put in
+    // front of anyone.
+    if f.usd_value.map(|v| v < DUST_POSITION_USD).unwrap_or(false) {
+        return Review {
+            verdict: Verdict::Dust,
+            gap_pct: 0.0,
+            payback_days: None,
+        };
+    }
+
     if !f.forward_known {
         return Review {
             verdict: Verdict::Unjudged,
@@ -223,6 +243,9 @@ pub fn explain(f: &PositionFacts, r: &Review, alternative_label: &str) -> String
         }
         Verdict::Locked => format!(
             "This position is locked until it vests, so it cannot be closed or withdrawn yet — whatever {alternative_label} pays in the meantime."
+        ),
+        Verdict::Dust => format!(
+            "There is too little here for the arithmetic to mean anything — at this size the fixed cost of a transaction outweighs any difference in yield. Closing it returns the rent its accounts hold, which is worth more than the position itself; keeping it costs nothing either."
         ),
         Verdict::Unjudged => format!(
             "This position holds several assets or is borrowed against, which this review does not model — so it is listed rather than judged. What it holds is shown above."
@@ -369,6 +392,7 @@ pub async fn build_position_review(
             earning: pos.earning,
             in_range_share: pos.in_range_share,
             locked: pos.locked,
+            usd_value: pos.usd_value,
         };
         let review = review_position(&facts);
 
@@ -933,6 +957,41 @@ fn share_inside(prices: &[f64], lower: f64, upper: f64) -> Option<f64> {
 /// name the window it is a share of.
 const PRICE_WINDOW_DAYS: i64 = 14;
 
+/// The rent a position's accounts hold, read from the chain.
+///
+/// Refunded when the position closes, so on a small position it is not a
+/// detail — it can exceed the position itself and make leaving a payment
+/// rather than a cost.
+///
+/// Read rather than taken from the venue, because only two of the four report
+/// it. Leaving it out where it was unreported looked like the cautious choice
+/// and was not: a dust position earning nothing was told closing would take
+/// ninety days to justify, when closing it actually pays.
+async fn position_rent_sol(http: &reqwest::Client, rpc_url: &str, address: &str) -> Option<f64> {
+    if address.is_empty() {
+        return None;
+    }
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo",
+        "params": [address, { "encoding": "base64", "dataSlice": { "offset": 0, "length": 0 } }],
+    });
+    let resp: serde_json::Value = http
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let lamports = resp
+        .get("result")?
+        .get("value")?
+        .get("lamports")?
+        .as_f64()?;
+    (lamports > 0.0).then_some(lamports / 1e9)
+}
+
 /// The exit cost once the flat parts are counted, as a share of the position.
 ///
 /// The swap back out scales with size; the network fee does not, and the rent
@@ -962,6 +1021,10 @@ fn exit_cost_with_flat_parts(
 
 /// Signatures needed to leave a position: withdraw, then close.
 const EXIT_TRANSACTIONS: f64 = 2.0;
+
+/// Below this a position is worth less than the fixed cost of acting on it,
+/// so every percentage derived from it is noise.
+pub const DUST_POSITION_USD: f64 = 5.0;
 
 /// A Solana signature costs this much, and it does not scale with position size.
 const BASE_FEE_SOL: f64 = 0.000005;
@@ -1832,6 +1895,7 @@ mod tests {
             in_range_share: None,
             forward_known: true,
             locked: false,
+            usd_value: None,
         }
     }
 
@@ -1907,6 +1971,7 @@ mod tests {
             in_range_share: Some(0.2),
             forward_known: true,
             locked: false,
+            usd_value: None,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Keep);
@@ -1940,6 +2005,7 @@ mod tests {
             in_range_share: None,
             forward_known: true,
             locked: false,
+            usd_value: None,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Keep, "no data must not become an exit");
@@ -1958,12 +2024,50 @@ mod tests {
             in_range_share: None,
             forward_known: true,
             locked: false,
+            usd_value: None,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::NotWorthTheSwitch);
         let text = explain(&f, &r, "lending");
         assert!(text.contains("never realistically"), "{text}");
         assert!(!text.contains("182500"), "{text}");
+    }
+
+    #[test]
+    fn a_position_smaller_than_a_transaction_is_not_worth_arithmetic() {
+        // A live $0.12 position produced an exit cost of -441%, because the
+        // rent refunded on closing was four times what it held. True, and not
+        // a number to put in front of anyone.
+        let f = PositionFacts {
+            forward_apr: 17.0,
+            alternative_apr: 4.78,
+            exit_cost_pct: Some(-440.9),
+            earning: true,
+            in_range_share: None,
+            forward_known: true,
+            locked: false,
+            usd_value: Some(0.12),
+        };
+        let r = review_position(&f);
+        assert_eq!(r.verdict, Verdict::Dust);
+        let text = explain(&f, &r, "lending");
+        assert!(!text.contains("440"), "{text}");
+        assert!(text.contains("too little"), "{text}");
+    }
+
+    #[test]
+    fn a_position_worth_acting_on_is_still_judged() {
+        let f = PositionFacts {
+            forward_apr: 0.0,
+            alternative_apr: 5.0,
+            exit_cost_pct: Some(0.3),
+            earning: false,
+            in_range_share: None,
+            forward_known: true,
+            locked: false,
+            usd_value: Some(5_000.0),
+        };
+        assert_eq!(review_position(&f).verdict, Verdict::ConsiderExit);
     }
 
     #[test]
@@ -1980,6 +2084,7 @@ mod tests {
             in_range_share: None,
             forward_known: false,
             locked: false,
+            usd_value: None,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Unjudged);
@@ -2003,6 +2108,7 @@ mod tests {
             in_range_share: None,
             forward_known: true,
             locked: true,
+            usd_value: None,
         };
         let r = review_position(&f);
         assert_eq!(r.verdict, Verdict::Locked);
@@ -2268,6 +2374,7 @@ mod exit_cost_tests {
             in_range_share: None,
             forward_known: true,
             locked: false,
+            usd_value: None,
         });
         assert_eq!(r.verdict, Verdict::ConsiderExit);
         assert_eq!(r.payback_days, Some(0.0));

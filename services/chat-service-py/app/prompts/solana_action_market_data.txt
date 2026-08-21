@@ -250,6 +250,12 @@ guess a value for them.
 `poolTvlUsd` explains a rate of zero: a pool holding almost nothing cannot
 produce a meaningful rate, which is different from a pool that pays nothing.
 
+A `dust` verdict means the position is worth less than the fixed cost of a
+transaction, so no comparison of yields means anything at that size. Say that
+plainly instead of quoting percentages — they are arithmetic, not advice.
+Closing returns the rent the accounts hold, which on a position that small is
+usually worth more than the position; keeping it costs nothing either.
+
 A `locked` verdict means the position cannot be closed until it vests. Report
 the gap if there is one, but never suggest moving — it is advice nobody can
 act on.
