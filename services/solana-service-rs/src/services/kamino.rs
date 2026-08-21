@@ -1687,7 +1687,21 @@ pub async fn build_kamino_vaults(
         preview: ActionPreview {
             id: uuid::Uuid::new_v4().to_string(),
             action_type: "kamino_vaults".into(),
-            description: format!("Top {shown} of {total} Kamino Earn vaults by TVL"),
+            description: {
+                // Lead with what they pay. "Top 8 by TVL" told a reader
+                // nothing about which one to want.
+                let head = crate::services::strategies::rate_summary(
+                    &out,
+                    "name",
+                    &|r| r.get("apyPct").and_then(|v| v.as_f64()),
+                    5,
+                );
+                if head.is_empty() {
+                    format!("Top {shown} of {total} Kamino Earn vaults by TVL")
+                } else {
+                    format!("Top {shown} of {total} Kamino Earn vaults by TVL. APY — {head}")
+                }
+            },
             estimated_fee: "0".into(),
             estimated_refund: None,
             params: serde_json::Value::Array(out),

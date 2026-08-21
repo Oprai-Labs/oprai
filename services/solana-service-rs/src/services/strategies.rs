@@ -192,6 +192,41 @@ pub async fn leg_cost_sol(rpc: &SolanaRpc) -> Option<f64> {
 ///
 /// Either may be None when its inputs are missing, which is not the same as
 /// zero and must not be flattened into it.
+/// A one-line summary of the best rates in a listing, for the description.
+///
+/// A tool's description is the only part the model reads without being asked
+/// to. Where one summarises its numbers and another returns the same numbers
+/// inside a wall of JSON, the readable one wins arguments it should lose: a
+/// USDC comparison recommended Jupiter at 4.55% over Kamino at 5.38%, because
+/// Jupiter's rates were in its description and Kamino's were not.
+///
+/// So every listing that answers "which of these pays more" says so up front.
+/// Empty when nothing can be read, which leaves the caller's own wording
+/// intact rather than appending a dangling clause.
+pub fn rate_summary(
+    rows: &[serde_json::Value],
+    label: &str,
+    rate_pct: &dyn Fn(&serde_json::Value) -> Option<f64>,
+    take: usize,
+) -> String {
+    let mut rated: Vec<(String, f64)> = rows
+        .iter()
+        .filter_map(|r| {
+            let name = r.get(label)?.as_str()?.to_string();
+            let pct = rate_pct(r)?;
+            (pct > 0.0 && pct.is_finite()).then_some((name, pct))
+        })
+        .collect();
+    rated.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    rated.dedup_by(|a, b| a.0 == b.0);
+    rated
+        .iter()
+        .take(take)
+        .map(|(n, p)| format!("{n} ({p:.2}%)"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn pool_apr_parts(pool: &serde_json::Value) -> (Option<f64>, Option<f64>) {
     let tvl = num(pool.get("tvl"));
     // Every rate here divides by TVL, so a pool holding almost nothing yields

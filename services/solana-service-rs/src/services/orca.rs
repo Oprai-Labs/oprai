@@ -2401,6 +2401,43 @@ fn slim_orca_pool_page(mut data: serde_json::Value) -> serde_json::Value {
     data
 }
 
+/// Pairs and their annualised fee rates, for a pool listing's description.
+///
+/// Orca reports a daily yield-to-TVL ratio, so the year is 365 of them. The
+/// pair name has to be assembled from the two token records; a listing that
+/// says only "Orca Whirlpools pool list" leaves the reader to find the rates
+/// in the payload, which is how a comparison gets answered from whichever
+/// side happened to be legible.
+fn orca_rate_summary(rows: &[serde_json::Value], take: usize) -> String {
+    let mut rated: Vec<(String, f64)> = rows
+        .iter()
+        .filter_map(|r| {
+            let sym = |k: &str| {
+                r.get(k)
+                    .and_then(|t| t.get("symbol"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string()
+            };
+            let daily = r.get("yieldOverTvl").and_then(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })?;
+            let apr = daily * 365.0 * 100.0;
+            (apr > 0.0 && apr.is_finite())
+                .then(|| (format!("{}/{}", sym("tokenA"), sym("tokenB")), apr))
+        })
+        .collect();
+    rated.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    rated.dedup_by(|a, b| a.0 == b.0);
+    rated
+        .iter()
+        .take(take)
+        .map(|(n, p)| format!("{n} ({p:.1}%)"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub async fn build_orca_get_pools(
     http: &reqwest::Client,
     params: &OrcaGetPoolsParams,
@@ -2473,7 +2510,20 @@ pub async fn build_orca_get_pools(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "orca_get_pools".to_string(),
-            description: "Orca Whirlpools pool list".to_string(),
+            description: {
+                // Fee APR up front — the number the question is about.
+                let rows = data
+                    .get("data")
+                    .and_then(|d| d.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let head = orca_rate_summary(&rows, 5);
+                if head.is_empty() {
+                    "Orca Whirlpools pool list".to_string()
+                } else {
+                    format!("Orca Whirlpools pool list. Fee APR — {head}")
+                }
+            },
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: serde_json::json!({}),
@@ -2552,7 +2602,23 @@ pub async fn build_orca_search_pools(
         preview: ActionPreview {
             id: Uuid::new_v4().to_string(),
             action_type: "orca_search_pools".to_string(),
-            description: format!("Orca pool search: \"{}\"", params.q),
+            description: {
+                // Fee APR up front — the number the question is about.
+                let rows = data
+                    .get("data")
+                    .and_then(|d| d.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let head = orca_rate_summary(&rows, 5);
+                if head.is_empty() {
+                    format!("Orca pool search: \"{}\"", params.q)
+                } else {
+                    format!(
+                        "{}. Fee APR — {head}",
+                        format!("Orca pool search: \"{}\"", params.q)
+                    )
+                }
+            },
             estimated_fee: "0".to_string(),
             estimated_refund: None,
             params: serde_json::json!({}),
