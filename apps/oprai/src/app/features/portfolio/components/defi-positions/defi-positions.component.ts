@@ -4,6 +4,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
 import { CategoryLabelPipe } from '../../pipes/category-label.pipe';
 import type { DefiPositions, ProtocolPosition, ProtocolCategory } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 // Sort priority for grouping protocols. Native staking first because it's
 // always SOL-denominated and visually anchors the section; LPs and lending
@@ -49,7 +50,7 @@ interface ProtocolGroup {
 @Component({
   selector: 'app-defi-positions',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, CategoryLabelPipe],
+  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, CategoryLabelPipe, TPipe],
   templateUrl: './defi-positions.component.html',
   styleUrl: './defi-positions.component.scss',
 })

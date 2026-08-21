@@ -5,7 +5,7 @@
     <div class="burn-header__title">
       <span class="burn-icon">🔥</span>
       <div>
-        <h1>Token Manager</h1>
+        <h1>{{ 'Token Manager' | t }}</h1>
         <p class="burn-header__sub">Close empty accounts &amp; reclaim SOL · Burn unwanted tokens</p>
       </div>
     </div>
@@ -17,44 +17,44 @@
   <!-- FAQ Panel -->
   @if (faqOpen()) {
     <div class="faq-panel">
-      <h3>How does it work?</h3>
+      <h3>{{ 'How does it work?' | t }}</h3>
       <div class="faq-grid">
         <div class="faq-item">
           <div class="faq-item__icon faq-item__icon--safe">🔓</div>
           <div>
-            <strong>Close Empty Accounts</strong>
-            <p>Every SPL token account locks ~<strong>0.002 SOL</strong> in rent. When you close an
-              account with zero balance, that SOL is returned to your wallet. This is <strong>completely
-              safe and reversible</strong> — your wallet will automatically re-create the account
-              the next time you receive that token.</p>
+            <strong>{{ 'Close Empty Accounts' | t }}</strong>
+            <p>{{ 'Every SPL token account locks ~' | t }}<strong>{{ '0.002 SOL' | t }}</strong> {{ 'in rent. When you close an
+              account with zero balance, that SOL is returned to your wallet. This is' | t }} <strong>{{ 'completely
+              safe and reversible' | t }}</strong> {{ '— your wallet will automatically re-create the account
+              the next time you receive that token.' | t }}</p>
           </div>
         </div>
         <div class="faq-item">
           <div class="faq-item__icon faq-item__icon--danger">🔥</div>
           <div>
-            <strong>Burn Tokens</strong>
-            <p>Burning destroys tokens permanently by sending them to the
-              <code>TokenkegQfeZyiNwAJb…</code> burn address. <strong>This cannot be undone.</strong>
-              Only burn tokens you no longer want. You can optionally close the account at the same
-              time to also reclaim the rent SOL.</p>
+            <strong>{{ 'Burn Tokens' | t }}</strong>
+            <p>{{ 'Burning destroys tokens permanently by sending them to the' | t }}
+              <code>{{ 'TokenkegQfeZyiNwAJb…' | t }}</code> {{ 'burn address.' | t }} <strong>{{ 'This cannot be undone.' | t }}</strong>
+              {{ 'Only burn tokens you no longer want. You can optionally close the account at the same
+              time to also reclaim the rent SOL.' | t }}</p>
           </div>
         </div>
         <div class="faq-item">
           <div class="faq-item__icon">💡</div>
           <div>
-            <strong>Why do I have so many accounts?</strong>
-            <p>Every time you interact with a token for the first time (swap, airdrop, transfer),
+            <strong>{{ 'Why do I have so many accounts?' | t }}</strong>
+            <p>{{ 'Every time you interact with a token for the first time (swap, airdrop, transfer),
               Solana creates a token account for it. Over time these accumulate. Closing empty
-              ones is a free way to clean up your wallet and recover locked SOL.</p>
+              ones is a free way to clean up your wallet and recover locked SOL.' | t }}</p>
           </div>
         </div>
         <div class="faq-item">
           <div class="faq-item__icon">💰</div>
           <div>
-            <strong>How much SOL can I recover?</strong>
-            <p>Each empty account returns approximately <strong>0.00203928 SOL</strong>.
-              If you have 10 empty accounts, you can recover ~<strong>0.02 SOL</strong>.
-              The exact amount shown is the actual rent locked in each account.</p>
+            <strong>{{ 'How much SOL can I recover?' | t }}</strong>
+            <p>{{ 'Each empty account returns approximately' | t }} <strong>{{ '0.00203928 SOL' | t }}</strong>{{ '.
+              If you have 10 empty accounts, you can recover ~' | t }}<strong>{{ '0.02 SOL' | t }}</strong>{{ '.
+              The exact amount shown is the actual rent locked in each account.' | t }}</p>
           </div>
         </div>
       </div>
@@ -65,7 +65,7 @@
   @if (!isWalletConnected()) {
     <div class="empty-state">
       <span class="empty-state__icon">🔌</span>
-      <p>Connect your wallet to manage token accounts</p>
+      <p>{{ 'Connect your wallet to manage token accounts' | t }}</p>
     </div>
   } @else {
 
@@ -97,15 +97,15 @@
     @if (phase() === 'loading' && accounts().length === 0) {
       <div class="loading-state">
         <div class="spinner"></div>
-        <p>Loading token accounts…</p>
+        <p>{{ 'Loading token accounts…' | t }}</p>
       </div>
     }
 
     <!-- Load error -->
     @if (loadError()) {
       <div class="error-banner">
-        <span>⚠️ {{ loadError() }}</span>
-        <button (click)="loadAccounts()">Retry</button>
+        <span>⚠️ {{ loadError() | t }}</span>
+        <button (click)="loadAccounts()">{{ 'Retry' | t }}</button>
       </div>
     }
 
@@ -114,13 +114,13 @@
       <div class="tab-content">
         <div class="tab-description tab-description--safe">
           <span>✅ Safe &amp; Reversible</span>
-          <p>Closing empty accounts reclaims locked SOL rent. Your wallet recreates accounts automatically when needed.</p>
+          <p>{{ 'Closing empty accounts reclaims locked SOL rent. Your wallet recreates accounts automatically when needed.' | t }}</p>
         </div>
 
         @if (emptyAccounts().length === 0) {
           <div class="empty-state empty-state--small">
-            <p>No empty token accounts found.</p>
-            <button class="btn-secondary" (click)="loadAccounts()">Refresh</button>
+            <p>{{ 'No empty token accounts found.' | t }}</p>
+            <button class="btn-secondary" (click)="loadAccounts()">{{ 'Refresh' | t }}</button>
           </div>
         } @else {
           <div class="account-list-header">
@@ -135,7 +135,7 @@
             </label>
             @if (selectedClose().length > 0) {
               <div class="refund-summary">
-                <span class="refund-label">Estimated refund:</span>
+                <span class="refund-label">{{ 'Estimated refund:' | t }}</span>
                 <span class="refund-amount">+{{ formatSol(totalRefundLamports()) }} SOL</span>
                 <span class="refund-sub">({{ selectedClose().length }} accounts × ~0.002 SOL)</span>
               </div>
@@ -165,7 +165,7 @@
                   <span class="account-mint">{{ acct.mint.slice(0,8) }}…</span>
                 </div>
                 <div class="account-balance">
-                  <span class="balance-zero">Empty</span>
+                  <span class="balance-zero">{{ 'Empty' | t }}</span>
                 </div>
                 <div class="account-refund">
                   <span class="refund-pill">+{{ formatSol(acct.rentLamports) }} SOL</span>
@@ -181,7 +181,7 @@
           }
 
           @if (actionError()) {
-            <div class="error-banner">⚠️ {{ actionError() }}</div>
+            <div class="error-banner">⚠️ {{ actionError() | t }}</div>
           }
 
           <div class="action-footer">
@@ -208,18 +208,18 @@
       <div class="tab-content">
         <div class="tab-description tab-description--danger">
           <span>⚠️ Permanent &amp; Irreversible</span>
-          <p>Burned tokens cannot be recovered. Double-check before confirming.</p>
+          <p>{{ 'Burned tokens cannot be recovered. Double-check before confirming.' | t }}</p>
         </div>
 
         @if (nonEmptyAccounts().length === 0) {
           <div class="empty-state empty-state--small">
-            <p>No tokens with balance found.</p>
-            <button class="btn-secondary" (click)="loadAccounts()">Refresh</button>
+            <p>{{ 'No tokens with balance found.' | t }}</p>
+            <button class="btn-secondary" (click)="loadAccounts()">{{ 'Refresh' | t }}</button>
           </div>
         } @else {
           <div class="burn-form">
             <div class="form-group">
-              <label>Select Token to Burn</label>
+              <label>{{ 'Select Token to Burn' | t }}</label>
               <div class="token-select-list">
                 @for (acct of nonEmptyAccounts(); track acct.mint) {
                   <div
@@ -251,21 +251,21 @@
 
             @if (burnMint()) {
               <div class="form-group">
-                <label>Amount to Burn</label>
+                <label>{{ 'Amount to Burn' | t }}</label>
                 <div class="amount-input-wrap">
                   <input
                     type="text"
                     class="amount-input"
                     [value]="burnAmount()"
                     (input)="burnAmount.set($any($event.target).value)"
-                    placeholder="0.00 or 'all'"
+                    [attr.placeholder]="'0.00 or \'all\'' | t"
                     inputmode="decimal"
                     autocomplete="off"
                   />
                   <button
                     class="btn-max"
                     (click)="setBurnAmountAll()"
-                  >MAX</button>
+                  >{{ 'MAX' | t }}</button>
                 </div>
                 @if (selectedBurnAccount()) {
                   <div class="balance-hint">
@@ -284,15 +284,15 @@
               <div class="burn-warning-box">
                 <div class="burn-warning-box__icon">🔥</div>
                 <div class="burn-warning-box__text">
-                  <strong>This action is permanent and cannot be undone.</strong>
-                  <p>You are about to burn tokens. Once confirmed, they are destroyed forever and cannot be recovered. Make sure you're burning the right token and amount.</p>
+                  <strong>{{ 'This action is permanent and cannot be undone.' | t }}</strong>
+                  <p>{{ 'You are about to burn tokens. Once confirmed, they are destroyed forever and cannot be recovered. Make sure you\'re burning the right token and amount.' | t }}</p>
                 </div>
               </div>
             }
           </div>
 
           @if (actionError()) {
-            <div class="error-banner">⚠️ {{ actionError() }}</div>
+            <div class="error-banner">⚠️ {{ actionError() | t }}</div>
           }
 
           <div class="action-footer">
@@ -314,17 +314,17 @@
     <!-- ──────── PREVIEW / SIGNING ──────── -->
     @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
       <div class="preview-panel">
-        <h3 class="preview-title">Confirm Action</h3>
+        <h3 class="preview-title">{{ 'Confirm Action' | t }}</h3>
         <p class="preview-description">{{ preview()!.description }}</p>
 
         <div class="preview-fees">
           <div class="preview-fee-row">
-            <span>Network fee</span>
+            <span>{{ 'Network fee' | t }}</span>
             <span>{{ preview()!.estimatedFee }}</span>
           </div>
           @if (preview()!.estimatedRefund) {
             <div class="preview-fee-row preview-fee-row--refund">
-              <span>SOL refund</span>
+              <span>{{ 'SOL refund' | t }}</span>
               <span class="refund-amount">{{ preview()!.estimatedRefund }}</span>
             </div>
           }
@@ -341,11 +341,11 @@
         }
 
         @if (actionError()) {
-          <div class="error-banner">⚠️ {{ actionError() }}</div>
+          <div class="error-banner">⚠️ {{ actionError() | t }}</div>
         }
 
         <div class="preview-actions">
-          <button class="btn-secondary" [disabled]="phase() === 'signing'" (click)="cancelPreview()">Cancel</button>
+          <button class="btn-secondary" [disabled]="phase() === 'signing'" (click)="cancelPreview()">{{ 'Cancel' | t }}</button>
           <button
             class="btn-action"
             [class.btn-action--danger]="activeTab() === 'burn'"
@@ -367,16 +367,16 @@
     @if (phase() === 'success') {
       <div class="success-panel">
         <div class="success-icon">✅</div>
-        <h3>Transaction Confirmed!</h3>
+        <h3>{{ 'Transaction Confirmed!' | t }}</h3>
         @if (txSig()) {
           <a
             class="tx-link"
             [href]="'https://solscan.io/tx/' + txSig()"
             target="_blank"
             rel="noopener noreferrer"
-          >View on Solscan ↗</a>
+          >{{ 'View on Solscan ↗' | t }}</a>
         }
-        <button class="btn-secondary" (click)="phase.set('idle')">Done</button>
+        <button class="btn-secondary" (click)="phase.set('idle')">{{ 'Done' | t }}</button>
       </div>
     }
 

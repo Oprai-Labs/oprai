@@ -11,7 +11,7 @@
     } @else if (cardTokenIcon()) {
       <!-- No `as` alias: Angular binds it only on the primary @if. -->
       <div class="clarify-card__icon clarify-card__icon--protocol">
-        <img class="clarify-card__proto-logo" [src]="cardTokenIcon()!" alt="Solana" />
+        <img class="clarify-card__proto-logo" [src]="cardTokenIcon()!" [attr.alt]="'Solana' | t" />
       </div>
     } @else {
       <div class="clarify-card__icon">
@@ -19,7 +19,7 @@
       </div>
     }
     <span class="clarify-card__title">{{ cardProtocol()?.name ?? title() }}</span>
-    <span class="clarify-card__badge">CHOOSE</span>
+    <span class="clarify-card__badge">{{ 'CHOOSE' | t }}</span>
   </div>
 
   <!-- Question -->
@@ -133,7 +133,7 @@
   @if (selectedIndex !== null) {
     <p class="clarify-card__executing">
       <lucide-angular name="loader-circle" [size]="12" class="spin" />
-      Preparing transaction…
+      {{ 'Preparing transaction…' | t }}
     </p>
   }
 </div>

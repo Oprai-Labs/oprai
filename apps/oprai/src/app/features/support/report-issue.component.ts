@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { ApiService } from '@core/services/api.service';
+import { TPipe } from '@core/i18n';
 
 export type IssueCategory = 'bug' | 'feature' | 'account' | 'other';
 
@@ -33,7 +34,7 @@ export interface IssueReport {
 @Component({
   selector: 'app-report-issue',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, TPipe],
   templateUrl: './report-issue.component.html',
   styleUrl: './report-issue.component.scss',
 })

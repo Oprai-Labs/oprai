@@ -1,10 +1,10 @@
 <div class="card">
   <div class="row">
     <div class="row-label">
-      <span class="row-title">Theme</span>
-      <span class="row-meta">Choose how OPRAI looks on this device.</span>
+      <span class="row-title">{{ 'Theme' | t }}</span>
+      <span class="row-meta">{{ 'Choose how OPRAI looks on this device.' | t }}</span>
     </div>
-    <div class="segmented" role="radiogroup" aria-label="Theme preference">
+    <div class="segmented" role="radiogroup" [attr.aria-label]="'Theme preference' | t">
       @for (opt of options; track opt.value) {
         <button
           type="button"
@@ -25,11 +25,11 @@
 
   <div class="row">
     <div class="row-label">
-      <span class="row-title">Language</span>
-      <span class="row-meta">More languages coming soon.</span>
+      <span class="row-title">{{ 'Language' | t }}</span>
+      <span class="row-meta">{{ 'More languages coming soon.' | t }}</span>
     </div>
     <div class="select-wrap">
-      <select class="select" [(ngModel)]="selectedLanguage" disabled aria-label="Interface language">
+      <select class="select" [(ngModel)]="selectedLanguage" [attr.aria-label]="'Interface language' | t">
         @for (lang of languageOptions; track lang.value) {
           <option [value]="lang.value">{{ lang.label }}</option>
         }

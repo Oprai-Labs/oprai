@@ -1,6 +1,6 @@
 <app-admin-layout activePage="sessions" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>Sessions</h1>
+    <h1>{{ 'Sessions' | t }}</h1>
     <span class="header-count">{{ totalCount() }} total</span>
   </header>
 
@@ -12,19 +12,19 @@
         <input
           type="text"
           class="input search-input"
-          placeholder="Search by wallet or title..."
+          [attr.placeholder]="'Search by wallet or title...' | t"
           [(ngModel)]="searchQuery"
           (keyup.enter)="onSearch()"
         />
       </div>
       <div class="date-range">
-        <input type="date" class="input date-input" [(ngModel)]="dateFrom" (change)="onSearch()" placeholder="From" />
+        <input type="date" class="input date-input" [(ngModel)]="dateFrom" (change)="onSearch()" [attr.placeholder]="'From' | t" />
         <span class="date-sep">–</span>
-        <input type="date" class="input date-input" [(ngModel)]="dateTo" (change)="onSearch()" placeholder="To" />
+        <input type="date" class="input date-input" [(ngModel)]="dateTo" (change)="onSearch()" [attr.placeholder]="'To' | t" />
       </div>
       <button class="btn-ghost" (click)="onSearch()">
         <lucide-icon name="refresh-cw" [size]="14" />
-        Refresh
+        {{ 'Refresh' | t }}
       </button>
     </div>
 
@@ -33,8 +33,8 @@
     } @else if (error()) {
       <div class="error-state">
         <lucide-icon name="alert-circle" [size]="20" />
-        <span>{{ error() }}</span>
-        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+        <span>{{ error() | t }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">{{ 'Retry' | t }}</button>
       </div>
     } @else {
       <div class="content-fade-in">
@@ -42,12 +42,12 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Session ID</th>
-                <th>Wallet</th>
-                <th>Title</th>
-                <th>Messages</th>
-                <th>Created</th>
-                <th>Actions</th>
+                <th>{{ 'Session ID' | t }}</th>
+                <th>{{ 'Wallet' | t }}</th>
+                <th>{{ 'Title' | t }}</th>
+                <th>{{ 'Messages' | t }}</th>
+                <th>{{ 'Created' | t }}</th>
+                <th>{{ 'Actions' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -73,11 +73,11 @@
                     <div class="action-buttons">
                       <button class="btn-ghost btn-sm" (click)="viewMessages(session)">
                         <lucide-icon name="eye" [size]="13" />
-                        Messages
+                        {{ 'Messages' | t }}
                       </button>
                       <button class="btn-ghost btn-sm btn-danger-ghost" (click)="closeSession(session)">
                         <lucide-icon name="x-circle" [size]="13" />
-                        Close
+                        {{ 'Close' | t }}
                       </button>
                     </div>
                   </td>
@@ -86,7 +86,7 @@
                 <tr>
                   <td colspan="6" class="empty-row">
                     <lucide-icon name="message-square" [size]="24" />
-                    <p>No sessions found</p>
+                    <p>{{ 'No sessions found' | t }}</p>
                   </td>
                 </tr>
               }
@@ -102,7 +102,7 @@
               (click)="onPageChange(page() - 1)"
             >
               <lucide-icon name="chevron-left" [size]="14" />
-              Previous
+              {{ 'Previous' | t }}
             </button>
             <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
             <button
@@ -110,7 +110,7 @@
               [disabled]="page() >= totalPages"
               (click)="onPageChange(page() + 1)"
             >
-              Next
+              {{ 'Next' | t }}
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
           </div>
@@ -125,7 +125,7 @@
       <div class="modal-panel" (click)="$event.stopPropagation()">
         <div class="modal-header">
           <div>
-            <h2>Session Messages</h2>
+            <h2>{{ 'Session Messages' | t }}</h2>
             <p class="modal-subtitle">{{ selectedSession()!.title || 'Untitled' }}</p>
           </div>
           <button class="btn-ghost btn-icon" (click)="closeDetail()">
@@ -136,12 +136,12 @@
           @if (messagesLoading()) {
             <div class="messages-loading">
               <lucide-icon name="loader-2" [size]="20" class="spin" />
-              Loading messages...
+              {{ 'Loading messages...' | t }}
             </div>
           } @else if (sessionMessages().length === 0) {
             <div class="messages-empty">
               <lucide-icon name="inbox" [size]="24" />
-              <p>No messages in this session</p>
+              <p>{{ 'No messages in this session' | t }}</p>
             </div>
           } @else {
             <div class="messages-list">

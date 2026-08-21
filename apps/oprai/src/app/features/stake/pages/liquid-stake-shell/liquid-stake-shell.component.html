@@ -5,8 +5,8 @@
     <div class="stake-header__title">
       <span class="stake-icon">💧</span>
       <div>
-        <h1>Liquid Staking</h1>
-        <p class="stake-header__sub">Stake SOL · Keep liquidity · Earn ~7–8% APY</p>
+        <h1>{{ 'Liquid Staking' | t }}</h1>
+        <p class="stake-header__sub">{{ 'Stake SOL · Keep liquidity · Earn ~7–8% APY' | t }}</p>
       </div>
     </div>
     @if (holdings().length > 0) {
@@ -21,7 +21,7 @@
   @if (!isWalletConnected()) {
     <div class="empty-state">
       <span class="empty-state__icon">🔌</span>
-      <p>Connect your wallet to manage liquid staking</p>
+      <p>{{ 'Connect your wallet to manage liquid staking' | t }}</p>
     </div>
   } @else {
 
@@ -44,8 +44,8 @@
     <!-- Load error -->
     @if (loadError()) {
       <div class="error-banner">
-        <span>⚠️ {{ loadError() }}</span>
-        <button (click)="loadData()">Retry</button>
+        <span>⚠️ {{ loadError() | t }}</span>
+        <button (click)="loadData()">{{ 'Retry' | t }}</button>
       </div>
     }
 
@@ -53,7 +53,7 @@
     @if (phase() === 'loading' && holdings().length === 0) {
       <div class="loading-state">
         <div class="spinner"></div>
-        <p>Loading…</p>
+        <p>{{ 'Loading…' | t }}</p>
       </div>
     }
 
@@ -62,8 +62,8 @@
       <div class="tab-content">
         @if (holdings().length === 0 && phase() !== 'loading') {
           <div class="empty-state empty-state--small">
-            <p>No liquid staking tokens found.</p>
-            <button class="btn-secondary" (click)="setTab('stake')">Stake SOL →</button>
+            <p>{{ 'No liquid staking tokens found.' | t }}</p>
+            <button class="btn-secondary" (click)="setTab('stake')">{{ 'Stake SOL →' | t }}</button>
           </div>
         } @else {
           <div class="holding-list">
@@ -85,7 +85,7 @@
                   <span class="holding-protocol">{{ h.protocol }}</span>
                 </div>
                 <div class="holding-actions">
-                  <button class="btn-sm" (click)="setTab('unstake'); selectHolding(h)">Unstake</button>
+                  <button class="btn-sm" (click)="setTab('unstake'); selectHolding(h)">{{ 'Unstake' | t }}</button>
                 </div>
               </div>
             }
@@ -99,12 +99,12 @@
       <div class="tab-content">
         <div class="tab-description tab-description--info">
           <span>ℹ️</span>
-          <p>Liquid staking lets you earn staking rewards while your SOL stays usable. You receive an LST token representing your stake.</p>
+          <p>{{ 'Liquid staking lets you earn staking rewards while your SOL stays usable. You receive an LST token representing your stake.' | t }}</p>
         </div>
 
         <!-- Protocol cards -->
         <div class="form-group">
-          <label>Select Protocol</label>
+          <label>{{ 'Select Protocol' | t }}</label>
           <div class="protocol-grid">
             @for (entry of protocolEntries; track entry[0]) {
               <div
@@ -122,7 +122,7 @@
         </div>
 
         <div class="form-group">
-          <label>Amount to Stake (SOL)</label>
+          <label>{{ 'Amount to Stake (SOL)' | t }}</label>
           <div class="amount-input-wrap">
             <input
               type="text"
@@ -133,16 +133,16 @@
               inputmode="decimal"
               autocomplete="off"
             />
-            <button class="btn-sm" (click)="setMaxStake()">MAX</button>
+            <button class="btn-sm" (click)="setMaxStake()">{{ 'MAX' | t }}</button>
           </div>
           <p class="balance-hint">Available: {{ solBalance().toFixed(4) }} SOL</p>
         </div>
 
         @if (stakeAmountError()) {
-          <p class="input-error">{{ stakeAmountError() }}</p>
+          <p class="input-error">{{ stakeAmountError() | t }}</p>
         }
         @if (actionError()) {
-          <div class="error-banner">⚠️ {{ actionError() }}</div>
+          <div class="error-banner">⚠️ {{ actionError() | t }}</div>
         }
 
         <div class="action-footer">
@@ -163,12 +163,12 @@
       <div class="tab-content">
         @if (holdings().length === 0 && phase() !== 'loading') {
           <div class="empty-state empty-state--small">
-            <p>No liquid staking tokens to unstake.</p>
+            <p>{{ 'No liquid staking tokens to unstake.' | t }}</p>
           </div>
         } @else {
 
           <div class="form-group">
-            <label>Select Token to Unstake</label>
+            <label>{{ 'Select Token to Unstake' | t }}</label>
             <div class="holding-select-list">
               @for (h of holdings(); track h.mint) {
                 <div
@@ -196,18 +196,18 @@
           @if (selectedHolding()) {
             @if (isMarinade(selectedHolding())) {
               <div class="form-group">
-                <label>Unstake Mode</label>
+                <label>{{ 'Unstake Mode' | t }}</label>
                 <div class="mode-toggle">
                   <button
                     class="mode-btn"
                     [class.mode-btn--active]="marinadeMode() === 'instant'"
                     (click)="marinadeMode.set('instant')"
-                  >⚡ Instant (fee ~0.3%)</button>
+                  >{{ '⚡ Instant (fee ~0.3%)' | t }}</button>
                   <button
                     class="mode-btn"
                     [class.mode-btn--active]="marinadeMode() === 'delayed'"
                     (click)="marinadeMode.set('delayed')"
-                  >⏳ Delayed (~2 days, no fee)</button>
+                  >{{ '⏳ Delayed (~2 days, no fee)' | t }}</button>
                 </div>
               </div>
             }
@@ -224,17 +224,17 @@
                   inputmode="decimal"
                   autocomplete="off"
                 />
-                <button class="btn-sm" (click)="setMaxUnstake()">MAX</button>
+                <button class="btn-sm" (click)="setMaxUnstake()">{{ 'MAX' | t }}</button>
               </div>
               <p class="balance-hint">Balance: {{ selectedHolding()!.balance.toFixed(6) }} {{ selectedHolding()!.symbol }}</p>
             </div>
           }
 
           @if (unstakeAmountError()) {
-            <p class="input-error">{{ unstakeAmountError() }}</p>
+            <p class="input-error">{{ unstakeAmountError() | t }}</p>
           }
           @if (actionError()) {
-            <div class="error-banner">⚠️ {{ actionError() }}</div>
+            <div class="error-banner">⚠️ {{ actionError() | t }}</div>
           }
 
           <div class="action-footer">
@@ -254,12 +254,12 @@
     <!-- ──────── PREVIEW / SIGNING ──────── -->
     @if ((phase() === 'preview' || phase() === 'signing') && preview()) {
       <div class="preview-panel">
-        <h3 class="preview-title">Confirm Transaction</h3>
+        <h3 class="preview-title">{{ 'Confirm Transaction' | t }}</h3>
         <p class="preview-description">{{ preview()!.description }}</p>
 
         <div class="preview-fees">
           <div class="preview-fee-row">
-            <span>Network fee</span>
+            <span>{{ 'Network fee' | t }}</span>
             <span>{{ preview()!.estimatedFee }}</span>
           </div>
         </div>
@@ -273,11 +273,11 @@
         }
 
         @if (actionError()) {
-          <div class="error-banner">⚠️ {{ actionError() }}</div>
+          <div class="error-banner">⚠️ {{ actionError() | t }}</div>
         }
 
         <div class="preview-actions">
-          <button class="btn-secondary" [disabled]="phase() === 'signing'" (click)="cancelPreview()">Cancel</button>
+          <button class="btn-secondary" [disabled]="phase() === 'signing'" (click)="cancelPreview()">{{ 'Cancel' | t }}</button>
           <button
             class="btn-action btn-action--brand"
             [disabled]="phase() === 'signing'"
@@ -297,16 +297,16 @@
     @if (phase() === 'success') {
       <div class="success-panel">
         <div class="success-icon">✅</div>
-        <h3>Transaction Confirmed!</h3>
+        <h3>{{ 'Transaction Confirmed!' | t }}</h3>
         @if (txSig()) {
           <a
             class="tx-link"
             [href]="'https://solscan.io/tx/' + txSig()"
             target="_blank"
             rel="noopener noreferrer"
-          >View on Solscan ↗</a>
+          >{{ 'View on Solscan ↗' | t }}</a>
         }
-        <button class="btn-secondary" (click)="phase.set('idle')">Done</button>
+        <button class="btn-secondary" (click)="phase.set('idle')">{{ 'Done' | t }}</button>
       </div>
     }
 

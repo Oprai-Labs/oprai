@@ -11,6 +11,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { BurnService, type TokenAccountInfo } from '../../services/burn.service';
 import { WalletService } from '@core/services/wallet.service';
 import { sanitizeErrorMessage } from '@core/utils/error-messages';
+import { TPipe } from '@core/i18n';
 
 type Tab = 'close' | 'burn';
 type Phase = 'idle' | 'loading' | 'preview' | 'signing' | 'success' | 'error';
@@ -25,7 +26,7 @@ interface PreviewData {
 @Component({
   selector: 'app-burn-shell',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './burn-shell.component.html',
   styleUrl: './burn-shell.component.scss',
 })

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { LiquidStakeService, type LstHolding, type LstProtocol } from '../../services/liquid-stake.service';
 import { WalletService } from '@core/services/wallet.service';
 import { sanitizeErrorMessage } from '@core/utils/error-messages';
+import { TPipe } from '@core/i18n';
 
 type Tab = 'holdings' | 'stake' | 'unstake';
 type Phase = 'idle' | 'loading' | 'preview' | 'signing' | 'success' | 'error';
@@ -23,7 +24,7 @@ const PROTOCOL_INFO: Record<LstProtocol, { label: string; symbol: string; apy: s
 @Component({
   selector: 'app-liquid-stake-shell',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './liquid-stake-shell.component.html',
   styleUrl: './liquid-stake-shell.component.scss',
 })

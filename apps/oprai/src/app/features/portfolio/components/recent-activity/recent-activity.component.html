@@ -94,11 +94,11 @@
     <div class="solscan-toolbar-left">
       <button class="toolbar-toggle" [class.active]="hideSpamTxs()" (click)="toggleHideSpam()">
         <lucide-icon name="shield-alert" [size]="12" />
-        Hide Spam
+        {{ 'Hide Spam' | t }}
       </button>
       <button class="toolbar-toggle" [class.active]="hideFailed()" (click)="toggleHideFailed()">
         <lucide-icon name="x-circle" [size]="12" />
-        Hide Failed
+        {{ 'Hide Failed' | t }}
       </button>
       <button class="toolbar-toggle" [class.active]="oldestFirst()" (click)="toggleOldestFirst()">
         <lucide-icon name="arrow-up-down" [size]="12" />
@@ -118,7 +118,7 @@
     </div>
     <button class="reset-filters-btn" (click)="resetFilters()">
       <lucide-icon name="rotate-ccw" [size]="14" />
-      Reset
+      {{ 'Reset' | t }}
     </button>
   </div>
 
@@ -129,15 +129,15 @@
         <table class="activity-table">
           <thead>
             <tr>
-              <th class="col-sig">Signature</th>
-              <th class="col-time">Date</th>
-              <th class="col-action">Action</th>
-              <th class="col-platform">Platform</th>
-              <th class="col-from">From</th>
-              <th class="col-to">To</th>
-              <th class="col-amount">Amount</th>
-              <th class="col-value">Value</th>
-              <th class="col-token">Token</th>
+              <th class="col-sig">{{ 'Signature' | t }}</th>
+              <th class="col-time">{{ 'Date' | t }}</th>
+              <th class="col-action">{{ 'Action' | t }}</th>
+              <th class="col-platform">{{ 'Platform' | t }}</th>
+              <th class="col-from">{{ 'From' | t }}</th>
+              <th class="col-to">{{ 'To' | t }}</th>
+              <th class="col-amount">{{ 'Amount' | t }}</th>
+              <th class="col-value">{{ 'Value' | t }}</th>
+              <th class="col-token">{{ 'Token' | t }}</th>
             </tr>
           </thead>
           <tbody>
@@ -364,9 +364,9 @@
       <table class="activity-table">
         <thead>
           <tr>
-            <th class="col-sig">Transaction</th>
-            <th class="col-time">Time</th>
-            <th class="col-status">Status</th>
+            <th class="col-sig">{{ 'Transaction' | t }}</th>
+            <th class="col-time">{{ 'Time' | t }}</th>
+            <th class="col-status">{{ 'Status' | t }}</th>
           </tr>
         </thead>
         <tbody>
@@ -400,7 +400,7 @@
       </table>
     </div>
   } @else {
-    <div class="empty-state">No recent transactions</div>
+    <div class="empty-state">{{ 'No recent transactions' | t }}</div>
   }
 
   <!-- Transaction Detail Modal -->
@@ -408,7 +408,7 @@
     <div class="tx-modal-backdrop" (click)="closeTxDetail()">
       <div class="tx-modal" (click)="$event.stopPropagation()">
         <div class="tx-modal-header">
-          <h3>Transaction Details</h3>
+          <h3>{{ 'Transaction Details' | t }}</h3>
           <button class="close-btn" (click)="closeTxDetail()">
             <lucide-icon name="x" [size]="20" />
           </button>
@@ -418,7 +418,7 @@
             <div class="tx-detail-grid">
               <!-- Signature -->
               <div class="detail-row full-width">
-                <span class="detail-label">Signature</span>
+                <span class="detail-label">{{ 'Signature' | t }}</span>
                 <div class="detail-value signature-value">
                   <code class="sig-code">{{ tx.signature }}</code>
                   <a
@@ -428,14 +428,14 @@
                     rel="noopener noreferrer"
                   >
                     <lucide-icon name="external-link" [size]="14" />
-                    View on Solscan
+                    {{ 'View on Solscan' | t }}
                   </a>
                 </div>
               </div>
 
               <!-- Type -->
               <div class="detail-row">
-                <span class="detail-label">Type</span>
+                <span class="detail-label">{{ 'Type' | t }}</span>
                 <span class="detail-value">
                   <span class="action-pill" [ngClass]="getActionPillClass(tx)">{{ getActionText(tx) }}</span>
                 </span>
@@ -443,7 +443,7 @@
 
               <!-- Platform -->
               <div class="detail-row">
-                <span class="detail-label">Platform</span>
+                <span class="detail-label">{{ 'Platform' | t }}</span>
                 @if (getTxProtocols(tx).length > 0) {
                   <div class="protocol-chips">
                     @for (protocol of getTxProtocols(tx); track protocol.key) {
@@ -468,7 +468,7 @@
 
               <!-- Status -->
               <div class="detail-row">
-                <span class="detail-label">Status</span>
+                <span class="detail-label">{{ 'Status' | t }}</span>
                 <span class="detail-value">
                   <span class="status-dot" [class.success]="tx.success" [class.fail]="!tx.success"></span>
                   {{ tx.success ? 'Success' : 'Failed' }}
@@ -477,7 +477,7 @@
 
               <!-- Time -->
               <div class="detail-row">
-                <span class="detail-label">Time</span>
+                <span class="detail-label">{{ 'Time' | t }}</span>
                 <span class="detail-value">
                   @if (tx.blockTime !== null) {
                     {{ toIsoString(tx.blockTime) | timeAgo }}
@@ -490,30 +490,30 @@
 
               <!-- Description -->
               <div class="detail-row full-width">
-                <span class="detail-label">Description</span>
+                <span class="detail-label">{{ 'Description' | t }}</span>
                 <span class="detail-value">{{ tx.description }}</span>
               </div>
 
               <!-- Details -->
               @if (tx.details) {
                 <div class="detail-row full-width">
-                  <span class="detail-label">Details</span>
+                  <span class="detail-label">{{ 'Details' | t }}</span>
                   <div class="detail-value details-grid">
                     @if (tx.details.fromAddress) {
                       <div class="detail-item">
-                        <span class="item-label">From</span>
+                        <span class="item-label">{{ 'From' | t }}</span>
                         <span class="item-value">{{ tx.details.fromAddress }}</span>
                       </div>
                     }
                     @if (tx.details.toAddress) {
                       <div class="detail-item">
-                        <span class="item-label">To</span>
+                        <span class="item-label">{{ 'To' | t }}</span>
                         <span class="item-value">{{ tx.details.toAddress }}</span>
                       </div>
                     }
                     @if (tx.details.fromToken) {
                       <div class="detail-item">
-                        <span class="item-label">From Token</span>
+                        <span class="item-label">{{ 'From Token' | t }}</span>
                         <span class="item-value">
                           @if (tx.details.fromAmount !== null) {
                             {{ tx.details.fromAmount.toFixed(6) }}
@@ -524,7 +524,7 @@
                     }
                     @if (tx.details.toToken) {
                       <div class="detail-item">
-                        <span class="item-label">To Token</span>
+                        <span class="item-label">{{ 'To Token' | t }}</span>
                         <span class="item-value">
                           @if (tx.details.toAmount !== null) {
                             {{ tx.details.toAmount.toFixed(6) }}
@@ -535,7 +535,7 @@
                     }
                     @if (tx.details.programName) {
                       <div class="detail-item">
-                        <span class="item-label">Program</span>
+                        <span class="item-label">{{ 'Program' | t }}</span>
                         <span class="item-value">{{ tx.details.programName }}</span>
                       </div>
                     }
@@ -553,14 +553,14 @@
             rel="noopener noreferrer"
           >
             <lucide-icon name="external-link" [size]="16" />
-            View on Solscan
+            {{ 'View on Solscan' | t }}
           </a>
         </div>
       </div>
     </div>
   }
 } @else if (loadingState() === 'error') {
-  <div class="empty-state">Failed to load transaction history. Try refreshing.</div>
+  <div class="empty-state">{{ 'Failed to load transaction history. Try refreshing.' | t }}</div>
 } @else {
-  <div class="empty-state">No recent transactions</div>
+  <div class="empty-state">{{ 'No recent transactions' | t }}</div>
 }

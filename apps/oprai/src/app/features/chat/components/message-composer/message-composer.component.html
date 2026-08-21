@@ -11,7 +11,7 @@
           @if (attached.error) {
             <lucide-icon name="alert-circle" [size]="12" class="upload-error" />
           }
-          <button class="composer-file-remove" (click)="removeFile(attached)" aria-label="Remove file">
+          <button class="composer-file-remove" (click)="removeFile(attached)" [attr.aria-label]="'Remove file' | t">
             <lucide-icon name="x" [size]="12" />
           </button>
         </div>
@@ -32,7 +32,7 @@
     <!-- Limit banner — replaces the input area -->
     <div class="composer-limit-banner">
       <lucide-icon name="message-circle-off" [size]="16" class="limit-icon" />
-      <span>{{ limitBannerMessage }}</span>
+      <span>{{ limitBannerMessage | t }}</span>
     </div>
   } @else {
     <!-- Protocol picker dropdown -->
@@ -64,7 +64,7 @@
       placeholder="Ask anything — type @ to select a protocol"
       rows="1"
       maxlength="2000"
-      aria-label="Message input"
+      [attr.aria-label]="'Message input' | t"
     ></textarea>
 
     <!-- Char counter — only shown when approaching limit -->
@@ -84,7 +84,7 @@
         class="composer-attach-btn"
         [disabled]="disabled || chatLimitReached"
         type="button"
-        aria-label="Attach file"
+        [attr.aria-label]="'Attach file' | t"
         (click)="togglePlusMenu()"
       >
         <lucide-icon name="plus" [size]="18" />
@@ -99,33 +99,33 @@
           </button>
           <button class="plus-menu-item" (click)="onAddFromDrive()">
             <lucide-icon name="hard-drive" [size]="16" />
-            <span>Add from Google Drive</span>
+            <span>{{ 'Add from Google Drive' | t }}</span>
           </button>
           <div class="plus-menu-item plus-menu-item--has-sub">
             <lucide-icon name="folder-plus" [size]="16" />
-            <span>Add to project</span>
+            <span>{{ 'Add to project' | t }}</span>
             <lucide-icon class="plus-menu-chevron" name="chevron-right" [size]="14" />
             <!-- Submenu -->
             <div class="plus-submenu">
               <div class="plus-submenu-search">
                 <lucide-icon name="search" [size]="14" />
-                <input type="text" placeholder="Search projects..." class="plus-submenu-input" />
+                <input type="text" [attr.placeholder]="'Search projects...' | t" class="plus-submenu-input" />
               </div>
               <div class="plus-submenu-list">
-                <div class="plus-submenu-empty">No projects yet</div>
+                <div class="plus-submenu-empty">{{ 'No projects yet' | t }}</div>
               </div>
             </div>
           </div>
           <div class="plus-menu-divider"></div>
-          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" title="Coming soon">
+          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" [attr.title]="'Coming soon' | t">
             <lucide-icon name="globe" [size]="16" />
-            <span>Web Research</span>
-            <span class="plus-menu-soon">Soon</span>
+            <span>{{ 'Web Research' | t }}</span>
+            <span class="plus-menu-soon">{{ 'Soon' | t }}</span>
           </button>
-          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" title="Coming soon">
+          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" [attr.title]="'Coming soon' | t">
             <lucide-icon name="lightbulb" [size]="16" />
-            <span>Thinking</span>
-            <span class="plus-menu-soon">Soon</span>
+            <span>{{ 'Thinking' | t }}</span>
+            <span class="plus-menu-soon">{{ 'Soon' | t }}</span>
           </button>
         </div>
       }
@@ -140,7 +140,7 @@
           class="mode-chip-icon"
         />
         <span>{{ activeMode() === 'thinking' ? 'Think' : 'Search' }}</span>
-        <button class="mode-chip-remove" (click)="clearActiveMode()" aria-label="Remove mode">
+        <button class="mode-chip-remove" (click)="clearActiveMode()" [attr.aria-label]="'Remove mode' | t">
           <lucide-icon name="x" [size]="12" />
         </button>
       </div>
@@ -165,7 +165,7 @@
       [disabled]="disabled || chatLimitReached || !message.trim() || isOverLimit"
       (click)="onSend()"
       type="button"
-      aria-label="Send message"
+      [attr.aria-label]="'Send message' | t"
     >
       <lucide-icon name="arrow-up" [size]="16" />
     </button>

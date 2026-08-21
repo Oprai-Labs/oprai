@@ -1,6 +1,6 @@
 <app-admin-layout activePage="issues" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>Issue Reports</h1>
+    <h1>{{ 'Issue Reports' | t }}</h1>
     <span class="header-count">{{ totalCount() }} total</span>
   </header>
 
@@ -11,28 +11,28 @@
         <input
           type="text"
           class="input search-input"
-          placeholder="Search wallet, subject or body…"
+          [attr.placeholder]="'Search wallet, subject or body…' | t"
           [(ngModel)]="searchQuery"
           (keyup.enter)="onFilter()"
         />
       </div>
-      <select class="input filter-select" [(ngModel)]="statusFilter" (change)="onFilter()" aria-label="Status">
-        <option value="">All statuses</option>
+      <select class="input filter-select" [(ngModel)]="statusFilter" (change)="onFilter()" [attr.aria-label]="'Status' | t">
+        <option value="">{{ 'All statuses' | t }}</option>
         @for (s of steps; track s.id) {
           <option [value]="s.id">{{ s.label }}</option>
         }
-        <option value="dismissed">Closed</option>
+        <option value="dismissed">{{ 'Closed' | t }}</option>
       </select>
-      <select class="input filter-select" [(ngModel)]="categoryFilter" (change)="onFilter()" aria-label="Category">
-        <option value="">All categories</option>
-        <option value="bug">Bug</option>
-        <option value="feature">Feature</option>
-        <option value="account">Account</option>
-        <option value="other">Other</option>
+      <select class="input filter-select" [(ngModel)]="categoryFilter" (change)="onFilter()" [attr.aria-label]="'Category' | t">
+        <option value="">{{ 'All categories' | t }}</option>
+        <option value="bug">{{ 'Bug' | t }}</option>
+        <option value="feature">{{ 'Feature' | t }}</option>
+        <option value="account">{{ 'Account' | t }}</option>
+        <option value="other">{{ 'Other' | t }}</option>
       </select>
       <button class="btn-ghost" (click)="onFilter()">
         <lucide-icon name="refresh-cw" [size]="14" />
-        Refresh
+        {{ 'Refresh' | t }}
       </button>
     </div>
 
@@ -41,8 +41,8 @@
     } @else if (error() && !selected()) {
       <div class="error-state">
         <lucide-icon name="alert-circle" [size]="20" />
-        <span>{{ error() }}</span>
-        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+        <span>{{ error() | t }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">{{ 'Retry' | t }}</button>
       </div>
     } @else {
       <div class="content-fade-in">
@@ -50,11 +50,11 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Status</th>
-                <th>Wallet</th>
-                <th>Category</th>
-                <th>Subject</th>
-                <th>Received</th>
+                <th>{{ 'Status' | t }}</th>
+                <th>{{ 'Wallet' | t }}</th>
+                <th>{{ 'Category' | t }}</th>
+                <th>{{ 'Subject' | t }}</th>
+                <th>{{ 'Received' | t }}</th>
                 <th></th>
               </tr>
             </thead>
@@ -74,7 +74,7 @@
                       <br />
                       <span class="issue-replied">
                         <lucide-icon name="corner-down-right" [size]="11" />
-                        replied
+                        {{ 'replied' | t }}
                       </span>
                     }
                   </td>
@@ -82,7 +82,7 @@
                   <td>
                     <button class="btn-ghost btn-sm" (click)="open(report)">
                       <lucide-icon name="eye" [size]="13" />
-                      Open
+                      {{ 'Open' | t }}
                     </button>
                   </td>
                 </tr>
@@ -90,7 +90,7 @@
                 <tr>
                   <td colspan="6" class="empty-row">
                     <lucide-icon name="flag" [size]="24" />
-                    <p>No reports yet</p>
+                    <p>{{ 'No reports yet' | t }}</p>
                   </td>
                 </tr>
               }
@@ -102,11 +102,11 @@
           <div class="pagination">
             <button class="btn-ghost btn-sm" [disabled]="page() === 1" (click)="onPageChange(page() - 1)">
               <lucide-icon name="chevron-left" [size]="14" />
-              Previous
+              {{ 'Previous' | t }}
             </button>
             <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
             <button class="btn-ghost btn-sm" [disabled]="page() >= totalPages" (click)="onPageChange(page() + 1)">
-              Next
+              {{ 'Next' | t }}
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
           </div>
@@ -125,20 +125,20 @@
               {{ report.category }} · {{ report.wallet | truncateAddress:6:4 }} · {{ report.created_at | timeAgo }}
             </p>
           </div>
-          <button class="btn-ghost btn-icon" (click)="close()" aria-label="Close">
+          <button class="btn-ghost btn-icon" (click)="close()" [attr.aria-label]="'Close' | t">
             <lucide-icon name="x" [size]="16" />
           </button>
         </div>
 
         <div class="modal-body">
           <section class="issue-section">
-            <p class="issue-section__label">What they reported</p>
+            <p class="issue-section__label">{{ 'What they reported' | t }}</p>
             <p class="issue-body">{{ report.description }}</p>
           </section>
 
           @if (contextEntries(report).length > 0) {
             <section class="issue-section">
-              <p class="issue-section__label">Where they were</p>
+              <p class="issue-section__label">{{ 'Where they were' | t }}</p>
               <dl class="issue-context">
                 @for (entry of contextEntries(report); track entry.key) {
                   <dt>{{ entry.key }}</dt>
@@ -149,7 +149,7 @@
           }
 
           <section class="issue-section">
-            <p class="issue-section__label">Status</p>
+            <p class="issue-section__label">{{ 'Status' | t }}</p>
             <div class="issue-steps">
               @for (s of steps; track s.id) {
                 <button class="issue-step"
@@ -164,27 +164,27 @@
                     [class.is-current]="report.status === 'dismissed'"
                     [disabled]="saving() || report.status === 'dismissed'"
                     (click)="setStatus('dismissed')">
-              Close without action
+              {{ 'Close without action' | t }}
             </button>
           </section>
 
           <section class="issue-section issue-reply">
-            <p class="issue-section__label">Reply</p>
+            <p class="issue-section__label">{{ 'Reply' | t }}</p>
             <textarea class="input" rows="4" [(ngModel)]="noteDraft"
-                      placeholder="What you found, or what happens next."></textarea>
+                      [attr.placeholder]="'What you found, or what happens next.' | t"></textarea>
             <p class="issue-reply__hint">
-              Shown to the reporter on their own Report an issue page. Saved with
-              whichever status you pick, or on its own below.
+              {{ 'Shown to the reporter on their own Report an issue page. Saved with
+              whichever status you pick, or on its own below.' | t }}
             </p>
             <div class="issue-save-row">
               <button class="btn-primary btn-sm" [disabled]="saving()" (click)="saveReply()">
                 {{ saving() ? 'Saving…' : 'Save reply' }}
               </button>
               @if (savedAt()) {
-                <span class="issue-saved">Saved</span>
+                <span class="issue-saved">{{ 'Saved' | t }}</span>
               }
               @if (error()) {
-                <span class="issue-saved" style="color: var(--accent-danger)">{{ error() }}</span>
+                <span class="issue-saved" style="color: var(--accent-danger)">{{ error() | t }}</span>
               }
             </div>
           </section>

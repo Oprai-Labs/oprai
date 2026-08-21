@@ -10,6 +10,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { NativeStakeService, type StakeAccount, type Validator } from '../../services/native-stake.service';
 import { WalletService } from '@core/services/wallet.service';
 import { sanitizeErrorMessage } from '@core/utils/error-messages';
+import { TPipe } from '@core/i18n';
 
 type Tab = 'my-stakes' | 'new-stake';
 type Phase = 'idle' | 'loading' | 'preview' | 'signing' | 'success' | 'error';
@@ -24,7 +25,7 @@ interface PreviewData {
 @Component({
   selector: 'app-native-stake-shell',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './native-stake-shell.component.html',
   styleUrl: './native-stake-shell.component.scss',
 })

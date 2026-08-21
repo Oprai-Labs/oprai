@@ -1,10 +1,10 @@
 <app-admin-layout activePage="ip-logs" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>IP Logs</h1>
+    <h1>{{ 'IP Logs' | t }}</h1>
     <div class="header-actions">
       <button class="btn-ghost" (click)="exportLogs()">
         <lucide-icon name="download" [size]="14" />
-        Export
+        {{ 'Export' | t }}
       </button>
     </div>
   </header>
@@ -18,7 +18,7 @@
         (click)="switchTab('all')"
       >
         <lucide-icon name="list" [size]="14" />
-        All Logs
+        {{ 'All Logs' | t }}
       </button>
       <button
         class="tab"
@@ -26,7 +26,7 @@
         (click)="switchTab('suspicious')"
       >
         <lucide-icon name="shield-alert" [size]="14" />
-        Suspicious IPs
+        {{ 'Suspicious IPs' | t }}
       </button>
     </div>
 
@@ -36,7 +36,7 @@
         <input
           type="text"
           class="input"
-          placeholder="Filter by IP address..."
+          [attr.placeholder]="'Filter by IP address...' | t"
           [(ngModel)]="filterIp"
           (keyup.enter)="onFilterChange()"
           style="max-width: 180px;"
@@ -44,15 +44,15 @@
         <input
           type="text"
           class="input"
-          placeholder="Filter by wallet..."
+          [attr.placeholder]="'Filter by wallet...' | t"
           [(ngModel)]="filterWallet"
           (keyup.enter)="onFilterChange()"
           style="max-width: 180px;"
         />
         <select class="input filter-select" [(ngModel)]="filterSuccess" (change)="onFilterChange()">
-          <option value="">All</option>
-          <option value="true">Success</option>
-          <option value="false">Failed</option>
+          <option value="">{{ 'All' | t }}</option>
+          <option value="true">{{ 'Success' | t }}</option>
+          <option value="false">{{ 'Failed' | t }}</option>
         </select>
         <div class="date-range">
           <input type="date" class="input date-input" [(ngModel)]="dateFrom" (change)="onFilterChange()" />
@@ -61,7 +61,7 @@
         </div>
         <button class="btn-ghost" (click)="onFilterChange()">
           <lucide-icon name="refresh-cw" [size]="14" />
-          Refresh
+          {{ 'Refresh' | t }}
         </button>
       </div>
 
@@ -70,8 +70,8 @@
       } @else if (logsError()) {
         <div class="error-state">
           <lucide-icon name="alert-circle" [size]="20" />
-          <span>{{ logsError() }}</span>
-          <button class="btn-ghost btn-sm" (click)="loadLogs()">Retry</button>
+          <span>{{ logsError() | t }}</span>
+          <button class="btn-ghost btn-sm" (click)="loadLogs()">{{ 'Retry' | t }}</button>
         </div>
       } @else {
         <div class="content-fade-in">
@@ -79,12 +79,12 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>IP Address</th>
-                  <th>Wallet</th>
-                  <th>Country</th>
-                  <th>Result</th>
-                  <th>Reason</th>
-                  <th>Time</th>
+                  <th>{{ 'IP Address' | t }}</th>
+                  <th>{{ 'Wallet' | t }}</th>
+                  <th>{{ 'Country' | t }}</th>
+                  <th>{{ 'Result' | t }}</th>
+                  <th>{{ 'Reason' | t }}</th>
+                  <th>{{ 'Time' | t }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -107,7 +107,7 @@
                   <tr>
                     <td colspan="6" class="empty-row">
                       <lucide-icon name="inbox" [size]="24" />
-                      <p>No IP logs found</p>
+                      <p>{{ 'No IP logs found' | t }}</p>
                     </td>
                   </tr>
                 }
@@ -123,7 +123,7 @@
                 (click)="onPageChange(page() - 1)"
               >
                 <lucide-icon name="chevron-left" [size]="14" />
-                Previous
+                {{ 'Previous' | t }}
               </button>
               <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
               <button
@@ -131,7 +131,7 @@
                 [disabled]="page() >= totalPages"
                 (click)="onPageChange(page() + 1)"
               >
-                Next
+                {{ 'Next' | t }}
                 <lucide-icon name="chevron-right" [size]="14" />
               </button>
             </div>
@@ -147,26 +147,26 @@
       } @else if (suspiciousError()) {
         <div class="error-state">
           <lucide-icon name="alert-circle" [size]="20" />
-          <span>{{ suspiciousError() }}</span>
-          <button class="btn-ghost btn-sm" (click)="loadSuspicious()">Retry</button>
+          <span>{{ suspiciousError() | t }}</span>
+          <button class="btn-ghost btn-sm" (click)="loadSuspicious()">{{ 'Retry' | t }}</button>
         </div>
       } @else {
         <div class="content-fade-in">
           <div class="suspicious-info">
             <lucide-icon name="info" [size]="14" />
-            IPs that have been used to sign in with 2 or more distinct wallet addresses.
+            {{ 'IPs that have been used to sign in with 2 or more distinct wallet addresses.' | t }}
           </div>
           <div class="table-wrapper">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>IP Address</th>
-                  <th>Wallets</th>
-                  <th>Logins</th>
-                  <th>Failures</th>
-                  <th>First Seen</th>
-                  <th>Last Seen</th>
-                  <th>Associated Wallets</th>
+                  <th>{{ 'IP Address' | t }}</th>
+                  <th>{{ 'Wallets' | t }}</th>
+                  <th>{{ 'Logins' | t }}</th>
+                  <th>{{ 'Failures' | t }}</th>
+                  <th>{{ 'First Seen' | t }}</th>
+                  <th>{{ 'Last Seen' | t }}</th>
+                  <th>{{ 'Associated Wallets' | t }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -197,7 +197,7 @@
                   <tr>
                     <td colspan="7" class="empty-row">
                       <lucide-icon name="shield-check" [size]="24" />
-                      <p>No suspicious IPs detected</p>
+                      <p>{{ 'No suspicious IPs detected' | t }}</p>
                     </td>
                   </tr>
                 }

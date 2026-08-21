@@ -6,18 +6,17 @@ import { TimeAgoPipe } from '@shared/pipes/time-ago.pipe';
 import { LucideAngularModule } from 'lucide-angular';
 import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-audit-logs',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     FormsModule,
     TimeAgoPipe,
     LucideAngularModule,
     AdminLayoutComponent,
-    SkeletonTableComponent,
-  ],
+    SkeletonTableComponent, TPipe],
   templateUrl: './audit-logs.component.html',
   styleUrl: './audit-logs.component.scss',
 })

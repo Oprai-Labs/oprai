@@ -4,6 +4,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { BurnService, type TokenAccountInfo } from '../../../burn/services/burn.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
 import { HeliusService } from '../../services/helius.service';
+import { TPipe } from '@core/i18n';
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 const MAX_CLOSE_PER_TX = 25;
@@ -42,7 +43,7 @@ export interface ResolvedAccount extends TokenAccountInfo {
 @Component({
   selector: 'app-token-accounts-modal',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './token-accounts-modal.component.html',
   styleUrl: './token-accounts-modal.component.scss',
 })

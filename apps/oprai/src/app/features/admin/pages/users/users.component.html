@@ -1,6 +1,6 @@
 <app-admin-layout activePage="users" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>Users</h1>
+    <h1>{{ 'Users' | t }}</h1>
     <span class="header-count">{{ totalCount() }} total</span>
   </header>
 
@@ -12,7 +12,7 @@
         <input
           type="text"
           class="input search-input"
-          placeholder="Search by wallet address..."
+          [attr.placeholder]="'Search by wallet address...' | t"
           [(ngModel)]="searchQuery"
           (keyup.enter)="onSearch()"
         />
@@ -22,7 +22,7 @@
     @if (loading()) {
       <app-skeleton-table [rows]="8" [columnWidths]="['140px', '80px', '36px', '36px', '48px']" />
     } @else if (error()) {
-      <div class="error-state">{{ error() }}</div>
+      <div class="error-state">{{ error() | t }}</div>
     } @else {
       <div class="content-fade-in">
         <!-- Users table -->
@@ -42,9 +42,9 @@
                     <span class="sort-indicator">{{ sortOrder === 'asc' ? '&#9650;' : '&#9660;' }}</span>
                   }
                 </th>
-                <th>Sessions</th>
-                <th>Messages</th>
-                <th>Actions</th>
+                <th>{{ 'Sessions' | t }}</th>
+                <th>{{ 'Messages' | t }}</th>
+                <th>{{ 'Actions' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -60,13 +60,13 @@
                   <td>{{ user.messageCount ?? '-' }}</td>
                   <td>
                     <a [routerLink]="['/admin/users', user.wallet]" class="btn-ghost btn-sm">
-                      View
+                      {{ 'View' | t }}
                     </a>
                   </td>
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="5" class="empty-row">No users found</td>
+                  <td colspan="5" class="empty-row">{{ 'No users found' | t }}</td>
                 </tr>
               }
             </tbody>
@@ -82,7 +82,7 @@
               (click)="onPageChange(page() - 1)"
             >
               <lucide-icon name="chevron-left" [size]="14" />
-              Previous
+              {{ 'Previous' | t }}
             </button>
             <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
             <button
@@ -90,7 +90,7 @@
               [disabled]="page() >= totalPages"
               (click)="onPageChange(page() + 1)"
             >
-              Next
+              {{ 'Next' | t }}
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
           </div>

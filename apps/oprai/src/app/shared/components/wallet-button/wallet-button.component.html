@@ -12,14 +12,14 @@
         <div class="dropdown-header">
           <div class="dropdown-wallet-info">
             <span class="dropdown-wallet-name">{{ walletService.walletName() }}</span>
-            <span class="dropdown-status">Connected</span>
+            <span class="dropdown-status">{{ 'Connected' | t }}</span>
           </div>
         </div>
         <div class="dropdown-address">{{ walletService.publicKey() }}</div>
         <div class="dropdown-divider"></div>
         <button class="dropdown-item dropdown-item--danger" (click)="disconnect()">
           <lucide-icon name="log-out" [size]="16" />
-          Disconnect
+          {{ 'Disconnect' | t }}
         </button>
       </div>
     }
@@ -46,10 +46,10 @@
         <!-- Header -->
         <div class="wallet-modal-header">
           <div class="wallet-modal-header-text">
-            <span class="wallet-modal-title">Connect Wallet</span>
-            <span class="wallet-modal-subtitle">Connect a Solana wallet to use OPRAI.</span>
+            <span class="wallet-modal-title">{{ 'Connect Wallet' | t }}</span>
+            <span class="wallet-modal-subtitle">{{ 'Connect a Solana wallet to use OPRAI.' | t }}</span>
           </div>
-          <button class="wallet-modal-close" (click)="closeModal()" aria-label="Close">
+          <button class="wallet-modal-close" (click)="closeModal()" [attr.aria-label]="'Close' | t">
             <lucide-icon name="x" [size]="16" />
           </button>
         </div>
@@ -59,7 +59,7 @@
           <!-- Detected — the wallets actually installed, listed first as rows
                so the one the user has is the obvious choice (Jupiter-style). -->
           @if (detectedWallets.length > 0) {
-            <div class="wallet-section-label">Detected</div>
+            <div class="wallet-section-label">{{ 'Detected' | t }}</div>
             <div class="wallet-list">
               @for (wallet of detectedWallets; track wallet.name) {
                 <button class="wallet-row" (click)="connectWallet(wallet.name)">
@@ -67,7 +67,7 @@
                   <span class="wallet-row-name">{{ wallet.name }}</span>
                   <span class="wallet-row-badge">
                     <span class="wallet-row-dot"></span>
-                    Installed
+                    {{ 'Installed' | t }}
                   </span>
                 </button>
               }
@@ -88,20 +88,20 @@
                 >
                   <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" />
                   <span class="wallet-row-name">{{ wallet.name }}</span>
-                  <span class="wallet-row-install">Install</span>
+                  <span class="wallet-row-install">{{ 'Install' | t }}</span>
                 </button>
               }
             </div>
           }
           <!-- Ethereum sign-in (SIWE) — one account across chains. -->
           @if (evmWallets().length > 0) {
-            <div class="wallet-section-label">Or sign in with Ethereum</div>
+            <div class="wallet-section-label">{{ 'Or sign in with Ethereum' | t }}</div>
             <div class="wallet-list">
               @for (w of evmWallets(); track w.uuid) {
                 <button class="wallet-row" (click)="connectEvm(w)">
                   <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" />
                   <span class="wallet-row-name">{{ w.name }}</span>
-                  <span class="wallet-row-badge"><span class="wallet-row-dot"></span>Ethereum</span>
+                  <span class="wallet-row-badge"><span class="wallet-row-dot"></span>{{ 'Ethereum' | t }}</span>
                 </button>
               }
             </div>
@@ -110,9 +110,9 @@
 
         <!-- Footer -->
         <div class="wallet-modal-footer">
-          <span class="wallet-modal-footer-text">New to Solana wallets?</span>
+          <span class="wallet-modal-footer-text">{{ 'New to Solana wallets?' | t }}</span>
           <a href="https://phantom.app/" target="_blank" rel="noopener noreferrer" class="wallet-modal-footer-link">
-            Get Phantom
+            {{ 'Get Phantom' | t }}
           </a>
         </div>
       </div>
@@ -122,7 +122,7 @@
   @if (error()) {
     <div class="wallet-error">
       <lucide-icon name="alert-circle" [size]="16" />
-      <span>{{ error() }}</span>
+      <span>{{ error() | t }}</span>
     </div>
   }
 </div>

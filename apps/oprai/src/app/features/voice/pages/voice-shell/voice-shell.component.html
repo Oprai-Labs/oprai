@@ -3,7 +3,7 @@
   @if (isActive()) {
     <!-- ── Top bar (active state) ── -->
     <div class="voice-top-bar">
-      <a class="top-bar-back" routerLink="/" aria-label="Back to chat">
+      <a class="top-bar-back" routerLink="/" [attr.aria-label]="'Back to chat' | t">
         <lucide-icon name="arrow-left" [size]="18" />
       </a>
 
@@ -12,7 +12,7 @@
         <span class="timer-text">{{ formattedTime() }}</span>
       </div>
 
-      <button class="top-bar-close" (click)="endVoice()" aria-label="End voice">
+      <button class="top-bar-close" (click)="endVoice()" [attr.aria-label]="'End voice' | t">
         <lucide-icon name="x" [size]="18" />
       </button>
     </div>
@@ -48,16 +48,16 @@
           <span class="ctrl-label">{{ isMuted() ? 'Unmute' : 'Mute' }}</span>
         </button>
 
-        <button class="ctrl-btn ctrl--end" (click)="endVoice()" aria-label="End conversation">
+        <button class="ctrl-btn ctrl--end" (click)="endVoice()" [attr.aria-label]="'End conversation' | t">
           <lucide-icon name="phone-off" [size]="20" />
-          <span class="ctrl-label">End</span>
+          <span class="ctrl-label">{{ 'End' | t }}</span>
         </button>
 
         <button
           class="ctrl-btn"
           [class.ctrl--off]="!isSpeakerOn()"
           (click)="toggleSpeaker()"
-          aria-label="Toggle speaker"
+          [attr.aria-label]="'Toggle speaker' | t"
         >
           @if (isSpeakerOn()) {
             <lucide-icon name="volume-2" [size]="20" />
@@ -70,7 +70,7 @@
     </div>
   } @else {
     <!-- ── Idle state ── -->
-    <a class="voice-back" routerLink="/" aria-label="Back to chat">
+    <a class="voice-back" routerLink="/" [attr.aria-label]="'Back to chat' | t">
       <lucide-icon name="x" [size]="20" />
     </a>
 
@@ -78,10 +78,10 @@
       <div class="idle-icon">
         <lucide-icon name="audio-lines" [size]="32" />
       </div>
-      <h2 class="idle-title">Voice Conversation</h2>
+      <h2 class="idle-title">{{ 'Voice Conversation' | t }}</h2>
       <p class="idle-subtitle">{{ statusText() }}</p>
 
-      <button class="voice-start-btn" (click)="toggleVoice()" aria-label="Start voice conversation">
+      <button class="voice-start-btn" (click)="toggleVoice()" [attr.aria-label]="'Start voice conversation' | t">
         <div class="start-btn-ring"></div>
         <lucide-icon name="mic" [size]="24" />
       </button>

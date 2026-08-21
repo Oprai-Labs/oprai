@@ -16,6 +16,7 @@ import { WalletService } from '@core/services/wallet.service';
 import { AuthService } from '@core/services/auth.service';
 import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
 import { LucideAngularModule } from 'lucide-angular';
+import { TPipe } from '@core/i18n';
 
 interface EvmProvider {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -24,7 +25,7 @@ interface EvmProvider {
 @Component({
   selector: 'app-wallet-button',
   standalone: true,
-  imports: [CommonModule, TruncateAddressPipe, LucideAngularModule],
+  imports: [CommonModule, TruncateAddressPipe, LucideAngularModule, TPipe],
   templateUrl: './wallet-button.component.html',
   styleUrl: './wallet-button.component.scss',
 })

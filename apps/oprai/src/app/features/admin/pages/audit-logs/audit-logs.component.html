@@ -1,6 +1,6 @@
 <app-admin-layout activePage="audit-logs" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>Audit Logs</h1>
+    <h1>{{ 'Audit Logs' | t }}</h1>
     <span class="header-count">{{ totalCount() }} total</span>
     <div class="header-actions">
       <button class="btn-ghost" (click)="exportCSV()" [disabled]="exporting()">
@@ -20,13 +20,13 @@
       <input
         type="text"
         class="input"
-        placeholder="Filter by admin username..."
+        [attr.placeholder]="'Filter by admin username...' | t"
         [(ngModel)]="filterAdmin"
         (keyup.enter)="onFilterChange()"
         style="max-width: 220px;"
       />
       <select class="input filter-select" [(ngModel)]="filterAction" (change)="onFilterChange()">
-        <option value="">All Actions</option>
+        <option value="">{{ 'All Actions' | t }}</option>
         @for (a of actionOptions.slice(1); track a) {
           <option [value]="a">{{ a | titlecase }}</option>
         }
@@ -38,7 +38,7 @@
       </div>
       <button class="btn-ghost" (click)="onFilterChange()">
         <lucide-icon name="filter" [size]="14" />
-        Apply
+        {{ 'Apply' | t }}
       </button>
     </div>
 
@@ -47,8 +47,8 @@
     } @else if (error()) {
       <div class="error-state">
         <lucide-icon name="alert-circle" [size]="20" />
-        <span>{{ error() }}</span>
-        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+        <span>{{ error() | t }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">{{ 'Retry' | t }}</button>
       </div>
     } @else {
       <div class="content-fade-in">
@@ -56,12 +56,12 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Timestamp</th>
-                <th>Admin</th>
-                <th>Action</th>
-                <th>Target Type</th>
-                <th>Target ID</th>
-                <th>IP Address</th>
+                <th>{{ 'Timestamp' | t }}</th>
+                <th>{{ 'Admin' | t }}</th>
+                <th>{{ 'Action' | t }}</th>
+                <th>{{ 'Target Type' | t }}</th>
+                <th>{{ 'Target ID' | t }}</th>
+                <th>{{ 'IP Address' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -93,7 +93,7 @@
                 <tr>
                   <td colspan="6" class="empty-row">
                     <lucide-icon name="shield" [size]="24" />
-                    <p>No audit logs found</p>
+                    <p>{{ 'No audit logs found' | t }}</p>
                   </td>
                 </tr>
               }
@@ -109,7 +109,7 @@
               (click)="onPageChange(page() - 1)"
             >
               <lucide-icon name="chevron-left" [size]="14" />
-              Previous
+              {{ 'Previous' | t }}
             </button>
             <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
             <button
@@ -117,7 +117,7 @@
               [disabled]="page() >= totalPages"
               (click)="onPageChange(page() + 1)"
             >
-              Next
+              {{ 'Next' | t }}
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
           </div>

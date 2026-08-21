@@ -2,6 +2,7 @@ import { Component, Input, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import type { NftAsset, NftCollection, LoadingState } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 /**
  * Heuristic spam-NFT detector. Helius DAS doesn't expose an explicit
@@ -34,7 +35,7 @@ function isLikelyScam(nft: NftAsset): boolean {
 @Component({
   selector: 'app-nft-gallery',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './nft-gallery.component.html',
   styleUrl: './nft-gallery.component.scss',
 })

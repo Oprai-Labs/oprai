@@ -1,6 +1,6 @@
 <app-admin-layout activePage="dashboard" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>Dashboard</h1>
+    <h1>{{ 'Dashboard' | t }}</h1>
   </header>
 
   <div class="admin-content">
@@ -16,47 +16,47 @@
       </div>
     } @else if (error()) {
       <div class="error-state">
-        <p>{{ error() }}</p>
+        <p>{{ error() | t }}</p>
       </div>
     } @else if (stats()) {
       <div class="content-fade-in">
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="stat-label">Total Users</div>
+            <div class="stat-label">{{ 'Total Users' | t }}</div>
             <div class="stat-value">{{ stats()!.totalUsers }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Active Sessions</div>
+            <div class="stat-label">{{ 'Active Sessions' | t }}</div>
             <div class="stat-value">{{ stats()!.activeSessions }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Total Messages</div>
+            <div class="stat-label">{{ 'Total Messages' | t }}</div>
             <div class="stat-value">{{ stats()!.totalMessages }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Transactions</div>
+            <div class="stat-label">{{ 'Transactions' | t }}</div>
             <div class="stat-value">{{ stats()!.totalTransactions }}</div>
           </div>
         </div>
 
         <div class="charts-grid">
           <div class="chart-card">
-            <h3>Recent Activity</h3>
+            <h3>{{ 'Recent Activity' | t }}</h3>
             <div class="chart-placeholder">
               <app-empty-state
                 icon="bar-chart-3"
-                title="Activity Chart"
+                [title]="'Activity Chart' | t"
                 description="Activity chart visualization coming soon"
                 variant="chart"
               />
             </div>
           </div>
           <div class="chart-card">
-            <h3>User Growth</h3>
+            <h3>{{ 'User Growth' | t }}</h3>
             <div class="chart-placeholder">
               <app-empty-state
                 icon="users"
-                title="Growth Chart"
+                [title]="'Growth Chart' | t"
                 description="User growth chart visualization coming soon"
                 variant="chart"
               />

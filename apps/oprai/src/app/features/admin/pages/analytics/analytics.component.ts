@@ -5,6 +5,7 @@ import { AdminApiService, AnalyticsTimeseries, DashboardStats } from '../../serv
 import { LucideAngularModule } from 'lucide-angular';
 import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout.component';
 import { SkeletonStatCardsComponent } from '@shared/components/skeletons/skeleton-stat-cards.component';
+import { TPipe } from '@core/i18n';
 
 interface TimeseriesRow {
   date: string;
@@ -29,13 +30,11 @@ interface TopWalletRow {
 @Component({
   selector: 'app-analytics',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     FormsModule,
     LucideAngularModule,
     AdminLayoutComponent,
-    SkeletonStatCardsComponent,
-  ],
+    SkeletonStatCardsComponent, TPipe],
   templateUrl: './analytics.component.html',
   styleUrl: './analytics.component.scss',
 })

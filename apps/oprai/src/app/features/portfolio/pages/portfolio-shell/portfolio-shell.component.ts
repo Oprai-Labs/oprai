@@ -17,6 +17,7 @@ import { RecentActivityComponent } from '../../components/recent-activity/recent
 import { ClaimableRewardsComponent } from '../../components/claimable-rewards/claimable-rewards.component';
 import { TokenAccountsModalComponent } from '../../components/token-accounts-modal/token-accounts-modal.component';
 import type { PortfolioTab } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 interface HeaderMetric {
   id: 'sol' | 'btc' | 'eth';
@@ -36,8 +37,7 @@ const ETH_LOGO_URI = '/assets/coins/eth.svg';
 @Component({
   selector: 'app-portfolio-shell',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     LucideAngularModule,
     SkeletonTableComponent,
     PortfolioOverviewComponent,
@@ -49,8 +49,7 @@ const ETH_LOGO_URI = '/assets/coins/eth.svg';
     NftGalleryComponent,
     RecentActivityComponent,
     ClaimableRewardsComponent,
-    TokenAccountsModalComponent,
-  ],
+    TokenAccountsModalComponent, TPipe],
   templateUrl: './portfolio-shell.component.html',
   styleUrl: './portfolio-shell.component.scss',
 })

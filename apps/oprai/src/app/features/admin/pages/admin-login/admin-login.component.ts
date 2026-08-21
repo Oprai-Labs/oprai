@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AdminApiService } from '../../services/admin-api.service';
 import { LucideAngularModule } from 'lucide-angular';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-admin-login',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, TPipe],
   templateUrl: './admin-login.component.html',
   styleUrl: './admin-login.component.scss',
 })

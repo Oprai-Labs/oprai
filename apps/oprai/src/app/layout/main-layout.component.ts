@@ -17,6 +17,7 @@ import { MessageListComponent } from '@features/chat/components/message-list/mes
 import { PositionMonitorService } from '@core/services/position-monitor.service';
 import { SpendingLimitService } from '@core/services/spending-limit.service';
 import { ApiService } from '@core/services/api.service';
+import { TPipe } from '@core/i18n';
 
 export type SettingsTab = 'account' | 'appearance' | 'behavior' | 'data' | 'memory';
 
@@ -31,12 +32,10 @@ interface SearchResult {
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [
-    CommonModule, RouterOutlet, RouterLink, RouterLinkActive, FormsModule,
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, FormsModule,
     LucideAngularModule, WalletButtonComponent, TruncateAddressPipe,
     LiquidationAlertBannerComponent, RiskWarningDialogComponent,
-    MessageListComponent,
-  ],
+    MessageListComponent, TPipe],
   templateUrl: './main-layout.component.html',
   styleUrl: './main-layout.component.scss',
 })

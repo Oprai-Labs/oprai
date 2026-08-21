@@ -21,12 +21,12 @@
     </div>
   }
 } @else if (loading()) {
-  <div class="card"><div class="skeleton">Loading usage…</div></div>
+  <div class="card"><div class="skeleton">{{ 'Loading usage…' | t }}</div></div>
 } @else if (error()) {
   <div class="card"><div class="error">
     <lucide-icon name="alert-circle" [size]="14" />
-    <span>{{ error() }}</span>
+    <span>{{ error() | t }}</span>
   </div></div>
 } @else {
-  <div class="card"><div class="skeleton">No usage data.</div></div>
+  <div class="card"><div class="skeleton">{{ 'No usage data.' | t }}</div></div>
 }

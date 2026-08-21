@@ -17,7 +17,7 @@
       <div class="alert-body">
         @if (primaryPosition(); as pos) {
           @if (bannerLevel() === 'danger') {
-            <span class="alert-title">Liquidation Risk</span>
+            <span class="alert-title">{{ 'Liquidation Risk' | t }}</span>
             <span class="alert-detail">
               {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
               @if (extraCount() > 0) {
@@ -25,7 +25,7 @@
               }
             </span>
           } @else {
-            <span class="alert-title">Health Factor Warning</span>
+            <span class="alert-title">{{ 'Health Factor Warning' | t }}</span>
             <span class="alert-detail">
               {{ formatProtocol(pos.protocol) }} position · HF {{ formatHf(pos.healthFactor) }}
               @if (extraCount() > 0) {
@@ -40,7 +40,7 @@
             <!-- Deliberately not phrased as a risk. Nothing is in danger; the
                  position has stopped collecting fees, and the only reason the
                  user would ever find out is being told. -->
-            <span class="alert-title">Not earning</span>
+            <span class="alert-title">{{ 'Not earning' | t }}</span>
             <span class="alert-detail">
               {{ formatProtocol(idle.protocol) }} · {{ idle.pairLabel }} — the price has left this
               position's range, so it collects no fees until it comes back.
@@ -55,9 +55,9 @@
       <!-- Actions -->
       <div class="alert-actions">
         <button class="alert-btn alert-btn--view" (click)="navigateToPortfolio()">
-          View positions
+          {{ 'View positions' | t }}
         </button>
-        <button class="alert-btn alert-btn--refresh" (click)="refresh()" [class.spinning]="summary().polling" title="Refresh">
+        <button class="alert-btn alert-btn--refresh" (click)="refresh()" [class.spinning]="summary().polling" [attr.title]="'Refresh' | t">
           <lucide-icon name="refresh-cw" [size]="13" />
         </button>
       </div>

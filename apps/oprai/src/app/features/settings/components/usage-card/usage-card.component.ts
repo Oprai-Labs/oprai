@@ -2,6 +2,7 @@ import { Component, OnInit, OnDestroy, DestroyRef, inject, signal } from '@angul
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { UsageService, UsageTimeframe, UsageCounter } from '@core/services/usage.service';
+import { TPipe } from '@core/i18n';
 
 interface TimeframeRow {
   key: 'daily' | 'weekly' | 'monthly';
@@ -11,7 +12,7 @@ interface TimeframeRow {
 @Component({
   selector: 'app-usage-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './usage-card.component.html',
   styleUrl: './usage-card.component.scss',
 })

@@ -7,6 +7,7 @@ import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
 import { TimeAgoPipe } from '@shared/pipes/time-ago.pipe';
 import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
+import { TPipe } from '@core/i18n';
 
 /** The three states a report moves through, in order. */
 export const ISSUE_STEPS = [
@@ -27,15 +28,13 @@ export const ISSUE_STEPS = [
 @Component({
   selector: 'app-admin-issues',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     FormsModule,
     LucideAngularModule,
     TruncateAddressPipe,
     TimeAgoPipe,
     AdminLayoutComponent,
-    SkeletonTableComponent,
-  ],
+    SkeletonTableComponent, TPipe],
   templateUrl: './issues.component.html',
   styleUrl: './issues.component.scss',
 })

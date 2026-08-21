@@ -1,6 +1,6 @@
 <app-admin-layout activePage="transactions" (logoutClick)="logout()">
   <header class="admin-header">
-    <h1>Transactions</h1>
+    <h1>{{ 'Transactions' | t }}</h1>
     <span class="header-count">{{ totalCount() }} total</span>
   </header>
 
@@ -12,26 +12,26 @@
         <input
           type="text"
           class="input search-input"
-          placeholder="Search by wallet or tx hash..."
+          [attr.placeholder]="'Search by wallet or tx hash...' | t"
           [(ngModel)]="searchQuery"
           (keyup.enter)="onSearch()"
         />
       </div>
       <select class="input filter-select" [(ngModel)]="filterStatus" (change)="onFilterChange()">
-        <option value="">All Statuses</option>
+        <option value="">{{ 'All Statuses' | t }}</option>
         @for (s of statusOptions.slice(1); track s) {
           <option [value]="s">{{ s | titlecase }}</option>
         }
       </select>
       <select class="input filter-select" [(ngModel)]="filterAction" (change)="onFilterChange()">
-        <option value="">All Actions</option>
+        <option value="">{{ 'All Actions' | t }}</option>
         @for (a of actionOptions.slice(1); track a) {
           <option [value]="a">{{ a | titlecase }}</option>
         }
       </select>
       <button class="btn-ghost" (click)="onSearch()">
         <lucide-icon name="refresh-cw" [size]="14" />
-        Refresh
+        {{ 'Refresh' | t }}
       </button>
     </div>
 
@@ -40,8 +40,8 @@
     } @else if (error()) {
       <div class="error-state">
         <lucide-icon name="alert-circle" [size]="20" />
-        <span>{{ error() }}</span>
-        <button class="btn-ghost btn-sm" (click)="load()">Retry</button>
+        <span>{{ error() | t }}</span>
+        <button class="btn-ghost btn-sm" (click)="load()">{{ 'Retry' | t }}</button>
       </div>
     } @else {
       <div class="content-fade-in">
@@ -49,14 +49,14 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Wallet</th>
-                <th>Action</th>
-                <th>Protocol</th>
-                <th>Status</th>
-                <th>Fee</th>
-                <th>Created</th>
-                <th>Details</th>
+                <th>{{ 'ID' | t }}</th>
+                <th>{{ 'Wallet' | t }}</th>
+                <th>{{ 'Action' | t }}</th>
+                <th>{{ 'Protocol' | t }}</th>
+                <th>{{ 'Status' | t }}</th>
+                <th>{{ 'Fee' | t }}</th>
+                <th>{{ 'Created' | t }}</th>
+                <th>{{ 'Details' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -80,7 +80,7 @@
                   <td>
                     <button class="btn-ghost btn-sm" (click)="openDetail(tx)">
                       <lucide-icon name="eye" [size]="13" />
-                      View
+                      {{ 'View' | t }}
                     </button>
                   </td>
                 </tr>
@@ -88,7 +88,7 @@
                 <tr>
                   <td colspan="8" class="empty-row">
                     <lucide-icon name="inbox" [size]="24" />
-                    <p>No transactions found</p>
+                    <p>{{ 'No transactions found' | t }}</p>
                   </td>
                 </tr>
               }
@@ -104,7 +104,7 @@
               (click)="onPageChange(page() - 1)"
             >
               <lucide-icon name="chevron-left" [size]="14" />
-              Previous
+              {{ 'Previous' | t }}
             </button>
             <span class="page-info">Page {{ page() }} of {{ totalPages }}</span>
             <button
@@ -112,7 +112,7 @@
               [disabled]="page() >= totalPages"
               (click)="onPageChange(page() + 1)"
             >
-              Next
+              {{ 'Next' | t }}
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
           </div>
@@ -126,69 +126,69 @@
     <div class="modal-backdrop" (click)="closeDetail()">
       <div class="modal-panel" (click)="$event.stopPropagation()">
         <div class="modal-header">
-          <h2>Transaction Detail</h2>
+          <h2>{{ 'Transaction Detail' | t }}</h2>
           <button class="btn-ghost btn-icon" (click)="closeDetail()">
             <lucide-icon name="x" [size]="16" />
           </button>
         </div>
         <div class="modal-body">
           <div class="detail-row">
-            <span class="detail-label">ID</span>
+            <span class="detail-label">{{ 'ID' | t }}</span>
             <span class="detail-value mono-text">{{ selectedTx()!.id }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">Wallet</span>
+            <span class="detail-label">{{ 'Wallet' | t }}</span>
             <span class="detail-value mono-text">{{ selectedTx()!.userWallet }}</span>
           </div>
           @if (selectedTx()!.txHash) {
             <div class="detail-row">
-              <span class="detail-label">TX Hash</span>
+              <span class="detail-label">{{ 'TX Hash' | t }}</span>
               <span class="detail-value mono-text">{{ selectedTx()!.txHash }}</span>
             </div>
           }
           <div class="detail-row">
-            <span class="detail-label">Action</span>
+            <span class="detail-label">{{ 'Action' | t }}</span>
             <span class="detail-value">{{ selectedTx()!.action }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">Protocol</span>
+            <span class="detail-label">{{ 'Protocol' | t }}</span>
             <span class="detail-value">{{ selectedTx()!.protocol || '-' }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">Chain</span>
+            <span class="detail-label">{{ 'Chain' | t }}</span>
             <span class="detail-value">{{ selectedTx()!.chain }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">Status</span>
+            <span class="detail-label">{{ 'Status' | t }}</span>
             <span class="badge" [ngClass]="statusClass(selectedTx()!.status)">{{ selectedTx()!.status }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">Est. Fee</span>
+            <span class="detail-label">{{ 'Est. Fee' | t }}</span>
             <span class="detail-value mono-text">{{ formatFee(selectedTx()!.estimatedFee) }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">Actual Fee</span>
+            <span class="detail-label">{{ 'Actual Fee' | t }}</span>
             <span class="detail-value mono-text">{{ formatFee(selectedTx()!.actualFee) }}</span>
           </div>
           @if (selectedTx()!.errorMessage) {
             <div class="detail-row detail-row--error">
-              <span class="detail-label">Error</span>
+              <span class="detail-label">{{ 'Error' | t }}</span>
               <span class="detail-value">{{ selectedTx()!.errorMessage }}</span>
             </div>
           }
           <div class="detail-row">
-            <span class="detail-label">Initiated</span>
+            <span class="detail-label">{{ 'Initiated' | t }}</span>
             <span class="detail-value">{{ selectedTx()!.initiatedAt | timeAgo }}</span>
           </div>
           @if (selectedTx()!.confirmedAt) {
             <div class="detail-row">
-              <span class="detail-label">Confirmed</span>
+              <span class="detail-label">{{ 'Confirmed' | t }}</span>
               <span class="detail-value">{{ selectedTx()!.confirmedAt | timeAgo }}</span>
             </div>
           }
           @if (selectedTx()!.parameters) {
             <div class="detail-section">
-              <span class="detail-label">Parameters</span>
+              <span class="detail-label">{{ 'Parameters' | t }}</span>
               <pre class="detail-json">{{ selectedTx()!.parameters | json }}</pre>
             </div>
           }

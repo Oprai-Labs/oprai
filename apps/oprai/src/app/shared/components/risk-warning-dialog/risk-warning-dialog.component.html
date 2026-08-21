@@ -29,7 +29,7 @@
       <h2 class="dialog-title">{{ p.title }}</h2>
     </div>
 
-    <p class="dialog-message">{{ p.message }}</p>
+    <p class="dialog-message">{{ p.message | t }}</p>
 
     @if (p.figures && p.figures.length > 0) {
       <div class="dialog-figures">
@@ -57,7 +57,7 @@
          this, so it is the only thing worth checking. -->
     @if (p.mint) {
       <div class="dialog-mint">
-        <span class="dialog-mint__label">Mint</span>
+        <span class="dialog-mint__label">{{ 'Mint' | t }}</span>
         <span class="dialog-mint__value" [title]="p.mint">{{ shortMint(p.mint) }}</span>
         <button class="dialog-mint__copy" type="button" (click)="copyMint(p.mint, $event)">
           {{ copied() ? 'Copied' : 'Copy' }}
@@ -76,7 +76,7 @@
     }
 
     <div class="dialog-footer">
-      <button class="btn-cancel" type="button" (click)="cancel()">Cancel</button>
+      <button class="btn-cancel" type="button" (click)="cancel()">{{ 'Cancel' | t }}</button>
       <button class="btn-confirm" type="button" [disabled]="blocked()" (click)="confirm()">
         {{ p.confirmLabel }}
       </button>

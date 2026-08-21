@@ -5,12 +5,12 @@
       <div class="wallet-avatar">
         <img
           src="/assets/coins/sol.svg"
-          alt="Solana"
+          [attr.alt]="'Solana' | t"
           width="32"
           height="32"
         />
       </div>
-      <button class="wallet-address" (click)="copyAddress()" title="Copy address">
+      <button class="wallet-address" (click)="copyAddress()" [attr.title]="'Copy address' | t">
         {{ summary.walletAddress | truncateAddress:6:4 }}
         <lucide-icon class="copy-icon" name="copy" [size]="14" />
       </button>
@@ -19,7 +19,7 @@
          figure resolves first but jumping from ~$14 to the full total once the
          DeFi legs land reads as a glitch, so we wait for all positions. -->
     @if (positionsLoading) {
-      <div class="total-value-skeleton" aria-label="Calculating total balance"></div>
+      <div class="total-value-skeleton" [attr.aria-label]="'Calculating total balance' | t"></div>
     } @else {
       <div class="total-value">{{ totalValue | currency:'USD':'symbol':'1.2-2' }}</div>
     }

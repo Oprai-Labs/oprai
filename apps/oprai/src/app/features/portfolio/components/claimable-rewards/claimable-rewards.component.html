@@ -15,26 +15,26 @@
       <div class="rewards-header-stats">
         @if (totalClaimableUsd() > 0) {
           <div class="stat stat--claimable">
-            <span class="stat__label">Claimable</span>
+            <span class="stat__label">{{ 'Claimable' | t }}</span>
             <span class="stat__value">{{ totalClaimableUsd() | currency:'USD':'symbol':'1.2-2' }}</span>
           </div>
         }
         @if (blendedApy() != null) {
           <div class="stat stat--apy">
-            <span class="stat__label">Blended APR</span>
+            <span class="stat__label">{{ 'Blended APR' | t }}</span>
             <span class="stat__value">{{ blendedApy() | number:'1.2-2' }}%</span>
           </div>
         }
         <div class="stat">
-          <span class="stat__label">Deployed</span>
+          <span class="stat__label">{{ 'Deployed' | t }}</span>
           <span class="stat__value">{{ totalDeployedUsd() | currency:'USD':'symbol':'1.2-2' }}</span>
         </div>
       </div>
     </header>
 
     <div class="rewards-actions">
-      <button class="link-btn" type="button" (click)="expandAll()" [disabled]="groups().length === 0">Expand all</button>
-      <button class="link-btn" type="button" (click)="collapseAll()" [disabled]="groups().length === 0">Collapse all</button>
+      <button class="link-btn" type="button" (click)="expandAll()" [disabled]="groups().length === 0">{{ 'Expand all' | t }}</button>
+      <button class="link-btn" type="button" (click)="collapseAll()" [disabled]="groups().length === 0">{{ 'Collapse all' | t }}</button>
     </div>
 
     <ul class="rewards-list">
@@ -60,7 +60,7 @@
             </div>
             <div class="rewards-row__head-right">
               @if (g.weightedApy != null) {
-                <span class="kpi kpi--apy" title="USD-weighted APY across positions in this protocol">
+                <span class="kpi kpi--apy" [attr.title]="'USD-weighted APY across positions in this protocol' | t">
                   {{ g.weightedApy | number:'1.2-2' }}% APR
                 </span>
               }
@@ -82,11 +82,11 @@
             <table class="rewards-detail">
               <thead>
                 <tr>
-                  <th class="col-pos">Position</th>
-                  <th class="col-cat">Type</th>
-                  <th class="col-apy">APR</th>
-                  <th class="col-claim">Claimable</th>
-                  <th class="col-val">Value</th>
+                  <th class="col-pos">{{ 'Position' | t }}</th>
+                  <th class="col-cat">{{ 'Type' | t }}</th>
+                  <th class="col-apy">{{ 'APR' | t }}</th>
+                  <th class="col-claim">{{ 'Claimable' | t }}</th>
+                  <th class="col-val">{{ 'Value' | t }}</th>
                 </tr>
               </thead>
               <tbody>

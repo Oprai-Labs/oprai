@@ -6,15 +6,15 @@
       <div class="header-left">
         <h1 class="header-title">
           <lucide-icon name="bot" [size]="22" class="header-icon" />
-          Yield Optimizer
+          {{ 'Yield Optimizer' | t }}
         </h1>
-        <p class="header-sub">AI-powered yield analysis across Solana DeFi protocols</p>
+        <p class="header-sub">{{ 'AI-powered yield analysis across Solana DeFi protocols' | t }}</p>
       </div>
       <div class="header-actions">
         @if (status() === 'ready' || status() === 'error') {
           <button class="btn-secondary" (click)="reset()">
             <lucide-icon name="rotate-ccw" [size]="14" />
-            Reset
+            {{ 'Reset' | t }}
           </button>
         }
         <button
@@ -37,8 +37,8 @@
     @if (!isConnected()) {
       <div class="empty-state">
         <lucide-icon name="wallet" [size]="40" class="empty-icon" />
-        <p class="empty-title">Connect your wallet</p>
-        <p class="empty-sub">Connect your Solana wallet to scan for yield opportunities.</p>
+        <p class="empty-title">{{ 'Connect your wallet' | t }}</p>
+        <p class="empty-sub">{{ 'Connect your Solana wallet to scan for yield opportunities.' | t }}</p>
       </div>
     } @else {
 
@@ -53,11 +53,11 @@
         </button>
         <button class="tab" [class.tab--active]="activeTab() === 'yields'" (click)="setTab('yields')">
           <lucide-icon name="bar-chart-3" [size]="14" />
-          All Yields
+          {{ 'All Yields' | t }}
         </button>
         <button class="tab" [class.tab--active]="activeTab() === 'history'" (click)="setTab('history')">
           <lucide-icon name="history" [size]="14" />
-          History
+          {{ 'History' | t }}
         </button>
       </nav>
 
@@ -69,14 +69,14 @@
             <div class="prescan-icon">
               <lucide-icon name="scan-search" [size]="36" />
             </div>
-            <h2 class="prescan-title">Ready to scan</h2>
-            <p class="prescan-sub">The agent will analyze your portfolio and surface the highest-yield moves available across Kamino, Solend, Jito, and Marinade.</p>
+            <h2 class="prescan-title">{{ 'Ready to scan' | t }}</h2>
+            <p class="prescan-sub">{{ 'The agent will analyze your portfolio and surface the highest-yield moves available across Kamino, Solend, Jito, and Marinade.' | t }}</p>
 
             <!-- Config -->
             <div class="config-card">
-              <h3 class="config-title">Scan settings</h3>
+              <h3 class="config-title">{{ 'Scan settings' | t }}</h3>
               <div class="config-row">
-                <span class="config-label">Min APY gain</span>
+                <span class="config-label">{{ 'Min APY gain' | t }}</span>
                 <div class="config-input-wrap">
                   <input
                     type="number" min="0.1" max="20" step="0.5"
@@ -88,23 +88,23 @@
                 </div>
               </div>
               <div class="config-row">
-                <span class="config-label">Max risk level</span>
+                <span class="config-label">{{ 'Max risk level' | t }}</span>
                 <select
                   class="config-select"
                   [value]="config().maxRisk"
                   (change)="setMaxRisk($event)"
                 >
-                  <option value="1">Very Low (staking only)</option>
-                  <option value="2">Low (+ established lending)</option>
-                  <option value="3">Medium (+ leveraged lending)</option>
-                  <option value="4">High (+ leveraged protocols)</option>
+                  <option value="1">{{ 'Very Low (staking only)' | t }}</option>
+                  <option value="2">{{ 'Low (+ established lending)' | t }}</option>
+                  <option value="3">{{ 'Medium (+ leveraged lending)' | t }}</option>
+                  <option value="4">{{ 'High (+ leveraged protocols)' | t }}</option>
                 </select>
               </div>
             </div>
 
             <button class="btn-primary btn-primary--large" (click)="runScan()">
               <lucide-icon name="play" [size]="18" />
-              Start Scan
+              {{ 'Start Scan' | t }}
             </button>
           </div>
 
@@ -114,7 +114,7 @@
             <div class="scanning-pulse">
               <lucide-icon name="scan-search" [size]="32" class="spin" />
             </div>
-            <p class="scanning-text">Scanning protocols for yield opportunities...</p>
+            <p class="scanning-text">{{ 'Scanning protocols for yield opportunities...' | t }}</p>
             <div class="scanning-protocols">
               @for (p of ['Kamino', 'Solend', 'Jito', 'Marinade']; track p) {
                 <span class="scanning-chip">{{ p }}</span>
@@ -125,17 +125,17 @@
         } @else if (status() === 'error') {
           <div class="empty-state">
             <lucide-icon name="alert-circle" [size]="40" class="empty-icon error-icon" />
-            <p class="empty-title">Scan failed</p>
+            <p class="empty-title">{{ 'Scan failed' | t }}</p>
             <p class="empty-sub">{{ currentRun()?.error ?? 'Unknown error' }}</p>
-            <button class="btn-primary" (click)="runScan()">Retry</button>
+            <button class="btn-primary" (click)="runScan()">{{ 'Retry' | t }}</button>
           </div>
 
         } @else if (status() === 'ready') {
           @if (proposals().length === 0) {
             <div class="empty-state">
               <lucide-icon name="check-circle-2" [size]="40" class="empty-icon success-icon" />
-              <p class="empty-title">Your yield is already optimized</p>
-              <p class="empty-sub">No significant opportunities found with current settings. Try lowering the min APY gain or connecting your wallet with actual holdings.</p>
+              <p class="empty-title">{{ 'Your yield is already optimized' | t }}</p>
+              <p class="empty-sub">{{ 'No significant opportunities found with current settings. Try lowering the min APY gain or connecting your wallet with actual holdings.' | t }}</p>
             </div>
           } @else {
             <div class="proposals-list">
@@ -193,11 +193,11 @@
                     <div class="proposal-actions">
                       <button class="btn-reject" (click)="rejectProposal(proposal)">
                         <lucide-icon name="x" [size]="14" />
-                        Skip
+                        {{ 'Skip' | t }}
                       </button>
                       <button class="btn-execute" (click)="executeProposal(proposal)">
                         <lucide-icon name="check" [size]="14" />
-                        Execute
+                        {{ 'Execute' | t }}
                       </button>
                     </div>
                   } @else if (proposal.status === 'approved' || proposal.status === 'executed') {
@@ -211,7 +211,7 @@
                   } @else if (proposal.status === 'rejected') {
                     <div class="proposal-rejected">
                       <lucide-icon name="x-circle" [size]="16" />
-                      Skipped
+                      {{ 'Skipped' | t }}
                     </div>
                   }
                 </div>
@@ -226,17 +226,17 @@
         @if (allYieldsLoading()) {
           <div class="loading-row">
             <lucide-icon name="loader-circle" [size]="20" class="spin" />
-            Loading yields...
+            {{ 'Loading yields...' | t }}
           </div>
         } @else {
           <div class="yields-table">
             <div class="yields-thead">
-              <span>Protocol</span>
-              <span>Token</span>
-              <span>Type</span>
-              <span class="text-right">Supply APY</span>
-              <span class="text-right">TVL</span>
-              <span class="text-right">Risk</span>
+              <span>{{ 'Protocol' | t }}</span>
+              <span>{{ 'Token' | t }}</span>
+              <span>{{ 'Type' | t }}</span>
+              <span class="text-right">{{ 'Supply APY' | t }}</span>
+              <span class="text-right">{{ 'TVL' | t }}</span>
+              <span class="text-right">{{ 'Risk' | t }}</span>
             </div>
             @for (y of allYields(); track $index) {
               <div class="yields-row">
@@ -260,8 +260,8 @@
         @if (history().length === 0) {
           <div class="empty-state">
             <lucide-icon name="history" [size]="40" class="empty-icon" />
-            <p class="empty-title">No scan history yet</p>
-            <p class="empty-sub">Run a scan to see your optimization history.</p>
+            <p class="empty-title">{{ 'No scan history yet' | t }}</p>
+            <p class="empty-sub">{{ 'Run a scan to see your optimization history.' | t }}</p>
           </div>
         } @else {
           <div class="history-list">
@@ -275,7 +275,7 @@
                       <span class="history-chip history-chip--success">{{ historyExecutedCount(run) }} executed</span>
                     }
                     @if (run.error) {
-                      <span class="history-chip history-chip--error">Error</span>
+                      <span class="history-chip history-chip--error">{{ 'Error' | t }}</span>
                     }
                   </div>
                 </div>

@@ -1,10 +1,10 @@
 <aside class="sidebar">
   <!-- Header -->
   <div class="sidebar-header">
-    <span class="sidebar-brand gradient-text-static">OPRAI</span>
-    <button class="sidebar-new-btn" (click)="onNewChat()" aria-label="New chat">
+    <span class="sidebar-brand gradient-text-static">{{ 'OPRAI' | t }}</span>
+    <button class="sidebar-new-btn" (click)="onNewChat()" [attr.aria-label]="'New chat' | t">
       <lucide-icon name="plus" [size]="16" />
-      New Chat
+      {{ 'New Chat' | t }}
     </button>
   </div>
 
@@ -18,14 +18,14 @@
       }
     } @else if (sessions().length === 0) {
       <div class="sidebar-empty">
-        <p>No conversations yet</p>
+        <p>{{ 'No conversations yet' | t }}</p>
       </div>
     } @else {
       @for (group of groupedSessions(); track group.label) {
         <div class="session-group" [class.session-group--pinned]="group.label === 'Pinned'">
           @if (group.label === 'Pinned') {
             <div class="session-group-label session-group-label--pinned">
-              Pinned
+              {{ 'Pinned' | t }}
             </div>
           } @else {
             <div class="session-group-label">{{ group.label }}</div>
@@ -33,10 +33,10 @@
           @for (session of group.sessions; track session.id) {
             @if (deleteConfirmId() === session.id) {
               <div class="delete-confirm">
-                <p>Delete this chat?</p>
+                <p>{{ 'Delete this chat?' | t }}</p>
                 <div class="delete-confirm-actions">
-                  <button class="btn-sm btn-danger" (click)="confirmDelete(session.id)">Delete</button>
-                  <button class="btn-sm btn-ghost" (click)="cancelDelete()">Cancel</button>
+                  <button class="btn-sm btn-danger" (click)="confirmDelete(session.id)">{{ 'Delete' | t }}</button>
+                  <button class="btn-sm btn-ghost" (click)="cancelDelete()">{{ 'Cancel' | t }}</button>
                 </div>
               </div>
             } @else if (editingSessionId() === session.id) {
@@ -62,7 +62,7 @@
                 <button
                   class="session-menu-btn"
                   (click)="openMenu($event, session.id)"
-                  aria-label="Session options"
+                  [attr.aria-label]="'Session options' | t"
                 >
                   <lucide-icon name="ellipsis" [size]="14" />
                 </button>
@@ -85,7 +85,7 @@
   >
     <button class="dropdown-item" (click)="startRename(menuSessionId()!)">
       <lucide-icon name="pencil" [size]="14" />
-      Rename
+      {{ 'Rename' | t }}
     </button>
     <button class="dropdown-item" (click)="togglePin(menuSessionId()!)">
       <lucide-icon [name]="sessionStorage.isPinned(menuSessionId()!) ? 'pin-off' : 'pin'" [size]="14" />
@@ -94,7 +94,7 @@
     <div class="dropdown-divider"></div>
     <button class="dropdown-item dropdown-item--danger" (click)="requestDelete(menuSessionId()!)">
       <lucide-icon name="trash-2" [size]="14" />
-      Delete
+      {{ 'Delete' | t }}
     </button>
   </div>
 }

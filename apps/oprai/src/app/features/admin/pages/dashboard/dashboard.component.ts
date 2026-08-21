@@ -4,14 +4,13 @@ import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout
 import { SkeletonStatCardsComponent } from '@shared/components/skeletons/skeleton-stat-cards.component';
 import { SkeletonChartComponent } from '@shared/components/skeletons/skeleton-chart.component';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [
-    AdminLayoutComponent,
-    SkeletonStatCardsComponent, SkeletonChartComponent, EmptyStateComponent,
-  ],
+  imports: [AdminLayoutComponent,
+    SkeletonStatCardsComponent, SkeletonChartComponent, EmptyStateComponent, TPipe],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })

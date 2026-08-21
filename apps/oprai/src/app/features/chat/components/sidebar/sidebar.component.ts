@@ -6,11 +6,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import { AuthService } from '@core/services/auth.service';
 import { SessionStorageService, ChatSession } from '@core/services/session-storage.service';
 import { ChatApiService } from '../../services/chat-api.service';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, TPipe],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
 })

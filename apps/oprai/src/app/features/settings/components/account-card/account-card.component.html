@@ -2,7 +2,7 @@
   @if (user(); as u) {
     <div class="row">
       <div class="row-label">
-        <span class="row-title">Connected wallet</span>
+        <span class="row-title">{{ 'Connected wallet' | t }}</span>
         @if (walletName()) {
           <span class="row-meta">{{ walletName() }}</span>
         }
@@ -23,17 +23,17 @@
 
     <div class="row">
       <div class="row-label">
-        <span class="row-title">Session</span>
-        <span class="row-meta">Disconnect to sign out of OPRAI on this device.</span>
+        <span class="row-title">{{ 'Session' | t }}</span>
+        <span class="row-meta">{{ 'Disconnect to sign out of OPRAI on this device.' | t }}</span>
       </div>
       <div class="row-value">
         <button class="danger-btn" type="button" (click)="disconnect()">
           <lucide-icon name="log-out" [size]="14" />
-          <span>Disconnect</span>
+          <span>{{ 'Disconnect' | t }}</span>
         </button>
       </div>
     </div>
   } @else {
-    <p class="empty">No wallet connected.</p>
+    <p class="empty">{{ 'No wallet connected.' | t }}</p>
   }
 </div>

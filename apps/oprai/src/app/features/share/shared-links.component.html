@@ -1,23 +1,23 @@
 <div class="links-page">
   <header class="links-head">
-    <h1 class="links-title">Shared links</h1>
+    <h1 class="links-title">{{ 'Shared links' | t }}</h1>
     <p class="links-sub">
-      Conversations you've published. Anyone holding one of these links can read
-      that chat without a wallet — revoking a link stops that immediately.
+      {{ 'Conversations you\'ve published. Anyone holding one of these links can read
+      that chat without a wallet — revoking a link stops that immediately.' | t }}
     </p>
   </header>
 
   @if (loading()) {
     <div class="links-state">
       <span class="links-spinner"></span>
-      <span>Loading your links…</span>
+      <span>{{ 'Loading your links…' | t }}</span>
     </div>
   } @else if (shares().length === 0) {
     <div class="links-state links-state--empty">
       <lucide-icon name="share-2" [size]="30" />
-      <p class="links-empty-title">You haven't shared any chats</p>
-      <p>Open a conversation and press Share to publish a read-only link.</p>
-      <a class="links-empty-cta" routerLink="/">Go to chat</a>
+      <p class="links-empty-title">{{ 'You haven\'t shared any chats' | t }}</p>
+      <p>{{ 'Open a conversation and press Share to publish a read-only link.' | t }}</p>
+      <a class="links-empty-cta" routerLink="/">{{ 'Go to chat' | t }}</a>
     </div>
   } @else {
     <ul class="links-list">
@@ -34,9 +34,9 @@
           </div>
           <div class="links-row__actions">
             <a class="links-btn" [href]="shareUrl(share)" target="_blank" rel="noopener"
-               aria-label="Open shared chat">
+               [attr.aria-label]="'Open shared chat' | t">
               <lucide-icon name="external-link" [size]="14" />
-              <span>Open</span>
+              <span>{{ 'Open' | t }}</span>
             </a>
             <button class="links-btn" [class.is-copied]="copiedToken() === share.token"
                     (click)="copy(share)">
@@ -56,6 +56,6 @@
   }
 
   @if (error()) {
-    <p class="links-error">{{ error() }}</p>
+    <p class="links-error">{{ error() | t }}</p>
   }
 </div>

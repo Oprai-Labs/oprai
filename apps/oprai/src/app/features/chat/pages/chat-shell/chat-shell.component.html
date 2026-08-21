@@ -4,9 +4,9 @@
     <div class="chat-content">
       <section class="hero">
         <div class="hero-brand">
-          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
+          <img src="oprai_fullname_icon.svg" [attr.alt]="'OPRAI' | t" class="hero-brand-logo" />
         </div>
-        <p class="hero-connect-hint">Connect your wallet to get started</p>
+        <p class="hero-connect-hint">{{ 'Connect your wallet to get started' | t }}</p>
       </section>
     </div>
   } @else if (authError()) {
@@ -14,13 +14,13 @@
     <div class="chat-content">
       <section class="hero">
         <div class="hero-brand">
-          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
+          <img src="oprai_fullname_icon.svg" [attr.alt]="'OPRAI' | t" class="hero-brand-logo" />
         </div>
-        <p class="hero-connect-hint auth-error">{{ authError() }}</p>
+        <p class="hero-connect-hint auth-error">{{ authError() | t }}</p>
         @if (walletService.connected()) {
           <button class="retry-load-btn" (click)="retryLoad()">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
-            Try again
+            {{ 'Try again' | t }}
           </button>
         }
       </section>
@@ -100,7 +100,7 @@
       } @else {
         <!-- Hero logo (centered above composer) -->
         <div class="hero-logo">
-          <img src="oprai_fullname_icon.svg" alt="OPRAI" class="hero-brand-logo" />
+          <img src="oprai_fullname_icon.svg" [attr.alt]="'OPRAI' | t" class="hero-brand-logo" />
         </div>
       }
 
@@ -115,19 +115,19 @@
         />
         <div class="chat-footer-meta">
           @if (messages().length > 0 && !streaming()) {
-            <button class="clear-chat-btn" (click)="exportChat()" title="Export conversation">
+            <button class="clear-chat-btn" (click)="exportChat()" [attr.title]="'Export conversation' | t">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export
+              {{ 'Export' | t }}
             </button>
-            <button class="clear-chat-btn" (click)="clearChat()" title="Clear conversation">
+            <button class="clear-chat-btn" (click)="clearChat()" [attr.title]="'Clear conversation' | t">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-              Clear
+              {{ 'Clear' | t }}
             </button>
           }
           @if (sessionStorage.incognitoMode()) {
-            <p class="private-notice">This chat won't appear in your history.</p>
+            <p class="private-notice">{{ 'This chat won\'t appear in your history.' | t }}</p>
           } @else {
-            <p class="chat-disclaimer">OPRAI can make mistakes. Always verify on-chain data.</p>
+            <p class="chat-disclaimer">{{ 'OPRAI can make mistakes. Always verify on-chain data.' | t }}</p>
           }
         </div>
       </footer>

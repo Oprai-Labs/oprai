@@ -1,19 +1,19 @@
 <div class="login-page">
   <div class="login-card">
     <div class="login-header">
-      <h1 class="login-brand gradient-text">OPRAI</h1>
-      <p class="login-subtitle">Admin Panel</p>
+      <h1 class="login-brand gradient-text">{{ 'OPRAI' | t }}</h1>
+      <p class="login-subtitle">{{ 'Admin Panel' | t }}</p>
     </div>
 
     <form (ngSubmit)="onSubmit()" class="login-form">
       @if (error()) {
         <div class="login-error animate-slide-up">
-          {{ error() }}
+          {{ error() | t }}
         </div>
       }
 
       <div class="form-group">
-        <label class="label" for="username">Username</label>
+        <label class="label" for="username">{{ 'Username' | t }}</label>
         <div class="input-wrapper">
           <lucide-icon name="user" [size]="16" class="input-icon" />
           <input
@@ -22,7 +22,7 @@
             class="input input-with-icon"
             [(ngModel)]="username"
             name="username"
-            placeholder="Enter username"
+            [attr.placeholder]="'Enter username' | t"
             autocomplete="username"
             [disabled]="loading()"
           />
@@ -30,7 +30,7 @@
       </div>
 
       <div class="form-group">
-        <label class="label" for="password">Password</label>
+        <label class="label" for="password">{{ 'Password' | t }}</label>
         <div class="input-wrapper">
           <lucide-icon name="lock" [size]="16" class="input-icon" />
           <input
@@ -39,7 +39,7 @@
             class="input input-with-icon"
             [(ngModel)]="password"
             name="password"
-            placeholder="Enter password"
+            [attr.placeholder]="'Enter password' | t"
             autocomplete="current-password"
             [disabled]="loading()"
           />

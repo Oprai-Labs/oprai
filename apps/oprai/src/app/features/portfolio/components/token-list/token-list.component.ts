@@ -4,11 +4,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import { WalletService } from '@core/services/wallet.service';
 import { HiddenTokensService } from '../../services/hidden-tokens.service';
 import type { EnhancedTokenAccount, SolBalance, TokenSortField, SortDirection } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-token-list',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './token-list.component.html',
   styleUrl: './token-list.component.scss',
 })

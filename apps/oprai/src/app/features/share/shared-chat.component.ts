@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { ChatApiService, ChatMessage } from '@features/chat/services/chat-api.service';
 import { MessageListComponent } from '@features/chat/components/message-list/message-list.component';
+import { TPipe } from '@core/i18n';
 
 /**
  * The public face of a shared conversation.
@@ -30,7 +31,7 @@ import { MessageListComponent } from '@features/chat/components/message-list/mes
 @Component({
   selector: 'app-shared-chat',
   standalone: true,
-  imports: [CommonModule, RouterLink, LucideAngularModule, MessageListComponent],
+  imports: [CommonModule, RouterLink, LucideAngularModule, MessageListComponent, TPipe],
   templateUrl: './shared-chat.component.html',
   styleUrl: './shared-chat.component.scss',
 })

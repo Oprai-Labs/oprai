@@ -4,11 +4,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import { Router } from '@angular/router';
 import { PositionMonitorService, MonitoredPosition } from '@core/services/position-monitor.service';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-liquidation-alert-banner',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './liquidation-alert-banner.component.html',
   styleUrl: './liquidation-alert-banner.component.scss',
 })

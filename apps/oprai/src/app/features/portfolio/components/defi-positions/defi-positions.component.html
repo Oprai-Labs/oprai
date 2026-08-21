@@ -63,7 +63,7 @@
                  not the total number of positions in the protocol. -->
             <span class="reclaim-badge" [title]="'Total claimable: ' + (group.totalClaimableUsd | currency:'USD':'symbol':'1.2-2')">
               <span class="reclaim-count">{{ group.claimableCount }}</span>
-              Reclaim
+              {{ 'Reclaim' | t }}
             </span>
           }
           <span class="protocol-value">{{ group.totalUsdValue | currency:'USD':'symbol':'1.2-2' }}</span>
@@ -76,10 +76,10 @@
             <table class="position-table">
               <thead>
                 <tr>
-                  <th class="col-label">Validator</th>
-                  <th class="col-balance">Balance</th>
-                  <th class="col-status">Status</th>
-                  <th class="col-value">USD Value</th>
+                  <th class="col-label">{{ 'Validator' | t }}</th>
+                  <th class="col-balance">{{ 'Balance' | t }}</th>
+                  <th class="col-status">{{ 'Status' | t }}</th>
+                  <th class="col-value">{{ 'USD Value' | t }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,22 +116,22 @@
             <table class="position-table">
               <thead>
                 <tr>
-                  <th class="col-label">Position</th>
-                  <th class="col-tokens">Tokens</th>
+                  <th class="col-label">{{ 'Position' | t }}</th>
+                  <th class="col-tokens">{{ 'Tokens' | t }}</th>
                   <!-- Show Claimable / APY columns only when any row in this
                        section actually has them, so simple positions don't
                        get a sparse layout. `sectionHasClaimable / hasApy /
                        hasPnl` are computed once per section in the .ts. -->
                   @if (sectionHasClaimable(section)) {
-                    <th class="col-fees">Claimable Fees</th>
+                    <th class="col-fees">{{ 'Claimable Fees' | t }}</th>
                   }
                   @if (sectionHasApy(section)) {
-                    <th class="col-apy">APY</th>
+                    <th class="col-apy">{{ 'APY' | t }}</th>
                   }
                   @if (sectionHasPnl(section)) {
-                    <th class="col-pnl">PnL</th>
+                    <th class="col-pnl">{{ 'PnL' | t }}</th>
                   }
-                  <th class="col-value">USD Value</th>
+                  <th class="col-value">{{ 'USD Value' | t }}</th>
                 </tr>
               </thead>
               <tbody>

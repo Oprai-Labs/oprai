@@ -2,6 +2,7 @@ import { Component, Input, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import type { ProtocolPosition, PositionItem, ProtocolCategory } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 interface ProtocolGroup {
   protocolId: string;
@@ -36,7 +37,7 @@ interface ProtocolGroup {
 @Component({
   selector: 'app-claimable-rewards',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './claimable-rewards.component.html',
   styleUrl: './claimable-rewards.component.scss',
 })

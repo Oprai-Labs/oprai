@@ -13,6 +13,7 @@ import { ParsedClarify, ClarifyOption } from '../../services/intent-parser.servi
 import { ParsedAction } from '../../services/intent-parser.service';
 import { ProtocolRegistryService, ProtocolInfo } from '@core/services/protocol-registry.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
+import { TPipe } from '@core/i18n';
 
 /** A token's display bits for an option icon (null logo → lettered fallback). */
 interface OptionToken { symbol: string; logoURI: string | null; }
@@ -20,7 +21,7 @@ interface OptionToken { symbol: string; logoURI: string | null; }
 @Component({
   selector: 'app-clarify-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './clarify-card.component.html',
   styleUrls: ['./clarify-card.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,

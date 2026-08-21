@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { MessageListComponent } from '../../../chat/components/message-list/message-list.component';
 import { ChatMessage } from '../../../chat/services/chat-api.service';
+import { TPipe } from '@core/i18n';
 
 export type VoiceState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking';
 
@@ -35,7 +36,7 @@ const DEMO_EXCHANGES: { user: string; assistant: string }[] = [
 @Component({
   selector: 'app-voice-shell',
   standalone: true,
-  imports: [CommonModule, RouterLink, LucideAngularModule, MessageListComponent],
+  imports: [CommonModule, RouterLink, LucideAngularModule, MessageListComponent, TPipe],
   templateUrl: './voice-shell.component.html',
   styleUrl: './voice-shell.component.scss',
 })

@@ -5,11 +5,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import { AuthService } from '@core/services/auth.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TruncateAddressPipe } from '@shared/pipes/truncate-address.pipe';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-account-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe],
+  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, TPipe],
   templateUrl: './account-card.component.html',
   styleUrl: './account-card.component.scss',
 })

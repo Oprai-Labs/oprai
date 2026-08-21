@@ -4,13 +4,14 @@ import { firstValueFrom } from 'rxjs';
 import { LucideAngularModule } from 'lucide-angular';
 import { ApiService } from '@core/services/api.service';
 import { SessionStorageService } from '@core/services/session-storage.service';
+import { TPipe } from '@core/i18n';
 
 type ConfirmTarget = 'history' | 'memories' | null;
 
 @Component({
   selector: 'app-privacy-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './privacy-card.component.html',
   styleUrl: './privacy-card.component.scss',
 })

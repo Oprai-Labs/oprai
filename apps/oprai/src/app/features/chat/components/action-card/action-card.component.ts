@@ -36,6 +36,7 @@ import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 import { PublicKey } from '@solana/web3.js';
 import { sanitizeErrorMessage, ACTION_MIN_AMOUNT } from '@core/utils/error-messages';
+import { TPipe } from '@core/i18n';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
 
@@ -1098,7 +1099,7 @@ interface CollateralOption {
 @Component({
   selector: 'app-action-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, JargonTooltipComponent, TokenPickerComponent],
+  imports: [CommonModule, LucideAngularModule, JargonTooltipComponent, TokenPickerComponent, TPipe],
   templateUrl: './action-card.component.html',
   styleUrls: ['./action-card.component.scss'],
 })

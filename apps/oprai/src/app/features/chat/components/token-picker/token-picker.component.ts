@@ -24,6 +24,7 @@ import { WalletService } from '@core/services/wallet.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { environment } from '../../../../../environments/environment';
 import { createSolanaConnection } from '@core/utils/solana-connection';
+import { TPipe } from '@core/i18n';
 
 /**
  * The three questions a token picker actually answers: what do I have, what is
@@ -50,7 +51,7 @@ type Category = 'holdings' | 'trending' | 'stocks';
 @Component({
   selector: 'op-token-picker',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './token-picker.component.html',
   styleUrls: ['./token-picker.component.scss'],

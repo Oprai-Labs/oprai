@@ -9,11 +9,12 @@ import { WalletService } from '@core/services/wallet.service';
 import { SolanaActionService } from '@features/chat/services/solana-action.service';
 import { NotificationService } from '@core/services/notification.service';
 import { SpendingLimitService } from '@core/services/spending-limit.service';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-yield-optimizer',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './yield-optimizer.component.html',
   styleUrl: './yield-optimizer.component.scss',
 })

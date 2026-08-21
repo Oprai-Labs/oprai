@@ -32,11 +32,12 @@ import { ActionCardComponent } from '../action-card/action-card.component';
 import { QueryCardComponent } from '../query-card/query-card.component';
 import { ClarifyCardComponent } from '../clarify-card/clarify-card.component';
 import { MarkdownPipe } from '@shared/pipes/markdown.pipe';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-message-list',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, ActionCardComponent, QueryCardComponent, ClarifyCardComponent, MarkdownPipe],
+  imports: [CommonModule, LucideAngularModule, ActionCardComponent, QueryCardComponent, ClarifyCardComponent, MarkdownPipe, TPipe],
   templateUrl: './message-list.component.html',
   styleUrl: './message-list.component.scss',
 })

@@ -23,6 +23,7 @@ import {
 type OrcaCategory = 'all' | 'stable' | 'lst' | 'rwa' | 'governance' | 'utility' | 'meme';
 import { environment } from '../../../../../environments/environment';
 import { firstValueFrom, debounceTime, distinctUntilChanged, timeout } from 'rxjs';
+import { TPipe } from '@core/i18n';
 
 /** Mock query result types */
 interface BalanceResult {
@@ -326,7 +327,7 @@ const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
 @Component({
   selector: 'app-query-card',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './query-card.component.html',
   styleUrl: './query-card.component.scss',
 })

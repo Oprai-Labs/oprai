@@ -8,6 +8,7 @@ import { TimeAgoPipe } from '@shared/pipes/time-ago.pipe';
 import { WalletService } from '@core/services/wallet.service';
 import { PortfolioService } from '../../services/portfolio.service';
 import type { EnhancedTransaction, TransactionType } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 type TxFilter = 'all' | 'swap' | 'transfer' | 'stake' | 'nft';
 type TimeFilter = '24h' | '7d' | '30d' | 'all';
@@ -29,7 +30,7 @@ interface ProtocolRule {
 @Component({
   selector: 'app-recent-activity',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, TimeAgoPipe],
+  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, TimeAgoPipe, TPipe],
   templateUrl: './recent-activity.component.html',
   styleUrl: './recent-activity.component.scss',
 })

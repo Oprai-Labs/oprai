@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { Subscription } from 'rxjs';
 import { RiskWarningService, RiskWarningPayload } from '@core/services/risk-warning.service';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-risk-warning-dialog',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [CommonModule, LucideAngularModule, TPipe],
   templateUrl: './risk-warning-dialog.component.html',
   styleUrl: './risk-warning-dialog.component.scss',
 })

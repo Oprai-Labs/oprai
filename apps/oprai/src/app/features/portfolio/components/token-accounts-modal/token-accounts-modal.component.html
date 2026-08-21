@@ -1,9 +1,9 @@
 @if (isOpen()) {
   <div class="backdrop" (click)="close.emit()"></div>
-  <div class="modal" role="dialog" aria-modal="true" aria-label="Token accounts manager">
+  <div class="modal" role="dialog" aria-modal="true" [attr.aria-label]="'Token accounts manager' | t">
     <header class="modal__header">
       <div class="modal__title-block">
-        <h2 class="modal__title">Token Accounts</h2>
+        <h2 class="modal__title">{{ 'Token Accounts' | t }}</h2>
         <p class="modal__sub">
           @if (phase() === 'loading') {
             Loading on-chain accounts…
@@ -14,7 +14,7 @@
           }
         </p>
       </div>
-      <button class="modal__close" type="button" (click)="close.emit()" aria-label="Close">
+      <button class="modal__close" type="button" (click)="close.emit()" [attr.aria-label]="'Close' | t">
         <lucide-icon name="x" [size]="18" />
       </button>
     </header>
@@ -38,9 +38,9 @@
       >
         {{ hideZeroValue() ? 'Showing empty only' : 'Hide non-empty' }}
       </button>
-      <button class="chip chip--ghost chip--right" type="button" (click)="loadAccounts()" [disabled]="isBusy()" title="Refresh">
+      <button class="chip chip--ghost chip--right" type="button" (click)="loadAccounts()" [disabled]="isBusy()" [attr.title]="'Refresh' | t">
         <lucide-icon name="refresh-cw" [size]="12" [class.spinning]="phase() === 'loading'" />
-        Refresh
+        {{ 'Refresh' | t }}
       </button>
     </div>
 
@@ -58,7 +58,7 @@
       } @else if (visibleAccounts().length === 0) {
         <div class="modal__empty">
           <lucide-icon name="check-circle" [size]="32" />
-          <p>No open token accounts found. There's nothing to clean up.</p>
+          <p>{{ 'No open token accounts found. There\'s nothing to clean up.' | t }}</p>
         </div>
       } @else {
         <ul class="account-list">
@@ -93,9 +93,9 @@
               <div class="account-row__balance">
                 <span class="balance-amt">{{ formatBalance(acct.balance) }}</span>
                 @if (acct.balance > 0) {
-                  <span class="balance-tag balance-tag--burn">burn</span>
+                  <span class="balance-tag balance-tag--burn">{{ 'burn' | t }}</span>
                 } @else {
-                  <span class="balance-tag balance-tag--empty">empty</span>
+                  <span class="balance-tag balance-tag--empty">{{ 'empty' | t }}</span>
                 }
               </div>
               <div class="account-row__rent">
@@ -110,12 +110,12 @@
     <footer class="modal__footer" [class.modal__footer--busy]="isBusy()">
       <div class="footer__info">
         @if (selectedCount() === 0) {
-          <span class="footer__hint">Select accounts to close. Empty = pure rent refund; non-empty = burn the balance to reclaim rent.</span>
+          <span class="footer__hint">{{ 'Select accounts to close. Empty = pure rent refund; non-empty = burn the balance to reclaim rent.' | t }}</span>
         } @else {
           <div class="footer__totals">
-            <strong>{{ selectedCount() }}</strong> selected
+            <strong>{{ selectedCount() }}</strong> {{ 'selected' | t }}
             <span class="sep">·</span>
-            reclaim <strong>{{ selectedReclaimSol() | number:'1.4-6' }} SOL</strong>
+            {{ 'reclaim' | t }} <strong>{{ selectedReclaimSol() | number:'1.4-6' }} SOL</strong>
           </div>
           <div class="footer__split">
             @if (selectedSplit().empty.length > 0) {
@@ -135,12 +135,12 @@
           <div class="footer__progress">{{ p.label }}</div>
         }
         @if (error()) {
-          <div class="footer__error">{{ error() }}</div>
+          <div class="footer__error">{{ error() | t }}</div>
         }
         @if (successInfo(); as s) {
           <div class="footer__success">
             ✓ Closed {{ s.count }} account{{ s.count === 1 ? '' : 's' }} ·
-            <a [href]="'https://solscan.io/tx/' + s.signature" target="_blank" rel="noopener noreferrer">View tx ↗</a>
+            <a [href]="'https://solscan.io/tx/' + s.signature" target="_blank" rel="noopener noreferrer">{{ 'View tx ↗' | t }}</a>
           </div>
         }
       </div>

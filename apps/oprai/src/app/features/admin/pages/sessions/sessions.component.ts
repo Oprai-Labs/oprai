@@ -7,19 +7,18 @@ import { TimeAgoPipe } from '@shared/pipes/time-ago.pipe';
 import { LucideAngularModule } from 'lucide-angular';
 import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-sessions',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     FormsModule,
     TruncateAddressPipe,
     TimeAgoPipe,
     LucideAngularModule,
     AdminLayoutComponent,
-    SkeletonTableComponent,
-  ],
+    SkeletonTableComponent, TPipe],
   templateUrl: './sessions.component.html',
   styleUrl: './sessions.component.scss',
 })

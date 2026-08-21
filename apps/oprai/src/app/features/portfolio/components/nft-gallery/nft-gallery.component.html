@@ -13,7 +13,7 @@
 } @else if (loadingState === 'loaded' && visibleNfts().length === 0 && spamCount() === 0) {
   <div class="empty-state">
     <lucide-icon name="image" [size]="40" />
-    <p>No NFTs found in this wallet</p>
+    <p>{{ 'No NFTs found in this wallet' | t }}</p>
   </div>
 } @else if (loadingState === 'loaded') {
   <div class="nft-header">
@@ -106,11 +106,11 @@
   }
 } @else if (loadingState === 'error') {
   <div class="empty-state">
-    <p>Failed to load NFTs. Try refreshing.</p>
+    <p>{{ 'Failed to load NFTs. Try refreshing.' | t }}</p>
   </div>
 } @else {
   <!-- idle: waiting for tab activation -->
   <div class="empty-state">
-    <p>Click to load NFTs</p>
+    <p>{{ 'Click to load NFTs' | t }}</p>
   </div>
 }

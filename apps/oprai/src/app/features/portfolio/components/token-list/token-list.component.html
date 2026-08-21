@@ -4,7 +4,7 @@
     <div class="section-icon">
       <lucide-icon name="wallet" [size]="16" />
     </div>
-    <h2 class="section-title">Wallet</h2>
+    <h2 class="section-title">{{ 'Wallet' | t }}</h2>
   </div>
   <div class="section-actions">
     @if (hiddenTokenCount > 0) {
@@ -31,10 +31,10 @@
     <button
       class="filter-btn filter-btn--manage"
       (click)="openAccountsManager.emit()"
-      title="Manage token accounts and reclaim rent"
+      [attr.title]="'Manage token accounts and reclaim rent' | t"
     >
       <lucide-icon name="settings-2" [size]="12" />
-      Manage accounts
+      {{ 'Manage accounts' | t }}
     </button>
     <span class="section-value">{{ walletTotal | currency:'USD':'symbol':'1.2-2' }}</span>
   </div>
@@ -48,19 +48,19 @@
         <th class="col-token sortable" (click)="toggleSort('name')">
           Token{{ getSortIcon('name') }}
         </th>
-        <th class="col-price">Price</th>
+        <th class="col-price">{{ 'Price' | t }}</th>
         <th class="col-change sortable" (click)="toggleSort('change24h')">
           24h{{ getSortIcon('change24h') }}
         </th>
-        <th class="col-amount">Amount</th>
+        <th class="col-amount">{{ 'Amount' | t }}</th>
         <th class="col-alloc sortable" (click)="toggleSort('allocation')">
           %{{ getSortIcon('allocation') }}
         </th>
-        <th class="col-pnl">PnL (all time)</th>
+        <th class="col-pnl">{{ 'PnL (all time)' | t }}</th>
         <th class="col-value sortable" (click)="toggleSort('value')">
           USD Value{{ getSortIcon('value') }}
         </th>
-        <th class="col-actions" aria-label="Row actions"></th>
+        <th class="col-actions" [attr.aria-label]="'Row actions' | t"></th>
       </tr>
     </thead>
     <tbody>
@@ -71,7 +71,7 @@
             <div class="token-logo sol-logo">
               <img
                 src="/assets/coins/sol.svg"
-                alt="SOL"
+                [attr.alt]="'SOL' | t"
                 width="32"
                 height="32"
                 (error)="onImageError($event)"
@@ -79,8 +79,8 @@
               <div class="token-fallback" style="display:none">S</div>
             </div>
             <div class="token-info">
-              <span class="token-name">Solana</span>
-              <span class="token-symbol">SOL</span>
+              <span class="token-name">{{ 'Solana' | t }}</span>
+              <span class="token-symbol">{{ 'SOL' | t }}</span>
             </div>
           </div>
         </td>
@@ -172,7 +172,7 @@
                 >
                   {{ token.symbol }}
                   @if (copiedMint() === token.mint) {
-                    <span class="copy-badge">Copied!</span>
+                    <span class="copy-badge">{{ 'Copied!' | t }}</span>
                   } @else {
                     <lucide-icon class="copy-icon" name="copy" [size]="11" />
                   }
@@ -256,5 +256,5 @@
 </div>
 
 @if (filteredAndSorted().length === 0 && !solBalance) {
-  <div class="empty-state">No tokens found in this wallet</div>
+  <div class="empty-state">{{ 'No tokens found in this wallet' | t }}</div>
 }

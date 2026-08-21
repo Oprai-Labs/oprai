@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { ChatApiService, ChatShare } from '@features/chat/services/chat-api.service';
+import { TPipe } from '@core/i18n';
 
 /**
  * Everything this wallet has published, and the one place to un-publish it.
@@ -15,7 +16,7 @@ import { ChatApiService, ChatShare } from '@features/chat/services/chat-api.serv
 @Component({
   selector: 'app-shared-links',
   standalone: true,
-  imports: [CommonModule, RouterLink, LucideAngularModule],
+  imports: [CommonModule, RouterLink, LucideAngularModule, TPipe],
   templateUrl: './shared-links.component.html',
   styleUrl: './shared-links.component.scss',
 })

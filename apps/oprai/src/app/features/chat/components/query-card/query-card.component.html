@@ -12,7 +12,7 @@
     <div class="query-header-info">
       <span class="query-label">{{ queryLabel }}</span>
     </div>
-    <span class="query-badge">QUERY</span>
+    <span class="query-badge">{{ 'QUERY' | t }}</span>
   </div>
 
   @if (unavailableOffline()) {
@@ -22,17 +22,17 @@
          happen here. -->
     <div class="query-offline">
       <lucide-icon name="eye-off" [size]="15" />
-      <span>This result isn't part of the shared snapshot.</span>
+      <span>{{ 'This result isn\'t part of the shared snapshot.' | t }}</span>
     </div>
   } @else if (loading()) {
     <div class="query-loading">
       <span class="status-spinner"></span>
-      <span>Fetching data...</span>
+      <span>{{ 'Fetching data...' | t }}</span>
     </div>
   } @else if (error()) {
     <div class="query-error">
       <lucide-icon name="alert-circle" [size]="14" />
-      <span>{{ error() }}</span>
+      <span>{{ error() | t }}</span>
     </div>
   } @else {
     <div class="query-results">
@@ -46,7 +46,7 @@
             <input
               class="balance-search"
               type="text"
-              placeholder="Search by name or contract…"
+              [attr.placeholder]="'Search by name or contract…' | t"
               [value]="balanceSearchRaw()"
               (input)="onBalanceSearch($event)"
             />
@@ -54,10 +54,10 @@
         }
         <div class="result-table">
           <div class="result-table__header result-table__header--4col">
-            <span>Token</span>
-            <span class="text-right">Balance</span>
+            <span>{{ 'Token' | t }}</span>
+            <span class="text-right">{{ 'Balance' | t }}</span>
             <button class="sort-btn" (click)="toggleSort('value')" [class.sort-active]="balanceSortField() === 'value'">
-              Value
+              {{ 'Value' | t }}
               <lucide-icon
                 [name]="balanceSortField() === 'value' ? (balanceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
@@ -118,7 +118,7 @@
         }
         @if (query.type === 'portfolio' || query.type === 'risk') {
           <div class="result-summary">
-            <span class="result-summary__label">Total Value</span>
+            <span class="result-summary__label">{{ 'Total Value' | t }}</span>
             <span class="result-summary__value mono">{{ totalPortfolioValue }}</span>
           </div>
         }
@@ -132,7 +132,7 @@
       @if (meShape(); as shape) {
 
         @if (meFetching() && meRowCount() === 0) {
-          <div class="dlmm-empty">Loading from Magic Eden…</div>
+          <div class="dlmm-empty">{{ 'Loading from Magic Eden…' | t }}</div>
         }
 
         <!-- Collections: floor, volume, listed count, and a way in. -->
@@ -151,13 +151,13 @@
                   <span class="me-coll__name">{{ c.name || c.symbol }}</span>
                   <span class="me-coll__stats">
                     @if (meSol(c.floorPrice); as f) {
-                      <span class="me-stat"><span class="me-stat__k">Floor</span> {{ f | number:'1.0-3' }} SOL</span>
+                      <span class="me-stat"><span class="me-stat__k">{{ 'Floor' | t }}</span> {{ f | number:'1.0-3' }} SOL</span>
                     }
                     @if (meSol(c.volumeAll); as v) {
-                      <span class="me-stat"><span class="me-stat__k">Vol</span> {{ v | number:'1.0-0' }} SOL</span>
+                      <span class="me-stat"><span class="me-stat__k">{{ 'Vol' | t }}</span> {{ v | number:'1.0-0' }} SOL</span>
                     }
                     @if (c.listedCount) {
-                      <span class="me-stat"><span class="me-stat__k">Listed</span> {{ c.listedCount }}</span>
+                      <span class="me-stat"><span class="me-stat__k">{{ 'Listed' | t }}</span> {{ c.listedCount }}</span>
                     }
                   </span>
                 </span>
@@ -180,7 +180,7 @@
                 <div class="me-nft__art">
                   <span class="me-art__fallback me-art__fallback--lg">
                     <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
-                    <span class="me-art__note">Media not available</span>
+                    <span class="me-art__note">{{ 'Media not available' | t }}</span>
                   </span>
                   @if (t.image) {
                     <img [src]="nftArtSrc(t.image)" [alt]="t.name" loading="lazy" decoding="async"
@@ -241,19 +241,19 @@
                   @if (meOwnsToken(t)) {
                     @if (meIsListed(t)) {
                       <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
-                              (click)="changeMeListingPrice(t)">Change price</button>
+                              (click)="changeMeListingPrice(t)">{{ 'Change price' | t }}</button>
                       <button type="button" class="dlmm-use-btn me-nft__foot-btn"
-                              (click)="cancelMeListing(t)">Remove listing</button>
+                              (click)="cancelMeListing(t)">{{ 'Remove listing' | t }}</button>
                     } @else {
-                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="listMeToken(t)">List for sale
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="listMeToken(t)">{{ 'List for sale' | t }}
                         <lucide-icon name="arrow-right" [size]="12" /></button>
                     }
                   } @else {
                     @if (meIsListed(t)) {
-                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="buyMeToken(t)">Buy</button>
+                      <button type="button" class="dlmm-use-btn me-nft__foot-btn" (click)="buyMeToken(t)">{{ 'Buy' | t }}</button>
                     }
                     <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
-                            (click)="offerOnMeToken(t)">Make offer</button>
+                            (click)="offerOnMeToken(t)">{{ 'Make offer' | t }}</button>
                   }
                 </div>
               </div>
@@ -265,8 +265,8 @@
         @if (shape === 'activities') {
           <div class="result-table">
             <div class="result-table__header result-table__header--me-act">
-              <span>Event</span><span>Item</span>
-              <span class="text-right">Price</span><span class="text-right">When</span>
+              <span>{{ 'Event' | t }}</span><span>{{ 'Item' | t }}</span>
+              <span class="text-right">{{ 'Price' | t }}</span><span class="text-right">{{ 'When' | t }}</span>
             </div>
             @for (a of mePagedActivities(); track a.signature ?? $index) {
               <div class="result-table__row result-table__row--me-act dlmm-row">
@@ -304,7 +304,7 @@
                 <div class="me-nft__art">
                   <span class="me-art__fallback me-art__fallback--lg">
                     <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
-                    <span class="me-art__note">Media not available</span>
+                    <span class="me-art__note">{{ 'Media not available' | t }}</span>
                   </span>
                   @if (o.image) {
                     <img [src]="nftArtSrc(o.image)" [alt]="o.name ?? ''" loading="lazy" decoding="async"
@@ -329,12 +329,12 @@
                 <div class="me-nft__foot">
                   @if (meIsOwnOffer(o)) {
                     <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost me-nft__foot-btn"
-                            (click)="changeMeOfferPrice(o)">Change price</button>
+                            (click)="changeMeOfferPrice(o)">{{ 'Change price' | t }}</button>
                     <button type="button" class="dlmm-use-btn me-nft__foot-btn"
-                            (click)="cancelMeOffer(o)">Withdraw offer</button>
+                            (click)="cancelMeOffer(o)">{{ 'Withdraw offer' | t }}</button>
                   } @else {
                     <button type="button" class="dlmm-use-btn me-nft__foot-btn"
-                            (click)="acceptMeOffer(o)">Accept offer
+                            (click)="acceptMeOffer(o)">{{ 'Accept offer' | t }}
                       <lucide-icon name="arrow-right" [size]="12" /></button>
                   }
                 </div>
@@ -348,8 +348,8 @@
         @if (shape === 'traits') {
           <div class="result-table">
             <div class="result-table__header result-table__header--me-trait">
-              <span>Trait</span><span>Value</span>
-              <span class="text-right">Count</span><span class="text-right">Floor</span>
+              <span>{{ 'Trait' | t }}</span><span>{{ 'Value' | t }}</span>
+              <span class="text-right">{{ 'Count' | t }}</span><span class="text-right">{{ 'Floor' | t }}</span>
             </div>
             @for (tr of mePagedTraits(); track tr.trait + tr.value) {
               <div class="result-table__row result-table__row--me-trait dlmm-row">
@@ -368,8 +368,8 @@
         @if (shape === 'pools') {
           <div class="result-table">
             <div class="result-table__header result-table__header--me-pool">
-              <span>Pool</span><span class="text-right">Quote</span>
-              <span class="text-right">Curve</span><span>Holds</span><span></span>
+              <span>{{ 'Pool' | t }}</span><span class="text-right">{{ 'Quote' | t }}</span>
+              <span class="text-right">{{ 'Curve' | t }}</span><span>{{ 'Holds' | t }}</span><span></span>
             </div>
             @for (pl of mePagedPools(); track pl['poolKey']) {
               <div class="result-table__row result-table__row--me-pool dlmm-row">
@@ -389,10 +389,10 @@
                 <span class="dlmm-muted">{{ mePoolInventory(pl) }}</span>
                 <span class="text-right me-pool__acts">
                   @if (mePoolCanBuyFrom(pl)) {
-                    <button type="button" class="dlmm-use-btn" (click)="buyFromMePool(pl)">Buy</button>
+                    <button type="button" class="dlmm-use-btn" (click)="buyFromMePool(pl)">{{ 'Buy' | t }}</button>
                   }
                   @if (mePoolCanSellTo(pl)) {
-                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="sellToMePool(pl)">Sell</button>
+                    <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="sellToMePool(pl)">{{ 'Sell' | t }}</button>
                   }
                 </span>
               </div>
@@ -404,8 +404,8 @@
         @if (shape === 'traders') {
           <div class="result-table">
             <div class="result-table__header result-table__header--me-trader">
-              <span>#</span><span>Wallet</span>
-              <span class="text-right">Volume</span><span class="text-right">Last trade</span>
+              <span>#</span><span>{{ 'Wallet' | t }}</span>
+              <span class="text-right">{{ 'Volume' | t }}</span><span class="text-right">{{ 'Last trade' | t }}</span>
             </div>
             @for (tr of mePagedTraders(); track tr.wallet; let i = $index) {
               <div class="result-table__row result-table__row--me-trader dlmm-row">
@@ -439,7 +439,7 @@
               <div class="me-detail__art">
                 <span class="me-art__fallback me-art__fallback--lg">
                     <img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" />
-                    <span class="me-art__note">Media not available</span>
+                    <span class="me-art__note">{{ 'Media not available' | t }}</span>
                   </span>
                 @if (n.image) {
                   <img [src]="nftArtSrc(n.image)" [alt]="n.name" loading="eager" decoding="async"
@@ -461,7 +461,7 @@
                     <span class="me-chip me-chip--royalty"><lucide-icon name="crown" [size]="11" />{{ r | number:'1.0-2' }}%</span>
                   }
                   @if (n.owner) {
-                    <span class="me-detail__owner">Owned by
+                    <span class="me-detail__owner">{{ 'Owned by' | t }}
                       <button type="button" class="dlmm-pair__addr mono dlmm-copy-btn"
                               [class.dlmm-copy-btn--copied]="copiedAddress() === n.owner"
                               (click)="copyPoolAddress(n.owner!)"
@@ -483,22 +483,22 @@
                       <span class="me-detail__price-sub">{{ note }}</span>
                     }
                     @if (meTopOffer(); as o) {
-                      <span class="me-detail__price-sub">Top offer <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>
+                      <span class="me-detail__price-sub">{{ 'Top offer' | t }} <span class="mono">{{ o | number:'1.0-3' }} SOL</span></span>
                     }
                   </div>
                   <div class="me-stats-card__actions">
                     @if (meOwnsToken(n)) {
                       @if (meIsListed(n)) {
-                        <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(n)">Delist</button>
+                        <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="cancelMeListing(n)">{{ 'Delist' | t }}</button>
                       } @else {
-                        <button type="button" class="dlmm-use-btn" (click)="listMeToken(n)">List
+                        <button type="button" class="dlmm-use-btn" (click)="listMeToken(n)">{{ 'List' | t }}
                           <lucide-icon name="arrow-right" [size]="12" /></button>
                       }
                     } @else {
                       @if (meIsListed(n)) {
-                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(n)">Buy</button>
+                        <button type="button" class="dlmm-use-btn" (click)="buyMeToken(n)">{{ 'Buy' | t }}</button>
                       }
-                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(n)">Offer</button>
+                      <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost" (click)="offerOnMeToken(n)">{{ 'Offer' | t }}</button>
                     }
                   </div>
                 </div>
@@ -511,9 +511,9 @@
                    a scroll. -->
               <div class="me-tabs">
                 <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'traits'"
-                        (click)="setMeTab('traits')">Traits</button>
+                        (click)="setMeTab('traits')">{{ 'Traits' | t }}</button>
                 <button type="button" class="me-tab" [class.me-tab--on]="meTab() === 'details'"
-                        (click)="setMeTab('details')">Details</button>
+                        (click)="setMeTab('details')">{{ 'Details' | t }}</button>
               </div>
 
               @if (meTab() === 'traits') {
@@ -537,7 +537,7 @@
                     }
                   </div>
                 } @else {
-                  <div class="dlmm-empty">No traits recorded for this NFT.</div>
+                  <div class="dlmm-empty">{{ 'No traits recorded for this NFT.' | t }}</div>
                 }
               }
 
@@ -554,14 +554,14 @@
                   </div>
                 }
                 <div class="me-detail__rows">
-                  <div class="me-detail__row"><span>Mint</span>
+                  <div class="me-detail__row"><span>{{ 'Mint' | t }}</span>
                     <a class="me-link mono" [href]="solscan(n.mintAddress)" target="_blank" rel="noopener noreferrer">
                       {{ n.mintAddress.slice(0,4) }}…{{ n.mintAddress.slice(-4) }}
                       <lucide-icon name="external-link" [size]="11" />
                     </a>
                   </div>
                   @if (n.owner) {
-                    <div class="me-detail__row"><span>Owner</span>
+                    <div class="me-detail__row"><span>{{ 'Owner' | t }}</span>
                       <a class="me-link mono" [href]="solscanAccount(n.owner)" target="_blank" rel="noopener noreferrer">
                         {{ n.owner.slice(0,4) }}…{{ n.owner.slice(-4) }}
                         <lucide-icon name="external-link" [size]="11" />
@@ -569,7 +569,7 @@
                     </div>
                   }
                   @if (meChain().collectionMint; as cm) {
-                    <div class="me-detail__row"><span>On-chain collection</span>
+                    <div class="me-detail__row"><span>{{ 'On-chain collection' | t }}</span>
                       <a class="me-link mono" [href]="solscan(cm)" target="_blank" rel="noopener noreferrer">
                         {{ cm.slice(0,4) }}…{{ cm.slice(-4) }}
                         <lucide-icon name="external-link" [size]="11" />
@@ -577,21 +577,21 @@
                     </div>
                   }
                   @if (meStandardLabel(); as std) {
-                    <div class="me-detail__row"><span>Token standard</span><span>{{ std }}</span></div>
+                    <div class="me-detail__row"><span>{{ 'Token standard' | t }}</span><span>{{ std }}</span></div>
                   }
                   @if (n.collectionName) {
-                    <div class="me-detail__row"><span>Collection</span><span>{{ n.collectionName }}</span></div>
+                    <div class="me-detail__row"><span>{{ 'Collection' | t }}</span><span>{{ n.collectionName }}</span></div>
                   }
                   @if (meRoyaltyPct(); as r) {
-                    <div class="me-detail__row"><span>Creator royalty</span><span class="mono">{{ r | number:'1.0-2' }}%</span></div>
+                    <div class="me-detail__row"><span>{{ 'Creator royalty' | t }}</span><span class="mono">{{ r | number:'1.0-2' }}%</span></div>
                   }
-                  <div class="me-detail__row"><span>Marketplace fee</span><span class="mono">2%</span></div>
-                  <div class="me-detail__row"><span>Status</span>
+                  <div class="me-detail__row"><span>{{ 'Marketplace fee' | t }}</span><span class="mono">2%</span></div>
+                  <div class="me-detail__row"><span>{{ 'Status' | t }}</span>
                     <span>{{ meIsListed(n) ? 'Listed' : 'Not listed' }}</span></div>
-                  <div class="me-detail__row"><span>Magic Eden</span>
+                  <div class="me-detail__row"><span>{{ 'Magic Eden' | t }}</span>
                     <a class="me-link" [href]="'https://magiceden.io/item-details/' + n.mintAddress"
                        target="_blank" rel="noopener noreferrer">
-                      Open <lucide-icon name="external-link" [size]="11" />
+                      {{ 'Open' | t }} <lucide-icon name="external-link" [size]="11" />
                     </a>
                   </div>
                 </div>
@@ -629,41 +629,41 @@
                    what the best bid is, how much is for sale, who holds it —
                    then how much has actually traded. -->
               <div class="me-stats-card__grid">
-                <div class="me-kpi"><span class="me-kpi__k">Floor</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Floor' | t }}</span>
                   <span class="me-kpi__v mono">@if (st.floorPrice) { {{ st.floorPrice | number:'1.0-3' }} SOL } @else { — }@if (st.floorChange7d) {
                       <span class="me-chg" [class.me-chg--up]="st.floorChange7d > 0" [class.me-chg--down]="st.floorChange7d < 0">{{ st.floorChange7d > 0 ? '+' : '' }}{{ st.floorChange7d | number:'1.0-1' }}% 7d</span>
                     }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Top offer</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Top offer' | t }}</span>
                   <span class="me-kpi__v mono">@if (st.topOffer) { {{ st.topOffer | number:'1.0-3' }} SOL } @else { — }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Listed</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Listed' | t }}</span>
                   <span class="me-kpi__v mono">{{ st.listedCount ?? '—' }}@if (st.listedShare) {
                       <span class="me-kpi__sub">{{ st.listedShare * 100 | number:'1.0-1' }}% of supply</span>
                     }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Holders</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Holders' | t }}</span>
                   <span class="me-kpi__v mono">{{ st.ownerCount ? (st.ownerCount | number) : '—' }}@if (st.supply) {
                       <span class="me-kpi__sub">of {{ st.supply | number }} pieces</span>
                     }</span></div>
               </div>
               <div class="me-stats-card__grid">
-                <div class="me-kpi"><span class="me-kpi__k">24h volume</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ '24h volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ (st.volume24h ?? 0) | number:'1.0-1' }} SOL@if (st.sales24h) {
                       <span class="me-kpi__sub">{{ st.sales24h }} sales</span>
                     }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">7d volume</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ '7d volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ meSolOrRaw(st.volume7d) ?? 0 | number:'1.0-0' }} SOL@if (st.sales7d) {
                       <span class="me-kpi__sub">{{ st.sales7d }} sales</span>
                     }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">30d volume</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ '30d volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ (st.volume30d ?? 0) | number:'1.0-0' }} SOL@if (st.sales30d) {
                       <span class="me-kpi__sub">{{ st.sales30d }} sales</span>
                     }</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Average sale</span>
-                  <span class="me-kpi__v mono">@if (st.avgPrice7d) { {{ st.avgPrice7d | number:'1.0-2' }} SOL } @else { — }<span class="me-kpi__sub">last 7 days</span></span></div>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Average sale' | t }}</span>
+                  <span class="me-kpi__v mono">@if (st.avgPrice7d) { {{ st.avgPrice7d | number:'1.0-2' }} SOL } @else { — }<span class="me-kpi__sub">{{ 'last 7 days' | t }}</span></span></div>
               </div>
               <div class="me-stats-card__actions">
                 @if (st.symbol) {
                   <button type="button" class="dlmm-use-btn" (click)="browseMeCollection(st)">
-                    Browse listings <lucide-icon name="arrow-right" [size]="12" />
+                    {{ 'Browse listings' | t }} <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 }
                 @for (l of meCollectionLinks(st); track l.href) {
@@ -685,11 +685,11 @@
           @if (meTrending(); as tr) {
             <div class="result-table">
               <div class="result-table__header result-table__header--me-trend">
-                <span>Collection</span>
-                <span class="text-right">Volume</span>
-                <span class="text-right">Floor</span>
-                <span class="text-right">Sales</span>
-                <span class="text-right">Holders</span>
+                <span>{{ 'Collection' | t }}</span>
+                <span class="text-right">{{ 'Volume' | t }}</span>
+                <span class="text-right">{{ 'Floor' | t }}</span>
+                <span class="text-right">{{ 'Sales' | t }}</span>
+                <span class="text-right">{{ 'Holders' | t }}</span>
               </div>
               @for (c of mePagedTrending(); track c.symbol ?? $index) {
                 <div class="result-table__row result-table__row--me-trend dlmm-row"
@@ -756,23 +756,23 @@
                 </div>
               }
               <div class="me-stats-card__grid">
-                <div class="me-kpi"><span class="me-kpi__k">Holders</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Holders' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.uniqueHolders | number }}</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Held</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Held' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.held | number }}</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Average each</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Average each' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.averageHeld | number:'1.0-2' }}</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Hold just one</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Hold just one' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.singleItemHolders | number }}<span class="me-kpi__sub">{{ h.singleItemShare * 100 | number:'1.0-1' }}% of holders</span></span></div>
               </div>
               <div class="me-stats-card__grid">
-                <div class="me-kpi"><span class="me-kpi__k">Top holder</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Top holder' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.top1Share * 100 | number:'1.0-1' }}%</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Top 5</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Top 5' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.top5Share * 100 | number:'1.0-1' }}%</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Top 10</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Top 10' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.top10Share * 100 | number:'1.0-1' }}%</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Top 20</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Top 20' | t }}</span>
                   <span class="me-kpi__v mono">{{ h.top20Share * 100 | number:'1.0-1' }}%</span></div>
               </div>
               @if (!h.complete) {
@@ -780,7 +780,7 @@
               }
               <div class="result-table">
                 <div class="result-table__header result-table__header--me-holder">
-                  <span>Wallet</span><span class="text-right">Held</span><span class="text-right">Share</span>
+                  <span>{{ 'Wallet' | t }}</span><span class="text-right">{{ 'Held' | t }}</span><span class="text-right">{{ 'Share' | t }}</span>
                 </div>
                 @for (t of mePagedHolders(); track t.wallet) {
                   <div class="result-table__row result-table__row--me-holder dlmm-row">
@@ -826,11 +826,11 @@
                 </div>
               }
               <div class="me-stats-card__grid">
-                <div class="me-kpi"><span class="me-kpi__k">Sales</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Sales' | t }}</span>
                   <span class="me-kpi__v mono">{{ sh.sales | number }}<span class="me-kpi__sub">last {{ sh.days }} days</span></span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Volume</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Volume' | t }}</span>
                   <span class="me-kpi__v mono">{{ sh.volume | number:'1.0-1' }} SOL</span></div>
-                <div class="me-kpi"><span class="me-kpi__k">Average sale</span>
+                <div class="me-kpi"><span class="me-kpi__k">{{ 'Average sale' | t }}</span>
                   <span class="me-kpi__v mono">{{ sh.average | number:'1.0-3' }} SOL</span></div>
               </div>
               @if (sh.series.length) {
@@ -847,7 +847,7 @@
                       <span class="mono">{{ d.low | number:'1.0-3' }}–{{ d.high | number:'1.0-3' }}</span>
                     }
                   } @else {
-                    <span class="me-bars__readout-idle">Hover a day for its sales and range</span>
+                    <span class="me-bars__readout-idle">{{ 'Hover a day for its sales and range' | t }}</span>
                   }
                 </div>
                 <div class="me-bars" (mouseleave)="meBarHover.set(null)">
@@ -861,7 +861,7 @@
                   }
                 </div>
               } @else {
-                <div class="me-escrow__note">No sales in this window.</div>
+                <div class="me-escrow__note">{{ 'No sales in this window.' | t }}</div>
               }
             </div>
           }
@@ -870,13 +870,13 @@
         @if (!meFetching() && meRowCount() === 0 && shape !== 'stats' && shape !== 'sales') {
           <div class="dlmm-empty">
             <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-            <div>Nothing here on Magic Eden.</div>
+            <div>{{ 'Nothing here on Magic Eden.' | t }}</div>
           </div>
         }
 
         @if (meTotalPages() > 1) {
           <div class="dlmm-showing">
-            Showing <strong>{{ (mePage() - 1) * meShapePageSize() + 1 }}–{{
+            {{ 'Showing' | t }} <strong>{{ (mePage() - 1) * meShapePageSize() + 1 }}–{{
               (mePage() - 1) * meShapePageSize() + (shape === 'collections' ? mePagedCollections().length
                 : shape === 'tokens' ? mePagedTokens().length
                 : shape === 'activities' ? mePagedActivities().length
@@ -885,15 +885,15 @@
                 : shape === 'traders' ? mePagedTraders().length
                 : shape === 'trending' ? mePagedTrending().length
                 : shape === 'holders' ? mePagedHolders().length : mePagedOffers().length)
-            }}</strong> of <strong>{{ meRowCount() }}</strong>
+            }}</strong> {{ 'of' | t }} <strong>{{ meRowCount() }}</strong>
           </div>
           <div class="dlmm-pagination">
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="meGoToPage(1)"
-                    [disabled]="mePage() <= 1" title="First page" aria-label="First page">
+                    [disabled]="mePage() <= 1" [attr.title]="'First page' | t" [attr.aria-label]="'First page' | t">
               <lucide-icon name="chevrons-left" [size]="14" />
             </button>
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="mePrevPage()"
-                    [disabled]="mePage() <= 1" title="Previous page" aria-label="Previous page">
+                    [disabled]="mePage() <= 1" [attr.title]="'Previous page' | t" [attr.aria-label]="'Previous page' | t">
               <lucide-icon name="chevron-left" [size]="14" />
             </button>
             @for (n of mePageNumbers(); track $index) {
@@ -905,11 +905,11 @@
               }
             }
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="meNextPage()"
-                    [disabled]="mePage() >= meTotalPages()" title="Next page" aria-label="Next page">
+                    [disabled]="mePage() >= meTotalPages()" [attr.title]="'Next page' | t" [attr.aria-label]="'Next page' | t">
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="meGoToPage(meTotalPages())"
-                    [disabled]="mePage() >= meTotalPages()" title="Last page" aria-label="Last page">
+                    [disabled]="mePage() >= meTotalPages()" [attr.title]="'Last page' | t" [attr.aria-label]="'Last page' | t">
               <lucide-icon name="chevrons-right" [size]="14" />
             </button>
           </div>
@@ -924,12 +924,12 @@
         <div class="dlmm-search-wrap">
           <lucide-icon name="search" [size]="13" class="dlmm-search-icon" />
           <input class="dlmm-search" type="text"
-                 placeholder="Filter by pair (e.g. SOL/USDC)…"
+                 [attr.placeholder]="'Filter by pair (e.g. SOL/USDC)…' | t"
                  [value]="orcaSearchRaw()"
                  (input)="onOrcaSearch($event)" />
           <button type="button" class="dlmm-refresh-btn"
                   (click)="refreshLiveData()" [disabled]="orcaFetching()"
-                  title="Refresh pool data">
+                  [attr.title]="'Refresh pool data' | t">
             <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="orcaFetching()" />
           </button>
         </div>
@@ -960,15 +960,15 @@
 
         <div class="result-table">
           <div class="result-table__header result-table__header--orca">
-            <span>Pool</span>
-            <span class="text-right">TVL</span>
-            <span class="text-right">24h Vol</span>
-            <span class="text-right">APR</span>
-            <span class="text-right">Fee</span>
+            <span>{{ 'Pool' | t }}</span>
+            <span class="text-right">{{ 'TVL' | t }}</span>
+            <span class="text-right">{{ '24h Vol' | t }}</span>
+            <span class="text-right">{{ 'APR' | t }}</span>
+            <span class="text-right">{{ 'Fee' | t }}</span>
             <span></span>
           </div>
           @if (orcaFetching() && orcaRows().length === 0) {
-            <div class="dlmm-empty">Loading pools…</div>
+            <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
           }
           @for (p of orcaPagedRows(); track p.address) {
             @let oxLogo = p.tokenA.imageUrl || tokenLogo(p.tokenA.address);
@@ -997,7 +997,7 @@
                   <span class="km-pair__name">
                     {{ p.tokenA.symbol }} / {{ p.tokenB.symbol }}
                     @if (p.hasWarning) {
-                      <span class="type-badge dlmm-oor">Flagged</span>
+                      <span class="type-badge dlmm-oor">{{ 'Flagged' | t }}</span>
                     }
                   </span>
                   <button type="button"
@@ -1017,8 +1017,8 @@
               <span class="text-right">
                 <button type="button" class="dlmm-use-btn"
                         (click)="useOrcaPool(p); $event.stopPropagation()"
-                        title="Open a position in this pool">
-                  Use
+                        [attr.title]="'Open a position in this pool' | t">
+                  {{ 'Use' | t }}
                   <lucide-icon name="arrow-right" [size]="12" />
                 </button>
               </span>
@@ -1035,7 +1035,7 @@
                 }
               </div>
               @if (orcaCategory() !== 'all') {
-                <div class="dlmm-empty__hint">Try All Pools, or search for the token directly.</div>
+                <div class="dlmm-empty__hint">{{ 'Try All Pools, or search for the token directly.' | t }}</div>
               }
             </div>
           }
@@ -1046,7 +1046,7 @@
              than passing it off as the total. -->
         @if (orcaTotalPages() > 1) {
           <div class="dlmm-showing">
-            Showing <strong>{{ (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + 1 }}–{{
+            {{ 'Showing' | t }} <strong>{{ (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + 1 }}–{{
               (orcaPage() - 1) * requestedPageSize(ORCA_PAGE_SIZE) + orcaPagedRows().length
             }}</strong> of
             @if (orcaCapped()) {
@@ -1058,11 +1058,11 @@
           </div>
           <div class="dlmm-pagination">
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(1)"
-                    [disabled]="orcaPage() <= 1" title="First page" aria-label="First page">
+                    [disabled]="orcaPage() <= 1" [attr.title]="'First page' | t" [attr.aria-label]="'First page' | t">
               <lucide-icon name="chevrons-left" [size]="14" />
             </button>
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaPrevPage()"
-                    [disabled]="orcaPage() <= 1" title="Previous page" aria-label="Previous page">
+                    [disabled]="orcaPage() <= 1" [attr.title]="'Previous page' | t" [attr.aria-label]="'Previous page' | t">
               <lucide-icon name="chevron-left" [size]="14" />
             </button>
             @for (n of orcaPageNumbers(); track $index) {
@@ -1074,11 +1074,11 @@
               }
             }
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaNextPage()"
-                    [disabled]="orcaPage() >= orcaTotalPages()" title="Next page" aria-label="Next page">
+                    [disabled]="orcaPage() >= orcaTotalPages()" [attr.title]="'Next page' | t" [attr.aria-label]="'Next page' | t">
               <lucide-icon name="chevron-right" [size]="14" />
             </button>
             <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="orcaGoToPage(orcaTotalPages())"
-                    [disabled]="orcaPage() >= orcaTotalPages()" title="Last page" aria-label="Last page">
+                    [disabled]="orcaPage() >= orcaTotalPages()" [attr.title]="'Last page' | t" [attr.aria-label]="'Last page' | t">
               <lucide-icon name="chevrons-right" [size]="14" />
             </button>
           </div>
@@ -1089,7 +1089,7 @@
       @if (query.type === 'orca_get_user_positions') {
         <div class="ray-pos-list">
           @if (orcaPositionsFetching() && orcaPositions().length === 0) {
-            <div class="dlmm-empty">Loading positions…</div>
+            <div class="dlmm-empty">{{ 'Loading positions…' | t }}</div>
           }
           @for (pos of orcaPositions(); track pos.positionAddress; let i = $index) {
             @let paLogo = pos.tokenAMint ? tokenLogo(pos.tokenAMint) : null;
@@ -1117,9 +1117,9 @@
                 <span class="ray-pos__pair">
                   {{ pos.tokenASymbol || '?' }} / {{ pos.tokenBSymbol || '?' }}
                 </span>
-                <span class="type-badge">WHIRLPOOL</span>
+                <span class="type-badge">{{ 'WHIRLPOOL' | t }}</span>
                 @if (pos.inRange === false) {
-                  <span class="type-badge dlmm-oor">Out of range</span>
+                  <span class="type-badge dlmm-oor">{{ 'Out of range' | t }}</span>
                 }
                 <button type="button"
                         class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
@@ -1154,20 +1154,20 @@
                           (click)="collectOrcaFees(pos); $event.stopPropagation()"
                           [attr.title]="orcaHasFees(pos)
                             ? 'Collect this position\'s fees'
-                            : 'No fees owed on this position'">Collect</button>
+                            : 'No fees owed on this position'">{{ 'Collect' | t }}</button>
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="increaseOrcaPosition(pos); $event.stopPropagation()"
-                          title="Add liquidity to this position">
+                          [attr.title]="'Add liquidity to this position' | t">
                     <lucide-icon name="plus" [size]="12" />
-                    Add
+                    {{ 'Add' | t }}
                   </button>
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="decreaseOrcaPosition(pos); $event.stopPropagation()"
-                          title="Withdraw part of this position">Withdraw</button>
+                          [attr.title]="'Withdraw part of this position' | t">{{ 'Withdraw' | t }}</button>
                   <button type="button" class="dlmm-use-btn"
                           (click)="closeOrcaPosition(pos); $event.stopPropagation()"
-                          title="Withdraw everything, collect fees and close — recovers the rent">
-                    Close
+                          [attr.title]="'Withdraw everything, collect fees and close — recovers the rent' | t">
+                    {{ 'Close' | t }}
                     <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 </span>
@@ -1175,21 +1175,21 @@
 
               <div class="dlmm-pos-range">
                 <span class="dlmm-pos-range__seg">
-                  <span class="dlmm-pos-range__label">Min</span>
+                  <span class="dlmm-pos-range__label">{{ 'Min' | t }}</span>
                   <span class="mono">{{ pos.priceLower | number:'1.0-6' }}</span>
                 </span>
                 <span class="dlmm-pos-range__seg">
-                  <span class="dlmm-pos-range__label">Max</span>
+                  <span class="dlmm-pos-range__label">{{ 'Max' | t }}</span>
                   <span class="mono">{{ pos.priceUpper | number:'1.0-6' }}</span>
                 </span>
                 @if (pos.currentPrice !== undefined) {
                   <span class="dlmm-pos-range__seg">
-                    <span class="dlmm-pos-range__label">Now</span>
+                    <span class="dlmm-pos-range__label">{{ 'Now' | t }}</span>
                     <span class="mono">{{ pos.currentPrice | number:'1.0-6' }}</span>
                   </span>
                 }
                 <span class="dlmm-pos-range__seg dlmm-pos-range__seg--fees">
-                  <span class="dlmm-pos-range__label">Fees owed</span>
+                  <span class="dlmm-pos-range__label">{{ 'Fees owed' | t }}</span>
                   <span class="mono">
                     {{ (pos.feeOwedAUi ?? pos.feeOwedA) | number:'1.0-6' }} {{ pos.tokenASymbol }}
                     + {{ (pos.feeOwedBUi ?? pos.feeOwedB) | number:'1.0-6' }} {{ pos.tokenBSymbol }}
@@ -1201,8 +1201,8 @@
           @if (!orcaPositionsFetching() && orcaPositions().length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No open Orca Whirlpool positions.</div>
-              <div class="dlmm-empty__hint">Open one from the Orca pool list.</div>
+              <div>{{ 'No open Orca Whirlpool positions.' | t }}</div>
+              <div class="dlmm-empty__hint">{{ 'Open one from the Orca pool list.' | t }}</div>
             </div>
           }
         </div>
@@ -1215,11 +1215,11 @@
         @if (dlmmPositionsSummary(); as sum) {
           <div class="dlmm-pos-summary">
             <span class="dlmm-pos-summary__seg">
-              <span class="dlmm-pos-summary__label">Total value</span>
+              <span class="dlmm-pos-summary__label">{{ 'Total value' | t }}</span>
               <span class="dlmm-pos-summary__value mono">{{ formatUsd(sum.value) }}</span>
             </span>
             <span class="dlmm-pos-summary__seg">
-              <span class="dlmm-pos-summary__label">PnL</span>
+              <span class="dlmm-pos-summary__label">{{ 'PnL' | t }}</span>
               <span class="dlmm-pos-summary__value mono"
                     [class.change-up]="sum.pnl >= 0" [class.change-down]="sum.pnl < 0">
                 {{ sum.pnl >= 0 ? '+' : '' }}{{ formatUsd(sum.pnl) }}
@@ -1227,11 +1227,11 @@
               </span>
             </span>
             <span class="dlmm-pos-summary__seg">
-              <span class="dlmm-pos-summary__label">Unclaimed fees</span>
+              <span class="dlmm-pos-summary__label">{{ 'Unclaimed fees' | t }}</span>
               <span class="dlmm-pos-summary__value mono">{{ formatUsd(sum.fees) }}</span>
             </span>
             <span class="dlmm-pos-summary__seg">
-              <span class="dlmm-pos-summary__label">Positions</span>
+              <span class="dlmm-pos-summary__label">{{ 'Positions' | t }}</span>
               <span class="dlmm-pos-summary__value mono">
                 {{ sum.positionCount }} in {{ sum.poolCount }} pool{{ sum.poolCount === 1 ? '' : 's' }}
               </span>
@@ -1240,7 +1240,7 @@
         }
         <div class="ray-pos-list">
           @if (dlmmPositionsFetching() && dlmmUserPools().length === 0) {
-            <div class="dlmm-empty">Loading positions…</div>
+            <div class="dlmm-empty">{{ 'Loading positions…' | t }}</div>
           }
           @for (row of dlmmPositionRows(); track row.address) {
             <div class="ray-pos">
@@ -1268,12 +1268,12 @@
                 <span class="ray-pos__pair">{{ row.pool.tokenX }} / {{ row.pool.tokenY }}</span>
                 <span class="type-badge">{{ isDammV2Positions() ? 'DAMM V2' : 'DLMM' }}</span>
                 @if (row.detail?.permanentlyLocked) {
-                  <span class="type-badge dlmm-oor">Permanently locked</span>
+                  <span class="type-badge dlmm-oor">{{ 'Permanently locked' | t }}</span>
                 } @else if (row.detail?.locked) {
-                  <span class="type-badge dlmm-oor">Locked</span>
+                  <span class="type-badge dlmm-oor">{{ 'Locked' | t }}</span>
                 }
                 @if (!isDammV2Positions() && row.outOfRange) {
-                  <span class="type-badge dlmm-oor">Out of range</span>
+                  <span class="type-badge dlmm-oor">{{ 'Out of range' | t }}</span>
                 }
                 <button type="button"
                         class="dlmm-pair__addr mono dlmm-copy-btn ray-pos__addr"
@@ -1320,7 +1320,7 @@
                           (click)="claimDlmmFees(row); $event.stopPropagation()"
                           [attr.title]="dlmmHasClaimableFees(row)
                             ? 'Claim this position\'s fees'
-                            : 'No unclaimed fees on this position'">Claim</button>
+                            : 'No unclaimed fees on this position'">{{ 'Claim' | t }}</button>
                   <!-- Adding to a position whose range has left the price is
                        allowed — Meteora permits it too. It is a poor trade,
                        not an invalid one, and the panel says so. A far range
@@ -1328,29 +1328,29 @@
                        price, which is usually what was actually wanted. -->
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="addToDlmmPosition(row); $event.stopPropagation()"
-                          title="Add liquidity to this position">
+                          [attr.title]="'Add liquidity to this position' | t">
                     <lucide-icon name="plus" [size]="12" />
-                    Add
+                    {{ 'Add' | t }}
                   </button>
                   @if (dlmmRangeUnusable(row)) {
                     <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                             (click)="openNewDlmmPosition(row); $event.stopPropagation()"
-                            title="Open a new position around the current price instead">
-                      New position
+                            [attr.title]="'Open a new position around the current price instead' | t">
+                      {{ 'New position' | t }}
                     </button>
                   }
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="withdrawDlmmPosition(row); $event.stopPropagation()"
-                          title="Withdraw the liquidity, keeping the position open">
-                    Withdraw
+                          [attr.title]="'Withdraw the liquidity, keeping the position open' | t">
+                    {{ 'Withdraw' | t }}
                   </button>
                   <!-- Closing is the only thing that returns the position's
                        rent, so it is the primary action once you are done
                        with a position — withdraw alone leaves it locked. -->
                   <button type="button" class="dlmm-use-btn"
                           (click)="closeDlmmPosition(row); $event.stopPropagation()"
-                          title="Withdraw everything, claim fees and close the position — recovers its rent">
-                    Close
+                          [attr.title]="'Withdraw everything, claim fees and close the position — recovers its rent' | t">
+                    {{ 'Close' | t }}
                     <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 </span>
@@ -1361,19 +1361,19 @@
               @if (row.detail && !isDammV2Positions()) {
                 <div class="dlmm-pos-range">
                   <span class="dlmm-pos-range__seg">
-                    <span class="dlmm-pos-range__label">Min</span>
+                    <span class="dlmm-pos-range__label">{{ 'Min' | t }}</span>
                     <span class="mono">{{ row.detail.lowerPrice | number:'1.0-6' }}</span>
                   </span>
                   <span class="dlmm-pos-range__seg">
-                    <span class="dlmm-pos-range__label">Now</span>
+                    <span class="dlmm-pos-range__label">{{ 'Now' | t }}</span>
                     <span class="mono">{{ row.pool.poolPrice | number:'1.0-6' }}</span>
                   </span>
                   <span class="dlmm-pos-range__seg">
-                    <span class="dlmm-pos-range__label">Max</span>
+                    <span class="dlmm-pos-range__label">{{ 'Max' | t }}</span>
                     <span class="mono">{{ row.detail.upperPrice | number:'1.0-6' }}</span>
                   </span>
                   <span class="dlmm-pos-range__seg dlmm-pos-range__seg--fees">
-                    <span class="dlmm-pos-range__label">Unclaimed</span>
+                    <span class="dlmm-pos-range__label">{{ 'Unclaimed' | t }}</span>
                     <span class="mono">
                       {{ row.detail.unclaimedFeeX | number:'1.0-6' }} {{ row.pool.tokenX }}
                       + {{ row.detail.unclaimedFeeY | number:'1.0-6' }} {{ row.pool.tokenY }}
@@ -1401,7 +1401,7 @@
           <input
             class="dlmm-search"
             type="text"
-            placeholder="Filter by pair (e.g. SOL/USDC)…"
+            [attr.placeholder]="'Filter by pair (e.g. SOL/USDC)…' | t"
             [value]="dlmmSearchRaw()"
             (input)="onDlmmSearch($event)"
           />
@@ -1410,7 +1410,7 @@
             class="dlmm-refresh-btn"
             (click)="refreshLiveData()"
             [disabled]="dlmmFetching()"
-            title="Refresh pool data">
+            [attr.title]="'Refresh pool data' | t">
             <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="dlmmFetching()" />
           </button>
         </div>
@@ -1429,17 +1429,17 @@
         </div>
         <div class="result-table dlmm-table">
           <div class="result-table__header dlmm-row">
-            <span>Pool</span>
-            <span class="text-right">TVL</span>
-            <span class="text-right">24h Vol</span>
-            <span class="text-right">APY</span>
-            <span class="text-right" title="Bin step is the price increment per liquidity bin (basis points). Smaller = tighter price grid.">
-              Step / Fee
+            <span>{{ 'Pool' | t }}</span>
+            <span class="text-right">{{ 'TVL' | t }}</span>
+            <span class="text-right">{{ '24h Vol' | t }}</span>
+            <span class="text-right">{{ 'APY' | t }}</span>
+            <span class="text-right" [attr.title]="'Bin step is the price increment per liquidity bin (basis points). Smaller = tighter price grid.' | t">
+              {{ 'Step / Fee' | t }}
             </span>
-            <span class="text-right">Action</span>
+            <span class="text-right">{{ 'Action' | t }}</span>
           </div>
           @if (dlmmFetching() && dlmmResults.length === 0) {
-            <div class="dlmm-empty">Loading pools…</div>
+            <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
           }
           @for (p of dlmmResults; track p.address) {
             <div class="result-table__row dlmm-row">
@@ -1495,8 +1495,8 @@
                   type="button"
                   class="dlmm-use-btn"
                   (click)="useDlmmPool(p); $event.stopPropagation()"
-                  title="Add liquidity to this pool">
-                  Use
+                  [attr.title]="'Add liquidity to this pool' | t">
+                  {{ 'Use' | t }}
                   <lucide-icon name="arrow-right" [size]="12" />
                 </button>
               </span>
@@ -1506,10 +1506,10 @@
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
               @if (dlmmSearchRaw() || query.params['query']) {
-                <div>No DLMM pool found for <strong>"{{ dlmmSearchRaw() || query.params['query'] }}"</strong>.</div>
-                <div class="dlmm-empty__hint">Try different tokens, or check on <a href="https://app.meteora.ag/dlmm" target="_blank" rel="noopener">app.meteora.ag</a>.</div>
+                <div>{{ 'No DLMM pool found for' | t }} <strong>"{{ dlmmSearchRaw() || query.params['query'] }}"</strong>.</div>
+                <div class="dlmm-empty__hint">{{ 'Try different tokens, or check on' | t }} <a href="https://app.meteora.ag/dlmm" target="_blank" rel="noopener">{{ 'app.meteora.ag' | t }}</a>.</div>
               } @else {
-                <div>No DLMM pools available right now.</div>
+                <div>{{ 'No DLMM pools available right now.' | t }}</div>
               }
             </div>
           }
@@ -1517,9 +1517,9 @@
         @if (dlmmTotal() > 0) {
           <div class="dlmm-footer">
             <span class="dlmm-footer__count">
-              Showing
+              {{ 'Showing' | t }}
               <strong>{{ dlmmShowingRange.from }}–{{ dlmmShowingRange.to }}</strong>
-              of <strong>{{ dlmmShowingRange.total }}</strong> pools
+              {{ 'of' | t }} <strong>{{ dlmmShowingRange.total }}</strong> {{ 'pools' | t }}
             </span>
             @if (dlmmTotalPages() > 1) {
               <div class="dlmm-pagination">
@@ -1527,14 +1527,14 @@
                   class="dlmm-page-btn dlmm-page-btn--nav"
                   (click)="dlmmGoToPage(1)"
                   [disabled]="dlmmPage() === 1 || dlmmFetching()"
-                  title="First page">
+                  [attr.title]="'First page' | t">
                   <lucide-icon name="chevrons-left" [size]="13" />
                 </button>
                 <button
                   class="dlmm-page-btn dlmm-page-btn--nav"
                   (click)="dlmmPrevPage()"
                   [disabled]="dlmmPage() === 1 || dlmmFetching()"
-                  title="Previous page">
+                  [attr.title]="'Previous page' | t">
                   <lucide-icon name="chevron-left" [size]="13" />
                 </button>
                 @for (item of dlmmPaginationItems; track $index) {
@@ -1554,24 +1554,24 @@
                   class="dlmm-page-btn dlmm-page-btn--nav"
                   (click)="dlmmNextPage()"
                   [disabled]="dlmmPage() >= dlmmTotalPages() || dlmmFetching()"
-                  title="Next page">
+                  [attr.title]="'Next page' | t">
                   <lucide-icon name="chevron-right" [size]="13" />
                 </button>
                 <button
                   class="dlmm-page-btn dlmm-page-btn--nav"
                   (click)="dlmmGoToPage(dlmmTotalPages())"
                   [disabled]="dlmmPage() >= dlmmTotalPages() || dlmmFetching()"
-                  title="Last page">
+                  [attr.title]="'Last page' | t">
                   <lucide-icon name="chevrons-right" [size]="13" />
                 </button>
               </div>
             }
           </div>
           <p class="dlmm-help">
-            <strong>Step</strong> = price difference between adjacent liquidity bins
+            <strong>{{ 'Step' | t }}</strong> {{ '= price difference between adjacent liquidity bins
             (smaller = tighter spread, better for stable pairs; larger = wider, better
-            for volatile assets). <strong>Fee</strong> is what swappers pay per trade
-            and what LPs earn.
+            for volatile assets).' | t }} <strong>{{ 'Fee' | t }}</strong> {{ 'is what swappers pay per trade
+            and what LPs earn.' | t }}
           </p>
         }
       }
@@ -1583,7 +1583,7 @@
             <input
               class="dlmm-search"
               type="text"
-              placeholder="Filter by pair (e.g. SOL/USDC)…"
+              [attr.placeholder]="'Filter by pair (e.g. SOL/USDC)…' | t"
               [value]="dammV2SearchRaw()"
               (input)="onDammV2Search($event)"
             />
@@ -1592,7 +1592,7 @@
               class="dlmm-refresh-btn"
               (click)="refreshLiveData()"
               [disabled]="dammV2Fetching()"
-              title="Refresh pool data">
+              [attr.title]="'Refresh pool data' | t">
               <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="dammV2Fetching()" />
             </button>
           </div>
@@ -1611,15 +1611,15 @@
           </div>
           <div class="result-table dlmm-table">
             <div class="result-table__header dlmm-row">
-              <span>Pool</span>
-              <span class="text-right">TVL</span>
-              <span class="text-right">24h Vol</span>
-              <span class="text-right">APY</span>
-              <span class="text-right" title="Pool fee charged on every swap">Fee</span>
-              <span class="text-right">Action</span>
+              <span>{{ 'Pool' | t }}</span>
+              <span class="text-right">{{ 'TVL' | t }}</span>
+              <span class="text-right">{{ '24h Vol' | t }}</span>
+              <span class="text-right">{{ 'APY' | t }}</span>
+              <span class="text-right" [attr.title]="'Pool fee charged on every swap' | t">{{ 'Fee' | t }}</span>
+              <span class="text-right">{{ 'Action' | t }}</span>
             </div>
             @if (dammV2Fetching() && dammV2Results.length === 0) {
-              <div class="dlmm-empty">Loading pools…</div>
+              <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
             }
             @for (p of dammV2Results; track p.address) {
               <!-- Same pair cell as the DLMM and Raydium lists: overlapping
@@ -1672,8 +1672,8 @@
                     type="button"
                     class="dlmm-use-btn"
                     (click)="useDammV2Pool(p); $event.stopPropagation()"
-                    title="Add liquidity to this pool">
-                    Use
+                    [attr.title]="'Add liquidity to this pool' | t">
+                    {{ 'Use' | t }}
                     <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 </span>
@@ -1683,10 +1683,10 @@
               <div class="dlmm-empty">
                 <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
                 @if (dammV2SearchRaw() || query.params['query']) {
-                  <div>No DAMM v2 pool found for <strong>"{{ dammV2SearchRaw() || query.params['query'] }}"</strong>.</div>
-                  <div class="dlmm-empty__hint">Try different tokens, or check on <a href="https://app.meteora.ag/damm-v2" target="_blank" rel="noopener">app.meteora.ag</a>.</div>
+                  <div>{{ 'No DAMM v2 pool found for' | t }} <strong>"{{ dammV2SearchRaw() || query.params['query'] }}"</strong>.</div>
+                  <div class="dlmm-empty__hint">{{ 'Try different tokens, or check on' | t }} <a href="https://app.meteora.ag/damm-v2" target="_blank" rel="noopener">{{ 'app.meteora.ag' | t }}</a>.</div>
                 } @else {
-                  <div>No DAMM v2 pools available right now.</div>
+                  <div>{{ 'No DAMM v2 pools available right now.' | t }}</div>
                 }
               </div>
             }
@@ -1694,35 +1694,35 @@
           @if (dammV2Total() > 0) {
             <div class="dlmm-footer">
               <span class="dlmm-footer__count">
-                Showing
+                {{ 'Showing' | t }}
                 <strong>{{ dammV2ShowingRange.from }}–{{ dammV2ShowingRange.to }}</strong>
-                of <strong>{{ dammV2ShowingRange.total }}</strong> pools
+                {{ 'of' | t }} <strong>{{ dammV2ShowingRange.total }}</strong> {{ 'pools' | t }}
               </span>
               @if (dammV2TotalPages() > 1) {
                 <div class="dlmm-pagination">
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV2GoToPage(1)"
                           [disabled]="dammV2Page() === 1 || dammV2Fetching()"
-                          title="First page">
+                          [attr.title]="'First page' | t">
                     <lucide-icon name="chevrons-left" [size]="13" />
                   </button>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV2PrevPage()"
                           [disabled]="dammV2Page() === 1 || dammV2Fetching()"
-                          title="Previous page">
+                          [attr.title]="'Previous page' | t">
                     <lucide-icon name="chevron-left" [size]="13" />
                   </button>
                   <span class="dlmm-page-current mono">{{ dammV2Page() }} / {{ dammV2TotalPages() }}</span>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV2NextPage()"
                           [disabled]="dammV2Page() >= dammV2TotalPages() || dammV2Fetching()"
-                          title="Next page">
+                          [attr.title]="'Next page' | t">
                     <lucide-icon name="chevron-right" [size]="13" />
                   </button>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV2GoToPage(dammV2TotalPages())"
                           [disabled]="dammV2Page() >= dammV2TotalPages() || dammV2Fetching()"
-                          title="Last page">
+                          [attr.title]="'Last page' | t">
                     <lucide-icon name="chevrons-right" [size]="13" />
                   </button>
                 </div>
@@ -1730,9 +1730,9 @@
             </div>
           }
           <p class="dlmm-help">
-            DAMM v2 is Meteora's constant-product AMM with optional concentrated
+            {{ 'DAMM v2 is Meteora\'s constant-product AMM with optional concentrated
             liquidity. Deposits use both tokens at the current pool ratio — picking
-            a pool here pre-fills the action card; you only enter one amount.
+            a pool here pre-fills the action card; you only enter one amount.' | t }}
           </p>
         }
 
@@ -1743,7 +1743,7 @@
             <input
               class="dlmm-search"
               type="text"
-              placeholder="Filter by token (e.g. SOL, JITOSOL)…"
+              [attr.placeholder]="'Filter by token (e.g. SOL, JITOSOL)…' | t"
               [value]="kaminoMultiplySearchRaw()"
               (input)="onKaminoMultiplySearch($event)"
             />
@@ -1752,7 +1752,7 @@
               class="dlmm-refresh-btn"
               (click)="refreshLiveData()"
               [disabled]="kaminoMultiplyFetching()"
-              title="Refresh Multiply pools">
+              [attr.title]="'Refresh Multiply pools' | t">
               <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="kaminoMultiplyFetching()" />
             </button>
           </div>
@@ -1771,14 +1771,14 @@
           </div>
           <div class="result-table km-table">
             <div class="result-table__header km-row">
-              <span>Pool</span>
-              <span class="text-right" title="Maximum leverage available for this pair">Max Lev</span>
-              <span class="text-right" title="Estimated net APY at max leverage from live on-chain rates">Est. APY</span>
-              <span class="text-right" title="Available deposited value (Multiply TVL)">TVL</span>
-              <span class="text-right">Action</span>
+              <span>{{ 'Pool' | t }}</span>
+              <span class="text-right" [attr.title]="'Maximum leverage available for this pair' | t">{{ 'Max Lev' | t }}</span>
+              <span class="text-right" [attr.title]="'Estimated net APY at max leverage from live on-chain rates' | t">{{ 'Est. APY' | t }}</span>
+              <span class="text-right" [attr.title]="'Available deposited value (Multiply TVL)' | t">{{ 'TVL' | t }}</span>
+              <span class="text-right">{{ 'Action' | t }}</span>
             </div>
             @if (kaminoMultiplyFetching() && kaminoMultiplyAll().length === 0) {
-              <div class="dlmm-empty">Loading Multiply pools…</div>
+              <div class="dlmm-empty">{{ 'Loading Multiply pools…' | t }}</div>
             }
             @for (m of kaminoMultiplyPageRows(); track m.collMint + m.debtMint) {
               <div class="result-table__row km-row" [class.km-row--capped]="m.borrowable === false">
@@ -1811,14 +1811,14 @@
                 <span class="text-right mono" [title]="formatUsd(m.tvlUsd)">{{ formatCompactUsd(m.tvlUsd) }}</span>
                 <span class="text-right">
                   @if (m.borrowable === false) {
-                    <span class="km-cap-badge" title="Kamino's borrow cap for this pair is full — a new leveraged position can't be opened right now.">Cap full</span>
+                    <span class="km-cap-badge" [attr.title]="'Kamino\'s borrow cap for this pair is full — a new leveraged position can\'t be opened right now.' | t">{{ 'Cap full' | t }}</span>
                   } @else {
                     <button
                       type="button"
                       class="dlmm-use-btn"
                       (click)="useMultiplyMarket(m); $event.stopPropagation()"
-                      title="Open a Multiply position on this pair">
-                      Multiply
+                      [attr.title]="'Open a Multiply position on this pair' | t">
+                      {{ 'Multiply' | t }}
                       <lucide-icon name="arrow-right" [size]="12" />
                     </button>
                   }
@@ -1829,10 +1829,10 @@
               <div class="dlmm-empty">
                 <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
                 @if (kaminoMultiplySearchRaw()) {
-                  <div>No Multiply pool matches <strong>"{{ kaminoMultiplySearchRaw() }}"</strong>.</div>
-                  <div class="dlmm-empty__hint">Try a different token, or browse on <a href="https://app.kamino.finance/multiply" target="_blank" rel="noopener">app.kamino.finance</a>.</div>
+                  <div>{{ 'No Multiply pool matches' | t }} <strong>"{{ kaminoMultiplySearchRaw() }}"</strong>.</div>
+                  <div class="dlmm-empty__hint">{{ 'Try a different token, or browse on' | t }} <a href="https://app.kamino.finance/multiply" target="_blank" rel="noopener">{{ 'app.kamino.finance' | t }}</a>.</div>
                 } @else {
-                  <div>No Multiply pools available right now.</div>
+                  <div>{{ 'No Multiply pools available right now.' | t }}</div>
                 }
               </div>
             }
@@ -1840,35 +1840,35 @@
           @if (kaminoMultiplyShowingRange().total > 0) {
             <div class="dlmm-footer">
               <span class="dlmm-footer__count">
-                Showing
+                {{ 'Showing' | t }}
                 <strong>{{ kaminoMultiplyShowingRange().from }}–{{ kaminoMultiplyShowingRange().to }}</strong>
-                of <strong>{{ kaminoMultiplyShowingRange().total }}</strong> pools
+                {{ 'of' | t }} <strong>{{ kaminoMultiplyShowingRange().total }}</strong> {{ 'pools' | t }}
               </span>
               @if (kaminoMultiplyTotalPages() > 1) {
                 <div class="dlmm-pagination">
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="kaminoMultiplyGoToPage(1)"
                           [disabled]="kaminoMultiplyPage() === 1"
-                          title="First page">
+                          [attr.title]="'First page' | t">
                     <lucide-icon name="chevrons-left" [size]="13" />
                   </button>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="kaminoMultiplyPrevPage()"
                           [disabled]="kaminoMultiplyPage() === 1"
-                          title="Previous page">
+                          [attr.title]="'Previous page' | t">
                     <lucide-icon name="chevron-left" [size]="13" />
                   </button>
                   <span class="dlmm-page-current mono">{{ kaminoMultiplyPage() }} / {{ kaminoMultiplyTotalPages() }}</span>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="kaminoMultiplyNextPage()"
                           [disabled]="kaminoMultiplyPage() >= kaminoMultiplyTotalPages()"
-                          title="Next page">
+                          [attr.title]="'Next page' | t">
                     <lucide-icon name="chevron-right" [size]="13" />
                   </button>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="kaminoMultiplyGoToPage(kaminoMultiplyTotalPages())"
                           [disabled]="kaminoMultiplyPage() >= kaminoMultiplyTotalPages()"
-                          title="Last page">
+                          [attr.title]="'Last page' | t">
                     <lucide-icon name="chevrons-right" [size]="13" />
                   </button>
                 </div>
@@ -1876,11 +1876,11 @@
             </div>
           }
           <p class="dlmm-help">
-            Kamino Multiply loops a collateral against a borrowed token to reach a
-            target leverage. <strong>Est. APY</strong> is derived from live on-chain
+            {{ 'Kamino Multiply loops a collateral against a borrowed token to reach a
+            target leverage.' | t }} <strong>{{ 'Est. APY' | t }}</strong> {{ 'is derived from live on-chain
             rates (collateral yield × leverage − borrow cost) and excludes reward
             incentives, fees and slippage — treat it as an estimate, not a guarantee.
-            Picking a pool pre-fills the open form; leverage and amount are editable.
+            Picking a pool pre-fills the open form; leverage and amount are editable.' | t }}
           </p>
         }
 
@@ -1891,7 +1891,7 @@
             <input
               class="dlmm-search"
               type="text"
-              placeholder="Filter by pair (e.g. USDC-USDT)…"
+              [attr.placeholder]="'Filter by pair (e.g. USDC-USDT)…' | t"
               [value]="dammV1SearchRaw()"
               (input)="onDammV1Search($event)"
             />
@@ -1900,7 +1900,7 @@
               class="dlmm-refresh-btn"
               (click)="refreshLiveData()"
               [disabled]="dammV1Fetching()"
-              title="Refresh pool data">
+              [attr.title]="'Refresh pool data' | t">
               <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="dammV1Fetching()" />
             </button>
           </div>
@@ -1919,15 +1919,15 @@
           </div>
           <div class="result-table dlmm-table">
             <div class="result-table__header dlmm-row">
-              <span>Pool</span>
-              <span class="text-right">TVL</span>
-              <span class="text-right">7d Vol</span>
-              <span class="text-right">APY</span>
-              <span class="text-right">Fee</span>
-              <span class="text-right">Action</span>
+              <span>{{ 'Pool' | t }}</span>
+              <span class="text-right">{{ 'TVL' | t }}</span>
+              <span class="text-right">{{ '7d Vol' | t }}</span>
+              <span class="text-right">{{ 'APY' | t }}</span>
+              <span class="text-right">{{ 'Fee' | t }}</span>
+              <span class="text-right">{{ 'Action' | t }}</span>
             </div>
             @if (dammV1Fetching() && dammV1All.length === 0) {
-              <div class="dlmm-empty">Loading pools…</div>
+              <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
             }
             @for (p of dammV1Visible; track p.pool_address) {
               <div class="result-table__row dlmm-row">
@@ -1956,8 +1956,8 @@
                     type="button"
                     class="dlmm-use-btn"
                     (click)="useDammV1Pool(p); $event.stopPropagation()"
-                    title="Deposit to this pool">
-                    Use
+                    [attr.title]="'Deposit to this pool' | t">
+                    {{ 'Use' | t }}
                     <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 </span>
@@ -1967,10 +1967,10 @@
               <div class="dlmm-empty">
                 <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
                 @if (dammV1SearchRaw() || query.params['query']) {
-                  <div>No DAMM v1 pool found for <strong>"{{ dammV1SearchRaw() || query.params['query'] }}"</strong>.</div>
-                  <div class="dlmm-empty__hint">Try different tokens, or check on <a href="https://app.meteora.ag/pools" target="_blank" rel="noopener">app.meteora.ag</a>.</div>
+                  <div>{{ 'No DAMM v1 pool found for' | t }} <strong>"{{ dammV1SearchRaw() || query.params['query'] }}"</strong>.</div>
+                  <div class="dlmm-empty__hint">{{ 'Try different tokens, or check on' | t }} <a href="https://app.meteora.ag/pools" target="_blank" rel="noopener">{{ 'app.meteora.ag' | t }}</a>.</div>
                 } @else {
-                  <div>No DAMM v1 pools available right now.</div>
+                  <div>{{ 'No DAMM v1 pools available right now.' | t }}</div>
                 }
               </div>
             }
@@ -1978,35 +1978,35 @@
           @if (dammV1FilteredTotal > 0) {
             <div class="dlmm-footer">
               <span class="dlmm-footer__count">
-                Showing
+                {{ 'Showing' | t }}
                 <strong>{{ dammV1ShowingRange.from }}–{{ dammV1ShowingRange.to }}</strong>
-                of <strong>{{ dammV1ShowingRange.total }}</strong> pools
+                {{ 'of' | t }} <strong>{{ dammV1ShowingRange.total }}</strong> {{ 'pools' | t }}
               </span>
               @if (dammV1TotalPages > 1) {
                 <div class="dlmm-pagination">
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV1GoToPage(1)"
                           [disabled]="dammV1Page() === 1"
-                          title="First page">
+                          [attr.title]="'First page' | t">
                     <lucide-icon name="chevrons-left" [size]="13" />
                   </button>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV1PrevPage()"
                           [disabled]="dammV1Page() === 1"
-                          title="Previous page">
+                          [attr.title]="'Previous page' | t">
                     <lucide-icon name="chevron-left" [size]="13" />
                   </button>
                   <span class="dlmm-page-current mono">{{ dammV1Page() }} / {{ dammV1TotalPages }}</span>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV1NextPage()"
                           [disabled]="dammV1Page() >= dammV1TotalPages"
-                          title="Next page">
+                          [attr.title]="'Next page' | t">
                     <lucide-icon name="chevron-right" [size]="13" />
                   </button>
                   <button class="dlmm-page-btn dlmm-page-btn--nav"
                           (click)="dammV1GoToPage(dammV1TotalPages)"
                           [disabled]="dammV1Page() >= dammV1TotalPages"
-                          title="Last page">
+                          [attr.title]="'Last page' | t">
                     <lucide-icon name="chevrons-right" [size]="13" />
                   </button>
                 </div>
@@ -2014,9 +2014,9 @@
             </div>
           }
           <p class="dlmm-help">
-            DAMM v1 is Meteora's legacy constant-product AMM. Deposits require
+            {{ 'DAMM v1 is Meteora\'s legacy constant-product AMM. Deposits require
             both tokens at the current pool ratio — picking a pool here pre-fills
-            the action card; you only enter one amount.
+            the action card; you only enter one amount.' | t }}
           </p>
         }
 
@@ -2030,16 +2030,16 @@
           <input
             class="ray-search__input"
             type="text"
-            placeholder="Search pools by token — e.g. SOL, JUP, RAY…"
+            [attr.placeholder]="'Search pools by token — e.g. SOL, JUP, RAY…' | t"
             [value]="raydiumSearchInput()"
             (input)="onRaydiumSearchInput($any($event.target).value)"
             (keydown.enter)="onRaydiumSearchSubmit()" />
           @if (raydiumSearchTokenA()) {
-            <button type="button" class="ray-search__btn ray-search__btn--clear" (click)="clearRaydiumSearch()" title="Clear search">
+            <button type="button" class="ray-search__btn ray-search__btn--clear" (click)="clearRaydiumSearch()" [attr.title]="'Clear search' | t">
               <lucide-icon name="x" [size]="14" />
             </button>
           } @else {
-            <button type="button" class="ray-search__btn" (click)="onRaydiumSearchSubmit()">Search</button>
+            <button type="button" class="ray-search__btn" (click)="onRaydiumSearchSubmit()">{{ 'Search' | t }}</button>
           }
         </div>
         <div class="dlmm-sort-bar">
@@ -2056,7 +2056,7 @@
             class="dlmm-refresh-btn"
             (click)="refreshLiveData()"
             [disabled]="raydiumFetching()"
-            title="Refresh pool data"
+            [attr.title]="'Refresh pool data' | t"
             style="margin-left:auto;">
             <lucide-icon name="refresh-cw" [size]="13" [class.dlmm-refresh-spin]="raydiumFetching()" />
           </button>
@@ -2076,15 +2076,15 @@
         </div>
         <div class="result-table km-table km-table--ray">
           <div class="result-table__header km-row">
-            <span>Pool</span>
-            <span class="text-right">TVL</span>
-            <span class="text-right">24h Vol</span>
-            <span class="text-right">24h APR</span>
-            <span class="text-right">Type</span>
-            <span class="text-right">Action</span>
+            <span>{{ 'Pool' | t }}</span>
+            <span class="text-right">{{ 'TVL' | t }}</span>
+            <span class="text-right">{{ '24h Vol' | t }}</span>
+            <span class="text-right">{{ '24h APR' | t }}</span>
+            <span class="text-right">{{ 'Type' | t }}</span>
+            <span class="text-right">{{ 'Action' | t }}</span>
           </div>
           @if (raydiumFetching() && raydiumResults.length === 0) {
-            <div class="dlmm-empty">Loading pools…</div>
+            <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
           }
           @for (p of raydiumResults; track p.id) {
             <div class="result-table__row km-row">
@@ -2135,8 +2135,8 @@
                   type="button"
                   class="dlmm-use-btn"
                   (click)="useRaydiumPool(p); $event.stopPropagation()"
-                  title="Deposit liquidity to this pool">
-                  Deposit
+                  [attr.title]="'Deposit liquidity to this pool' | t">
+                  {{ 'Deposit' | t }}
                   <lucide-icon name="arrow-right" [size]="12" />
                 </button>
               </span>
@@ -2145,8 +2145,8 @@
           @if (!raydiumFetching() && raydiumResults.length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No Raydium pools available right now.</div>
-              <div class="dlmm-empty__hint">Try a different sort/filter, or check on <a href="https://raydium.io/liquidity-pools" target="_blank" rel="noopener">raydium.io</a>.</div>
+              <div>{{ 'No Raydium pools available right now.' | t }}</div>
+              <div class="dlmm-empty__hint">{{ 'Try a different sort/filter, or check on' | t }} <a href="https://raydium.io/liquidity-pools" target="_blank" rel="noopener">{{ 'raydium.io' | t }}</a>.</div>
             </div>
           }
         </div>
@@ -2161,8 +2161,8 @@
             </span>
             <div class="km-pagination__pages">
               <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="raydiumPrevPage()"
-                      [disabled]="raydiumPage() <= 1 || raydiumFetching()" title="Previous page"
-                      aria-label="Previous page">
+                      [disabled]="raydiumPage() <= 1 || raydiumFetching()" [attr.title]="'Previous page' | t"
+                      [attr.aria-label]="'Previous page' | t">
                 <lucide-icon name="chevron-left" [size]="14" />
               </button>
               @for (n of raydiumPageNumbers(); track n) {
@@ -2172,18 +2172,18 @@
                 </button>
               }
               <button class="dlmm-page-btn dlmm-page-btn--nav" (click)="raydiumNextPage()"
-                      [disabled]="!raydiumHasNextPage() || raydiumFetching()" title="Next page"
-                      aria-label="Next page">
+                      [disabled]="!raydiumHasNextPage() || raydiumFetching()" [attr.title]="'Next page' | t"
+                      [attr.aria-label]="'Next page' | t">
                 <lucide-icon name="chevron-right" [size]="14" />
               </button>
             </div>
           </div>
           <p class="dlmm-help">
-            <strong>CLMM</strong> = Concentrated Liquidity (range deposit, like Uniswap v3).
-            <strong>CPMM</strong> = the newer constant-product pool (cheaper, Token-2022 support).
-            <strong>AMM v4</strong> = the legacy constant-product program (orderbook-linked).
+            <strong>{{ 'CLMM' | t }}</strong> {{ '= Concentrated Liquidity (range deposit, like Uniswap v3).' | t }}
+            <strong>{{ 'CPMM' | t }}</strong> {{ '= the newer constant-product pool (cheaper, Token-2022 support).' | t }}
+            <strong>{{ 'AMM v4' | t }}</strong> {{ '= the legacy constant-product program (orderbook-linked).
             CPMM and AMM v4 both deposit both tokens at the current ratio.
-            Picking Deposit pre-fills the action card with the pool ID and token mints.
+            Picking Deposit pre-fills the action card with the pool ID and token mints.' | t }}
           </p>
         }
       }
@@ -2200,11 +2200,11 @@
           </div>
           <div class="price-stats">
             <div class="price-stat">
-              <span class="price-stat__label">Volume (24h)</span>
+              <span class="price-stat__label">{{ 'Volume (24h)' | t }}</span>
               <span class="price-stat__value mono">${{ formatNumber(priceResult.volume24h) }}</span>
             </div>
             <div class="price-stat">
-              <span class="price-stat__label">Market Cap</span>
+              <span class="price-stat__label">{{ 'Market Cap' | t }}</span>
               <span class="price-stat__value mono">${{ formatNumber(priceResult.marketCap) }}</span>
             </div>
           </div>
@@ -2219,11 +2219,11 @@
             @if (sp.stakeAccounts.length) {
               <div class="mrn-stats">
                 <div class="mrn-stat">
-                  <span class="mrn-stat__k">Native stake</span>
+                  <span class="mrn-stat__k">{{ 'Native stake' | t }}</span>
                   <span class="mrn-stat__v mono">{{ sp.totalStakedSol | number:'1.0-4' }} SOL</span>
                 </div>
                 <div class="mrn-stat">
-                  <span class="mrn-stat__k">Accounts</span>
+                  <span class="mrn-stat__k">{{ 'Accounts' | t }}</span>
                   <span class="mrn-stat__v">{{ sp.stakeAccounts.length }}</span>
                 </div>
               </div>
@@ -2247,14 +2247,14 @@
                       {{ l.symbol }}
                     </span>
                     <span class="mrn-ticket__amt mono">{{ l.amount | number:'1.0-6' }}</span>
-                    <span class="mrn-ticket__mono">liquid staking</span>
+                    <span class="mrn-ticket__mono">{{ 'liquid staking' | t }}</span>
                   </div>
                 }
               </div>
             }
           } @else {
             <div class="dlmm-empty">
-              Nothing staked yet — no native stake accounts and no liquid-staking tokens in this wallet.
+              {{ 'Nothing staked yet — no native stake accounts and no liquid-staking tokens in this wallet.' | t }}
             </div>
           }
         }
@@ -2265,26 +2265,26 @@
         @if (marinadeRate(); as r) {
           <div class="mrn-stats">
             <div class="mrn-stat">
-              <span class="mrn-stat__k">Staking APY</span>
+              <span class="mrn-stat__k">{{ 'Staking APY' | t }}</span>
               <span class="mrn-stat__v mrn-stat__v--gain">
                 {{ r.apyPercent !== null ? (r.apyPercent | number:'1.2-2') + '%' : '—' }}
               </span>
             </div>
             <div class="mrn-stat">
-              <span class="mrn-stat__k">1 mSOL</span>
+              <span class="mrn-stat__k">{{ '1 mSOL' | t }}</span>
               <span class="mrn-stat__v mono">{{ r.msolPriceInSol | number:'1.0-6' }} SOL</span>
             </div>
             <div class="mrn-stat">
-              <span class="mrn-stat__k">1 SOL</span>
+              <span class="mrn-stat__k">{{ '1 SOL' | t }}</span>
               <span class="mrn-stat__v mono">{{ r.solPriceInMsol | number:'1.0-6' }} mSOL</span>
             </div>
           </div>
           <p class="mrn-note">
-            mSOL does not pay out — it appreciates against SOL, so the rate above
-            is the reward already earned.
+            {{ 'mSOL does not pay out — it appreciates against SOL, so the rate above
+            is the reward already earned.' | t }}
           </p>
         } @else if (!marinadeFetching()) {
-          <div class="dlmm-empty">No rate available right now.</div>
+          <div class="dlmm-empty">{{ 'No rate available right now.' | t }}</div>
         }
       }
 
@@ -2300,7 +2300,7 @@
                 </span>
                 @if (t.isClaimable) {
                   <button type="button" class="dlmm-page-btn mrn-ticket__btn"
-                          (click)="claimMarinadeTicket(t.address)">Claim</button>
+                          (click)="claimMarinadeTicket(t.address)">{{ 'Claim' | t }}</button>
                 } @else {
                   <span class="mrn-ticket__mono mono">{{ t.address.slice(0, 4) }}…{{ t.address.slice(-4) }}</span>
                 }
@@ -2309,7 +2309,7 @@
           </div>
         } @else if (!marinadeFetching()) {
           <div class="dlmm-empty">
-            No delayed-unstake tickets on this wallet.
+            {{ 'No delayed-unstake tickets on this wallet.' | t }}
           </div>
         }
       }
@@ -2330,7 +2330,7 @@
 
         <div class="ray-pos-list">
           @if (raydiumPositionsFetching() && raydiumPositions().length === 0) {
-            <div class="dlmm-empty">Loading positions…</div>
+            <div class="dlmm-empty">{{ 'Loading positions…' | t }}</div>
           }
           @for (pos of visibleRaydiumPositions(); track pos.poolId + (pos.positionId || pos.lpMint || '')) {
             <!-- Panel styled like the Jupiter swap panel: header row (pair +
@@ -2379,7 +2379,7 @@
                       <span class="ray-pos__amount-sep">+</span>
                       {{ pos.amountB ?? 0 | number:'1.0-6' }} {{ pos.mintB?.symbol }}
                     </span>
-                    <span class="ray-pos__amount-label">Position value</span>
+                    <span class="ray-pos__amount-label">{{ 'Position value' | t }}</span>
                   } @else {
                     <span class="ray-pos__amount">{{ pos.kind === 'lp' ? (pos.lpAmount | number:'1.0-6') : (pos.liquidity || '0') }}</span>
                     <span class="ray-pos__amount-label">{{ pos.kind === 'lp' ? 'LP tokens' : 'Liquidity' }}</span>
@@ -2391,14 +2391,14 @@
                        position" had nowhere to land. -->
                   <button type="button" class="dlmm-use-btn dlmm-use-btn--ghost"
                           (click)="addToRaydiumPosition(pos); $event.stopPropagation()"
-                          title="Add liquidity to this position">
+                          [attr.title]="'Add liquidity to this position' | t">
                     <lucide-icon name="plus" [size]="12" />
-                    Add
+                    {{ 'Add' | t }}
                   </button>
                   <button type="button" class="dlmm-use-btn"
                           (click)="withdrawRaydiumPosition(pos); $event.stopPropagation()"
-                          title="Withdraw this position">
-                    Withdraw
+                          [attr.title]="'Withdraw this position' | t">
+                    {{ 'Withdraw' | t }}
                     <lucide-icon name="arrow-right" [size]="12" />
                   </button>
                 </span>
@@ -2415,7 +2415,7 @@
                   No active Raydium positions.
                 }
               </div>
-              <div class="dlmm-empty__hint">Add liquidity from a pool to open one.</div>
+              <div class="dlmm-empty__hint">{{ 'Add liquidity from a pool to open one.' | t }}</div>
             </div>
           }
         </div>
@@ -2459,7 +2459,7 @@
                       {{ t.amount | number:'1.0-6' }} {{ t.symbol }}
                     }
                   </span>
-                  <span class="ray-pos__amount-label">Holding</span>
+                  <span class="ray-pos__amount-label">{{ 'Holding' | t }}</span>
                 </span>
                 <span class="qp-value-block">
                   <span class="qp-value">{{ formatUsd(pos.value) }}</span>
@@ -2476,7 +2476,7 @@
           @if (positionResults.length === 0) {
             <div class="dlmm-empty">
               <lucide-icon name="package-x" [size]="22" class="dlmm-empty__icon" />
-              <div>No open DeFi positions found in this wallet.</div>
+              <div>{{ 'No open DeFi positions found in this wallet.' | t }}</div>
             </div>
           }
         </div>
@@ -2485,7 +2485,7 @@
       <!-- Transaction results -->
       @if (query.type === 'transactions') {
         @if (transactionResults.length === 0) {
-          <div class="balance-empty">No recent transactions found for this wallet.</div>
+          <div class="balance-empty">{{ 'No recent transactions found for this wallet.' | t }}</div>
         }
         <div class="tx-list">
           @for (tx of transactionResults; track tx.description) {
@@ -2513,8 +2513,8 @@
         <div class="result-table">
           <div class="result-table__header result-table__header--4col">
             <span>#</span>
-            <span>Token</span>
-            <span class="text-right">Price</span>
+            <span>{{ 'Token' | t }}</span>
+            <span class="text-right">{{ 'Price' | t }}</span>
             <span class="text-right">24h</span>
           </div>
           @for (item of trendingResults; track item.rank) {
@@ -2537,23 +2537,23 @@
       @if (query.type === 'network' && networkResult) {
         <div class="network-grid">
           <div class="network-stat">
-            <span class="network-stat__label">TPS</span>
+            <span class="network-stat__label">{{ 'TPS' | t }}</span>
             <span class="network-stat__value mono">{{ formatNumber(networkResult.tps) }}</span>
           </div>
           <div class="network-stat">
-            <span class="network-stat__label">Slot</span>
+            <span class="network-stat__label">{{ 'Slot' | t }}</span>
             <span class="network-stat__value mono">{{ formatNumber(networkResult.slot) }}</span>
           </div>
           <div class="network-stat">
-            <span class="network-stat__label">Epoch</span>
+            <span class="network-stat__label">{{ 'Epoch' | t }}</span>
             <span class="network-stat__value mono">{{ networkResult.epoch }}</span>
           </div>
           <div class="network-stat">
-            <span class="network-stat__label">Validators</span>
+            <span class="network-stat__label">{{ 'Validators' | t }}</span>
             <span class="network-stat__value mono">{{ formatNumber(networkResult.validators) }}</span>
           </div>
           <div class="network-stat network-stat--wide">
-            <span class="network-stat__label">Epoch Progress</span>
+            <span class="network-stat__label">{{ 'Epoch Progress' | t }}</span>
             <div class="epoch-bar">
               <div class="epoch-bar__fill" [style.width.%]="networkResult.epochProgress"></div>
             </div>
@@ -2585,11 +2585,11 @@
               <div class="yield-row__side">
                 <span class="yield-row__apy">
                   <span class="yield-row__apy-num mono">{{ y.apy.toFixed(2) }}%</span>
-                  <span class="yield-row__apy-label">APY</span>
+                  <span class="yield-row__apy-label">{{ 'APY' | t }}</span>
                 </span>
                 <span class="yield-row__risk">
                   <span class="risk-badge" [class]="riskBadgeClass(y.risk)">{{ y.risk }}</span>
-                  <span class="yield-row__risk-label">RISK</span>
+                  <span class="yield-row__risk-label">{{ 'RISK' | t }}</span>
                 </span>
               </div>
             </div>
@@ -2601,7 +2601,7 @@
       @if (query.type === 'analytics' && analyticsResult) {
         <div class="pnl-card">
           <div class="pnl-card__hero" [class.pnl-card__hero--up]="analyticsResult.totalPnl >= 0" [class.pnl-card__hero--down]="analyticsResult.totalPnl < 0">
-            <span class="pnl-card__hero-label">Total PnL</span>
+            <span class="pnl-card__hero-label">{{ 'Total PnL' | t }}</span>
             <span class="pnl-card__hero-value mono">
               {{ analyticsResult.totalPnl >= 0 ? '+' : '' }}{{ formatUsd(analyticsResult.totalPnl) }}
             </span>
@@ -2616,25 +2616,25 @@
           <div class="pnl-card__metrics">
             @if (analyticsResult.winRate > 0) {
               <div class="pnl-card__metric">
-                <span class="pnl-card__metric-label">Win rate</span>
+                <span class="pnl-card__metric-label">{{ 'Win rate' | t }}</span>
                 <span class="pnl-card__metric-value mono">{{ analyticsResult.winRate.toFixed(1) }}%</span>
               </div>
             }
             @if (analyticsResult.totalTrades > 0) {
               <div class="pnl-card__metric">
-                <span class="pnl-card__metric-label">Trades</span>
+                <span class="pnl-card__metric-label">{{ 'Trades' | t }}</span>
                 <span class="pnl-card__metric-value mono">{{ analyticsResult.totalTrades }}</span>
               </div>
             }
             @if (analyticsResult.bestTrade !== '—') {
               <div class="pnl-card__metric">
-                <span class="pnl-card__metric-label">Best</span>
+                <span class="pnl-card__metric-label">{{ 'Best' | t }}</span>
                 <span class="pnl-card__metric-value change-up mono">{{ analyticsResult.bestTrade }}</span>
               </div>
             }
             @if (analyticsResult.worstTrade !== '—') {
               <div class="pnl-card__metric">
-                <span class="pnl-card__metric-label">Worst</span>
+                <span class="pnl-card__metric-label">{{ 'Worst' | t }}</span>
                 <span class="pnl-card__metric-value change-down mono">{{ analyticsResult.worstTrade }}</span>
               </div>
             }
@@ -2643,9 +2643,9 @@
           @if (analyticsResult.topTokens.length > 0) {
             <div class="pnl-card__tokens">
               <div class="pnl-card__tokens-header">
-                <span>Token</span>
-                <span class="text-right">PnL</span>
-                @if (hasTradeCounts(analyticsResult.topTokens)) { <span class="text-right">Trades</span> }
+                <span>{{ 'Token' | t }}</span>
+                <span class="text-right">{{ 'PnL' | t }}</span>
+                @if (hasTradeCounts(analyticsResult.topTokens)) { <span class="text-right">{{ 'Trades' | t }}</span> }
               </div>
               @for (t of analyticsResult.topTokens; track t.symbol) {
                 <div class="pnl-card__tokens-row" [class.pnl-card__tokens-row--with-trades]="hasTradeCounts(analyticsResult.topTokens)">
@@ -2667,11 +2667,11 @@
       @if (query.type === 'airdrops') {
         <div class="result-table">
           <div class="result-table__header result-table__header--5col">
-            <span>Protocol</span>
-            <span>Token</span>
-            <span class="text-right">Amount</span>
-            <span class="text-right">Status</span>
-            <span class="text-right">Deadline</span>
+            <span>{{ 'Protocol' | t }}</span>
+            <span>{{ 'Token' | t }}</span>
+            <span class="text-right">{{ 'Amount' | t }}</span>
+            <span class="text-right">{{ 'Status' | t }}</span>
+            <span class="text-right">{{ 'Deadline' | t }}</span>
           </div>
           @for (a of airdropResults; track a.protocol) {
             <div class="result-table__row result-table__row--5col">
@@ -2693,30 +2693,30 @@
       @if (query.type === 'gas' && gasResult) {
         <div class="gas-grid">
           <div class="gas-tier">
-            <span class="gas-tier__label">Low Priority</span>
+            <span class="gas-tier__label">{{ 'Low Priority' | t }}</span>
             <span class="gas-tier__value mono">{{ gasResult.priorityLow }} SOL</span>
           </div>
           <div class="gas-tier gas-tier--recommended">
-            <span class="gas-tier__label">Medium Priority</span>
+            <span class="gas-tier__label">{{ 'Medium Priority' | t }}</span>
             <span class="gas-tier__value mono">{{ gasResult.priorityMedium }} SOL</span>
-            <span class="gas-tier__tag">Recommended</span>
+            <span class="gas-tier__tag">{{ 'Recommended' | t }}</span>
           </div>
           <div class="gas-tier">
-            <span class="gas-tier__label">High Priority</span>
+            <span class="gas-tier__label">{{ 'High Priority' | t }}</span>
             <span class="gas-tier__value mono">{{ gasResult.priorityHigh }} SOL</span>
           </div>
         </div>
         <div class="gas-estimates">
           <div class="gas-estimate">
-            <span>Transfer cost</span>
+            <span>{{ 'Transfer cost' | t }}</span>
             <span class="mono">{{ gasResult.transferCost }}</span>
           </div>
           <div class="gas-estimate">
-            <span>Swap cost</span>
+            <span>{{ 'Swap cost' | t }}</span>
             <span class="mono">{{ gasResult.swapCost }}</span>
           </div>
           <div class="gas-estimate">
-            <span>Base fee</span>
+            <span>{{ 'Base fee' | t }}</span>
             <span class="mono">{{ gasResult.baseFee }} SOL</span>
           </div>
         </div>
@@ -2726,24 +2726,24 @@
       @if (query.type === 'wallet_info' && walletInfoResult) {
         <div class="wallet-info">
           <div class="wallet-info__address">
-            <span class="wallet-info__label">Address</span>
+            <span class="wallet-info__label">{{ 'Address' | t }}</span>
             <span class="wallet-info__value mono">{{ walletInfoResult.address.slice(0, 8) }}...{{ walletInfoResult.address.slice(-6) }}</span>
           </div>
           <div class="wallet-info__grid">
             <div class="wallet-info__stat">
-              <span class="wallet-info__stat-label">SOL Balance</span>
+              <span class="wallet-info__stat-label">{{ 'SOL Balance' | t }}</span>
               <span class="wallet-info__stat-value mono">{{ walletInfoResult.solBalance.toFixed(2) }}</span>
             </div>
             <div class="wallet-info__stat">
-              <span class="wallet-info__stat-label">Tokens</span>
+              <span class="wallet-info__stat-label">{{ 'Tokens' | t }}</span>
               <span class="wallet-info__stat-value mono">{{ walletInfoResult.tokenCount }}</span>
             </div>
             <div class="wallet-info__stat">
-              <span class="wallet-info__stat-label">NFTs</span>
+              <span class="wallet-info__stat-label">{{ 'NFTs' | t }}</span>
               <span class="wallet-info__stat-value mono">{{ walletInfoResult.nftCount }}</span>
             </div>
             <div class="wallet-info__stat">
-              <span class="wallet-info__stat-label">Total TXs</span>
+              <span class="wallet-info__stat-label">{{ 'Total TXs' | t }}</span>
               <span class="wallet-info__stat-value mono">{{ formatNumber(walletInfoResult.totalTxs) }}</span>
             </div>
           </div>
@@ -2763,15 +2763,15 @@
           </div>
           <div class="tax-summary__grid">
             <div class="tax-summary__stat">
-              <span class="tax-summary__label">Total Gains</span>
+              <span class="tax-summary__label">{{ 'Total Gains' | t }}</span>
               <span class="tax-summary__value change-up mono">+{{ formatUsd(taxResult.totalGains) }}</span>
             </div>
             <div class="tax-summary__stat">
-              <span class="tax-summary__label">Total Losses</span>
+              <span class="tax-summary__label">{{ 'Total Losses' | t }}</span>
               <span class="tax-summary__value change-down mono">-{{ formatUsd(taxResult.totalLosses) }}</span>
             </div>
             <div class="tax-summary__stat tax-summary__stat--highlight">
-              <span class="tax-summary__label">Net Gains</span>
+              <span class="tax-summary__label">{{ 'Net Gains' | t }}</span>
               <span class="tax-summary__value mono" [class.change-up]="taxResult.netGains >= 0" [class.change-down]="taxResult.netGains < 0">
                 {{ taxResult.netGains >= 0 ? '+' : '' }}{{ formatUsd(taxResult.netGains) }}
               </span>
@@ -2779,19 +2779,19 @@
           </div>
           <div class="tax-breakdown">
             <div class="tax-breakdown__row">
-              <span>Short-term gains</span>
+              <span>{{ 'Short-term gains' | t }}</span>
               <span class="mono">{{ formatUsd(taxResult.shortTermGains) }}</span>
             </div>
             <div class="tax-breakdown__row">
-              <span>Long-term gains</span>
+              <span>{{ 'Long-term gains' | t }}</span>
               <span class="mono">{{ formatUsd(taxResult.longTermGains) }}</span>
             </div>
           </div>
           <div class="result-table" style="margin-top: 8px">
             <div class="result-table__header result-table__header--4col">
-              <span>Category</span>
-              <span class="text-right">Amount</span>
-              <span class="text-right">TXs</span>
+              <span>{{ 'Category' | t }}</span>
+              <span class="text-right">{{ 'Amount' | t }}</span>
+              <span class="text-right">{{ 'TXs' | t }}</span>
               <span></span>
             </div>
             @for (cat of taxResult.categories; track cat.type) {
@@ -2811,16 +2811,16 @@
         @if (dcaResults.length === 0) {
           <div class="empty-state">
             <lucide-icon name="trending-up" [size]="20" />
-            <span>No active DCA orders</span>
+            <span>{{ 'No active DCA orders' | t }}</span>
           </div>
         } @else {
           <div class="result-table">
             <div class="result-table__header result-table__header--6col">
-              <span>Pair</span>
-              <span class="text-right">Per Cycle</span>
-              <span class="text-right">Freq</span>
-              <span class="text-right">Progress</span>
-              <span class="text-right">Next</span>
+              <span>{{ 'Pair' | t }}</span>
+              <span class="text-right">{{ 'Per Cycle' | t }}</span>
+              <span class="text-right">{{ 'Freq' | t }}</span>
+              <span class="text-right">{{ 'Progress' | t }}</span>
+              <span class="text-right">{{ 'Next' | t }}</span>
               <span class="text-right"></span>
             </div>
             @for (order of dcaResults; track order.id) {
@@ -2835,7 +2835,7 @@
                 <span class="text-right mono">{{ order.nextExecution }}</span>
                 <span class="text-right">
                   @if (order.status === 'active' && order.id) {
-                    <button class="cancel-btn" (click)="onCancelDcaOrder(order.id)" title="Cancel DCA">
+                    <button class="cancel-btn" (click)="onCancelDcaOrder(order.id)" [attr.title]="'Cancel DCA' | t">
                       <lucide-icon name="x" [size]="11" />
                     </button>
                   }
@@ -2851,9 +2851,9 @@
         <!-- Status filter tabs -->
         <div class="filter-tabs">
           <button class="filter-tab" [class.filter-tab--active]="limitOrderStatusFilter === 'open'"
-                  (click)="onLimitOrderFilterChange('open')">Open</button>
+                  (click)="onLimitOrderFilterChange('open')">{{ 'Open' | t }}</button>
           <button class="filter-tab" [class.filter-tab--active]="limitOrderStatusFilter === 'history'"
-                  (click)="onLimitOrderFilterChange('history')">History</button>
+                  (click)="onLimitOrderFilterChange('history')">{{ 'History' | t }}</button>
         </div>
         @if (limitOrderResults.length === 0) {
           <div class="empty-state">
@@ -2863,12 +2863,12 @@
         } @else {
           <div class="result-table">
             <div class="result-table__header result-table__header--7col">
-              <span>Pair</span>
-              <span class="text-right">Amount</span>
-              <span class="text-right">Target</span>
-              <span class="text-right">Current</span>
-              <span class="text-right">Created</span>
-              <span class="text-right">Status</span>
+              <span>{{ 'Pair' | t }}</span>
+              <span class="text-right">{{ 'Amount' | t }}</span>
+              <span class="text-right">{{ 'Target' | t }}</span>
+              <span class="text-right">{{ 'Current' | t }}</span>
+              <span class="text-right">{{ 'Created' | t }}</span>
+              <span class="text-right">{{ 'Status' | t }}</span>
               <span class="text-right"></span>
             </div>
             @for (order of limitOrderResults; track order.id) {
@@ -2892,7 +2892,7 @@
                 </span>
                 <span class="text-right">
                   @if (order.status === 'open' && order.id) {
-                    <button class="cancel-btn" (click)="onCancelLimitOrder(order.id)" title="Cancel order">
+                    <button class="cancel-btn" (click)="onCancelLimitOrder(order.id)" [attr.title]="'Cancel order' | t">
                       <lucide-icon name="x" [size]="11" />
                     </button>
                   }
@@ -2908,7 +2908,7 @@
         @if (perpPositions.length === 0) {
           <div class="empty-state">
             <lucide-icon name="trending-up" [size]="20" />
-            <span>No open perpetual positions on Jupiter</span>
+            <span>{{ 'No open perpetual positions on Jupiter' | t }}</span>
           </div>
         } @else {
           <div class="perp-pos-list">
@@ -2934,34 +2934,34 @@
                     <span class="perp-pos-row__pnl-num mono" [class.change-up]="pnlUp" [class.change-down]="!pnlUp">
                       {{ pnlUp ? '+' : '' }}{{ formatUsd(pos.unrealizedPnl) }}
                     </span>
-                    <span class="perp-pos-row__pnl-label">PnL</span>
+                    <span class="perp-pos-row__pnl-label">{{ 'PnL' | t }}</span>
                   </div>
                   @if (pos.closed) {
                     <span class="perp-pos-row__closed-chip">
                       <lucide-icon name="check" [size]="12" />
-                      Closed
+                      {{ 'Closed' | t }}
                     </span>
                   } @else {
-                    <button class="perp-pos-row__close" (click)="onClosePerpPosition(pos.market, pos.side)" title="Close position">
+                    <button class="perp-pos-row__close" (click)="onClosePerpPosition(pos.market, pos.side)" [attr.title]="'Close position' | t">
                       <lucide-icon name="x" [size]="14" />
                     </button>
                   }
                 </div>
                 <div class="perp-pos-row__stats">
                   <div class="perp-stat">
-                    <span class="perp-stat__label">Size</span>
+                    <span class="perp-stat__label">{{ 'Size' | t }}</span>
                     <span class="perp-stat__val mono">{{ formatUsd(pos.sizeUsd) }}</span>
                   </div>
                   <div class="perp-stat">
-                    <span class="perp-stat__label">Entry</span>
+                    <span class="perp-stat__label">{{ 'Entry' | t }}</span>
                     <span class="perp-stat__val mono">{{ formatPrice(pos.entryPrice) }}</span>
                   </div>
                   <div class="perp-stat">
-                    <span class="perp-stat__label">Current</span>
+                    <span class="perp-stat__label">{{ 'Current' | t }}</span>
                     <span class="perp-stat__val mono">{{ formatPrice(pos.currentPrice) }}</span>
                   </div>
                   <div class="perp-stat">
-                    <span class="perp-stat__label">Liq. Price</span>
+                    <span class="perp-stat__label">{{ 'Liq. Price' | t }}</span>
                     <span class="perp-stat__val perp-stat__val--liq mono">{{ formatPrice(pos.liquidationPrice) }}</span>
                   </div>
                 </div>
@@ -2976,16 +2976,16 @@
         @if (lendEarnPositions.length === 0 && lendBorrowPositions.length === 0) {
           <div class="empty-state">
             <lucide-icon name="landmark" [size]="20" />
-            <span>No active lending positions on Jupiter</span>
+            <span>{{ 'No active lending positions on Jupiter' | t }}</span>
           </div>
         } @else {
           @if (lendEarnPositions.length > 0) {
-            <div class="lend-section-label">Deposits (Earn)</div>
+            <div class="lend-section-label">{{ 'Deposits (Earn)' | t }}</div>
             <div class="result-table">
               <div class="result-table__header result-table__header--3col">
-                <span>Asset</span>
-                <span class="text-right">Deposited</span>
-                <span class="text-right">APY</span>
+                <span>{{ 'Asset' | t }}</span>
+                <span class="text-right">{{ 'Deposited' | t }}</span>
+                <span class="text-right">{{ 'APY' | t }}</span>
               </div>
               @for (pos of lendEarnPositions; track pos.asset.symbol) {
                 <div class="result-table__row result-table__row--3col">
@@ -2997,14 +2997,14 @@
             </div>
           }
           @if (lendBorrowPositions.length > 0) {
-            <div class="lend-section-label" style="margin-top: 10px">Borrows</div>
+            <div class="lend-section-label" style="margin-top: 10px">{{ 'Borrows' | t }}</div>
             <div class="result-table">
               <div class="result-table__header result-table__header--5col">
-                <span>Collateral</span>
-                <span>Debt</span>
-                <span class="text-right">LTV</span>
-                <span class="text-right">Liq.</span>
-                <span class="text-right">Health</span>
+                <span>{{ 'Collateral' | t }}</span>
+                <span>{{ 'Debt' | t }}</span>
+                <span class="text-right">{{ 'LTV' | t }}</span>
+                <span class="text-right">{{ 'Liq.' | t }}</span>
+                <span class="text-right">{{ 'Health' | t }}</span>
               </div>
               @for (pos of lendBorrowPositions; track pos.collateralAsset.symbol + pos.debtAsset.symbol) {
                 <div class="result-table__row result-table__row--5col">
@@ -3032,11 +3032,11 @@
       @if (query.type === 'alerts') {
         <div class="result-table">
           <div class="result-table__header result-table__header--5col">
-            <span>Type</span>
-            <span>Token</span>
-            <span class="text-right">Target</span>
-            <span class="text-right">Current</span>
-            <span class="text-right">Status</span>
+            <span>{{ 'Type' | t }}</span>
+            <span>{{ 'Token' | t }}</span>
+            <span class="text-right">{{ 'Target' | t }}</span>
+            <span class="text-right">{{ 'Current' | t }}</span>
+            <span class="text-right">{{ 'Status' | t }}</span>
           </div>
           @for (alert of alertResults; track alert.id) {
             <div class="result-table__row result-table__row--5col">

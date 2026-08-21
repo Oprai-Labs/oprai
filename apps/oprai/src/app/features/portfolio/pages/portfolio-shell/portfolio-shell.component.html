@@ -1,8 +1,8 @@
 <div class="portfolio-page">
   <header class="portfolio-header">
-    <h1 class="page-title">Portfolio</h1>
+    <h1 class="page-title">{{ 'Portfolio' | t }}</h1>
     <div class="header-actions">
-      <div class="benchmark-ticker" aria-label="Market benchmarks">
+      <div class="benchmark-ticker" [attr.aria-label]="'Market benchmarks' | t">
         @for (quote of benchmarkQuotes(); track quote.id) {
           <div class="benchmark-chip">
             <div class="benchmark-symbol" [class.benchmark-symbol--sol]="quote.id === 'sol'" [class.benchmark-symbol--btc]="quote.id === 'btc'" [class.benchmark-symbol--eth]="quote.id === 'eth'">
@@ -20,7 +20,7 @@
         }
       </div>
       @if (connected()) {
-        <button class="action-btn" (click)="refresh()" [disabled]="isLoading()" title="Refresh">
+        <button class="action-btn" (click)="refresh()" [disabled]="isLoading()" [attr.title]="'Refresh' | t">
           <lucide-icon name="refresh-cw" [size]="16" [class.spinning]="isLoading()" />
         </button>
       }
@@ -49,8 +49,8 @@
             <lucide-icon name="droplets" [size]="14" />
           </div>
         </div>
-        <h2>Connect your wallet</h2>
-        <p>Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.</p>
+        <h2>{{ 'Connect your wallet' | t }}</h2>
+        <p>{{ 'Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.' | t }}</p>
       </div>
     } @else if (evmOnly()) {
       <!-- Signed in with an EVM wallet (no Solana connected) — show the EVM
@@ -89,8 +89,8 @@
       </div>
     } @else if (error() && !summary()) {
       <div class="error-state">
-        <p class="error-message">{{ error() }}</p>
-        <button class="retry-btn" (click)="refresh()">Retry</button>
+        <p class="error-message">{{ error() | t }}</p>
+        <button class="retry-btn" (click)="refresh()">{{ 'Retry' | t }}</button>
       </div>
     } @else if (summary()) {
       <div class="portfolio-sections content-fade-in">
@@ -101,14 +101,14 @@
           <div class="chain-switch">
             <button class="chain-pill" [class.active]="activeChain() === 'solana'" (click)="setChain('solana')">
               <app-brand-icon type="solana_wallet" [size]="16" /> Solana
-              @if (primaryChain() === 'solana') { <span class="chain-primary">Primary</span> }
+              @if (primaryChain() === 'solana') { <span class="chain-primary">{{ 'Primary' | t }}</span> }
             </button>
             @for (c of EVM_CHAINS; track c.id) {
               <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
                 <span class="chain-pill-ico" [style.--cc]="c.color">
                   <img [src]="c.icon" [alt]="c.label" width="16" height="16" (error)="hideChainIcon($event)" />
                 </span>{{ c.label }}
-                @if (primaryChain() === 'ethereum' && c.id === 'ethereum') { <span class="chain-primary">Primary</span> }
+                @if (primaryChain() === 'ethereum' && c.id === 'ethereum') { <span class="chain-primary">{{ 'Primary' | t }}</span> }
               </button>
             }
           </div>

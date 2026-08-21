@@ -6,11 +6,12 @@ import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allo
 import { BalanceSparklineComponent } from '../balance-sparkline/balance-sparkline.component';
 import { PriceService } from '../../services/price.service';
 import type { PortfolioSummary, DefiPositions, ProtocolPosition, PortfolioValueChange, ProtocolCard } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-portfolio-overview',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, AllocationChartComponent, BalanceSparklineComponent],
+  imports: [CommonModule, LucideAngularModule, TruncateAddressPipe, AllocationChartComponent, BalanceSparklineComponent, TPipe],
   templateUrl: './portfolio-overview.component.html',
   styleUrl: './portfolio-overview.component.scss',
 })

@@ -4,6 +4,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import { WalletButtonComponent } from '@shared/components/wallet-button/wallet-button.component';
 import { ThemeToggleComponent } from '@shared/components/theme-toggle/theme-toggle.component';
+import { TPipe } from '@core/i18n';
 
 interface NavLink {
   label: string;
@@ -15,10 +16,8 @@ interface NavLink {
 @Component({
   selector: 'app-header-bar',
   standalone: true,
-  imports: [
-    CommonModule, RouterLink, RouterLinkActive,
-    LucideAngularModule, WalletButtonComponent, ThemeToggleComponent,
-  ],
+  imports: [CommonModule, RouterLink, RouterLinkActive,
+    LucideAngularModule, WalletButtonComponent, ThemeToggleComponent, TPipe],
   templateUrl: './header-bar.component.html',
   styleUrl: './header-bar.component.scss',
 })

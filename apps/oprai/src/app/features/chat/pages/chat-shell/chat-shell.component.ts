@@ -20,15 +20,14 @@ import { MessageComposerComponent, SendEvent } from '../../components/message-co
 import { UploadResult } from '@core/services/upload.service';
 import { MemoryService } from '@core/services/memory.service';
 import { LiquidationMonitorService } from '@core/services/liquidation-monitor.service';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-chat-shell',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     MessageListComponent,
-    MessageComposerComponent,
-  ],
+    MessageComposerComponent, TPipe],
   templateUrl: './chat-shell.component.html',
   styleUrl: './chat-shell.component.scss',
 })

@@ -8,20 +8,19 @@ import { TimeAgoPipe } from '@shared/pipes/time-ago.pipe';
 import { LucideAngularModule } from 'lucide-angular';
 import { AdminLayoutComponent } from '../../components/admin-layout/admin-layout.component';
 import { SkeletonTableComponent } from '@shared/components/skeletons/skeleton-table.component';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-users',
   standalone: true,
-  imports: [
-    CommonModule,
+  imports: [CommonModule,
     FormsModule,
     RouterLink,
     TruncateAddressPipe,
     TimeAgoPipe,
     LucideAngularModule,
     AdminLayoutComponent,
-    SkeletonTableComponent,
-  ],
+    SkeletonTableComponent, TPipe],
   templateUrl: './users.component.html',
   styleUrl: './users.component.scss',
 })

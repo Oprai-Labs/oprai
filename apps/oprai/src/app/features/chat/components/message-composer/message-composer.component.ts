@@ -15,6 +15,7 @@ import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { UploadService, UploadResult } from '@core/services/upload.service';
 import { PROTOCOLS, Protocol } from '../../models/protocol-list';
+import { TPipe } from '@core/i18n';
 
 export interface AttachedFile {
   file: File;
@@ -38,7 +39,7 @@ export interface CapInfo {
 @Component({
   selector: 'app-message-composer',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, TPipe],
   templateUrl: './message-composer.component.html',
   styleUrl: './message-composer.component.scss',
 })
