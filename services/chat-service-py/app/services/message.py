@@ -1474,122 +1474,6 @@ async def stream_chat_response(
               protocols=_all_protocols,
               has_explicit_tags=bool(_explicit))
 
-    # ── 5b. Direct action emit (skip LLM for unambiguous actions) ──────────
-    # When the user's wording is fully parseable ("swap 0.1 SOL to USDC",
-    # "send 5 USDC to <addr>", "stake 1 SOL with marinade") AND intent is
-    # action, we skip the LLM entirely. This eliminates the entire failure
-    # mode where the model emits execute_action({}) with empty params, cuts
-    # latency from ~6s to <200ms, and removes a per-row LLM token cost.
-    #
-    # Safety: only fires when validate_tool_call accepts the inferred
-    # payload (so the action card the user sees is identical to what the
-    # LLM would have produced through the validator path). On ANY failure
-    # we fall through to the normal LLM flow.
-    if intent_result.intent == "action" and not intent_result.is_category_request:
-        try:
-            from app.services.action_schemas import (
-                ValidatedAction,
-                validate_tool_call,
-            )
-            from app.services.pre_compute import (
-                infer_action_params,
-                resolve_sns_in_message,
-            )
-
-            _direct_inferred = infer_action_params(user_content or "")
-            if _direct_inferred:
-                # Resolve any .sol domains in the message and substitute them
-                # into the inferred params (e.g. recipient field).
-                _direct_sns = await resolve_sns_in_message(user_content or "")
-                if _direct_sns and _direct_inferred.get("params"):
-                    _dp = _direct_inferred["params"]
-                    for _sol_name, _owner in _direct_sns.items():
-                        for _k, _v in list(_dp.items()):
-                            if isinstance(_v, str) and _sol_name in _v:
-                                _dp[_k] = _v.replace(_sol_name, _owner)
-
-                # Explicit-tag override: if the user @-tagged a protocol, force
-                # the inferred action_type to match the tag family for stake
-                # operations (generic "stake" → "<tag>_stake").
-                _act_type = _direct_inferred.get("action_type", "")
-                if _explicit and _act_type in (
-                    "stake", "jito_stake", "marinade_stake", "jupsol_stake",
-                ):
-                    _stake_tag_map = {
-                        "jito": "jito_stake",
-                        "marinade": "marinade_stake",
-                        "jupiter": "jupsol_stake",
-                        "jupsol": "jupsol_stake",
-                    }
-                    for _tag in _explicit:
-                        if _tag in _stake_tag_map:
-                            _act_type = _stake_tag_map[_tag]
-                            _direct_inferred["action_type"] = _act_type
-                            break
-
-                _direct_args = json.dumps({
-                    "action_type": _direct_inferred.get("action_type", ""),
-                    "params": _direct_inferred.get("params") or {},
-                    "chain_from_previous": False,
-                    "_chain_depth": 0,
-                })
-                _direct_validated = validate_tool_call(
-                    "execute_action", _direct_args, authenticated_wallet=wallet,
-                )
-                if isinstance(_direct_validated, ValidatedAction):
-                    _direct_action_dict = _direct_validated.to_frontend_dict()
-                    _log_turn(
-                        "direct_action_emit",
-                        action_type=_direct_action_dict.get("type"),
-                        param_count=len(_direct_action_dict.get("params") or {}),
-                    )
-                    _log.info(
-                        "direct_action_emit: bypassed LLM for action=%s wallet=%s",
-                        _direct_action_dict.get("type"), wallet[:16] + "…",
-                    )
-
-                    # Emit the action card on the SSE stream.
-                    yield f"data: {json.dumps({'action': _direct_action_dict})}\n\n"
-
-                    # Persist the assistant message. Content is intentionally
-                    # empty — the frontend renders the action chip from
-                    # metadata.actions, no prose is needed (and any prose we
-                    # invent risks misleading the user about amounts/tokens).
-                    _direct_assistant_msg = ChatMessage(
-                        id=uuid.uuid4(),
-                        session_id=uuid.UUID(session_id),
-                        wallet_address=wallet,
-                        role="assistant",
-                        content="",
-                        metadata_={"actions": [_direct_action_dict]},
-                    )
-                    db.add(_direct_assistant_msg)
-                    try:
-                        await _increment_message_count(db, session_id)
-                        await db.execute(
-                            update(ChatSession)
-                            .where(ChatSession.id == uuid.UUID(session_id))
-                            .values(updated_at=func.now())
-                        )
-                    except Exception:
-                        _log.debug("direct_action: counter/updated_at bump failed", exc_info=True)
-                    await db.commit()
-
-                    yield f"data: {json.dumps({'messageId': str(_direct_assistant_msg.id)})}\n\n"
-
-                    if is_first_message:
-                        try:
-                            _title = await generate_title(user_content)
-                            await session_svc.update_title(db, wallet, session_id, _title)
-                            yield f"data: {json.dumps({'title': _title})}\n\n"
-                        except Exception:
-                            _log.warning("direct_action: title gen failed", exc_info=True)
-
-                    yield "data: [DONE]\n\n"
-                    return
-        except Exception:
-            _log.debug("direct_action_emit: falling through to LLM", exc_info=True)
-
     # ── 6. Build LLM context with the union of protocols ──────────────────
     # The prompt loader scopes which protocol prompt files to load; passing
     # the classifier-detected ids keeps prompt docs aligned with the tool
@@ -2159,27 +2043,6 @@ async def stream_chat_response(
                     _original_count - len(collected_tool_calls), wallet,
                 )
 
-        # Pre-extract deterministic params from the user message (regex
-        # patterns in pre_compute). When the model emits an action with
-        # empty / partial params (mini's documented failure under
-        # tool_choice="required"), we merge these in before validation so
-        # the action survives instead of getting dropped + recovered.
-        # Also resolve any `.sol` domains in the same pass so the merged
-        # recipient is a real Solana address, not the .sol literal.
-        try:
-            from app.services.pre_compute import infer_action_params, resolve_sns_in_message
-            _inferred_params = infer_action_params(user_content or "")
-            _sns_map = await resolve_sns_in_message(user_content or "")
-            if _sns_map and _inferred_params.get("params"):
-                _p = _inferred_params["params"]
-                for sol_name, owner in _sns_map.items():
-                    for k, v in list(_p.items()):
-                        if isinstance(v, str) and sol_name in v:
-                            _p[k] = v.replace(sol_name, owner)
-        except Exception:
-            _inferred_params = {}
-            _sns_map = {}
-
         chain_depth = 0
         # Deterministic lending-protocol correction. gpt-5.4-mini intermittently
         # emits a Kamino-specific action (kamino_deposit / kamino_withdraw /
@@ -2242,25 +2105,6 @@ async def stream_chat_response(
                         _tc_args_parsed.get("action_type"), _generic, _named_lender, wallet[:16] + "…",
                     )
                     _tc_args_parsed["action_type"] = _generic
-                # Gap-fill: if execute_action's params are empty/partial AND
-                # pre_compute extracted params for the SAME action_type, merge.
-                # Model's emitted params win on conflict; we only fill gaps.
-                if (
-                    tc_name == "execute_action"
-                    and _inferred_params
-                    and _inferred_params.get("action_type") == _tc_args_parsed.get("action_type")
-                ):
-                    existing = _tc_args_parsed.get("params") or {}
-                    if not isinstance(existing, dict):
-                        existing = {}
-                    inferred_p = _inferred_params.get("params") or {}
-                    merged = {**inferred_p, **{k: v for k, v in existing.items() if v}}
-                    _tc_args_parsed["params"] = merged
-                    if merged != existing:
-                        _log.info(
-                            "gap_fill: merged %d inferred params into %s (model emitted %d)",
-                            len(inferred_p), _tc_args_parsed.get("action_type"), len(existing),
-                        )
                 tc_args_with_depth = json.dumps(_tc_args_parsed)
             except Exception:
                 tc_args_with_depth = tc_args
