@@ -1366,21 +1366,6 @@ export class IntentParserService {
         return 'Solend Market Info';
       case 'solend_user_info':
         return 'Solend User Info';
-      // ── Magic Eden Queries ─────────────────────────────────────────────
-      case 'me_collection_info':
-        return `${query.params['collectionSymbol'] ?? ''} Collection`;
-      case 'me_nft_info':
-        return `NFT ${query.params['mintAddress']?.toString().slice(0, 8) ?? ''}...`;
-      case 'me_wallet_nfts':
-        return 'Wallet NFTs';
-      case 'me_collection_activity':
-        return `${query.params['collectionSymbol'] ?? ''} Activity`;
-      case 'me_listings':
-        return `${query.params['collectionSymbol'] ?? ''} Listings`;
-      case 'me_offers':
-        return 'Offers';
-      case 'me_collection_nfts':
-        return `${query.params['collectionSymbol'] ?? ''} NFTs`;
       // ── Cross-Chain Queries ───────────────────────────────────────────
       case 'cross_chain_quote':
         return `Cross-Chain Quote`;
@@ -1417,8 +1402,6 @@ export class IntentParserService {
       // "Marketplace Popular") is not how anyone would say it.
       case 'me_wallet_escrow_balance':
         return 'Your Magic Eden Balance';
-        return 'Popular Collections';
-        return 'Magic Eden Launchpad';
       case 'me_wallet_tokens':
       case 'me_wallet_nfts':
         return 'Your NFTs';
