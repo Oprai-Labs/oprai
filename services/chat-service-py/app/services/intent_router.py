@@ -88,9 +88,16 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "magic_eden":("magiceden", "magic eden", "mmm pool"),
     "tensor":    ("tensor", "tensorians"),
     "streamflow":("streamflow",),
-    # Provider NAMES only. Generic cross-chain intent + chain names are handled
-    # semantically by the classifier (see the cross-chain rule in the prompt).
-    "relay":     ("relay.link", "relay bridge", "wormhole", "mayan"),
+    # Relay providers + EVM chain NAMES. Chain names are a deterministic net so an
+    # explicit "robinhood/base/arbitrum… ağından X al" always loads the cross-chain
+    # path and never falls into the Solana pump.fun memecoin flow (which happened
+    # when a memecoin name pulled the classifier to Solana despite the named EVM
+    # chain). Word-boundary matched, so "base" won't collide with database/based.
+    "relay": (
+        "relay.link", "relay bridge", "wormhole", "mayan",
+        "robinhood", "ethereum", "base", "arbitrum", "optimism", "polygon",
+        "bsc", "bnb chain", "avalanche",
+    ),
     "debridge":  ("debridge",),
 }
 
