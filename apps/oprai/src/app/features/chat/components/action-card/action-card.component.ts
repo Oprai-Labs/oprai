@@ -3400,24 +3400,46 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const accounts = await provider.request({ method: 'eth_requestAccounts' });
       const addr = accounts?.[0];
       if (!addr) { this.evmError.set('That wallet returned no account.'); return; }
-      this.setEditParam(key, addr);
-      // One wallet, both jobs. On an EVM→EVM route the same account sends and
-      // receives, and asking for it twice would be asking the same question
-      // twice. Only the side that is actually EVM gets filled: on BNB→Solana
-      // this account sends, and the Solana wallet already signed in receives.
-      if (key === 'sender' && this.relayDestinationIsEvm() && !this.getEditParam('recipient')) {
-        this.setEditParam('recipient', addr);
-      } else if (key === 'recipient' && this.relayOriginIsEvm() && !this.getEditParam('sender')) {
-        this.setEditParam('sender', addr);
-      }
-      if (this.isRelayBridge()) void this.loadRelayEvmBalance();
-      this.relayMaybeQuote();
+      this.applyEvmAccount(key, addr);
     } catch (err: unknown) {
       this.evmError.set((err as { code?: number })?.code === 4001
         ? 'Connection refused in your wallet.'
         : 'Could not reach that wallet. Paste the destination address instead.');
     } finally {
       this.evmConnecting.set(false);
+    }
+  }
+
+  /** Fill the EVM address into the side(s) that need it. One wallet, both jobs:
+   *  on an EVM→EVM route the same account sends and receives; only the EVM side
+   *  is filled (on BNB→Solana this sends, the Solana wallet already receives). */
+  private applyEvmAccount(key: string, addr: string): void {
+    this.setEditParam(key, addr);
+    if (key === 'sender' && this.relayDestinationIsEvm() && !this.getEditParam('recipient')) {
+      this.setEditParam('recipient', addr);
+    } else if (key === 'recipient' && this.relayOriginIsEvm() && !this.getEditParam('sender')) {
+      this.setEditParam('sender', addr);
+    }
+    if (this.isRelayBridge()) void this.loadRelayEvmBalance();
+    this.relayMaybeQuote();
+  }
+
+  /** If the browser's EVM wallet is ALREADY authorized for this site (the user
+   *  linked it via SIWE), use it silently — no "Connect EVM wallet" click. Uses
+   *  eth_accounts (silent), never eth_requestAccounts (which would pop the wallet
+   *  open unprompted). A truly unauthorized wallet still shows the Connect button. */
+  private async autoConnectEvm(): Promise<void> {
+    const key = this.relayOriginIsEvm() ? 'sender'
+              : this.relayDestinationIsEvm() ? 'recipient' : null;
+    if (!key || this.getEditParam(key)) return;
+    await new Promise(r => setTimeout(r, 350)); // let discovery announce providers
+    if (this.getEditParam(key)) return; // a manual connect may have won the race
+    for (const [id, provider] of this.evmProviders) {
+      try {
+        const accounts = await provider.request({ method: 'eth_accounts' });
+        const addr = accounts?.[0];
+        if (addr) { this.evmProviderId = id; this.applyEvmAccount(key, addr); return; }
+      } catch { /* try the next provider */ }
     }
   }
 
@@ -5738,7 +5760,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeDefaultBorrowCollateral();
     void this.ensureMeCancelTarget();
     this.relaySeedChains();
-    if (this.isRelayBridge()) this.startEvmDiscovery();
+    if (this.isRelayBridge()) { this.startEvmDiscovery(); void this.autoConnectEvm(); }
     // The card arrives with its fields already filled by the model, and the
     // quote only ran on user input — so a bridge someone never typed into sat
     // on "pick both chains" with every chain already picked.
