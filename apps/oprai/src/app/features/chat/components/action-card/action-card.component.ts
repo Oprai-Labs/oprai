@@ -3061,6 +3061,44 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.relayMaybeQuote();
   }
 
+  /** The model gives EVM currencies by NAME ("USDG", "seriouscat"); the card looks
+   *  tokens up by ADDRESS. On init, resolve any named currency to its address via
+   *  the same unverified currency search the picker uses, so the token shows, the
+   *  amount scales, and the quote runs — no manual picking needed. */
+  private async resolveRelayNamedCurrencies(): Promise<void> {
+    const isAddr = (v: string) =>
+      /^0x[0-9a-fA-F]{40}$/.test(v) || /^1{32}$/.test(v)
+      || v === '0x0000000000000000000000000000000000000000';
+    for (const [curKey, chainKey] of [
+      ['originCurrency', 'originChainId'],
+      ['destinationCurrency', 'destinationChainId'],
+    ] as const) {
+      const val = (this.getEditParam(curKey) || '').trim();
+      if (!val || isAddr(val)) continue;
+      const chain = this.relayCanonicalChain(this.getEditParam(chainKey));
+      if (!chain || chain === String(RELAY_SOLANA_CHAIN_ID)) continue; // Solana handled elsewhere
+      try {
+        const resp = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+          type: 'relay_get_currencies',
+          params: { chainIds: [Number(chain)], term: val, limit: 20 },
+        }));
+        const rows: any[] = Array.isArray(resp?.data) ? resp.data : [];
+        const pick = rows.find(r => r?.address && String(r.symbol ?? '').toLowerCase() === val.toLowerCase())
+                  ?? rows.find(r => r?.address);
+        if (!pick) continue; // leave the name; the token selector still lets them pick
+        const addr = String(pick.address);
+        this.setEditParam(curKey, addr);
+        this.relayTokenCache.update(m => new Map(m).set(`${chain}|${addr.toLowerCase()}`, {
+          symbol: String(pick.symbol ?? val),
+          name: String(pick.name ?? ''),
+          logoURI: pick.metadata?.logoURI ?? pick.metadata?.logoUri ?? pick.logoURI ?? null,
+          decimals: pick.decimals,
+        }));
+      } catch { /* leave the name; the user can still pick manually */ }
+    }
+    this.relayMaybeQuote();
+  }
+
   /** Changing a chain invalidates the token chosen on the old one. */
   onRelayChainChange(key: string): void {
     const tokenKey = key === 'originChainId' ? 'originCurrency' : 'destinationCurrency';
@@ -5760,7 +5798,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.maybeDefaultBorrowCollateral();
     void this.ensureMeCancelTarget();
     this.relaySeedChains();
-    if (this.isRelayBridge()) { this.startEvmDiscovery(); void this.autoConnectEvm(); }
+    if (this.isRelayBridge()) {
+      void this.resolveRelayNamedCurrencies();
+      this.startEvmDiscovery();
+      void this.autoConnectEvm();
+    }
     // The card arrives with its fields already filled by the model, and the
     // quote only ran on user input — so a bridge someone never typed into sat
     // on "pick both chains" with every chain already picked.
