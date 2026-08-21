@@ -506,36 +506,76 @@ fn is_valid_evm_address(address: &str) -> bool {
 // Relay quote
 // ──────────────────────────────────────────────────────────────────────────────
 
-/// Append OPRAI's app fee to a Relay quote body if a fee recipient is
-/// configured AND Relay can pay it AND the rate is non-zero.
-///
-/// `fee_bps` is on Relay's scale (10000 = 100%) and is computed per pair by
-/// [`relay_swap_fee_bps`] — the same tiering as Solana (stable↔stable free,
-/// blue-chip standard, long-tail memecoin rate). A zero rate (stable↔stable)
-/// attaches no `appFees` at all rather than an entry that reads as "0".
-///
-/// Relay pays app fees to an EVM address and rejects anything else outright —
-/// `INVALID_APP_FEE_RECIPIENT`, on the quote, before any route is even
-/// considered. The recipient defaults to `OPRAI_FEE_WALLET`, which is a Solana
-/// address, so attaching it unconditionally did not lose us a commission: it
-/// took down every bridge quote there was. A fee we cannot collect must never
-/// cost the user the trade.
-pub fn append_app_fee(body: &mut serde_json::Value, fee_recipient: Option<&str>, fee_bps: u16) {
-    if fee_bps == 0 {
+/// The EVM address that collects the CASHBACK share of the commission, from
+/// `RELAY_CASHBACK_RECIPIENT`. Read once. Split-at-collection: the cashback owed
+/// on a trade goes straight to this pool (which also pays claims out), so the
+/// pool is always funded with exactly what it owes and nothing is topped up by
+/// hand. Unset → the whole fee goes to the profit recipient (no split).
+pub fn relay_cashback_recipient() -> Option<&'static str> {
+    use std::sync::OnceLock;
+    static R: OnceLock<Option<String>> = OnceLock::new();
+    R.get_or_init(|| {
+        std::env::var("RELAY_CASHBACK_RECIPIENT")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| is_valid_evm_address(s))
+    })
+    .as_deref()
+}
+
+/// Split a total fee (bps) into (cashback_bps, profit_bps) by the trader's
+/// cashback tier percent. Rounds the cashback share down; the remainder is profit.
+fn split_fee_bps(total_bps: u16, cashback_pct: u16) -> (u16, u16) {
+    let cb = ((total_bps as u32) * (cashback_pct.min(100) as u32) / 100) as u16;
+    (cb, total_bps.saturating_sub(cb))
+}
+
+fn push_fee(arr: &mut Vec<serde_json::Value>, recipient: Option<&str>, bps: u16) {
+    if bps == 0 {
         return;
     }
-    match fee_recipient.filter(|s| !s.is_empty()) {
-        Some(addr) if is_valid_evm_address(addr) => {
-            body["appFees"] = serde_json::json!([{"recipient": addr, "fee": fee_bps.to_string()}]);
+    match recipient.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(a) if is_valid_evm_address(a) => {
+            arr.push(serde_json::json!({"recipient": a, "fee": bps.to_string()}))
         }
-        Some(addr) => {
-            tracing::warn!(
-                recipient = %addr,
-                "Relay app fee skipped: its recipient must be an EVM address. \
-                 Set RELAY_FEE_RECIPIENT to one to earn on bridges."
-            );
-        }
+        Some(a) => tracing::warn!(
+            recipient = %a,
+            "Relay app fee skipped: its recipient must be an EVM address."
+        ),
         None => {}
+    }
+}
+
+/// Attach OPRAI's app fees to a Relay quote, SPLIT at collection into the cashback
+/// pool and the profit wallet by the trader's tier.
+///
+/// `total_bps` (0 for stable↔stable) is the whole commission; `cashback_pct` is
+/// the trader's tier share (10–40%). The cashback portion goes to
+/// `RELAY_CASHBACK_RECIPIENT` (the pool that also pays claims — so it self-funds),
+/// the rest to `profit_recipient` (`RELAY_FEE_RECIPIENT`). Relay wants EVM
+/// recipients and rejects anything else on the quote, so a non-EVM/absent
+/// recipient is dropped rather than costing the user the trade; if the cashback
+/// recipient is unset the whole fee goes to profit.
+pub fn append_app_fees(
+    body: &mut serde_json::Value,
+    profit_recipient: Option<&str>,
+    total_bps: u16,
+    cashback_pct: u16,
+) {
+    if total_bps == 0 {
+        return;
+    }
+    let cashback_recipient = relay_cashback_recipient();
+    let (cashback_bps, profit_bps) = if cashback_recipient.is_some() {
+        split_fee_bps(total_bps, cashback_pct)
+    } else {
+        (0, total_bps) // no pool configured → all to profit
+    };
+    let mut arr = Vec::new();
+    push_fee(&mut arr, cashback_recipient, cashback_bps);
+    push_fee(&mut arr, profit_recipient, profit_bps);
+    if !arr.is_empty() {
+        body["appFees"] = serde_json::Value::Array(arr);
     }
 }
 
@@ -1056,6 +1096,7 @@ pub async fn get_cross_chain_quote(
     params: &CrossChainSwapParams,
     user_address: &str,
     fee_recipient: Option<&str>,
+    cashback_pct: u16,
 ) -> Result<RelayQuote, AppError> {
     let base_url = if is_testnet(params.origin_chain_id) || is_testnet(params.destination_chain_id)
     {
@@ -1100,7 +1141,7 @@ pub async fn get_cross_chain_quote(
         &params.destination_currency,
     )
     .await;
-    append_app_fee(&mut quote_body, fee_recipient, fee_bps);
+    append_app_fees(&mut quote_body, fee_recipient, fee_bps, cashback_pct);
 
     let response = http
         .post(format!("{}/quote/v2", base_url))
@@ -1135,10 +1176,12 @@ pub async fn build_cross_chain_swap(
     user_address: &str,
     params: &CrossChainSwapParams,
     fee_recipient: Option<&str>,
+    cashback_pct: u16,
 ) -> Result<CrossChainSwapResult, AppError> {
     validate_cross_chain_params(params)?;
 
-    let quote = get_cross_chain_quote(http, params, user_address, fee_recipient).await?;
+    let quote =
+        get_cross_chain_quote(http, params, user_address, fee_recipient, cashback_pct).await?;
 
     // Extract details for preview
     let details = &quote.details;
@@ -1534,6 +1577,7 @@ pub async fn get_relay_quote_full(
     params: &RelayBridgeParams,
     user_address: &str,
     fee_recipient: Option<&str>,
+    cashback_pct: u16,
 ) -> Result<RelayQuote, AppError> {
     // Relay takes base units and rejects anything with a decimal point.
     let scaled_amount = to_base_units(
@@ -1621,7 +1665,7 @@ pub async fn get_relay_quote_full(
         &params.destination_currency,
     )
     .await;
-    append_app_fee(&mut body, fee_recipient, fee_bps);
+    append_app_fees(&mut body, fee_recipient, fee_bps, cashback_pct);
 
     let response = http
         .post(format!("{}/quote/v2", RELAY_API))
@@ -1659,8 +1703,10 @@ pub async fn relay_bridge(
     user_address: &str,
     params: &RelayBridgeParams,
     fee_recipient: Option<&str>,
+    cashback_pct: u16,
 ) -> Result<CrossChainSwapResult, AppError> {
-    let quote = get_relay_quote_full(http, params, user_address, fee_recipient).await?;
+    let quote =
+        get_relay_quote_full(http, params, user_address, fee_recipient, cashback_pct).await?;
 
     let details = &quote.details;
     let origin_symbol = details
@@ -2728,19 +2774,22 @@ mod tests {
     /// attaching one does not forgo a fee — it forgoes the bridge.
     #[test]
     fn a_solana_fee_recipient_is_not_sent_to_relay() {
+        // No RELAY_CASHBACK_RECIPIENT in tests → whole fee goes to profit recipient.
         let mut body = serde_json::json!({});
-        append_app_fee(
+        append_app_fees(
             &mut body,
             Some("Gf3dtGnHRkfaPpeHc2UYfu6mHrTsbFUp4Qx3RqV526h"),
             30,
+            0,
         );
         assert!(body.get("appFees").is_none());
 
         let mut body = serde_json::json!({});
-        append_app_fee(
+        append_app_fees(
             &mut body,
             Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"),
             30,
+            0,
         );
         assert_eq!(body["appFees"][0]["fee"], "30");
     }
@@ -2750,12 +2799,23 @@ mod tests {
     #[test]
     fn a_zero_rate_attaches_no_app_fee() {
         let mut body = serde_json::json!({});
-        append_app_fee(
+        append_app_fees(
             &mut body,
             Some("0x71C7656EC7ab88b098defB751B7401B5f6d8976F"),
             0,
+            20,
         );
         assert!(body.get("appFees").is_none());
+    }
+
+    #[test]
+    fn fee_split_math() {
+        // 100 bps at tier 20% → 20 cashback / 80 profit.
+        assert_eq!(split_fee_bps(100, 20), (20, 80));
+        // 30 bps at 40% → 12 / 18.
+        assert_eq!(split_fee_bps(30, 40), (12, 18));
+        // 0% → all profit.
+        assert_eq!(split_fee_bps(100, 0), (0, 100));
     }
 
     #[test]

@@ -458,6 +458,9 @@ services:
       # service block forwards is not configuration, it is a note to yourself.
       RELAY_API_KEY: ${RELAY_API_KEY:-}
       RELAY_FEE_RECIPIENT: ${RELAY_FEE_RECIPIENT:-}
+      # Cashback share of the Relay app fee is split off to this pool at collection
+      # (the wallet that also pays claims → self-funding). Unset → whole fee to profit.
+      RELAY_CASHBACK_RECIPIENT: ${RELAY_CASHBACK_RECIPIENT:-}
       AUTH_SERVICE_HTTP: http://auth-service-go:3010
       # SDK-only actions (Kamino Multiply/Liquidity, farms, Streamflow, …) and
       # some read queries are delegated to the TS sidecar. Read path uses

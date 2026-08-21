@@ -22,6 +22,7 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), Box<dyn std::error::Err
     const MIGRATION_005: &str = include_str!("../../migrations/005_add_chain.sql");
     const MIGRATION_006: &str = include_str!("../../migrations/006_evm_economics.sql");
     const MIGRATION_007: &str = include_str!("../../migrations/007_robinhood_chain.sql");
+    const MIGRATION_008: &str = include_str!("../../migrations/008_fee_paying_volume.sql");
 
     let mut conn = pool.get().await?;
     conn.batch_execute(MIGRATION_001).await?;
@@ -31,7 +32,8 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), Box<dyn std::error::Err
     conn.batch_execute(MIGRATION_005).await?;
     conn.batch_execute(MIGRATION_006).await?;
     conn.batch_execute(MIGRATION_007).await?;
+    conn.batch_execute(MIGRATION_008).await?;
 
-    tracing::info!("solana_schema migrations applied (001..007)");
+    tracing::info!("solana_schema migrations applied (001..008)");
     Ok(())
 }

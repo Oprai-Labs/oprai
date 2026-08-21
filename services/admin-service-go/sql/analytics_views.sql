@@ -244,11 +244,14 @@ FROM admin_schema.v_wallet_account wa
 JOIN solana_schema.wallet_economics_rollup r ON r.user_wallet = wa.wallet
 GROUP BY wa.account_id, COALESCE(r.chain, 'solana');
 
--- Account tier from AGGREGATE lifetime volume across the account's wallets.
+-- Account tier from AGGREGATE FEE-PAYING volume across the account's wallets.
+-- Only volume that actually paid commission (Jupiter fee-swaps, pump.fun, Relay)
+-- counts — fee-free activity (Orca/Raydium direct, LP, stake, stable↔stable)
+-- must not tier a user up, since cashback is a share of the fees they paid.
 CREATE OR REPLACE VIEW admin_schema.v_account_tier AS
 WITH vol AS (
     SELECT wa.account_id,
-           COALESCE(sum(r.lifetime_notional_usd), 0) AS volume_usd
+           COALESCE(sum(r.lifetime_fee_notional_usd), 0) AS volume_usd
     FROM admin_schema.v_wallet_account wa
     JOIN solana_schema.wallet_economics_rollup r ON r.user_wallet = wa.wallet
     GROUP BY wa.account_id

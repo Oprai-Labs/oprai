@@ -3137,6 +3137,7 @@ pub async fn build_action(
     action_type: &str,
     params: serde_json::Value,
     fee_discount_pct: u16,
+    cashback_pct: u16,
 ) -> Result<BuildResponse, AppError> {
     let mut built = build_action_inner(
         http,
@@ -3149,6 +3150,7 @@ pub async fn build_action(
         action_type,
         params,
         fee_discount_pct,
+        cashback_pct,
     )
     .await?;
     if let Some(tx) = built.transaction.take() {
@@ -3169,6 +3171,7 @@ async fn build_action_inner(
     action_type: &str,
     params: serde_json::Value,
     fee_discount_pct: u16,
+    cashback_pct: u16,
 ) -> Result<BuildResponse, AppError> {
     // Magic Eden writes may arrive naming an NFT by collection and number; the
     // mint is resolved at the route, before validation, since validation is
@@ -5261,6 +5264,7 @@ async fn build_action_inner(
                         &user_pubkey.to_string(),
                         &p,
                         relay_fee_recipient,
+                        cashback_pct,
                     )
                     .await?;
 
@@ -5367,9 +5371,14 @@ async fn build_action_inner(
                 &p.origin_currency,
             )
             .await;
-            let result =
-                relay::relay_bridge(http, &user_pubkey.to_string(), &p, relay_fee_recipient)
-                    .await?;
+            let result = relay::relay_bridge(
+                http,
+                &user_pubkey.to_string(),
+                &p,
+                relay_fee_recipient,
+                cashback_pct,
+            )
+            .await?;
             Ok(BuildResponse {
                 preview: ActionPreview {
                     id: result.preview.id,
@@ -5888,6 +5897,7 @@ async fn build_action_inner(
                 &p,
                 &user_pubkey.to_string(),
                 relay_fee_recipient,
+                cashback_pct,
             )
             .await?;
             Ok(BuildResponse {

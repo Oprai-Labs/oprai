@@ -206,14 +206,17 @@ pub async fn finalize_confirmed(
     // is carried so the pooled-tier query can sum a whole account in one place.
     if let Err(e) = diesel::sql_query(
         r#"INSERT INTO solana_schema.wallet_economics_rollup
-             (user_wallet, chain, account_id, lifetime_notional_usd, lifetime_fee_usd,
-              lifetime_cashback_usd, confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
+             (user_wallet, chain, account_id, lifetime_notional_usd, lifetime_fee_notional_usd,
+              lifetime_fee_usd, lifetime_cashback_usd, confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
            SELECT user_wallet, COALESCE(chain,'solana'), account_id,
-                  COALESCE(notional_usd,0), COALESCE(fee_usd,0),
+                  COALESCE(notional_usd,0),
+                  CASE WHEN COALESCE(fee_usd,0) > 0 THEN COALESCE(notional_usd,0) ELSE 0 END,
+                  COALESCE(fee_usd,0),
                   COALESCE(cashback_usd,0), 1, now(), now(), now()
            FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid
            ON CONFLICT (user_wallet, chain) DO UPDATE SET
              lifetime_notional_usd = wallet_economics_rollup.lifetime_notional_usd + EXCLUDED.lifetime_notional_usd,
+             lifetime_fee_notional_usd = wallet_economics_rollup.lifetime_fee_notional_usd + EXCLUDED.lifetime_fee_notional_usd,
              lifetime_fee_usd      = wallet_economics_rollup.lifetime_fee_usd      + EXCLUDED.lifetime_fee_usd,
              lifetime_cashback_usd = wallet_economics_rollup.lifetime_cashback_usd + EXCLUDED.lifetime_cashback_usd,
              confirmed_tx_count    = wallet_economics_rollup.confirmed_tx_count    + 1,
@@ -332,9 +335,6 @@ async fn expected_fee_usd(pool: &DbPool, transaction_id: uuid::Uuid, notional_us
 /// vice-versa. Stays inside solana_schema (no cross-schema read) because the
 /// rollup now carries account_id.
 pub async fn account_tier_volume_usd(pool: &DbPool, account_id: Option<&str>, wallet: &str) -> f64 {
-    let Some(acct) = account_id.filter(|a| !a.is_empty()) else {
-        return wallet_volume_usd(pool, wallet).await;
-    };
     #[derive(diesel::QueryableByName)]
     struct Row {
         #[diesel(sql_type = Double)]
@@ -344,16 +344,26 @@ pub async fn account_tier_volume_usd(pool: &DbPool, account_id: Option<&str>, wa
         Ok(c) => c,
         Err(_) => return 0.0,
     };
-    diesel::sql_query(
-        r#"SELECT COALESCE(sum(lifetime_notional_usd), 0)::double precision AS v
-           FROM solana_schema.wallet_economics_rollup
-           WHERE account_id = $1"#,
-    )
-    .bind::<Text, _>(acct)
-    .get_result::<Row>(&mut conn)
-    .await
-    .map(|r| r.v)
-    .unwrap_or(0.0)
+    // Tier is driven by FEE-PAYING volume only (lifetime_fee_notional_usd), pooled
+    // across the account when known, else the single wallet.
+    let (sql, key) = match account_id.filter(|a| !a.is_empty()) {
+        Some(acct) => (
+            "SELECT COALESCE(sum(lifetime_fee_notional_usd), 0)::double precision AS v \
+             FROM solana_schema.wallet_economics_rollup WHERE account_id = $1",
+            acct.to_string(),
+        ),
+        None => (
+            "SELECT COALESCE(sum(lifetime_fee_notional_usd), 0)::double precision AS v \
+             FROM solana_schema.wallet_economics_rollup WHERE user_wallet = $1",
+            wallet.to_string(),
+        ),
+    };
+    diesel::sql_query(sql)
+        .bind::<Text, _>(key)
+        .get_result::<Row>(&mut conn)
+        .await
+        .map(|r| r.v)
+        .unwrap_or(0.0)
 }
 
 /// Record a CONFIRMED EVM (Relay) swap's economics in one authoritative call.
@@ -474,14 +484,17 @@ pub async fn record_evm_confirmed(
     // Fold into the same rollups the Solana path writes (per wallet+chain, daily).
     let _ = diesel::sql_query(
         r#"INSERT INTO solana_schema.wallet_economics_rollup
-             (user_wallet, chain, account_id, lifetime_notional_usd, lifetime_fee_usd,
-              lifetime_cashback_usd, confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
+             (user_wallet, chain, account_id, lifetime_notional_usd, lifetime_fee_notional_usd,
+              lifetime_fee_usd, lifetime_cashback_usd, confirmed_tx_count, first_tx_at, last_tx_at, updated_at)
            SELECT user_wallet, COALESCE(chain,'solana'), account_id,
-                  COALESCE(notional_usd,0), COALESCE(fee_usd,0),
+                  COALESCE(notional_usd,0),
+                  CASE WHEN COALESCE(fee_usd,0) > 0 THEN COALESCE(notional_usd,0) ELSE 0 END,
+                  COALESCE(fee_usd,0),
                   COALESCE(cashback_usd,0), 1, now(), now(), now()
            FROM solana_schema.tx_economics WHERE transaction_id = $1::uuid
            ON CONFLICT (user_wallet, chain) DO UPDATE SET
              lifetime_notional_usd = wallet_economics_rollup.lifetime_notional_usd + EXCLUDED.lifetime_notional_usd,
+             lifetime_fee_notional_usd = wallet_economics_rollup.lifetime_fee_notional_usd + EXCLUDED.lifetime_fee_notional_usd,
              lifetime_fee_usd      = wallet_economics_rollup.lifetime_fee_usd      + EXCLUDED.lifetime_fee_usd,
              lifetime_cashback_usd = wallet_economics_rollup.lifetime_cashback_usd + EXCLUDED.lifetime_cashback_usd,
              confirmed_tx_count    = wallet_economics_rollup.confirmed_tx_count    + 1,
