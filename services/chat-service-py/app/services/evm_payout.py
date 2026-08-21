@@ -75,11 +75,21 @@ async def _native_price_usd(client: httpx.AsyncClient, coingecko_id: str) -> flo
     return float(r.json()[coingecko_id]["usd"])
 
 
-async def payout(chain: str, recipient: str, amount_usd: float) -> str:
-    """Send `amount_usd` worth of native token to `recipient` on `chain`.
+GAS_LIMIT = 21000  # a plain native transfer
 
-    Returns the transaction hash. Raises `EvmPayoutError` for pre-broadcast
-    rejections; other exceptions mean the broadcast state is unknown.
+
+async def payout(
+    chain: str, recipient: str, claimable_usd: float, min_fee_usd: float
+) -> tuple[str, float, float]:
+    """Pay a cashback claim on `chain` in its native token.
+
+    The fee charged to the user is `max(min_fee_usd, actual network gas)` — so the
+    claimer always bears the real cost and OPRAI never subsidises a payout. The
+    user receives `claimable_usd - fee`. Returns `(tx_hash, fee_usd, net_usd)`.
+
+    Raises `EvmPayoutError` for pre-broadcast rejections (safe to release the
+    reservation, including "reward too small to cover the network fee"); any other
+    exception means the broadcast state is unknown.
     """
     acct = _treasury_account()
     if acct is None:
@@ -96,16 +106,27 @@ async def payout(chain: str, recipient: str, amount_usd: float) -> str:
         price = await _native_price_usd(client, cg_id)
         if price <= 0:
             raise RuntimeError("could not price the native token")
-        value_wei = int(amount_usd / price * 1e18)
+
+        gas_price = int(await _rpc(client, rpc_url, "eth_gasPrice", []), 16)
+        # Gas cost of THIS transfer, in USD — the floor the fee must cover.
+        gas_usd = (GAS_LIMIT * gas_price / 1e18) * price
+        fee_usd = round(max(min_fee_usd, gas_usd), 6)
+        net_usd = round(claimable_usd - fee_usd, 6)
+        if net_usd <= 0:
+            raise EvmPayoutError(
+                "This reward is too small to cover the network fee on "
+                f"{chain}. It keeps accruing — claim once it's a bit larger."
+            )
+
+        value_wei = int(net_usd / price * 1e18)
         if value_wei <= 0:
             raise EvmPayoutError("Cashback amount is too small to pay out.")
 
         nonce = int(await _rpc(client, rpc_url, "eth_getTransactionCount", [acct.address, "pending"]), 16)
-        gas_price = int(await _rpc(client, rpc_url, "eth_gasPrice", []), 16)
         tx = {
             "to": recipient,
             "value": value_wei,
-            "gas": 21000,  # a plain native transfer
+            "gas": GAS_LIMIT,
             "gasPrice": gas_price,
             "nonce": nonce,
             "chainId": chain_id,
@@ -117,4 +138,5 @@ async def payout(chain: str, recipient: str, amount_usd: float) -> str:
         raw_hex = raw.hex()
         if not raw_hex.startswith("0x"):
             raw_hex = "0x" + raw_hex
-        return await _rpc(client, rpc_url, "eth_sendRawTransaction", [raw_hex])
+        tx_hash = await _rpc(client, rpc_url, "eth_sendRawTransaction", [raw_hex])
+        return tx_hash, fee_usd, net_usd

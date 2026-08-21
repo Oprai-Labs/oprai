@@ -347,6 +347,7 @@ class EventIn(BaseModel):
 @app.post("/events")
 async def ingest_event(
     evt: EventIn,
+    _auth: str = Depends(require_auth),
     x_user_wallet: str = Header(..., alias="X-User-Wallet"),
 ):
     """Record one product-analytics event (meta only — never message content/PII).
@@ -438,6 +439,7 @@ async def _resolve_evm_recipient(s, wallet: str, account_id: str | None) -> str 
 
 @app.get("/me/rewards")
 async def get_rewards(
+    _auth: str = Depends(require_auth),
     x_user_wallet: str = Header(..., alias="X-User-Wallet"),
     x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
@@ -546,7 +548,11 @@ class RedeemBody(BaseModel):
 
 
 @app.post("/referral/redeem")
-async def redeem_referral(body: RedeemBody, x_user_wallet: str = Header(..., alias="X-User-Wallet")):
+async def redeem_referral(
+    body: RedeemBody,
+    _auth: str = Depends(require_auth),
+    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+):
     """Link the caller to a referrer via their code. One referrer per referee; no self-referral."""
     referee = x_user_wallet
     code = (body.code or "").strip().upper()
@@ -571,6 +577,7 @@ async def redeem_referral(body: RedeemBody, x_user_wallet: str = Header(..., ali
 @app.post("/me/cashback/claim")
 async def claim_cashback(
     chain: str = "solana",
+    _auth: str = Depends(require_auth),
     x_user_wallet: str = Header(..., alias="X-User-Wallet"),
     x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
@@ -652,12 +659,17 @@ async def claim_cashback(
     # here via eth_account (the EVM treasury key lives in this service's env).
     solana = os.getenv("SOLANA_SERVICE_HTTP", "http://solana-service-rs:3030")
     released = False
+    reject_reason: str | None = None
     try:
         if is_evm:
             try:
-                sig = await evm_payout.payout(chain, evm_recipient, net)
+                # The EVM fee is gas-aware: never below the actual network cost, so
+                # the claimer bears it and we never subsidise. It returns the real
+                # fee/net, which override the flat estimate for the receipt.
+                sig, fee, net = await evm_payout.payout(chain, evm_recipient, claimable, fee)
             except evm_payout.EvmPayoutError as e:
                 released = True
+                reject_reason = str(e)  # user-facing: too small to cover fee, etc.
                 raise RuntimeError(f"payout rejected: {e}")
         else:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -678,6 +690,10 @@ async def claim_cashback(
                 "UPDATE analytics_schema.cashback_claims SET status=:st WHERE id=:i"),
                 {"st": "failed" if released else "pending", "i": claim_id})
             await s.commit()
+        # A clean pre-broadcast rejection (e.g. reward below the network fee) is a
+        # 400 with the real reason; an ambiguous failure stays a generic 502.
+        if released and reject_reason:
+            raise HTTPException(status_code=400, detail=reject_reason)
         raise HTTPException(
             status_code=502,
             detail="Cashback payout could not be completed right now. Please try again shortly.")
