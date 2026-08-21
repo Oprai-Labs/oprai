@@ -702,6 +702,10 @@ fn resolve_bridge_recipient<'a>(
         Some(_) => Err(AppError::InvalidParams(
             "That recipient is not a Solana address, and this bridge lands on Solana.".into(),
         )),
+        // No recipient named, landing on EVM: if the connected wallet is itself
+        // an EVM address (an EVM-origin or same-chain swap), land on it. Only a
+        // Solana signer with no EVM recipient is turned away.
+        None if dest_is_evm && is_valid_evm_address(user_address) => Ok(user_address),
         None if dest_is_evm => Err(AppError::InvalidParams(
             "This bridge lands on an EVM chain, so it needs an EVM address to land on. \
              Connect an EVM wallet."
@@ -735,6 +739,9 @@ fn resolve_bridge_sender<'a>(
             "That sending address is not an EVM address, and this bridge leaves an EVM chain."
                 .into(),
         )),
+        // EVM-authenticated caller: the connected wallet (X-User-Wallet) is the
+        // sender, so an EVM-origin swap needs no explicit sender param.
+        None if is_valid_evm_address(user_address) => Ok(user_address),
         None => Err(AppError::InvalidParams(
             "This bridge leaves an EVM chain, so it needs an EVM wallet to send from. \
              Connect one above."
