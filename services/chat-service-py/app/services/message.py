@@ -499,31 +499,25 @@ def _language_anchor(user_content: str, model_messages: list[dict]) -> str | Non
 # message anywhere in the visible history — still locks to the user's known
 # language instead of letting the model free-pick (which has produced English,
 # then Spanish, on QUACKSSANT-style symbol-only turns).
-# Any Unicode letters, two or more. The old class was Latin plus the Turkish
-# letters and required three characters, which failed twice over: user_facts
-# stores this as ISO 639-1 ("tr", "es"), so a correctly-stored value was too
-# short to match at all, and a language named in its own script ("русский",
-# "中文") had no letters the class recognised. Both are languages the assistant
-# is expected to answer in.
-_PREF_LANG_RE = re.compile(r"language:\s*([^\W\d_]{2,})", re.IGNORECASE | re.UNICODE)
+async def _preferred_language(db, wallet: str) -> str | None:
+    """The wallet's durable preferred-language fact, or None.
 
+    Used only when the turn carries no language of its own — a bare mint, a
+    ticker, a number. It used to be scraped back out of the injected memory
+    block with a regex, which meant guessing at how a language might be named
+    and in which script; the fact is a database column, so it is read as one.
 
-def _preferred_language_from_context(model_messages: list[dict]) -> str | None:
-    """Return the user's durable preferred-language name (e.g. 'Turkish') from
-    the injected memory system messages, or None."""
-    for _m in reversed(model_messages):
-        if _m.get("role") != "system":
-            continue
-        _txt = _m.get("content")
-        if not isinstance(_txt, str) or "language:" not in _txt.lower():
-            continue
-        _match = _PREF_LANG_RE.search(_txt)
-        if _match:
-            _lang = _match.group(1).strip()
-            # Guard against matching e.g. "language: the same" style prose.
-            if _lang.lower() not in ("the", "same", "user", "users", "their"):
-                return _lang
-    return None
+    The memory block no longer shows this fact to the model at all. Presented
+    there under "honour these preferences", it out-argued the language of the
+    message the user had just typed: a Turkish greeting does not read as
+    *contradicting* a stored "Arabic", so the model kept answering in Arabic.
+    """
+    try:
+        from app.services.user_facts import get_preferred_language
+        return await get_preferred_language(db, wallet)
+    except Exception:
+        _log.debug("preferred-language lookup failed", exc_info=True)
+        return None
 
 
 # Keys that only appear inside tool-call JSON blobs — never in normal prose.
@@ -1646,7 +1640,7 @@ async def stream_chat_response(
                 "literal translation."
             ),
         })
-    elif (_pref_lang := _preferred_language_from_context(model_messages)):
+    elif (_pref_lang := await _preferred_language(db, wallet)):
         # No natural-language message anywhere (symbol/mint-only turn) — fall
         # back to the user's durable preferred language so we never free-pick.
         model_messages.append({
@@ -2640,7 +2634,7 @@ async def stream_chat_response(
                 # conversation's language instead of defaulting to English.
                 _user_excerpt_fu = (_language_anchor(user_content, model_messages) or "")[:400]
                 _pref_lang_fu = (
-                    _preferred_language_from_context(model_messages)
+                    await _preferred_language(db, wallet)
                     if not _user_excerpt_fu else None
                 )
                 if _user_excerpt_fu:

@@ -259,6 +259,39 @@ async def decay_stale_facts(db: AsyncSession, wallet: str) -> None:
         await db.rollback()
 
 
+async def get_preferred_language(db: AsyncSession, wallet: str) -> str | None:
+    """This wallet's durable preferred-language fact, or None.
+
+    Read directly rather than scraped back out of the rendered memory block —
+    the block no longer carries it, and a database column beats a regex over
+    prose that had to guess at scripts and name lengths.
+    """
+    if not wallet:
+        return None
+    try:
+        row = await db.execute(
+            sa_text(
+                f"""
+                SELECT fact_value
+                FROM {settings.DB_SCHEMA}.user_facts
+                WHERE wallet = :wallet AND fact_type = 'language'
+                  AND confidence >= 0.4
+                LIMIT 1
+                """
+            ),
+            {"wallet": wallet},
+        )
+        val = row.scalar()
+    except Exception:
+        logger.debug("user_facts: preferred-language lookup failed", exc_info=True)
+        return None
+    if val is None:
+        return None
+    name = val if isinstance(val, str) else str(val)
+    name = name.strip().strip('"').strip()
+    return name or None
+
+
 async def render_for_llm(db: AsyncSession, wallet: str) -> str:
     """Format this wallet's stored facts into a single system message.
 
@@ -292,6 +325,15 @@ async def render_for_llm(db: AsyncSession, wallet: str) -> str:
 
     parts: list[str] = ["[User Memory — durable preferences across sessions]"]
     for ft, fv, conf in items:
+        # `language` is deliberately withheld from the block. It is routing
+        # metadata for us, not a standing instruction for the model: shown here
+        # under "honour these preferences", it competes with the language of the
+        # message the user just sent — and wins, because a Turkish greeting does
+        # not read as *contradicting* a stored "Arabic". The preference still
+        # decides the reply language, via `get_preferred_language()`, but only
+        # on turns that carry no language of their own (a bare mint, a ticker).
+        if ft == "language":
+            continue
         # JSONB → Python type
         if isinstance(fv, (dict, list)):
             value_str = json.dumps(fv, ensure_ascii=False)
