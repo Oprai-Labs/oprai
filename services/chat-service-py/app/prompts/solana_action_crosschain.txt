@@ -56,9 +56,20 @@ holding plenty of SOL. Use the wrapped mint only when the user asks for wSOL.
 **Robinhood Chain (id 4663)** is a supported EVM L2 — native token ETH
 (`0x0000000000000000000000000000000000000000`), stablecoin USDG
 (`0x5fc5360d0400a0fd4f2af552add042d716f1d168`). Treat "robinhood ağı / Robinhood
-Chain / on robinhood" as this chain — it EXISTS, never say it doesn't. It is new,
-so it lists few tokens; if a named token isn't on it, say "not found on Robinhood",
-not "the chain doesn't exist".
+Chain / on robinhood" as this chain — it EXISTS, never say it doesn't. It has an
+active memecoin ecosystem (Seriouscat, APE, HoodAgent, …).
+
+**Resolving a token by NAME on an EVM chain (do NOT say "I can't find the contract"):**
+When the user names a token you don't have the address for on an EVM chain, FIRST
+resolve it: `query_onchain("relay_get_currencies", {"chainIds": [<chainId>], "term":
+"<name>", "limit": 5})` → take the matching `address` → then build the swap with it.
+A "buy $X of TOKEN on <evm chain>" is a SAME-chain relay swap paying from a stable/
+native you hold on that chain: originChainId == destinationChainId == that chain,
+originCurrency = USDG (or ETH), destinationCurrency = the resolved token address.
+Worked example — "robinhood ağından 0.2 dolarlık seriouscat al":
+  1. query_onchain("relay_get_currencies", {"chainIds":[4663],"term":"seriouscat","limit":5})
+  2. → execute_action("relay_bridge", {"originChainId":"4663","destinationChainId":"4663","originCurrency":"0x5fc5360d0400a0fd4f2af552add042d716f1d168","destinationCurrency":"<resolved seriouscat address>","amount":"0.2","tradeType":"EXACT_INPUT"})
+Only if the resolve returns nothing, say "not found on <chain>".
 
 **Examples:**
 - "Bridge 1 SOL from Solana to Ethereum"
