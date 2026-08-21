@@ -3,7 +3,7 @@
     <div class="card">
       <header class="card-head">
         <div>
-          <h3 class="card-title">{{ row.title }}</h3>
+          <h3 class="card-title">{{ row.title | t }}</h3>
           <span class="card-meta">{{ resetIn(getTimeframe(row.key)?.resetsAt) }}</span>
         </div>
         <span class="card-pct"

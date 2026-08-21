@@ -48,7 +48,7 @@
           }
         </span>
         <span class="donut-tooltip__text">
-          <span class="donut-tooltip__label">{{ seg.label }}</span>
+          <span class="donut-tooltip__label">{{ seg.label | t }}</span>
           <span class="donut-tooltip__value">
             {{ seg.value | currency:'USD':'symbol':'1.2-2' }}
             <span class="donut-tooltip__pct">· {{ seg.percent | number:'1.1-1' }}%</span>
@@ -80,7 +80,7 @@
               <span class="legend-dot" [style.background]="seg.color"></span>
             }
           </span>
-          <span class="legend-label">{{ seg.label }}</span>
+          <span class="legend-label">{{ seg.label | t }}</span>
           <span class="legend-percent">{{ seg.percent | number:'1.1-1' }}%</span>
         </div>
       }

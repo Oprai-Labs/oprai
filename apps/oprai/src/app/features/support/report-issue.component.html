@@ -23,7 +23,7 @@
             <button type="button" class="report-cat"
                     [class.is-active]="category() === cat.id"
                     (click)="category.set(cat.id)">
-              <span class="report-cat__label">{{ cat.label }}</span>
+              <span class="report-cat__label">{{ cat.label | t }}</span>
               <span class="report-cat__hint">{{ cat.hint }}</span>
             </button>
           }
@@ -87,7 +87,7 @@
                     [class.is-done]="r.status !== 'dismissed' && i <= stepIndex(r.status)"
                     [class.is-current]="r.status !== 'dismissed' && i === stepIndex(r.status)">
                   <span class="report-track__dot"></span>
-                  <span class="report-track__label">{{ s.label }}</span>
+                  <span class="report-track__label">{{ s.label | t }}</span>
                 </li>
               }
             </ol>

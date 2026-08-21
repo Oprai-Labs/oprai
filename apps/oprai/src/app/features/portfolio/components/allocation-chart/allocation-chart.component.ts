@@ -1,5 +1,6 @@
 import { Component, Input, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { TPipe } from '@core/i18n';
 
 export interface ChartSegment {
   label: string;
@@ -34,7 +35,7 @@ const SEGMENT_GAP = 4;
 @Component({
   selector: 'app-allocation-chart',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, TPipe],
   templateUrl: './allocation-chart.component.html',
   styleUrl: './allocation-chart.component.scss',
 })

@@ -138,7 +138,7 @@
                 @for (pos of section.positions; track pos.label) {
                   <tr class="position-row">
                     <td class="col-label">
-                      <span class="position-label">{{ pos.label }}</span>
+                      <span class="position-label">{{ pos.label | t }}</span>
                       @if (section.category === 'borrowing' && pos.metadata['healthFactor'] != null) {
                         <span class="risk-badge" [attr.data-tier]="riskTier(+pos.metadata['healthFactor']!)">
                           HF {{ +pos.metadata['healthFactor']! | number:'1.2-2' }}

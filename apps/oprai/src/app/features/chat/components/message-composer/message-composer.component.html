@@ -46,7 +46,7 @@
             (mousemove)="pickerActiveIndex.set(i)"
           >
             <img class="protocol-logo" [src]="proto.logo" [alt]="proto.label" />
-            <span class="protocol-picker-label">{{ proto.label }}</span>
+            <span class="protocol-picker-label">{{ proto.label | t }}</span>
             <span class="protocol-picker-desc">{{ proto.description }}</span>
           </button>
         }
@@ -150,7 +150,7 @@
     @for (proto of selectedProtocols(); track proto.id) {
       <div class="protocol-chip">
         <img class="protocol-chip-logo" [src]="proto.logo" [alt]="proto.label" />
-        <span>{{ proto.label }}</span>
+        <span>{{ proto.label | t }}</span>
         <button class="mode-chip-remove" (click)="removeProtocol(proto)" [attr.aria-label]="'Remove ' + proto.label">
           <lucide-icon name="x" [size]="12" />
         </button>

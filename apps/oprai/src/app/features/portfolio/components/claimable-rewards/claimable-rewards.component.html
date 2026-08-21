@@ -93,7 +93,7 @@
                 @for (p of g.positions; track p.label) {
                   <tr>
                     <td class="col-pos">
-                      <div class="pos-label">{{ p.label }}</div>
+                      <div class="pos-label">{{ p.label | t }}</div>
                       @if (p.tokens.length > 0) {
                         <div class="pos-tokens">
                           @for (t of p.tokens; track t.symbol; let last = $last) {

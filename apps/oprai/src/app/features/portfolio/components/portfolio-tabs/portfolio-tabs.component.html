@@ -5,7 +5,7 @@
       [class.active]="activeTab === tab.id"
       (click)="selectTab(tab.id)"
     >
-      {{ tab.label }}
+      {{ tab.label | t }}
     </button>
   }
 </nav>

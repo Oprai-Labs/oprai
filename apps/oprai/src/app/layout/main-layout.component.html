@@ -125,7 +125,7 @@
             }
           } @else {
             @for (group of sidebarGroupedSessions(); track group.label) {
-              <div class="history-group-label">{{ group.label }}</div>
+              <div class="history-group-label">{{ group.label | t }}</div>
               @for (session of group.sessions; track session.id) {
                 @if (deleteConfirmId() === session.id) {
                   <div class="delete-confirm">
@@ -155,7 +155,7 @@
                     (click)="onSelectSession(session)"
                     (contextmenu)="onContextMenu($event, session.id)"
                   >
-                    <span class="history-item-title truncate">{{ session.title }}</span>
+                    <span class="history-item-title truncate">{{ session.title | t }}</span>
                     <button
                       class="history-item-menu"
                       (click)="openMenu($event, session.id)"
@@ -414,7 +414,7 @@
             </div>
           } @else {
             @for (group of filteredGroupedSessions(); track group.label) {
-              <div class="search-group-label">{{ group.label }}</div>
+              <div class="search-group-label">{{ group.label | t }}</div>
               @for (session of group.sessions; track session.id) {
                 @if (searchDeleteConfirmId() === session.id) {
                   <div class="search-delete-confirm">
@@ -444,7 +444,7 @@
                   >
                     <button class="search-result-main" (click)="onSearchSessionClick(session)">
                       <lucide-icon name="message-circle" [size]="16" />
-                      <span class="truncate">{{ session.title }}</span>
+                      <span class="truncate">{{ session.title | t }}</span>
                     </button>
                     <div class="search-result-actions">
                       <button class="search-result-action" (click)="openSessionFromSearch($event, session)" [attr.aria-label]="'Open chat' | t">
@@ -470,7 +470,7 @@
               <div class="search-preview-header">
                 <div class="search-preview-meta">
                   <p class="search-preview-kicker">{{ 'Conversation' | t }}</p>
-                  <h3 class="search-preview-title">{{ previewSession.title }}</h3>
+                  <h3 class="search-preview-title">{{ previewSession.title | t }}</h3>
                 </div>
                 <button class="search-open-chat" (click)="openPreviewSession()">
                   <span>{{ 'Open chat' | t }}</span>

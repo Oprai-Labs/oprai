@@ -530,7 +530,7 @@
                 <div class="me-act__traits">
                   @for (tr of meNftTraits(); track tr.label) {
                     <div class="me-act__trait">
-                      <span class="me-act__trait-k">{{ tr.label }}</span>
+                      <span class="me-act__trait-k">{{ tr.label | t }}</span>
                       <span class="me-act__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
                     </div>
                   }
@@ -576,7 +576,7 @@
               <div class="me-quick">
                 @for (q of meQuickFills(); track q.label) {
                   <button type="button" class="me-quick__btn" (click)="applyMeQuickFill(q.value)">
-                    {{ q.label }} <span class="mono">{{ q.value | number:'1.0-3' }}</span>
+                    {{ q.label | t }} <span class="mono">{{ q.value | number:'1.0-3' }}</span>
                   </button>
                 }
               </div>
@@ -593,7 +593,7 @@
                   <button type="button" class="me-quick__btn"
                           [class.me-quick__btn--active]="meExpiryDays() === c.days"
                           [disabled]="!isEditable()"
-                          (click)="setMeExpiry(c.days)">{{ c.label }}</button>
+                          (click)="setMeExpiry(c.days)">{{ c.label | t }}</button>
                 }
               </div>
               <!-- The chip says "7 days"; this says which day. A listing that
@@ -1320,7 +1320,7 @@
                     [class.clmm-preset--active]="clmmActiveRangePct() === preset.pct"
                     [class.clmm-preset--unaffordable]="clmmPresetCost(preset.pct)?.affordable === false"
                     (click)="applyClmmRangePreset(preset.pct)">
-                    {{ preset.label }}
+                    {{ preset.label | t }}
                   </button>
                 }
               </div>
@@ -1668,7 +1668,7 @@
                     <button type="button" class="clmm-preset"
                             [class.clmm-preset--active]="meteoraStrategy() === s.value"
                             [title]="s.hint"
-                            (click)="setMeteoraStrategy(s.value)">{{ s.label }}</button>
+                            (click)="setMeteoraStrategy(s.value)">{{ s.label | t }}</button>
                   }
                 </div>
                 <div class="clmm-min-hint" [class.clmm-min-hint--warn]="meteoraBinsOverflow()">
@@ -3795,7 +3795,7 @@
 
               <div class="proto-field-header">
                 <label class="proto-field-label">
-                  {{ field.label }}
+                  {{ field.label | t }}
                   @if (field.required) { <span class="proto-required">*</span> }
                   <!-- Long hints used to render inline beside the label, which
                        made any field with a hint visually taller than its
@@ -4042,7 +4042,7 @@
                       <option [value]="opt.value"
                               [selected]="getEditParam(field.key) === opt.value ||
                                          (!getEditParam(field.key) && $first)">
-                        {{ opt.label }}
+                        {{ opt.label | t }}
                       </option>
                     }
                   </select>
@@ -5482,7 +5482,7 @@
           </div>
           @for (f of safetyAlerts(); track f.title) {
             <div class="tok-safety__item">
-              <div class="tok-safety__title">{{ f.title }}</div>
+              <div class="tok-safety__title">{{ f.title | t }}</div>
               <div class="tok-safety__detail">{{ f.detail }}</div>
             </div>
           }
@@ -5586,7 +5586,7 @@
                   <img [src]="c.icon" [alt]="c.label" (load)="$any($event.target).parentElement.classList.add('has-img')" (error)="$any($event.target).style.display='none'" />
                 }
               </span>
-              {{ c.label }}
+              {{ c.label | t }}
             </button>
           }
         </div>

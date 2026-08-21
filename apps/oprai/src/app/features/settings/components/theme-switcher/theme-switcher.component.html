@@ -15,7 +15,7 @@
           (click)="setTheme(opt.value)"
         >
           <lucide-icon [name]="opt.icon" [size]="14" />
-          <span>{{ opt.label }}</span>
+          <span>{{ opt.label | t }}</span>
         </button>
       }
     </div>
@@ -31,7 +31,7 @@
     <div class="select-wrap">
       <select class="select" [(ngModel)]="selectedLanguage" [attr.aria-label]="'Interface language' | t">
         @for (lang of languageOptions; track lang.value) {
-          <option [value]="lang.value">{{ lang.label }}</option>
+          <option [value]="lang.value">{{ lang.label | t }}</option>
         }
       </select>
       <lucide-icon class="select-chevron" name="chevron-down" [size]="14" />

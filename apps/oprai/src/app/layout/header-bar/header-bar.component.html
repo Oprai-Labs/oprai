@@ -13,7 +13,7 @@
           [routerLinkActiveOptions]="{ exact: link.exact }"
         >
           <lucide-icon [name]="link.icon" [size]="15" />
-          <span>{{ link.label }}</span>
+          <span>{{ link.label | t }}</span>
         </a>
       }
     </nav>

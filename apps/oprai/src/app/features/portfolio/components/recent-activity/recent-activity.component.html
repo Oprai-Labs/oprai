@@ -112,7 +112,7 @@
           [class.active]="activeFilter() === f.id"
           (click)="setFilter(f.id)"
         >
-          {{ f.label }}
+          {{ f.label | t }}
         </button>
       }
     </div>
@@ -191,7 +191,7 @@
                         (error)="onPlatformIconError($event, proto.key)"
                         loading="lazy"
                       />
-                      <span class="platform-name">{{ proto.label }}</span>
+                      <span class="platform-name">{{ proto.label | t }}</span>
                       @if (getTxProtocols(tx).length > 1) {
                         <span class="more-protocols">+{{ getTxProtocols(tx).length - 1 }}</span>
                       }
@@ -455,7 +455,7 @@
                           (error)="onPlatformIconError($event, protocol.key)"
                           loading="lazy"
                         />
-                        <span>{{ protocol.label }}</span>
+                        <span>{{ protocol.label | t }}</span>
                       </div>
                     }
                   </div>

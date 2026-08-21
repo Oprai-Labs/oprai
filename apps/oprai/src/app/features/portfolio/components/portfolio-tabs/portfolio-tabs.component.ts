@@ -1,9 +1,11 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import type { PortfolioTab } from '../../models/portfolio.models';
+import { TPipe } from '@core/i18n';
 
 @Component({
   selector: 'app-portfolio-tabs',
   standalone: true,
+  imports: [TPipe],
   templateUrl: './portfolio-tabs.component.html',
   styleUrl: './portfolio-tabs.component.scss',
 })

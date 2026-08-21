@@ -215,7 +215,7 @@
                   <div class="me-detail__traits me-nft__traits">
                     @for (tr of meRowTraits(t).slice(0, 8); track tr.label) {
                       <div class="me-detail__trait">
-                        <span class="me-detail__trait-k">{{ tr.label }}</span>
+                        <span class="me-detail__trait-k">{{ tr.label | t }}</span>
                         <span class="me-detail__trait-v" [attr.title]="tr.value">{{ tr.value }}</span>
                         @if (tr.share !== null || tr.floor) {
                           <span class="me-detail__trait-foot">
@@ -521,7 +521,7 @@
                   <div class="me-detail__traits">
                     @for (tr of meNftTraits(); track tr.label) {
                       <div class="me-detail__trait">
-                        <span class="me-detail__trait-k">{{ tr.label }}</span>
+                        <span class="me-detail__trait-k">{{ tr.label | t }}</span>
                         <span class="me-detail__trait-v">{{ tr.value }}</span>
                         <span class="me-detail__trait-foot">
                           @if (tr.count) {
@@ -547,7 +547,7 @@
                     @for (c of meChecks(); track c.label) {
                       <div class="me-check" [class.me-check--bad]="!c.ok">
                         <lucide-icon [name]="c.ok ? 'shield-check' : 'shield-alert'" [size]="13" />
-                        <span class="me-check__k">{{ c.label }}</span>
+                        <span class="me-check__k">{{ c.label | t }}</span>
                         <span class="me-check__v">{{ c.note }}</span>
                       </div>
                     }
@@ -668,7 +668,7 @@
                 }
                 @for (l of meCollectionLinks(st); track l.href) {
                   <a class="me-links__a" [href]="l.href" target="_blank" rel="noopener noreferrer">
-                    <lucide-icon [name]="l.icon" [size]="12" />{{ l.label }}
+                    <lucide-icon [name]="l.icon" [size]="12" />{{ l.label | t }}
                   </a>
                 }
               </div>
@@ -940,7 +940,7 @@
             <button class="orca-chip"
                     [class.orca-chip--active]="orcaCategory() === c.value"
                     (click)="setOrcaCategory(c.value)">
-              {{ c.label }}
+              {{ c.label | t }}
             </button>
           }
         </div>
@@ -950,7 +950,7 @@
             <button class="sort-btn"
                     [class.sort-active]="orcaSortField() === opt.value"
                     (click)="setOrcaSort(opt.value)">
-              {{ opt.label }}
+              {{ opt.label | t }}
               <lucide-icon
                 [name]="orcaSortField() === opt.value ? (orcaSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
@@ -1420,7 +1420,7 @@
               class="sort-btn"
               [class.sort-active]="dlmmSortField() === opt.field"
               (click)="onDlmmSortChange(opt.field)">
-              {{ opt.label }}
+              {{ opt.label | t }}
               <lucide-icon
                 [name]="dlmmSortField() === opt.field ? (dlmmSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
@@ -1602,7 +1602,7 @@
                 class="sort-btn"
                 [class.sort-active]="dammV2SortField() === opt.field"
                 (click)="onDammV2SortChange(opt.field)">
-                {{ opt.label }}
+                {{ opt.label | t }}
                 <lucide-icon
                   [name]="dammV2SortField() === opt.field ? (dammV2SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                   [size]="10" />
@@ -1762,7 +1762,7 @@
                 class="sort-btn"
                 [class.sort-active]="kaminoMultiplySortField() === opt.field"
                 (click)="onKaminoMultiplySortChange(opt.field)">
-                {{ opt.label }}
+                {{ opt.label | t }}
                 <lucide-icon
                   [name]="kaminoMultiplySortField() === opt.field ? (kaminoMultiplySortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                   [size]="10" />
@@ -1910,7 +1910,7 @@
                 class="sort-btn"
                 [class.sort-active]="dammV1SortField() === opt.field"
                 (click)="onDammV1SortChange(opt.field)">
-                {{ opt.label }}
+                {{ opt.label | t }}
                 <lucide-icon
                   [name]="dammV1SortField() === opt.field ? (dammV1SortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                   [size]="10" />
@@ -2048,7 +2048,7 @@
               class="sort-btn"
               [class.sort-active]="raydiumPoolType() === opt.value"
               (click)="onRaydiumPoolTypeChange(opt.value)">
-              {{ opt.label }}
+              {{ opt.label | t }}
             </button>
           }
           <button
@@ -2067,7 +2067,7 @@
               class="sort-btn"
               [class.sort-active]="raydiumSortField() === opt.field"
               (click)="onRaydiumSortChange(opt.field)">
-              {{ opt.label }}
+              {{ opt.label | t }}
               <lucide-icon
                 [name]="raydiumSortField() === opt.field ? (raydiumSortDir() === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-down-up'"
                 [size]="10" />
@@ -2323,7 +2323,7 @@
               class="sort-btn"
               [class.sort-active]="raydiumPositionKind() === opt.value"
               (click)="setRaydiumPositionKind(opt.value)">
-              {{ opt.label }} ({{ raydiumPositionCount(opt.value) }})
+              {{ opt.label | t }} ({{ raydiumPositionCount(opt.value) }})
             </button>
           }
         </div>
@@ -2749,7 +2749,7 @@
           </div>
           <div class="wallet-info__footer">
             <span>First transaction: {{ walletInfoResult.firstTx }}</span>
-            <span>Label: {{ walletInfoResult.label }}</span>
+            <span>Label: {{ walletInfoResult.label | t }}</span>
           </div>
         </div>
       }

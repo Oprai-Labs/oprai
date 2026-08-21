@@ -28,7 +28,7 @@
               {{ 'Pinned' | t }}
             </div>
           } @else {
-            <div class="session-group-label">{{ group.label }}</div>
+            <div class="session-group-label">{{ group.label | t }}</div>
           }
           @for (session of group.sessions; track session.id) {
             @if (deleteConfirmId() === session.id) {
@@ -58,7 +58,7 @@
                 (click)="onSelect(session)"
                 (contextmenu)="onContextMenu($event, session.id)"
               >
-<span class="session-title truncate">{{ session.title }}</span>
+<span class="session-title truncate">{{ session.title | t }}</span>
                 <button
                   class="session-menu-btn"
                   (click)="openMenu($event, session.id)"

@@ -24,7 +24,7 @@
       @for (share of shares(); track share.token) {
         <li class="links-row">
           <div class="links-row__main">
-            <p class="links-row__title">{{ share.title }}</p>
+            <p class="links-row__title">{{ share.title | t }}</p>
             <p class="links-row__meta">
               Shared {{ share.createdAt | date:'MMM d, y' }}
               · snapshot {{ share.sharedUpTo | date:'MMM d, HH:mm' }}

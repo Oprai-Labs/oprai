@@ -107,7 +107,7 @@
               <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
                 <span class="chain-pill-ico" [style.--cc]="c.color">
                   <img [src]="c.icon" [alt]="c.label" width="16" height="16" (error)="hideChainIcon($event)" />
-                </span>{{ c.label }}
+                </span>{{ c.label | t }}
                 @if (primaryChain() === 'ethereum' && c.id === 'ethereum') { <span class="chain-primary">{{ 'Primary' | t }}</span> }
               </button>
             }

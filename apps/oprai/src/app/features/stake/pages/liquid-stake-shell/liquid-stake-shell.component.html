@@ -113,7 +113,7 @@
                 (click)="selectProtocol(entry[0])"
               >
                 <div class="protocol-card__icon">{{ entry[1].icon }}</div>
-                <div class="protocol-card__name">{{ entry[1].label }}</div>
+                <div class="protocol-card__name">{{ entry[1].label | t }}</div>
                 <div class="protocol-card__symbol">→ {{ entry[1].symbol }}</div>
                 <div class="protocol-card__apy">{{ entry[1].apy }}</div>
               </div>

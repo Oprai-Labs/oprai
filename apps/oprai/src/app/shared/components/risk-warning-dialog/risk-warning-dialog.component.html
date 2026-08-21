@@ -26,7 +26,7 @@
           @default          { <lucide-icon name="info"           [size]="20" /> }
         }
       </div>
-      <h2 class="dialog-title">{{ p.title }}</h2>
+      <h2 class="dialog-title">{{ p.title | t }}</h2>
     </div>
 
     <p class="dialog-message">{{ p.message | t }}</p>
@@ -35,7 +35,7 @@
       <div class="dialog-figures">
         @for (fig of p.figures; track $index) {
           <div class="figure" [class.figure--emphasis]="fig.emphasis">
-            <span class="figure__label">{{ fig.label }}</span>
+            <span class="figure__label">{{ fig.label | t }}</span>
             <span class="figure__value">{{ fig.value }}</span>
           </div>
         }

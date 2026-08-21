@@ -132,7 +132,7 @@
           </div>
         }
         @if (progress(); as p) {
-          <div class="footer__progress">{{ p.label }}</div>
+          <div class="footer__progress">{{ p.label | t }}</div>
         }
         @if (error()) {
           <div class="footer__error">{{ error() | t }}</div>

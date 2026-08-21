@@ -19,7 +19,7 @@
       <select class="input filter-select" [(ngModel)]="statusFilter" (change)="onFilter()" [attr.aria-label]="'Status' | t">
         <option value="">{{ 'All statuses' | t }}</option>
         @for (s of steps; track s.id) {
-          <option [value]="s.id">{{ s.label }}</option>
+          <option [value]="s.id">{{ s.label | t }}</option>
         }
         <option value="dismissed">{{ 'Closed' | t }}</option>
       </select>
@@ -156,7 +156,7 @@
                         [class.is-current]="report.status === s.id"
                         [disabled]="saving() || report.status === s.id"
                         (click)="setStatus(s.id)">
-                  {{ s.label }}
+                  {{ s.label | t }}
                 </button>
               }
             </div>
