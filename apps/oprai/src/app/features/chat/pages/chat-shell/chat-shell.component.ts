@@ -380,7 +380,8 @@ export class ChatShellComponent implements OnInit, OnDestroy {
         ? (m > 0 ? `${h}h ${m}m` : `${h}h`)
         : `${m}m`;
     }
-    return `Daily ${noun} limit reached (${usedFmt} of ${capFmt}). Resets in ${resetIn}.`;
+    void usedFmt; void capFmt; // numbers intentionally omitted from the banner
+    return `Daily ${noun} limit reached. Resets in ${resetIn}.`;
   }
 
   exportChat(): void {

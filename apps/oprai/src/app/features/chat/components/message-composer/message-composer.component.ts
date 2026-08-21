@@ -61,11 +61,9 @@ export class MessageComposerComponent implements AfterViewInit {
     if (!this.capInfo) {
       return 'Conversation limit reached. Start a new chat to continue.';
     }
-    const { unit, used, cap, resetsAt } = this.capInfo;
+    const { unit, resetsAt } = this.capInfo;
     const noun = unit === 'tokens' ? 'token' : 'message';
-    const usedFmt = used.toLocaleString('en-US');
-    const capFmt  = cap.toLocaleString('en-US');
-    return `Daily ${noun} limit reached (${usedFmt} of ${capFmt}). Resets in ${this.formatResetIn(resetsAt)}.`;
+    return `Daily ${noun} limit reached. Resets in ${this.formatResetIn(resetsAt)}.`;
   }
 
   /** Short relative duration like "4h 12m", "47m", "12s". */

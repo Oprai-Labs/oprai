@@ -313,6 +313,7 @@ export const RELAY_CHAINS: Array<{ label: string; value: string }> = [
   { label: 'Optimism',  value: '10' },
   { label: 'Polygon',   value: '137' },
   { label: 'BNB Chain', value: '56' },
+  { label: 'Robinhood', value: '4663' },
   { label: 'Avalanche', value: '43114' },
   { label: 'Linea',     value: '59144' },
   { label: 'Scroll',    value: '534352' },

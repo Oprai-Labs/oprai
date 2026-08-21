@@ -1098,6 +1098,16 @@ pub async fn get_cross_chain_quote(
     fee_recipient: Option<&str>,
     cashback_pct: u16,
 ) -> Result<RelayQuote, AppError> {
+    // Resolve token NAMES → addresses (memecoins by name, "USDG", …) so a card's
+    // live quote works with names too, not only the build path.
+    let mut params = params.clone();
+    params.origin_currency =
+        resolve_evm_currency(http, params.origin_chain_id, &params.origin_currency).await?;
+    params.destination_currency =
+        resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency)
+            .await?;
+    let params = &params;
+
     let base_url = if is_testnet(params.origin_chain_id) || is_testnet(params.destination_chain_id)
     {
         RELAY_TESTNET_API
@@ -1221,9 +1231,12 @@ pub async fn build_cross_chain_swap(
     let mut params = params.clone();
     params.origin_currency =
         resolve_evm_currency(http, params.origin_chain_id, &params.origin_currency).await?;
-    params.destination_currency =
-        resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency)
-            .await?;
+    params.destination_currency = resolve_evm_currency(
+        http,
+        params.destination_chain_id,
+        &params.destination_currency,
+    )
+    .await?;
     let params = &params;
     validate_cross_chain_params(params)?;
 
@@ -1626,6 +1639,16 @@ pub async fn get_relay_quote_full(
     fee_recipient: Option<&str>,
     cashback_pct: u16,
 ) -> Result<RelayQuote, AppError> {
+    // Resolve token NAMES → addresses (memecoins, "USDG", …) so a live quote works
+    // with names, not only the build path.
+    let mut params = params.clone();
+    params.origin_currency =
+        resolve_evm_currency(http, params.origin_chain_id, &params.origin_currency).await?;
+    params.destination_currency =
+        resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency)
+            .await?;
+    let params = &params;
+
     // Relay takes base units and rejects anything with a decimal point.
     let scaled_amount = to_base_units(
         http,
@@ -1757,9 +1780,12 @@ pub async fn relay_bridge(
     let mut params = params.clone();
     params.origin_currency =
         resolve_evm_currency(http, params.origin_chain_id, &params.origin_currency).await?;
-    params.destination_currency =
-        resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency)
-            .await?;
+    params.destination_currency = resolve_evm_currency(
+        http,
+        params.destination_chain_id,
+        &params.destination_currency,
+    )
+    .await?;
     let params = &params;
     let quote =
         get_relay_quote_full(http, params, user_address, fee_recipient, cashback_pct).await?;
