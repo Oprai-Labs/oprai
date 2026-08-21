@@ -354,6 +354,10 @@ services:
       JUPITER_API_KEY: ${JUPITER_API_KEY:-}
       HELIUS_API_KEY: ${HELIUS_API_KEY:-}
       BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
+      # EVM cashback treasury hot-wallet key (native-token payouts). Unset ->
+      # EVM claims stay disabled ("not enabled yet"), never a crash. The secret
+      # lives only in infra/.env, never in this file or the repo.
+      EVM_CASHBACK_TREASURY_KEY: ${EVM_CASHBACK_TREASURY_KEY:-}
     # `python -m app.main` loads main.py as __main__, then uvicorn re-imports it
     # as app.main, double-registering Prometheus Counters. `python -m uvicorn`
     # only loads app.main once.
