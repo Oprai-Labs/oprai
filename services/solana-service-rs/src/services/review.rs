@@ -242,7 +242,8 @@ pub async fn build_position_review(
     // What the same money would earn in one step today. Most LP positions are
     // paired against SOL, so "you could have just staked it" is the honest
     // comparison rather than a hand-picked rival pool.
-    let (alt, dlmm, orca, damm, ray, kam) = tokio::join!(
+    let (sol_usd, alt, dlmm, orca, damm, ray, kam) = tokio::join!(
+        crate::services::strategies::sol_price_usd(http),
         crate::services::flows::best_simple_option(http),
         read_dlmm_positions(http, wallet),
         read_orca_positions(http, rpc_url, wallet),
@@ -342,6 +343,13 @@ pub async fn build_position_review(
             Some(alt_apr / 365.0)
         } else {
             pos.exit_cost_pct
+        };
+        // The flat parts — the fee that does not scale and the rent that comes
+        // back — before the fees already earned are netted off.
+        let base_exit = if pos.moves_without_swap {
+            base_exit
+        } else {
+            exit_cost_with_flat_parts(base_exit, pos.usd_value, pos.rent_sol, sol_usd).or(base_exit)
         };
         let exit_cost_pct = match (base_exit, pos.unclaimed_fees_usd, pos.usd_value) {
             (Some(cost), Some(fees), Some(value)) if value > 0.0 => {
@@ -529,6 +537,9 @@ struct OpenPosition {
     /// A locked position cannot be withdrawn until it vests, so telling
     /// someone to close it is advice they cannot act on.
     locked: bool,
+    /// Rent held by the position's accounts, refunded when it closes. None
+    /// where the venue does not report it — never guessed.
+    rent_sol: Option<f64>,
     /// True where leaving returns the same asset rather than requiring a swap
     /// — lending, not liquidity. The cost of moving is then not a swap but a
     /// day out of the market, which has to be priced from the rate being
@@ -922,6 +933,39 @@ fn share_inside(prices: &[f64], lower: f64, upper: f64) -> Option<f64> {
 /// name the window it is a share of.
 const PRICE_WINDOW_DAYS: i64 = 14;
 
+/// The exit cost once the flat parts are counted, as a share of the position.
+///
+/// The swap back out scales with size; the network fee does not, and the rent
+/// held by the position accounts comes back when they close. On anything
+/// large those two are rounding errors. On a small position they decide the
+/// answer: a $0.08 position was told closing cost 0.15% — the swap alone —
+/// when the fee is nearer 0.6% of it and the rent refund is several times the
+/// whole position.
+///
+/// Rent is only subtracted where the venue actually reports it. Guessing it
+/// would flatter the exit; leaving it out overstates the cost, which errs
+/// towards leaving a position alone.
+fn exit_cost_with_flat_parts(
+    swap_pct: Option<f64>,
+    usd_value: Option<f64>,
+    rent_sol: Option<f64>,
+    sol_usd: Option<f64>,
+) -> Option<f64> {
+    let swap = swap_pct?;
+    let value = usd_value.filter(|v| *v > 0.0)?;
+    let sol_price = sol_usd.filter(|p| *p > 0.0)?;
+    // Two transactions to get out: withdraw the liquidity, close the account.
+    let fee_usd = EXIT_TRANSACTIONS * BASE_FEE_SOL * sol_price;
+    let refund_usd = rent_sol.unwrap_or(0.0) * sol_price;
+    Some(swap + (fee_usd - refund_usd) / value * 100.0)
+}
+
+/// Signatures needed to leave a position: withdraw, then close.
+const EXIT_TRANSACTIONS: f64 = 2.0;
+
+/// A Solana signature costs this much, and it does not scale with position size.
+const BASE_FEE_SOL: f64 = 0.000005;
+
 /// Split a pool's balance across the positions inside it, by what each holds.
 ///
 /// The money fields on a Meteora pool are POOL totals. Attributing them to
@@ -1129,6 +1173,7 @@ async fn read_dlmm_positions(
                 apr_24h,
                 apr_life,
                 pool_tvl_usd,
+                rent_sol: None,
                 holdings: detail.map(|d| {
                     (
                         text(pool.get("tokenX")),
@@ -1292,6 +1337,7 @@ async fn read_orca_positions(
             apr_24h: pool_apr,
             apr_life: None,
             pool_tvl_usd: None,
+            rent_sol: num(p.get("rentSol")),
             holdings: Some((
                 text(p.get("tokenASymbol")),
                 num(p.get("amountA")).unwrap_or(0.0),
@@ -1423,6 +1469,9 @@ async fn read_dammv2_positions(
 
             out.push(OpenPosition {
                 venue: "Meteora DAMM v2",
+                // Reported per position by the SDK reader, and refunded when
+                // the position closes.
+                rent_sol: num(p.get("rentSol")),
                 address: text(p.get("address")),
                 pool: pool_addr.clone(),
                 pair: pair.clone(),
@@ -1558,6 +1607,7 @@ async fn read_raydium_positions(
             apr_24h: pool_apr,
             apr_life: None,
             pool_tvl_usd,
+            rent_sol: None,
             holdings: Some((
                 text(p.get("mintA").and_then(|m| m.get("symbol"))),
                 amount_a,
@@ -1725,6 +1775,7 @@ async fn read_kamino_positions(
             apr_24h: if simple { rate } else { None },
             apr_life: None,
             pool_tvl_usd: reserve.map(|r| num(r.get("totalSupplyUsd"))),
+            rent_sol: None,
             holdings: None,
             // Leaving is a withdrawal of the same asset, so there is no swap
             // to pay for — only the network fee, which is a rounding error
@@ -2173,5 +2224,69 @@ mod holding_tests {
     #[test]
     fn nothing_deposited_is_not_a_comparison() {
         assert!(holding_maths((0.0, 0.0), (10.0, 10.0), 5.0, P).is_none());
+    }
+}
+
+#[cfg(test)]
+mod exit_cost_tests {
+    use super::*;
+
+    const SOL: f64 = 92.0;
+
+    #[test]
+    fn on_a_large_position_the_flat_parts_disappear() {
+        // $10,000 position: two signatures cost less than a tenth of a cent,
+        // so the swap is effectively the whole cost.
+        let c = exit_cost_with_flat_parts(Some(0.50), Some(10_000.0), None, Some(SOL)).unwrap();
+        assert!((c - 0.50).abs() < 0.001, "{c}");
+    }
+
+    #[test]
+    fn on_a_tiny_position_the_fee_is_most_of_the_cost() {
+        // The live case: an $0.08 position was told closing cost 0.15%. Two
+        // signatures at $92 SOL are $0.00092, which is over 1% of it.
+        let c = exit_cost_with_flat_parts(Some(0.15), Some(0.08), None, Some(SOL)).unwrap();
+        assert!(c > 1.0, "the fee has to dominate here, got {c}");
+    }
+
+    #[test]
+    fn rent_coming_back_can_make_leaving_profitable() {
+        // Position accounts hold rent that is refunded on close. On a small
+        // position that refund is worth more than the whole thing, so the
+        // honest cost of leaving is negative — and the review should then say
+        // go, not weigh a cost that is really a payment.
+        let c = exit_cost_with_flat_parts(Some(0.15), Some(0.08), Some(0.002), Some(SOL)).unwrap();
+        assert!(
+            c < 0.0,
+            "a refund larger than the position must read negative: {c}"
+        );
+        let r = review_position(&PositionFacts {
+            forward_apr: 0.0,
+            alternative_apr: 5.09,
+            exit_cost_pct: Some(c),
+            earning: true,
+            in_range_share: None,
+            forward_known: true,
+            locked: false,
+        });
+        assert_eq!(r.verdict, Verdict::ConsiderExit);
+        assert_eq!(r.payback_days, Some(0.0));
+    }
+
+    #[test]
+    fn an_unreported_rent_is_not_invented() {
+        // Guessing a refund would flatter the exit. Leaving it out overstates
+        // the cost, which errs towards leaving the position alone.
+        let with = exit_cost_with_flat_parts(Some(0.15), Some(100.0), Some(0.002), Some(SOL));
+        let without = exit_cost_with_flat_parts(Some(0.15), Some(100.0), None, Some(SOL));
+        assert!(without.unwrap() > with.unwrap());
+    }
+
+    #[test]
+    fn without_a_sol_price_the_flat_parts_cannot_be_priced() {
+        assert_eq!(
+            exit_cost_with_flat_parts(Some(0.15), Some(100.0), None, None),
+            None
+        );
     }
 }
