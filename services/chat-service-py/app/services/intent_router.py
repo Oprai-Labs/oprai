@@ -326,13 +326,14 @@ Detection rules:
   magic_eden; "jupSOL" → jupiter; "mSOL" → marinade; "jitoSOL" → jito.
   Those token mappings hold when the TOKEN is the subject ("convert my SOL to
   mSOL"). They do not override an in-flight flow — see the next rule.
-- "Leverage" is NOT automatically Kamino. "kaç x / max leverage / how much
-  leverage / how much can I open" is ambiguous between Jupiter Perps and Kamino
-  Multiply — resolve it by the IN-FLIGHT context: if the recent turns were a
-  Jupiter perp (a perp_open / perp card, "SOL-PERP", short/long perp), the
-  follow-up stays "jupiter" (perps). Only emit "kamino" for a leverage question
-  when the user explicitly says Multiply / Long-Short / loop / Kamino. A bare
-  leverage question with a perp in flight must NOT route to Kamino Multiply.
+- Leverage / perp / short / long → "jupiter" by DEFAULT, never Kamino. A
+  leveraged long/short on SOL/ETH/BTC, "open a perp", "2x short SOL", and any
+  "kaç x / max leverage / how much can I open" question maps to "jupiter"
+  (Jupiter Perps) — that is OPRAI's canonical perp venue and Kamino has no
+  perpetuals. Emit "kamino" for these ONLY when the user EXPLICITLY writes
+  Kamino / Multiply / long-short loop. Do this even if an earlier turn showed a
+  Kamino card — a bare leverage/short/long/perp question is Jupiter, not a
+  continuation of Kamino.
 - An in-flight flow keeps its protocol. When earlier turns established one —
   the user asked for it, or you offered options belonging to it — the next
   message continues that flow unless the user names a DIFFERENT protocol. A
