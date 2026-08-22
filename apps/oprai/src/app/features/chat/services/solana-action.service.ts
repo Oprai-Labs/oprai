@@ -2129,12 +2129,17 @@ export class SolanaActionService {
     //
     // The backend now measures the real cost by simulating what it built, so
     // check against that and name the number.
+    // Most builders format the fee as SOL ("~0.0101 SOL"), but a few (Jupiter
+    // perps / lend) return a BARE LAMPORTS integer ("15000"). Reading the latter
+    // as SOL and multiplying by 1e9 turned a 15000-lamport fee into "15000 SOL"
+    // and blocked a wallet that had ample SOL. Treat a value that carries a
+    // "SOL" unit or a decimal point as SOL; a bare integer is already lamports.
     const quoted = buildResult.preview?.estimatedFee;
-    const quotedSol = typeof quoted === 'string'
-      ? parseFloat(quoted.replace(/[^\d.]/g, ''))
-      : Number(quoted);
-    const quotedLamports = Number.isFinite(quotedSol) && quotedSol > 0
-      ? Math.ceil(quotedSol * 1e9)
+    const quotedRaw = typeof quoted === 'string' ? quoted : String(quoted ?? '');
+    const quotedNum = parseFloat(quotedRaw.replace(/[^\d.]/g, ''));
+    const quotedIsSol = /sol/i.test(quotedRaw) || quotedRaw.includes('.');
+    const quotedLamports = Number.isFinite(quotedNum) && quotedNum > 0
+      ? (quotedIsSol ? Math.ceil(quotedNum * 1e9) : Math.ceil(quotedNum))
       : 0;
     const estimatedFee = Math.max(networkFee, quotedLamports);
 

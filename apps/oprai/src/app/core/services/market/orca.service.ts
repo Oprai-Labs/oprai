@@ -393,32 +393,32 @@ export class OrcaService {
     }
   }
 
-  /** Get user positions. */
-  async getPositions(walletAddress: string): Promise<OrcaPosition[]> {
-    try {
-      const resp = await firstValueFrom(
-        this.http.get<any>(
-          `${ORCA_WHIRLPOOLS_API}/positions?owner=${walletAddress}`
-        )
-      );
-      const raw: any[] = Array.isArray(resp) ? resp : resp?.positions ?? [];
-      return raw.map(p => ({
-        address: p.address ?? p.positionMint ?? '',
+  /**
+   * Get user positions. Reads on-chain via the backend (`fetchUserPositions`),
+   * NOT the public Orca REST API — `api.orca.so` sends no CORS header for the
+   * app origin, so a direct browser call is blocked outright (net::ERR_FAILED)
+   * and only spammed the console every poll. The backend owns the RPC. The
+   * `walletAddress` arg is kept for the caller's signature; the backend scopes
+   * to the authenticated wallet itself.
+   */
+  async getPositions(_walletAddress: string): Promise<OrcaPosition[]> {
+    const positions = await this.fetchUserPositions();
+    if (!positions) return [];
+    return positions
+      .filter(p => p.type !== 'bundle')
+      .map(p => ({
+        address: p.positionAddress || p.positionMint || '',
         whirlpool: p.whirlpool ?? '',
         tickLowerIndex: p.tickLowerIndex ?? 0,
         tickUpperIndex: p.tickUpperIndex ?? 0,
         liquidity: p.liquidity ?? '0',
-        tokenOwnedA: p.tokenOwnedA ?? '0',
-        tokenOwnedB: p.tokenOwnedB ?? '0',
-        feeOwnedA: p.feeOwnedA ?? '0',
-        feeOwnedB: p.feeOwnedB ?? '0',
-        rewardInfos: p.rewardInfos ?? [],
+        tokenOwnedA: String(p.amountA ?? '0'),
+        tokenOwnedB: String(p.amountB ?? '0'),
+        feeOwnedA: String(p.feeOwedA ?? '0'),
+        feeOwnedB: String(p.feeOwedB ?? '0'),
+        rewardInfos: [],
         inRange: p.inRange ?? false,
       }));
-    } catch (err) {
-      console.error('Failed to fetch Orca positions:', err);
-      return [];
-    }
   }
 
   // ─── Swap Quote ──────────────────────────────────────────────────────────────

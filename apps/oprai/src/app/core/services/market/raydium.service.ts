@@ -172,19 +172,15 @@ export class RaydiumService {
     return pools.find(p => p.id === poolId) ?? null;
   }
 
-  /** Get user CLMM positions. */
-  async getClmmPositions(walletAddress: string): Promise<RaydiumClmmPosition[]> {
-    try {
-      const resp = await firstValueFrom(
-        this.http.get<{ data: RaydiumClmmPosition[] }>(
-          `${RAYDIUM_API}/positions?owner=${walletAddress}`
-        )
-      );
-      return resp?.data ?? [];
-    } catch (err) {
-      console.error('Failed to fetch CLMM positions:', err);
-      return [];
-    }
+  /** Get user CLMM positions.
+   *
+   * `api.raydium.io/v2/positions` does not exist (404) — Raydium has no public
+   * positions-by-owner REST endpoint; CLMM positions are position-NFTs read
+   * on-chain. The direct browser call only 404-spammed the console every poll
+   * and always returned nothing. Return empty until this is wired to an on-chain
+   * read via the backend (a `raydium_get_user_positions` action exists). */
+  async getClmmPositions(_walletAddress: string): Promise<RaydiumClmmPosition[]> {
+    return [];
   }
 
   // ─── Swap Quote ──────────────────────────────────────────────────────────────
