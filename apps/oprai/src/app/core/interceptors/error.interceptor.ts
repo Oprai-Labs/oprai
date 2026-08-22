@@ -1,7 +1,7 @@
 import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, throwError } from 'rxjs';
+import { catchError, from, switchMap, throwError } from 'rxjs';
 import { AuthService } from '../services/auth.service';
 import { WalletService } from '../services/wallet.service';
 
@@ -50,25 +50,46 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             req.url.includes('/auth/session') ||
             req.url.includes('/auth/logout');
 
-          if (!isAuthEndpoint && walletService.connected()) {
+          // One-shot flag: a request we already retried after a restore must not
+          // loop if it 401s again (dead cookie) — surface it instead.
+          const alreadyRetried = req.headers.has('X-Auth-Retry');
+
+          if (!isAuthEndpoint && walletService.connected() && !alreadyRetried) {
             // Prefer a SILENT cookie-based recovery: the HttpOnly cookie usually
             // outlives the in-memory Bearer, so a stale-token 401 (e.g. the
             // Portfolio cost-basis fetch) can be healed via GET /auth/session
             // with NO wallet-signature popup and NO lost state. Only if the
             // cookie is also gone do we fall back to a fresh SIWS signature.
-            // Silent recovery only. The fallback used to call authenticate(),
-            // which opens a wallet signature prompt — so any background read
-            // that happened to 401 asked the user to sign. Browsing the token
-            // picker's tabs did exactly that: switching to Trending fetched
-            // liquidity from a wallet-gated route, got a 401, and popped the
-            // wallet. A signature is something a user asks for, never
-            // something a failed background fetch demands of them. If the
-            // cookie is gone too, the next deliberate action will re-auth.
-            authService.restoreSession({ preserveSessionsOnFail: true }).then(() => {
-              if (!authService.isAuthenticated()) {
-                console.warn('[Auth] Session could not be restored silently; will re-auth on next action.');
-              }
-            });
+            // Silent recovery only — never a wallet-signature popup from a failed
+            // background fetch. If the cookie is gone too, the next deliberate
+            // action will re-auth.
+            //
+            // AND retry the original request once after the restore: a stale
+            // in-memory token used to fail the user's actual action (a perp
+            // execute, a build) with "authentication required" even though the
+            // cookie was still valid — they had to notice and click again, and
+            // for a post-signature execute that meant re-signing. Healing then
+            // replaying the same request makes the expiry invisible.
+            return from(authService.restoreSession({ preserveSessionsOnFail: true })).pipe(
+              switchMap(() => {
+                if (!authService.isAuthenticated()) {
+                  console.warn('[Auth] Session could not be restored silently; will re-auth on next action.');
+                  return throwError(() => error);
+                }
+                // authInterceptor already ran (it precedes this one), so attach
+                // the freshly-restored Bearer here; the cookie rides on
+                // withCredentials. Mark it so a second 401 can't loop.
+                const token = authService.getToken();
+                const retried = req.clone({
+                  withCredentials: true,
+                  setHeaders: {
+                    'X-Auth-Retry': '1',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
+                });
+                return next(retried);
+              }),
+            );
           }
         }
       }
