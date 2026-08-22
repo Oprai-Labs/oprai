@@ -286,6 +286,11 @@ Intents (use exactly these strings):
   • Opinion / recommendation: "should I?", "is it wise?", "which is better?"
   • Comparison of two concepts or strategies without needing live numbers
   • Risk/benefit discussion, strategy analysis, DeFi education
+  • Fixed protocol limits / constants: "max leverage?", "kaç x açabilirim en
+    fazla?", "how many x can I open?", "minimum collateral?", "what's the max
+    LTV?" — these are KNOWN CONSTANTS (e.g. Jupiter Perps = 100x, $10 min), not a
+    live fetch. Classify as "advice", NOT "query". The verb "open/aç" here asks
+    about a LIMIT, it is not an execute command.
   Key rule: if the answer comes from knowledge rather than a live data fetch,
   classify as "advice". Do NOT classify conceptual questions as "query" just
   because they mention a metric name (MVRV, UTXO, impermanent loss, AMM) —
