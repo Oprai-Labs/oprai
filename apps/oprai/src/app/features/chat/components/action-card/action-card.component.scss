@@ -3882,49 +3882,30 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  // Same rhythm and shape as the Sell/Buy panels above, so the alert reads as
-  // part of the same card rather than a strip bolted on underneath.
+  gap: 10px;
+  // Identical shell to the Sell/Buy panels above — neutral surface, same radius,
+  // padding and side margins. No coloured bar, no tinted fill: severity is
+  // carried by the title text and icon alone, so it reads as one more panel in
+  // the same card rather than a foreign alert strip.
   margin: 10px 16px 0;
   padding: 14px 16px;
   border-radius: 16px;
-  background: color-mix(in srgb, var(--op-danger) 6%, var(--op-bg-surface-2));
-  border: 1px solid color-mix(in srgb, var(--op-danger) 22%, var(--op-border-subtle));
-  overflow: hidden;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
   animation: action-card-enter 0.2s ease-out both;
-
-  // The accent: enough to read severity at a glance, not enough to shout.
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 3px;
-    background: var(--op-danger);
-  }
 
   .proto-warn-icon {
     flex-shrink: 0;
     color: var(--op-danger);
   }
 
-  &--yellow {
-    background: color-mix(in srgb, var(--op-warning) 7%, var(--op-bg-surface-2));
-    border-color: color-mix(in srgb, var(--op-warning) 24%, var(--op-border-subtle));
-    &::before { background: var(--op-warning); }
-    .proto-warn-icon { color: var(--op-warning); }
-    .proto-warn-title { color: var(--op-warning); }
-  }
+  &--yellow .proto-warn-icon,
+  &--orange .proto-warn-icon { color: var(--op-warning); }
+  &--yellow .proto-warn-title,
+  &--orange .proto-warn-title { color: var(--op-warning); }
 
-  &--orange {
-    background: color-mix(in srgb, var(--op-warning) 7%, var(--op-bg-surface-2));
-    border-color: color-mix(in srgb, var(--op-warning) 24%, var(--op-border-subtle));
-    &::before { background: var(--op-warning); }
-    .proto-warn-icon { color: var(--op-warning); }
-    .proto-warn-title { color: var(--op-warning); }
-
-    ~ .proto-footer .proto-btn-confirm:not(.proto-btn-confirm--disabled) {
-      border-color: color-mix(in srgb, var(--op-warning) 40%, transparent);
-    }
+  &--orange ~ .proto-footer .proto-btn-confirm:not(.proto-btn-confirm--disabled) {
+    border-color: color-mix(in srgb, var(--op-warning) 40%, transparent);
   }
 }
 
@@ -3954,15 +3935,16 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  // Sized like the card's other small controls (the token-select / MAX chips):
-  // 0.75rem type, a 10px radius that echoes the panels, comfortable hit area.
-  padding: 8px 13px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--op-brand) 45%, transparent);
-  background: color-mix(in srgb, var(--op-brand) 12%, transparent);
+  // The same pill the token selectors use — full-round, surface-1 fill, subtle
+  // border — so it belongs to the same control family. Brand text marks it as
+  // the action.
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-1);
   color: var(--op-brand);
   font-family: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -3972,8 +3954,8 @@
   img, lucide-icon { flex-shrink: 0; }
 
   &:hover {
-    background: color-mix(in srgb, var(--op-brand) 20%, transparent);
-    border-color: color-mix(in srgb, var(--op-brand) 60%, transparent);
+    border-color: color-mix(in srgb, var(--op-brand) 45%, var(--op-border-subtle));
+    background: color-mix(in srgb, var(--op-brand) 8%, var(--op-bg-surface-1));
   }
 }
 
