@@ -180,6 +180,23 @@ func (p *SolanaProxy) GetDcaOrders(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// GetRelayIntentStatus proxies GET /actions/relay/intent-status?requestId=… —
+// the poll a cross-chain bridge card uses to learn whether the far side has
+// settled. Without this route the poll 404'd and a bridge could never report
+// success. The query string (requestId) rides along on r.URL.RawQuery.
+func (p *SolanaProxy) GetRelayIntentStatus(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/relay/intent-status"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostRelayRecord proxies POST /actions/relay/record — books the economics of a
+// settled Relay (EVM) swap so it feeds per-chain rewards. Fire-and-forget from
+// the card; without this route it 404'd and no EVM swap was ever recorded.
+func (p *SolanaProxy) PostRelayRecord(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/relay/record"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

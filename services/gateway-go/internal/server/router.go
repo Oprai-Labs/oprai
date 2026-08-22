@@ -256,6 +256,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/simulate", solanaProxy.PostSimulate)
 		r.Get("/limit-orders", solanaProxy.GetLimitOrders)
 		r.Get("/dca-orders", solanaProxy.GetDcaOrders)
+		// Relay (EVM) settlement: the bridge card polls intent-status to learn
+		// the far side landed, and records the fill for per-chain rewards.
+		r.Get("/relay/intent-status", solanaProxy.GetRelayIntentStatus)
+		r.Post("/relay/record", solanaProxy.PostRelayRecord)
 	})
 	r.Route("/protocols", func(r chi.Router) {
 		r.Use(defaultTimeout)
