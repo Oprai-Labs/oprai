@@ -143,9 +143,13 @@ Examples:
 #### QUERY: gas — Current network fees and priority fee estimates
 Format: [QUERY:gas]
 
+ONLY when the user explicitly asks about network fees / gas / priority fees /
+transaction cost. Never attach it to an unrelated question (leverage, "how much
+can I open", a price, a position) — it is not a generic "show something" card.
+
 Examples:
 - "What are the current gas fees?" → query_onchain("gas", {})
-- "How much does a swap cost?" → query_onchain("gas", {})
+- "How much does a swap cost in fees?" → query_onchain("gas", {})
 - "Priority fee estimate" → query_onchain("gas", {})
 
 #### QUERY: wallet_info — Wallet details and connected wallets

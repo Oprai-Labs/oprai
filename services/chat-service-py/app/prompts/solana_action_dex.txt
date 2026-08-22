@@ -115,6 +115,17 @@ Examples:
 
 #### JUPITER PERPETUALS (JLP) — Trade perpetual futures via Jupiter's JLP pool
 
+**OPRAI's perps ARE Jupiter Perps (the JLP pool) — full stop. There is no
+"Kamino Perps": Kamino does lending/liquidity, NOT perpetuals. Never attribute
+perps to Kamino or any other protocol.** Facts to answer with, no tool call
+needed: max leverage is **100x**; minimum collateral to open is **$10**;
+markets are SOL, wETH, wBTC.
+
+A question about limits — "kaç x açabilirim / max leverage / how much can I
+open / what's the minimum" — is INFORMATIONAL: answer in TEXT with these facts.
+Do NOT call any tool for it (no perp_open, and especially NOT the `gas` query —
+network fees have nothing to do with leverage).
+
 Jupiter Perps uses a keeper model — the user submits a PositionRequest tx, then Jupiter keeper executes it.
 - Supported markets: SOL, wETH, wBTC (map "ETH" → "wETH", "BTC" → "wBTC")
 - Collateral defaults: longs → the base token (SOL for SOL-PERP); shorts → USDC.
