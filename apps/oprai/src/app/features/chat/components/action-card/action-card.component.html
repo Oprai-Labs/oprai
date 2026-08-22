@@ -4917,9 +4917,9 @@
           </div>
           @if (inputBalanceMint()) {
             <button class="proto-warn-action" type="button" (click)="openQuickSwap()">
-              <img src="assets/icons/protocols/jupiter.webp" width="13" height="13"
-                   style="border-radius:3px" [attr.alt]="'Jupiter' | t" onerror="this.style.display='none'" />
-              <lucide-icon name="arrow-right-left" [size]="11" />
+              <img src="assets/icons/protocols/jupiter.webp" width="16" height="16"
+                   style="border-radius:4px" [attr.alt]="'Jupiter' | t" onerror="this.style.display='none'" />
+              <lucide-icon name="arrow-right-left" [size]="13" />
               {{ 'Buy' | t }} {{ inputBalanceSymbol() }}
             </button>
           }

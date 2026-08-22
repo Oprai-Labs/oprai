@@ -3887,7 +3887,8 @@
   // padding and side margins. No coloured bar, no tinted fill: severity is
   // carried by the title text and icon alone, so it reads as one more panel in
   // the same card rather than a foreign alert strip.
-  margin: 10px 16px 0;
+  // Bottom margin too — otherwise the banner sits flush on the footer's divider.
+  margin: 10px 16px 14px;
   padding: 14px 16px;
   border-radius: 16px;
   background: var(--op-bg-surface-2);
@@ -3938,13 +3939,13 @@
   // The same pill the token selectors use — full-round, surface-1 fill, subtle
   // border — so it belongs to the same control family. Brand text marks it as
   // the action.
-  padding: 7px 13px;
+  padding: 9px 16px;
   border-radius: 999px;
   border: 1px solid var(--op-border-subtle);
   background: var(--op-bg-surface-1);
   color: var(--op-brand);
   font-family: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
