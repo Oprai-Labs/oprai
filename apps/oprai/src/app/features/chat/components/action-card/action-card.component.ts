@@ -5703,6 +5703,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // `canApprove()` — which only this function feeds — stayed true and let the
     // click through to a backend that rejects an imageless launch. The label
     // now reads from this same value, so the two cannot disagree again.
+    // Jupiter Perps rejects an open below $10 collateral — so the card must not
+    // let it be confirmed. The footer already warns; block the click too, or the
+    // button says "add more collateral" while still submitting a doomed tx.
+    if (this.action?.type === 'perp_open' && this.perpBelowMinCollateral()) {
+      return `Minimum $${this.PERP_MIN_COLLATERAL_USD} collateral`;
+    }
     if (this.launchBlock() === 'image') return 'Add image to launch';
     if (this.launchBlock() === 'identity') return 'Enter name & ticker';
     if (this.isBurn()) {
