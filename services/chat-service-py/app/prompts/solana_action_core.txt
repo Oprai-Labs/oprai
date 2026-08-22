@@ -70,14 +70,16 @@ Examples:
 - "buy 5 SOL worth of BONK" / "buy BONK with 5 SOL"   ← "worth of" / "with" pins SOL as input. ExactIn.
   -> execute_action("swap", {"inputMint": "SOL", "outputMint": "BONK", "amount": "5"})
 
-**Ambiguous "buy N X for Y" pattern**: the bare verb "buy" + "for" does NOT pin a side — the user might mean "spend N X to receive Y" or "receive N X paying with Y". Do not guess. Call `request_clarification` with two options:
-- "buy 5 USDC for SOL"
-  -> request_clarification(question="Did you want to spend 5 USDC, or receive 5 USDC?", options=[
-       {"label": "Spend 5 USDC, receive SOL", "value": "spend_5_usdc"},
-       {"label": "Receive 5 USDC, pay with SOL", "value": "receive_5_usdc"}
-     ])
+**"buy X for Y" resolves by which token carries the amount** — "buy X for Y" = acquire X, pay with Y. The amount's placement pins the side; emit `execute_action` directly:
+- Amount on the BOUGHT token — "buy N X for Y" → receive N X, pay with Y (ExactOut on X):
+  - "buy 35 USDC for SOL"
+    -> execute_action("swap", {"inputMint": "SOL", "outputMint": "USDC", "amount": "35", "swapMode": "ExactOut"})
+- Amount on the PAYMENT token — "buy X for N Y" (N after "for") → spend N Y (ExactIn), same as "buy X with N Y":
+  - "buy BONK for 5 SOL"
+    -> execute_action("swap", {"inputMint": "SOL", "outputMint": "BONK", "amount": "5"})
+Call `request_clarification` ONLY when no token clearly carries the amount ("buy USDC for SOL" with no number, or "swap 35 USDC and SOL").
 
-Only emit `execute_action` directly when a disambiguating word is present: "exactly" / "I need" / "get me N" / target framing → ExactOut on the named amount; "with" / "worth of" / "using" / "spend N" / "sell N" / "swap N to" → ExactIn on the named amount.
+Also: "exactly" / "I need" / "get me N" / target framing → ExactOut on the named amount; "with" / "worth of" / "using" / "spend N" / "sell N" / "swap N to" → ExactIn on the named amount.
 
 - "Swap USDC to SOL, high priority"
   -> execute_action("swap", {"inputMint": "USDC", "outputMint": "SOL", "amount": "50", "priorityFee": "high"})

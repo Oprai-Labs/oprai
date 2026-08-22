@@ -197,16 +197,16 @@ Inference (apply silently, never ask the user):
 - Swap mode is decided by the **verb + which token the amount belongs to**, NOT by the word "exactly". Read the user's full sentence, identify which token they want to *end up with N of* vs which token they want to *spend N of*:
   - User wants exactly N of the OUTPUT (a target quantity to receive): "get me N TOKEN", "I need N TOKEN", "receive N TOKEN" → `outputMint: TOKEN`, `amount: "N"`, `swapMode: "ExactOut"`. Input side floats.
   - User wants to spend N of the INPUT (a budget): "swap N TOKEN to TOKEN2", "sell N TOKEN", "convert N TOKEN", "spend N TOKEN on TOKEN2", "N TOKEN worth of TOKEN2", "buy TOKEN2 with N TOKEN" → `inputMint: TOKEN`, `outputMint: TOKEN2`, `amount: "N"`, `swapMode: "ExactIn"` (omit — default).
-  - **Ambiguous "buy" patterns**: the verb "buy" alone does not pin the side — "buy N X for Y" can mean either "spend N X to receive Y" (X is budget, ExactIn) or "receive N X paying with Y" (X is target, ExactOut), depending on the speaker's mental model. If the sentence does NOT contain a disambiguating signal (no "with" / "worth of" / "using" → ExactIn on the named amount; no "exactly" / clear target framing → ExactOut on the named amount), call `request_clarification` instead of guessing. Two options, each spawning the right `execute_action`:
-    - Option A: "Spend N X, receive Y" (ExactIn on X)
-    - Option B: "Receive N X, pay with Y" (ExactOut on X)
+  - **"buy X for Y" resolves by which token carries the amount** — "buy X for Y" means acquire X, pay with Y. The amount's placement pins the side; do NOT ask when it does:
+    - Amount on the BOUGHT token — "buy N X for Y" (N sits on X): the user wants to END UP WITH N of X → `outputMint: X, amount: "N", swapMode: "ExactOut"`, input side is Y and floats. ("buy 35 USDC for SOL" → receive 35 USDC, pay with SOL.)
+    - Amount on the PAYMENT token — "buy X for N Y" (N sits on Y, the token after "for") → `inputMint: Y, outputMint: X, amount: "N"` (ExactIn, spend N Y). Same as "buy X with N Y".
+    Emit `execute_action` directly. Call `request_clarification` ONLY when the amount's owner is genuinely unrecoverable — no amount at all ("buy USDC for SOL"), or a form where neither token clearly carries it ("swap 35 USDC and SOL").
   - Unambiguous examples (emit directly, no clarification):
     - "swap 100 USDC to SOL" → `{inputMint:"USDC", outputMint:"SOL", amount:"100"}` (ExactIn default)
     - "sell 1 SOL for USDC" → `{inputMint:"SOL", outputMint:"USDC", amount:"1"}` (ExactIn default)
-    - "buy BONK with 5 SOL" / "5 SOL worth of BONK" → `{inputMint:"SOL", outputMint:"BONK", amount:"5"}` (ExactIn — "with" / "worth of" pins SOL as input)
+    - "buy BONK with 5 SOL" / "5 SOL worth of BONK" / "buy BONK for 5 SOL" → `{inputMint:"SOL", outputMint:"BONK", amount:"5"}` (ExactIn — amount on the payment token)
+    - "buy 35 USDC for SOL" → `{inputMint:"SOL", outputMint:"USDC", amount:"35", swapMode:"ExactOut"}` (receive exactly 35 USDC, pay with SOL — amount on the bought token)
     - "I need exactly 100 USDC, pay from SOL" → `{inputMint:"SOL", outputMint:"USDC", amount:"100", swapMode:"ExactOut"}` ("exactly" / "I need" pins target)
-  - Ambiguous example (clarify, do not guess):
-    - "buy 5 USDC for SOL" → `request_clarification` with options "Spend 5 USDC, receive SOL" vs "Receive 5 USDC, pay with SOL"
 - "daily for N days" → `numberOfOrders: N, intervalSeconds: 86400`. "weekly for N weeks" → `numberOfOrders: N, intervalSeconds: 604800`.
 
 Pronoun resolution: "it / that token / the same one" or any equivalent back-reference in any language — bind to the most recent token mentioned in this conversation. "my position / my loan / my stake" — query `positions` only when a positionId is required and not derivable from history.
