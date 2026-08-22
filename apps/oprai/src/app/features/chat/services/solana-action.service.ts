@@ -2057,7 +2057,14 @@ export class SolanaActionService {
     // Step 3: Optional Helius CU/fee optimization (silent, fallback-safe).
     // Priority level is picked dynamically per action type so liquidations
     // and volatile swaps don't sit in mempool while MEDIUM-tier txs land.
-    if (this.heliusOptimizationEnabled && buildResult.transaction) {
+    //
+    // Jupiter Perps are EXEMPT: their tx is pre-built by Jupiter (its own compute
+    // budget + lookup table) and must be signed exactly as-built, then handed
+    // UNCHANGED to /actions/perp-execute for the keeper signatures. Rewriting it
+    // through helius_smart_send corrupts the versioned tx, so the wallet fails to
+    // sign it (JSON-RPC -32603) or Jupiter's execute rejects it.
+    const HELIUS_EXEMPT = new Set(['perp_open', 'perp_close']);
+    if (this.heliusOptimizationEnabled && buildResult.transaction && !HELIUS_EXEMPT.has(action.type)) {
       buildResult = {
         ...buildResult,
         transaction: await this.optimizeWithHelius(buildResult.transaction, action.type, action.params ?? {}),
