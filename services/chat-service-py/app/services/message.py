@@ -1475,6 +1475,14 @@ async def stream_chat_response(
             _carried = protocols_from_emitted_types(
                 await _last_turn_emitted_types(db, session_id)
             )
+            # Cross-chain protocols must NOT persist into a follow-up. A prior
+            # relay_bridge turn (e.g. a Robinhood buy) otherwise carried `relay`
+            # into the next no-chain message ("buy 35 usd with sol"), which loaded
+            # the cross-chain prompt and made the model emit its Robinhood/
+            # Seriouscat worked-example verbatim. A cross-chain intent has to be
+            # re-stated by the current turn (a chain name / bridge verb); an
+            # in-flight Solana venue is what carry-forward is for.
+            _carried -= {"relay", "debridge"}
             if _carried - _inferred:
                 _log_turn("protocol_carried_forward",
                           inferred=sorted(_inferred), carried=sorted(_carried))

@@ -337,12 +337,18 @@ Detection rules:
   whatever you emit here — so the action the user was in the middle of stops
   being offerable at all, and the model can only answer with a different
   protocol's action. Emitting both costs nothing by comparison.
-- Cross-chain detection: this is a Solana-native app, so any mention of a
-  non-Solana chain (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC,
-  Robinhood / Robinhood Chain, Avalanche, Linea, Scroll, zkSync, Celo, Fantom,
-  Polygon zkEVM, Arbitrum Nova) OR a bridge/cross-chain verb, in whatever
+  EXCEPTION — "relay"/cross-chain is NOT an in-flight protocol. It does not
+  persist to a follow-up: each cross-chain turn must re-name a non-Solana chain
+  or a bridge verb IN THE CURRENT MESSAGE. After a Robinhood/relay turn, a plain
+  next message that names no chain ("buy 35 usd with sol", "swap SOL to BONK")
+  is a normal SOLANA action — do NOT emit "relay" for it.
+- Cross-chain detection: this is a Solana-native app, so a mention IN THE CURRENT
+  MESSAGE of a non-Solana chain (Ethereum, Base, Arbitrum, Optimism, Polygon,
+  BSC, Robinhood / Robinhood Chain, Avalanche, Linea, Scroll, zkSync, Celo,
+  Fantom, Polygon zkEVM, Arbitrum Nova) OR a bridge/cross-chain verb, in whatever
   language the user wrote it, implies cross-chain →
-  emit "relay" in protocols. A memecoin/token name together with an EVM chain
+  emit "relay" in protocols. No chain named in the current message ⇒ never
+  "relay", even if an earlier turn was cross-chain. A memecoin/token name together with an EVM chain
   ("robinhood ağından seriouscat al", "buy PEPE on Base") is a RELAY trade on
   that chain — NEVER the Solana pump.fun/memecoin buy flow. If the token isn't
   on that chain, the answer is "not found on <chain>", not Solana results. Relay.link is the default cross-chain
