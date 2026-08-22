@@ -947,16 +947,17 @@
               </div>
             }
 
-            <!-- Expiry -->
-            <div class="pump-swap__settings pump-swap__settings--single">
-              <div class="pump-setting">
-                <label class="pump-setting__label">{{ 'Expiry (sec)' | t }}</label>
-                <div class="pump-setting__input">
-                  <input type="number" [attr.placeholder]="'Leave blank for GTC' | t"
-                         [value]="getEditParam('expirySeconds')"
-                         (input)="setEditParam('expirySeconds', $any($event.target).value)"
-                         [disabled]="!isEditable()" min="0" step="1" />
-                </div>
+            <!-- Expiry — Jupiter-style duration presets, not a raw seconds box.
+                 "Never" is GTC (blank expirySeconds); the rest map to seconds. -->
+            <div class="lo-expiry">
+              <span class="lo-expiry__label">{{ 'Expiry' | t }}</span>
+              <div class="lo-expiry__opts">
+                @for (c of LIMIT_EXPIRY_CHOICES; track c.seconds) {
+                  <button type="button" class="me-quick__btn"
+                          [class.me-quick__btn--active]="limitExpirySelected() === c.seconds"
+                          [disabled]="!isEditable()"
+                          (click)="setLimitExpiry(c.seconds)">{{ c.label | t }}</button>
+                }
               </div>
             </div>
           </div>

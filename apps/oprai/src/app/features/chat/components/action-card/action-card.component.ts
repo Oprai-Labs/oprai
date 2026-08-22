@@ -3636,6 +3636,34 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     { label: '30 days', days: 30 },
   ];
 
+  /** Limit-order expiry presets, mirroring Jupiter's own UI — a raw "seconds"
+   *  box was meaningless to a user. `seconds: 0` is GTC (blank expirySeconds). */
+  readonly LIMIT_EXPIRY_CHOICES: ReadonlyArray<{ label: string; seconds: number }> = [
+    { label: 'Never', seconds: 0 },
+    { label: '10 min', seconds: 600 },
+    { label: '1 hour', seconds: 3600 },
+    { label: '1 day', seconds: 86_400 },
+    { label: '3 days', seconds: 259_200 },
+    { label: '7 days', seconds: 604_800 },
+    { label: '30 days', seconds: 2_592_000 },
+  ];
+
+  /** Which preset is active, snapping the current expirySeconds to the nearest
+   *  choice; a blank/zero value is GTC ("Never" = 0). */
+  limitExpirySelected(): number {
+    const raw = Number(this.getEditParam('expirySeconds'));
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return this.LIMIT_EXPIRY_CHOICES
+      .filter(c => c.seconds > 0)
+      .reduce((best, c) => (Math.abs(c.seconds - raw) < Math.abs(best.seconds - raw) ? c : best),
+              { label: '', seconds: 600 }).seconds;
+  }
+
+  /** Set the order lifetime from a preset. GTC (0) clears the field entirely. */
+  setLimitExpiry(seconds: number): void {
+    this.setEditParam('expirySeconds', seconds > 0 ? String(seconds) : '');
+  }
+
   /**
    * Expiry was a raw unix timestamp box. Nobody knows what 1785521483 is, and
    * a user who wants "a week" should not have to compute one.

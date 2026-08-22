@@ -40,15 +40,32 @@ Examples:
 Format: [ACTION:limit_order] inputMint=<token> outputMint=<token> amount=<amount> targetPrice=<price_in_output_token> expirySeconds=<optional_seconds>
 
 Parameters:
-- inputMint: Token to sell
-- outputMint: Token to buy
-- amount: Amount of input token to sell
-- targetPrice: Limit price in output token per 1 input token (e.g., 100 = sell 1 SOL for 100 USDC)
+- inputMint: Token to sell (the token you PAY with)
+- outputMint: Token to buy (the token you RECEIVE)
+- amount: Amount of INPUT token to sell/spend
+- targetPrice: **output tokens per 1 input token** — always the RATIO outputMint/inputMint, NOT a USD price.
 - expirySeconds: Optional order lifetime in seconds from now (e.g., 86400 = 1 day). Omit for no expiry.
+
+**Price direction — this is the #1 mistake, get it right:**
+`targetPrice` is output-per-input. A USD price the user quotes is a price of ONE
+specific token; you must decide whether that token is the input or the output and
+convert:
+- SELLING a token for a $-stable (USDC/USDT), priced per token → the stable is the
+  OUTPUT, so targetPrice = that USD price directly. "sell 10 SOL at $105" →
+  input SOL, output USDC, targetPrice = 105.
+- BUYING a token with a $-stable, priced per token → the token is the OUTPUT and the
+  stable is the INPUT, so targetPrice = **1 / (USD price)**. "buy SOL with USDC when
+  SOL hits $85" → input USDC, output SOL, targetPrice = 1/85 ≈ 0.011765. NEVER pass
+  85 here — 20 USDC × 85 would order 1700 SOL, which is nonsense.
+Sanity check before emitting: amount(input) × targetPrice = amount(output). If that
+output quantity is absurd for the price (e.g. 1700 SOL for $20), you inverted it.
 
 Examples:
 - "Place limit order: sell 10 SOL at $105"
   -> execute_action("limit_order", {"inputMint": "SOL", "outputMint": "USDC", "amount": "10", "targetPrice": "105"})
+
+- "eğer sol 85 dolara gelirse 20 usdc'lik sol al" / "if SOL hits $85, buy $20 of SOL with USDC"
+  -> execute_action("limit_order", {"inputMint": "USDC", "outputMint": "SOL", "amount": "20", "targetPrice": "0.0117647"})   # 1/85; fills ~0.235 SOL
 
 - "Limit order: buy 1000 USDC worth of BONK at 0.001 SOL each"
   -> execute_action("limit_order", {"inputMint": "USDC", "outputMint": "BONK", "amount": "1000", "targetPrice": "0.001"})
