@@ -912,7 +912,14 @@
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'Buy (at your price)' | t }}</span>
                 @if (loRate !== null) {
-                  <span class="pump-panel__bal">1 {{ loSellTd.symbol }} = {{ loRate | number:'1.0-6' }} {{ loBuyTd.symbol }}</span>
+                  <!-- Show the price in its natural direction — the side whose
+                       "1 X = N Y" reads with N ≥ 1 (the volatile token priced in
+                       the stable), e.g. "1 SOL = 850 USDC", not "1 USDC = 0.0011 SOL". -->
+                  @if (loRate >= 1) {
+                    <span class="pump-panel__bal">1 {{ loSellTd.symbol }} = {{ loRate | number:'1.0-6' }} {{ loBuyTd.symbol }}</span>
+                  } @else {
+                    <span class="pump-panel__bal">1 {{ loBuyTd.symbol }} = {{ (1 / loRate) | number:'1.0-6' }} {{ loSellTd.symbol }}</span>
+                  }
                 }
               </div>
               <div class="pump-panel__row">

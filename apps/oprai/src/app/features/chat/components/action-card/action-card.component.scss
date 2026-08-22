@@ -3882,12 +3882,14 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 8px 14px 0;
-  padding: 11px 13px;
-  border-radius: 14px;
-  background: var(--op-bg-surface-2);
-  border: 1px solid var(--op-border-subtle);
+  gap: 12px;
+  // Same rhythm and shape as the Sell/Buy panels above, so the alert reads as
+  // part of the same card rather than a strip bolted on underneath.
+  margin: 10px 16px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--op-danger) 6%, var(--op-bg-surface-2));
+  border: 1px solid color-mix(in srgb, var(--op-danger) 22%, var(--op-border-subtle));
   overflow: hidden;
   animation: action-card-enter 0.2s ease-out both;
 
@@ -3896,7 +3898,7 @@
     content: '';
     position: absolute;
     inset: 0 auto 0 0;
-    width: 2px;
+    width: 3px;
     background: var(--op-danger);
   }
 
@@ -3906,12 +3908,16 @@
   }
 
   &--yellow {
+    background: color-mix(in srgb, var(--op-warning) 7%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--op-warning) 24%, var(--op-border-subtle));
     &::before { background: var(--op-warning); }
     .proto-warn-icon { color: var(--op-warning); }
     .proto-warn-title { color: var(--op-warning); }
   }
 
   &--orange {
+    background: color-mix(in srgb, var(--op-warning) 7%, var(--op-bg-surface-2));
+    border-color: color-mix(in srgb, var(--op-warning) 24%, var(--op-border-subtle));
     &::before { background: var(--op-warning); }
     .proto-warn-icon { color: var(--op-warning); }
     .proto-warn-title { color: var(--op-warning); }
