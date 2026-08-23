@@ -1444,6 +1444,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     seq: number,
     params: { market: string; side: string; collateralAmount: string; leverage: string; collateralToken: string },
   ): Promise<void> {
+    // No Solana wallet connected (e.g. an EVM/SIWE-only session) → the builder
+    // can't quote: the gateway stamps the non-Solana address and /actions/build
+    // 400s. Skip quietly rather than spamming failed background quotes; Confirm
+    // surfaces the "connect a Solana wallet" guidance.
+    if (!this.walletService.publicKey()) { this.perpQuote.set(null); this.perpQuoteLoading.set(false); return; }
     this.perpQuoteLoading.set(true);
     try {
       const body: Record<string, unknown> = {
@@ -1508,6 +1513,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     type: 'jlp_add' | 'jlp_remove',
     params: { operation: string; amount: string; token: string },
   ): Promise<void> {
+    // No Solana wallet → the builder can't quote (gateway stamps a non-Solana
+    // address, /actions/build 400s). Skip quietly; Confirm guides the user.
+    if (!this.walletService.publicKey()) { this.jlpQuote.set(null); this.jlpQuoteLoading.set(false); return; }
     this.jlpQuoteLoading.set(true);
     try {
       const res = await firstValueFrom(

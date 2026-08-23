@@ -1512,7 +1512,13 @@ export class SolanaActionService {
   ): Promise<string> {
     const wallet = this.walletService.publicKey();
     if (!wallet) {
-      throw new Error('No wallet connected');
+      // The user may be signed in through an EVM (SIWE) session with no Solana
+      // wallet connected — chat history and rewards work account-wide, but every
+      // action OPRAI executes settles on Solana and needs a Solana wallet to
+      // sign. Without this, the builder was still called with the 0x address and
+      // came back with a raw "Invalid wallet address" 400; say plainly what to
+      // do instead. (String is a translation key — see i18n/translations.ts.)
+      throw new Error('This action runs on Solana. Connect a Solana wallet to continue.');
     }
 
     // ── Guard: wallet param in action must not be a different address ──────

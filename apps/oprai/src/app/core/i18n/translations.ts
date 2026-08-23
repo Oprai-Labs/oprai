@@ -758,6 +758,7 @@ export const TR: Record<string, string> = {
   'Thinking': 'Düşünüyor',
   'Thinking...': 'Düşünüyor...',
   'This action cannot be undone.': 'Bu işlem geri alınamaz.',
+  'This action runs on Solana. Connect a Solana wallet to continue.': 'Bu işlem Solana ağında gerçekleşir. Devam etmek için bir Solana cüzdanı bağlayın.',
   'This action is permanent and cannot be undone.': 'Bu işlem kalıcıdır ve geri alınamaz.',
   'This address has never been used. Check it carefully — a transfer to a mistyped address cannot be recovered. Creating it also costs about 0.00089 SOL in rent.': 'Bu adres hiç kullanılmamış. Dikkatle kontrol edin — yanlış yazılmış bir adrese yapılan transfer geri alınamaz. Ayrıca oluşturulması kira olarak yaklaşık 0,00089 SOL tutar.',
   'This address is not a known protocol. Verify before confirming.': 'Bu adres bilinen bir protokol değil. Onaylamadan önce doğrulayın.',
