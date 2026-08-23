@@ -1,6 +1,7 @@
 <div class="chat-container" [class.incognito]="sessionStorage.incognitoMode()">
-  @if (!walletService.connected()) {
-    <!-- Disconnected State -->
+  @if (!walletService.connected() && !authService.isAuthenticated()) {
+    <!-- Disconnected State — neither a Solana wallet nor an authenticated
+         (e.g. EVM SIWE) session. -->
     <div class="chat-content">
       <section class="hero">
         <div class="hero-brand">

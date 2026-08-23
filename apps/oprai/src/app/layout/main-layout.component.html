@@ -197,7 +197,7 @@
         } @else {
           <!-- ── Real wallet content, fades in ── -->
           <div class="sidebar-bottom-reveal">
-            @if (walletService.connected()) {
+            @if (walletService.connected() || authService.isAuthenticated()) {
               <button #userBtn class="sidebar-user" (click)="toggleWalletMenu($event)">
                 <div class="sidebar-user-avatar">
                   <lucide-icon name="wallet" [size]="14" />
@@ -1105,7 +1105,7 @@
     truth rather than becoming a second source of it. Connected opens the
     wallet menu, which is where Disconnect lives.
   -->
-  @if (walletService.connected()) {
+  @if (walletService.connected() || authService.isAuthenticated()) {
     <button class="tab-item tab-item--wallet" (click)="toggleWalletMenu($event)">
       <lucide-icon name="wallet" [size]="18" />
       <span>{{ displayWallet() | truncateAddress:4:4 }}</span>
