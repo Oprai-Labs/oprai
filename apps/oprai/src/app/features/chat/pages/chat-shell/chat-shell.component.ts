@@ -1488,13 +1488,20 @@ export class ChatShellComponent implements OnInit, OnDestroy {
           this.authService.logout();
           this.messages.set([]); // drop any cached messages from the prior wallet
         } else if (err.status === 404) {
-          // Session not found on this wallet — most common cause is a wallet
-          // switch where the old session belongs to the previous wallet. Clear
-          // any messages still in the view so we don't keep showing them while
-          // the error banner says "not available".
-          this.authError.set('This conversation is no longer available.');
+          // Session not found on this wallet — most common cause is landing on a
+          // stale `/c/<id>` URL (reload / bookmark / a previous wallet's session)
+          // after connecting a different wallet. Don't strand the user on a dead
+          // URL with an error banner: drop the stale session and bounce to a
+          // fresh chat home for the CURRENT wallet, whose own sessions load in
+          // the sidebar. Guard against a redirect loop — only bounce when we're
+          // actually sitting on that session's route.
           this.sessionStorage.removeSession(sessionId);
           this.messages.set([]);
+          if (this.router.url.includes(sessionId)) {
+            void this.router.navigateByUrl('/');
+          } else {
+            this.authError.set('This conversation is no longer available.');
+          }
         } else if (err.status === 0) {
           // Status 0 = network unreachable / CORS / offline. Don't expose
           // internal "services are running" wording — that's a dev concern.
