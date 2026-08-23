@@ -111,6 +111,12 @@ type verifyRequest struct {
 	// Chain selects the signature scheme: "solana" (default, ed25519 SIWS) or
 	// "ethereum"/"evm" (EIP-191 SIWE). Enables multichain onboarding.
 	Chain string `json:"chain,omitempty"`
+	// Message is the FULL human-readable, domain-bound message the wallet signed
+	// (EIP-4361 / SIWS style). When present we verify the signature over these
+	// exact bytes — so what the user saw in their wallet (which domain, which
+	// account) IS what authorizes the login. Absent → legacy "OPRAI login:
+	// <nonce>" path, so older cached clients keep working during rollout.
+	Message string `json:"message,omitempty"`
 }
 
 // verifyResponse is the response from POST /auth/verify.
@@ -188,8 +194,31 @@ func (h *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Construct the message that was signed: "OPRAI login: <nonce>"
-	message := fmt.Sprintf("OPRAI login: %s", nonce)
+	// Reconstruct the message that was signed. Prefer the FULL domain-bound
+	// message the client sent (EIP-4361 / SIWS) — we verify the exact bytes the
+	// user saw in their wallet, so which domain and which account authorized the
+	// login is visible to them. It MUST carry the server-issued, single-use
+	// nonce (anti-replay) and, when APP_DOMAIN is set, our domain (so a
+	// signature phished on another origin can't be replayed here). Fall back to
+	// the legacy "OPRAI login: <nonce>" for older clients still on the old build.
+	var message string
+	if strings.TrimSpace(req.Message) != "" {
+		if !strings.Contains(req.Message, "Nonce: "+nonce) {
+			slog.Warn("Login verification failed: message missing server nonce", "wallet", req.WalletAddress, "ip", ip)
+			h.logFailedLogin(r, req.WalletAddress, "", "Message nonce mismatch")
+			writeError(w, http.StatusBadRequest, "Message does not match the issued challenge")
+			return
+		}
+		if h.cfg.AppDomain != "" && !strings.Contains(req.Message, h.cfg.AppDomain) {
+			slog.Warn("Login verification failed: message domain mismatch", "wallet", req.WalletAddress, "ip", ip)
+			h.logFailedLogin(r, req.WalletAddress, "", "Message domain mismatch")
+			writeError(w, http.StatusBadRequest, "Message domain not recognized")
+			return
+		}
+		message = req.Message
+	} else {
+		message = fmt.Sprintf("OPRAI login: %s", nonce)
+	}
 	messageBytes := []byte(message)
 
 	// Multichain: verify the signature with the scheme for the requested chain.

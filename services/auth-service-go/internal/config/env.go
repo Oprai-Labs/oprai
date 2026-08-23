@@ -23,6 +23,13 @@ type Config struct {
 	Environment       string
 	CORSOrigin        string // Allowed CORS origin for the gateway (default: http://localhost:3001)
 
+	// AppDomain is the canonical host users sign into (e.g. "app.oprai.xyz").
+	// When set, the domain-bound login message (EIP-4361/SIWS) MUST carry it, so
+	// a signature phished on another origin can't be replayed to us. Empty =
+	// domain not enforced (dev), only the single-use nonce + signature are
+	// checked. Set APP_DOMAIN in prod.
+	AppDomain string
+
 	// TelegramBotToken enables Telegram Login Widget verification for linking a
 	// Telegram identity to an account. Empty = Telegram linking is disabled and
 	// the endpoint returns a clear "not configured" error.
@@ -77,6 +84,7 @@ func Load() (*Config, error) {
 		RedisURL:          redisURL,
 		DBSchema:          dbSchema,
 		CORSOrigin:        corsOrigin,
+		AppDomain:         getEnv("APP_DOMAIN", ""),
 		TelegramBotToken:  telegramBotToken,
 		Environment:       environment,
 		TrustProxyHeaders: trustProxy,
