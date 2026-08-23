@@ -95,6 +95,33 @@ export class AuthService {
    *
    * Cancelled immediately if logout() is called while signing is in progress.
    */
+
+  /**
+   * Build the domain-bound sign-in message (EIP-4361 / SIWS style). The wallet
+   * shows the user WHICH SITE and WHICH ACCOUNT they're authorizing, so a
+   * signature phished on another origin is visible for what it is — the bare
+   * "OPRAI login: <nonce>" it replaces showed neither. auth-service verifies the
+   * signature over these EXACT bytes and checks the nonce + domain, so this
+   * format must stay byte-for-byte in lockstep with the backend.
+   */
+  private buildSignInMessage(address: string, chainLabel: string, chainId: string, nonce: string): string {
+    const host = typeof window !== 'undefined' ? window.location.host : 'app.oprai.xyz';
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://app.oprai.xyz';
+    const issuedAt = new Date().toISOString();
+    return [
+      `${host} wants you to sign in with your ${chainLabel} account:`,
+      address,
+      '',
+      'Sign in to OPRAI. This request will not trigger a blockchain transaction or cost any gas.',
+      '',
+      `URI: ${origin}`,
+      'Version: 1',
+      `Chain ID: ${chainId}`,
+      `Nonce: ${nonce}`,
+      `Issued At: ${issuedAt}`,
+    ].join('\n');
+  }
+
   authenticate(): Observable<AuthUser> {
     const walletAddress = this.walletService.publicKey();
     if (!walletAddress) {
@@ -124,7 +151,7 @@ export class AuthService {
       .post<NonceResponse>('/auth/nonce', { wallet: walletAddress })
       .pipe(
         switchMap((nonceRes) => {
-          const message = `OPRAI login: ${nonceRes.nonce}`;
+          const message = this.buildSignInMessage(walletAddress, 'Solana', 'mainnet', nonceRes.nonce);
           const messageBytes = new TextEncoder().encode(message);
           return from(this.signWithDeadline(messageBytes)).pipe(
             switchMap((signatureBytes) => {
@@ -133,6 +160,7 @@ export class AuthService {
                 walletAddress,
                 signature,
                 nonceId: nonceRes.nonceId,
+                message,
               });
             })
           );
@@ -176,7 +204,7 @@ export class AuthService {
     this._authenticating.set(true);
     try {
       const nonceRes = await firstValueFrom(this.api.post<NonceResponse>('/auth/nonce', { wallet: addr }));
-      const message = `OPRAI login: ${nonceRes.nonce}`;
+      const message = this.buildSignInMessage(address, 'Ethereum', '1', nonceRes.nonce);
       const signature = (await provider.request({ method: 'personal_sign', params: [message, address] })) as string;
       const verifyRes = await firstValueFrom(
         this.api.post<VerifyResponse>('/auth/verify', {
@@ -184,6 +212,7 @@ export class AuthService {
           signature,
           nonceId: nonceRes.nonceId,
           chain: 'ethereum',
+          message,
         }),
       );
       if (verifyRes.token) this._token.set(verifyRes.token);
