@@ -425,7 +425,11 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, evt *AuditEvent) error {
 	_, err := q.pool.Exec(ctx, query,
 		evt.EventType, severity, nilIfEmpty(evt.EntityType), nilIfEmpty(evt.EntityID),
 		userID, nilIfEmpty(evt.WalletAddress), nilIfEmpty(evt.SessionID),
-		eventDataJSON, nilIfEmpty(evt.IPAddress), nilIfEmpty(evt.UserAgent),
+		// Pass JSON as a STRING, not []byte: pgx encodes []byte as bytea, and
+		// `$8::jsonb` then tries to parse bytea's text form (`\x7b7d`) as JSON —
+		// "invalid input syntax for type json (22P02)" on EVERY audit event.
+		// A string is sent as text, which `::jsonb` parses correctly.
+		string(eventDataJSON), nilIfEmpty(evt.IPAddress), nilIfEmpty(evt.UserAgent),
 		nilIfEmpty(evt.RequestMethod), nilIfEmpty(evt.RequestPath), nilIfEmpty(evt.RequestID),
 		nilIfInt(evt.ResponseStatus), nilIfZero(evt.ResponseTimeMs),
 		nilIfEmpty(evt.TransactionSignature), nilIfZero(evt.TransactionAmount), nilIfEmpty(evt.TransactionToken),
