@@ -2,6 +2,7 @@ import { Injectable, signal, computed, NgZone, inject } from '@angular/core';
 import { Subject } from 'rxjs';
 import bs58 from 'bs58';
 import { MemoryService } from './memory.service';
+import { assertTxSignSafety } from '../utils/tx-safety';
 
 export interface WalletAdapter {
   name: string;
@@ -583,6 +584,11 @@ export class WalletService {
   /** Sign a transaction with the connected wallet. */
   async signTransaction(transaction: unknown): Promise<unknown> {
     if (!this._adapter) throw new Error('No wallet connected');
+    // WYSIWYS floor: refuse to sign a transaction whose fee payer isn't this
+    // wallet, or that hands the user's token authority to a third party. Runs
+    // BEFORE the try so a WysiwysError propagates verbatim (not remapped by
+    // describeWalletFailure). See utils/tx-safety.ts.
+    assertTxSignSafety(transaction, this._publicKey());
     try {
       return await this._adapter.signTransaction(transaction);
     } catch (err) {
@@ -632,6 +638,10 @@ export class WalletService {
     options?: { skipPreflight?: boolean },
   ): Promise<string | null> {
     if (!this._adapter) throw new Error('No wallet connected');
+    // Same WYSIWYS floor as signTransaction — this path (e.g. launch dev-buy)
+    // hands bytes straight to the wallet with skipPreflight, so the scan matters
+    // just as much here.
+    assertTxSignSafety(transaction, this._publicKey());
     const fn = (this._adapter as any).signAndSendTransaction;
     if (typeof fn !== 'function') return null;
     let result: any;
