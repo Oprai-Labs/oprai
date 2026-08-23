@@ -103,6 +103,17 @@
         <div class="hero-logo">
           <img src="oprai_fullname_icon.svg" [attr.alt]="'OPRAI' | t" class="hero-brand-logo" />
         </div>
+
+        <!-- Starter prompts: one-tap ways in. Shown only on an empty chat, so a
+             new user isn't staring at a blank box wondering what to type. -->
+        <div class="starter-prompts">
+          @for (p of starterPrompts; track p.text) {
+            <button type="button" class="starter-chip" (click)="onStarterPrompt(p.text)">
+              <lucide-icon [name]="p.icon" [size]="16" class="starter-chip-icon" />
+              <span>{{ p.text | t }}</span>
+            </button>
+          }
+        </div>
       }
 
       <!-- Composer is ALWAYS rendered (same instance, just repositioned) -->

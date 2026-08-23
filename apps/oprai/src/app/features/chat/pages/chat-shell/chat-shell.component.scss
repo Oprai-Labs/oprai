@@ -54,6 +54,54 @@
   margin-bottom: var(--op-space-5);
 }
 
+// ──── Starter prompts (empty chat, one-tap ways in) ────
+.starter-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--op-space-2);
+  max-width: 560px;
+  margin: 0 auto var(--op-space-5);
+  padding: 0 var(--op-space-4);
+}
+
+.starter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--op-space-2);
+  padding: var(--op-space-2) var(--op-space-3);
+  border: 1px solid var(--op-border-subtle, var(--op-border));
+  border-radius: 999px;
+  background: var(--op-bg-surface-1);
+  color: var(--op-text-secondary, var(--op-text-primary));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease;
+
+  &:hover {
+    background: var(--op-bg-surface-2, var(--op-bg-surface-1));
+    border-color: var(--op-brand);
+    color: var(--op-text-primary);
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--op-brand);
+    outline-offset: 2px;
+  }
+}
+
+.starter-chip-icon {
+  color: var(--op-brand);
+  flex-shrink: 0;
+}
+
 // ============================================================================
 // Hero States (disconnected)
 // ============================================================================

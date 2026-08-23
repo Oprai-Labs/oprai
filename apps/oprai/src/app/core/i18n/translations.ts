@@ -759,6 +759,16 @@ export const TR: Record<string, string> = {
   'Thinking...': 'Düşünüyor...',
   'This action cannot be undone.': 'Bu işlem geri alınamaz.',
   'This action runs on Solana. Connect a Solana wallet to continue.': 'Bu işlem Solana ağında gerçekleşir. Devam etmek için bir Solana cüzdanı bağlayın.',
+  // Empty-chat starter prompts
+  'Show my portfolio': 'Portföyümü göster',
+  'Swap 1 SOL to USDC': '1 SOL\'u USDC\'ye çevir',
+  'Stake 1 SOL with Jito': '1 SOL\'u Jito ile stake et',
+  'What can OPRAI do?': 'OPRAI neler yapabilir?',
+  // First-action reassurance
+  'You stay in control': 'Kontrol sende',
+  'OPRAI just prepares this for you to review. Nothing leaves your wallet until you approve it there — you can cancel any time before signing.':
+    'OPRAI bunu yalnızca incelemen için hazırlar. Sen cüzdanında onaylayana kadar cüzdanından hiçbir şey çıkmaz — imzalamadan önce istediğin an iptal edebilirsin.',
+  'Got it': 'Anladım',
   'This action is permanent and cannot be undone.': 'Bu işlem kalıcıdır ve geri alınamaz.',
   'This address has never been used. Check it carefully — a transfer to a mistyped address cannot be recovered. Creating it also costs about 0.00089 SOL in rent.': 'Bu adres hiç kullanılmamış. Dikkatle kontrol edin — yanlış yazılmış bir adrese yapılan transfer geri alınamaz. Ayrıca oluşturulması kira olarak yaklaşık 0,00089 SOL tutar.',
   'This address is not a known protocol. Verify before confirming.': 'Bu adres bilinen bir protokol değil. Onaylamadan önce doğrulayın.',

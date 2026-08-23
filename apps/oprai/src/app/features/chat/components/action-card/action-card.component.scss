@@ -30,6 +30,42 @@
 
   &--error { border-color: var(--op-loss-subtle); }
 
+  // First-action reassurance strip (one-time)
+  .first-action-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--op-space-3);
+    padding: var(--op-space-3) var(--op-space-4);
+    background: color-mix(in srgb, var(--op-brand) 8%, var(--op-bg-surface-1));
+    border-bottom: 1px solid color-mix(in srgb, var(--op-brand) 20%, var(--op-border-subtle));
+
+    .fah-icon { color: var(--op-brand); flex-shrink: 0; margin-top: 1px; }
+
+    .fah-body {
+      flex: 1;
+      min-width: 0;
+      strong { display: block; font-size: 13px; font-weight: 600; color: var(--op-text-primary); margin-bottom: 2px; }
+      p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--op-text-secondary); }
+    }
+
+    .fah-dismiss {
+      flex-shrink: 0;
+      align-self: center;
+      padding: var(--op-space-1) var(--op-space-3);
+      border: 1px solid var(--op-brand);
+      border-radius: var(--op-radius-md, 8px);
+      background: transparent;
+      color: var(--op-brand);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 150ms ease, color 150ms ease;
+
+      &:hover { background: var(--op-brand); color: #fff; }
+      &:focus-visible { outline: 2px solid var(--op-brand); outline-offset: 2px; }
+    }
+  }
+
   // Pump.fun token-launch cards: teal-tinted border + subtle glow
   &--cat-token {
     border-color: color-mix(in srgb, #52B788 28%, var(--op-border-subtle));

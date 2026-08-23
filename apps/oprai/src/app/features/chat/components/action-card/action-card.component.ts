@@ -1209,6 +1209,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // Status
   readonly status = signal<ActionStatus>('pending');
   readonly shake = signal(false);
+
+  // One-time reassurance on a user's FIRST action card. The prod funnel's big
+  // gap is chat → first execution (12 wallets chatted, 2 acted — and every
+  // wallet that acted succeeded), so a DeFi newcomer hesitating at their first
+  // card is exactly where they're lost. Shown until dismissed once, ever.
+  readonly showFirstActionHint = signal<boolean>((() => {
+    try { return localStorage.getItem('oprai-first-action-hint-seen') !== '1'; }
+    catch { return false; }
+  })());
+  dismissFirstActionHint(): void {
+    try { localStorage.setItem('oprai-first-action-hint-seen', '1'); } catch { /* storage off */ }
+    this.showFirstActionHint.set(false);
+  }
   readonly txSignature = signal<string | null>(null);
   readonly dataResult = signal<string | null>(null);
   readonly isDataOnly = computed(() => SolanaActionService.DATA_ONLY_TYPES.has(this.action.type));

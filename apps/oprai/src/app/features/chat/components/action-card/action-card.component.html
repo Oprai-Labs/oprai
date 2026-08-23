@@ -4,6 +4,19 @@
      [style.--proto-bg]="protocolConfig.accentBg"
      (click)="onCardInteract()">
 
+  <!-- First-action reassurance. One-time, dismissible; targets the chat→execute
+       drop-off by telling a newcomer they stay in control up to the signature. -->
+  @if (showFirstActionHint() && status() === 'pending') {
+    <div class="first-action-hint" (click)="$event.stopPropagation()">
+      <lucide-icon name="shield-check" [size]="18" class="fah-icon" />
+      <div class="fah-body">
+        <strong>{{ 'You stay in control' | t }}</strong>
+        <p>{{ 'OPRAI just prepares this for you to review. Nothing leaves your wallet until you approve it there — you can cancel any time before signing.' | t }}</p>
+      </div>
+      <button type="button" class="fah-dismiss" (click)="dismissFirstActionHint()">{{ 'Got it' | t }}</button>
+    </div>
+  }
+
   <!-- ══════════════════════════════════════════════════════════
        TOKEN LAUNCH MINI-APP — pump.fun
        ══════════════════════════════════════════════════════════ -->

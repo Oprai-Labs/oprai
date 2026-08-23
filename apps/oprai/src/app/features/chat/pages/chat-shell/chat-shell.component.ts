@@ -20,14 +20,15 @@ import { MessageComposerComponent, SendEvent } from '../../components/message-co
 import { UploadResult } from '@core/services/upload.service';
 import { MemoryService } from '@core/services/memory.service';
 import { LiquidationMonitorService } from '@core/services/liquidation-monitor.service';
-import { TPipe } from '@core/i18n';
+import { TPipe, TranslateService } from '@core/i18n';
+import { LucideAngularModule } from 'lucide-angular';
 
 @Component({
   selector: 'app-chat-shell',
   standalone: true,
   imports: [CommonModule,
     MessageListComponent,
-    MessageComposerComponent, TPipe],
+    MessageComposerComponent, TPipe, LucideAngularModule],
   templateUrl: './chat-shell.component.html',
   styleUrl: './chat-shell.component.scss',
 })
@@ -41,6 +42,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
+  private readonly i18n = inject(TranslateService);
 
   readonly messages = signal<ChatMessage[]>([]);
   readonly streaming = signal(false);
@@ -417,6 +419,28 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     this.lastFailedContent.set(null);
     // Navigate to root — route effect will clear the active session
     this.location.replaceState('/');
+  }
+
+  /**
+   * Empty-state starter prompts. The funnel showed the biggest drop-off is
+   * chat → first action (12 wallets chatted, 2 acted; and every wallet that
+   * DID act succeeded), so a new user landing on a blank screen is the moment
+   * to lose them. These one-tap starters name concrete things OPRAI can do —
+   * one zero-risk read first (portfolio) to build trust, then the two actions
+   * users complete most (swap, stake). Strings are English i18n keys (`| t`).
+   */
+  readonly starterPrompts: ReadonlyArray<{ icon: string; text: string }> = [
+    { icon: 'wallet', text: 'Show my portfolio' },
+    { icon: 'arrow-right-left', text: 'Swap 1 SOL to USDC' },
+    { icon: 'coins', text: 'Stake 1 SOL with Jito' },
+    { icon: 'sparkles', text: 'What can OPRAI do?' },
+  ];
+
+  /** Send a starter prompt as if the user had typed it — in the user's language,
+   * so what lands in the chat matches the chip they tapped (and the reply's
+   * language lock stays consistent). */
+  onStarterPrompt(text: string): void {
+    this.onSendMessage(this.i18n.t(text));
   }
 
   onSendMessage(event: SendEvent | string): void {
