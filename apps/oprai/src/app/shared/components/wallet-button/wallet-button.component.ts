@@ -80,15 +80,15 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
   // Well-known EVM wallets, so the Ethereum tab can list the full set (detected
   // on top, the rest as install prompts) — like the Solana tab does. Icons fall
   // back to a letter-avatar when the asset/announced icon is missing or broken.
-  private static readonly EVM_WALLETS: ReadonlyArray<{ name: string; url: string }> = [
-    { name: 'MetaMask', url: 'https://metamask.io/download/' },
-    { name: 'Rabby', url: 'https://rabby.io/' },
-    { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads' },
-    { name: 'Rainbow', url: 'https://rainbow.me/' },
-    { name: 'Trust Wallet', url: 'https://trustwallet.com/download' },
-    { name: 'OKX Wallet', url: 'https://www.okx.com/web3' },
-    { name: 'Zerion', url: 'https://zerion.io/' },
-    { name: 'Phantom', url: 'https://phantom.app/' },
+  private static readonly EVM_WALLETS: ReadonlyArray<{ name: string; url: string; icon: string }> = [
+    { name: 'MetaMask', url: 'https://metamask.io/download/', icon: '/icons/wallets/metamask.svg' },
+    { name: 'Rabby', url: 'https://rabby.io/', icon: '/icons/wallets/rabby.svg' },
+    { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads', icon: '/icons/wallets/coinbase.svg' },
+    { name: 'Rainbow', url: 'https://rainbow.me/', icon: '/icons/wallets/rainbow.svg' },
+    { name: 'Trust Wallet', url: 'https://trustwallet.com/download', icon: '/icons/wallets/trust.svg' },
+    { name: 'OKX Wallet', url: 'https://www.okx.com/web3', icon: '/icons/wallets/okx.png' },
+    { name: 'Zerion', url: 'https://zerion.io/', icon: '/icons/wallets/zerion.svg' },
+    { name: 'Phantom', url: 'https://phantom.app/', icon: '/icons/wallets/phantom.svg' },
   ];
 
   // The one EIP-6963 icon that renders broken (Phantom ships a dark square).
@@ -113,17 +113,21 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
       .map((w) => ({ ...w, icon: WalletButtonComponent.ICON_OVERRIDE[w.name.trim().toLowerCase()] ?? w.icon }));
   }
 
-  /** Known EVM wallets the user does NOT have installed — shown as install
-   *  prompts under the detected ones so the Ethereum tab lists the full set. */
+  /** Normalize a wallet name for comparison: lowercase + drop a trailing
+   *  " Wallet" so detected "Rabby Wallet" matches curated "Rabby" and we don't
+   *  list it twice (once detected, once as an install prompt). */
+  private static normName(name: string): string {
+    return name.trim().toLowerCase().replace(/\s+wallet$/, '');
+  }
+
+  /** Known EVM wallets the user does NOT already have detected — shown as
+   *  install prompts under the detected ones so the Ethereum tab lists the full
+   *  set, each with its real bundled brand icon. */
   get installableEvmWallets(): Array<{ name: string; url: string; icon: string }> {
-    const have = new Set(this.evmDetectedWallets.map((w) => w.name.trim().toLowerCase()));
-    return WalletButtonComponent.EVM_WALLETS
-      .filter((w) => !have.has(w.name.trim().toLowerCase()))
-      .map((w) => ({
-        ...w,
-        icon: WalletButtonComponent.ICON_OVERRIDE[w.name.trim().toLowerCase()]
-          ?? `/icons/wallets/${w.name.split(' ')[0].toLowerCase()}.svg`,
-      }));
+    const have = new Set(this.evmDetectedWallets.map((w) => WalletButtonComponent.normName(w.name)));
+    return WalletButtonComponent.EVM_WALLETS.filter(
+      (w) => !have.has(WalletButtonComponent.normName(w.name)),
+    );
   }
 
   get installableWallets(): import('@core/services/wallet.service').WalletInfo[] {
