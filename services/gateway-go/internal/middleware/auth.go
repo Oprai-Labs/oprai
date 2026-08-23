@@ -67,9 +67,12 @@ func JWTAuth(jwtSecret, previousSecret string, blocklist *TokenBlocklist) func(h
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Strip any client-supplied identity header up front — it can only
-			// ever be re-set from our own validated token below.
+			// Strip any client-supplied identity headers up front — they can
+			// only ever be re-set from our own validated token below. Both
+			// wallet and account are stripped here so the guarantee is
+			// centralized, not left to each downstream proxy to Del().
 			r.Header.Del("X-User-Account")
+			r.Header.Del("X-User-Wallet")
 
 			// 1. Try Authorization: Bearer header first
 			var tokenString string
