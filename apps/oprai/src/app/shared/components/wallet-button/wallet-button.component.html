@@ -115,11 +115,13 @@
               </div>
             }
           } @else {
-            <!-- Ethereum sign-in (SIWE) — EIP-6963 discovered wallets. -->
-            @if (evmWallets().length > 0) {
+            <!-- Ethereum sign-in (SIWE). Detected EVM wallets (EIP-6963, with
+                 non-EVM chains filtered out) on top; the rest of the well-known
+                 EVM wallets below as install prompts. -->
+            @if (evmDetectedWallets.length > 0) {
               <div class="wallet-section-label">{{ 'Detected' | t }}</div>
               <div class="wallet-list">
-                @for (w of evmWallets(); track w.uuid) {
+                @for (w of evmDetectedWallets; track w.uuid) {
                   <button class="wallet-row" (click)="connectEvm(w)">
                     <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" (error)="onIconError($event)" />
                     <span class="wallet-row-name">{{ w.name }}</span>
@@ -127,9 +129,23 @@
                   </button>
                 }
               </div>
-            } @else {
-              <div class="wallet-empty">
-                {{ 'No Ethereum wallet detected. Install MetaMask to sign in with Ethereum.' | t }}
+            }
+            @if (installableEvmWallets.length > 0) {
+              <div class="wallet-section-label">
+                {{ (evmDetectedWallets.length > 0 ? 'More wallets' : 'Popular wallets') | t }}
+              </div>
+              <div class="wallet-list">
+                @for (w of installableEvmWallets; track w.name) {
+                  <button
+                    class="wallet-row wallet-row--install"
+                    (click)="openInstallUrl(w.url)"
+                    [attr.title]="'Install ' + w.name + ' to continue'"
+                  >
+                    <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" (error)="onIconError($event)" />
+                    <span class="wallet-row-name">{{ w.name }}</span>
+                    <span class="wallet-row-install">{{ 'Install' | t }}</span>
+                  </button>
+                }
               </div>
             }
           }

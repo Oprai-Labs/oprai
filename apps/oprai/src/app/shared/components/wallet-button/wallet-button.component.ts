@@ -65,8 +65,37 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
   // Solana (Phantom, Backpack) is NOT here — it stays on the Solana tab.
   private static readonly NON_SOLANA_WALLETS = new Set([
     'metamask', 'rabby', 'rainbow', 'zerion', 'pontem', 'leap', 'keplr',
-    'petra', 'martian', 'trust wallet', 'trust',
+    'petra', 'martian', 'trust wallet', 'trust', 'hashpack',
   ]);
+
+  // Wallets that announce via EIP-6963 but are NOT Ethereum wallets — they're
+  // other-chain wallets (Keplr/Leap = Cosmos, Pontem/Petra/Martian = Aptos,
+  // HashPack = Hedera) that inject an EVM-shaped provider. Keep them off the
+  // Ethereum tab. Leap is here AND in NON_SOLANA_WALLETS, so it shows nowhere.
+  private static readonly NON_EVM_WALLETS = new Set([
+    'keplr', 'leap', 'pontem', 'petra', 'martian', 'hashpack', 'cosmostation',
+    'fewcha', 'nightly',
+  ]);
+
+  // Well-known EVM wallets, so the Ethereum tab can list the full set (detected
+  // on top, the rest as install prompts) — like the Solana tab does. Icons fall
+  // back to a letter-avatar when the asset/announced icon is missing or broken.
+  private static readonly EVM_WALLETS: ReadonlyArray<{ name: string; url: string }> = [
+    { name: 'MetaMask', url: 'https://metamask.io/download/' },
+    { name: 'Rabby', url: 'https://rabby.io/' },
+    { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet/downloads' },
+    { name: 'Rainbow', url: 'https://rainbow.me/' },
+    { name: 'Trust Wallet', url: 'https://trustwallet.com/download' },
+    { name: 'OKX Wallet', url: 'https://www.okx.com/web3' },
+    { name: 'Zerion', url: 'https://zerion.io/' },
+    { name: 'Phantom', url: 'https://phantom.app/' },
+  ];
+
+  // The one EIP-6963 icon that renders broken (Phantom ships a dark square).
+  // Everything else uses its announced icon, which is fine.
+  private static readonly ICON_OVERRIDE: Record<string, string> = {
+    phantom: '/icons/wallets/phantom.svg',
+  };
 
   get detectedWallets(): import('@core/services/wallet.service').WalletInfo[] {
     return this._walletSnapshot.filter(
@@ -74,6 +103,27 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
         w.detected &&
         !WalletButtonComponent.NON_SOLANA_WALLETS.has(w.name.trim().toLowerCase()),
     );
+  }
+
+  /** EIP-6963 wallets that are actually EVM (Cosmos/Aptos/Hedera filtered out),
+   *  with a good icon (Phantom's broken square swapped for the bundled asset). */
+  get evmDetectedWallets(): Array<{ uuid: string; name: string; icon: string; provider: EvmProvider }> {
+    return this.evmWallets()
+      .filter((w) => !WalletButtonComponent.NON_EVM_WALLETS.has(w.name.trim().toLowerCase()))
+      .map((w) => ({ ...w, icon: WalletButtonComponent.ICON_OVERRIDE[w.name.trim().toLowerCase()] ?? w.icon }));
+  }
+
+  /** Known EVM wallets the user does NOT have installed — shown as install
+   *  prompts under the detected ones so the Ethereum tab lists the full set. */
+  get installableEvmWallets(): Array<{ name: string; url: string; icon: string }> {
+    const have = new Set(this.evmDetectedWallets.map((w) => w.name.trim().toLowerCase()));
+    return WalletButtonComponent.EVM_WALLETS
+      .filter((w) => !have.has(w.name.trim().toLowerCase()))
+      .map((w) => ({
+        ...w,
+        icon: WalletButtonComponent.ICON_OVERRIDE[w.name.trim().toLowerCase()]
+          ?? `/icons/wallets/${w.name.split(' ')[0].toLowerCase()}.svg`,
+      }));
   }
 
   get installableWallets(): import('@core/services/wallet.service').WalletInfo[] {
@@ -128,20 +178,27 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
     this.discoverEvmWallets();
   }
 
-  /** A wallet's own icon can be a broken/blocked data-URI (some EIP-6963
-   *  providers ship malformed ones — Phantom's was rendering broken). Swap to a
-   *  neutral inline placeholder so the row stays clean instead of a torn image. */
+  /** A wallet icon that is missing (no bundled asset) or broken (some EIP-6963
+   *  providers ship a malformed / dark-square data-URI — Phantom's did) is
+   *  replaced with a clean letter-avatar built from the wallet's name, so every
+   *  row looks intentional instead of a torn image. */
   onIconError(e: Event): void {
     const img = e.target as HTMLImageElement;
     if (img.dataset['fallback']) return; // already swapped — don't loop
     img.dataset['fallback'] = '1';
+    const name = (img.alt || '?').trim();
+    const letter = (name.charAt(0) || '?').toUpperCase();
+    // Deterministic brand-ish hue from the name so different wallets differ.
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
     img.src =
-      "data:image/svg+xml;utf8," +
+      'data:image/svg+xml;utf8,' +
       encodeURIComponent(
-        "<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'>" +
-          "<rect width='32' height='32' rx='8' fill='%235b5fc7'/>" +
-          "<path d='M9 12h14v8H9z' fill='none' stroke='white' stroke-width='2' rx='2'/>" +
-          "</svg>",
+        `<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'>` +
+          `<rect width='32' height='32' rx='9' fill='hsl(${h},55%,48%)'/>` +
+          `<text x='16' y='21' font-family='sans-serif' font-size='15' font-weight='700' ` +
+          `fill='white' text-anchor='middle'>${letter}</text>` +
+          `</svg>`,
       );
   }
 
