@@ -265,6 +265,10 @@ services:
       # Enables Telegram identity linking (Login-Widget HMAC verification).
       # Unset -> Telegram linking returns "not configured". Secret lives in .env.
       OPRAI_TELEGRAM_BOT_TOKEN: ${OPRAI_TELEGRAM_BOT_TOKEN:-}
+      # Canonical host for the domain-bound login message (EIP-4361/SIWS). When
+      # set, /auth/verify requires the signed message to carry this domain, so a
+      # signature phished on another origin can't be replayed here.
+      APP_DOMAIN: ${APP_DOMAIN:-app.oprai.xyz}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3010/health || exit 1"]
       interval: 15s
