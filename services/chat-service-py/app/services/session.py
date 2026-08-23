@@ -19,6 +19,15 @@ def _coerce_account(account_id: str | None) -> uuid.UUID | None:
         return None
 
 
+def _coerce_session_id(session_id: str) -> uuid.UUID | None:
+    """A valid session UUID, or None. A malformed path param becomes a clean
+    404 / no-op at the caller instead of an uncaught ValueError → 500."""
+    try:
+        return uuid.UUID(str(session_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def _owner_where(wallet: str, account_id: str | None):
     """The ownership predicate for a session row.
 
@@ -132,8 +141,11 @@ async def get_session(
     account_id: str | None = None,
 ) -> dict | None:
     """Get a single non-deleted session by id, scoped to the account (or wallet)."""
+    sid = _coerce_session_id(session_id)
+    if sid is None:
+        return None
     stmt = select(ChatSession).where(
-        ChatSession.id == uuid.UUID(session_id),
+        ChatSession.id == sid,
         _owner_where(wallet, account_id),
         ChatSession.is_deleted == False,  # noqa: E712
     )
@@ -155,10 +167,13 @@ async def update_title(
     account_id: str | None = None,
 ) -> bool:
     """Update a session title. Returns True if a row was affected."""
+    sid = _coerce_session_id(session_id)
+    if sid is None:
+        return False
     stmt = (
         update(ChatSession)
         .where(
-            ChatSession.id == uuid.UUID(session_id),
+            ChatSession.id == sid,
             _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
@@ -176,11 +191,14 @@ async def set_pinned(
     account_id: str | None = None,
 ) -> bool:
     """Set the pinned state of a session. Returns True if a row was affected."""
+    sid = _coerce_session_id(session_id)
+    if sid is None:
+        return False
     now = datetime.now(UTC)
     stmt = (
         update(ChatSession)
         .where(
-            ChatSession.id == uuid.UUID(session_id),
+            ChatSession.id == sid,
             _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
@@ -197,11 +215,14 @@ async def delete_session(
     account_id: str | None = None,
 ) -> bool:
     """Soft-delete a session. Returns True if a row was affected."""
+    sid = _coerce_session_id(session_id)
+    if sid is None:
+        return False
     now = datetime.now(UTC)
     stmt = (
         update(ChatSession)
         .where(
-            ChatSession.id == uuid.UUID(session_id),
+            ChatSession.id == sid,
             _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
