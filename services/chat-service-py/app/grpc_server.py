@@ -90,7 +90,7 @@ class _InternalAuthInterceptor(grpc_aio.ServerInterceptor):
                     await context.abort(grpc.StatusCode.UNAUTHENTICATED, "internal api key required")
                 return await inner(request, context)
 
-            return grpc_aio.unary_unary_rpc_method_handler(
+            return grpc.unary_unary_rpc_method_handler(
                 _uu,
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
@@ -105,7 +105,7 @@ class _InternalAuthInterceptor(grpc_aio.ServerInterceptor):
                 async for resp in inner_stream(request, context):
                     yield resp
 
-            return grpc_aio.unary_stream_rpc_method_handler(
+            return grpc.unary_stream_rpc_method_handler(
                 _us,
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
