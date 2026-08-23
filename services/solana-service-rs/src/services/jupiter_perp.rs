@@ -191,7 +191,18 @@ fn perp_api_error(status: reqwest::StatusCode, body: &serde_json::Value) -> AppE
         .and_then(|v| v.as_str())
         .or_else(|| body.get("error").and_then(|v| v.as_str()))
         .unwrap_or("Jupiter Perps request failed");
-    AppError::Internal(format!("Jupiter Perps API error ({status}): {msg}"))
+    // A 4xx from the perps API is the *user's* input being rejected — most often
+    // "Insufficient funds to execute the request" (422). Returning that as a 500
+    // Internal both mislabels it as our fault to the client AND logs it at ERROR,
+    // so a routine "not enough balance" spammed the error stream. Map client
+    // errors to a 400 with the clean upstream message (no "Jupiter Perps API
+    // error" plumbing prefix); keep the prefix + Internal only for real 5xx /
+    // rate-limit failures, where knowing the upstream status matters in the log.
+    if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS {
+        AppError::InvalidParams(msg.to_string())
+    } else {
+        AppError::Internal(format!("Jupiter Perps API error ({status}): {msg}"))
+    }
 }
 
 /// Fetch the raw open positions for a wallet from the perps API.

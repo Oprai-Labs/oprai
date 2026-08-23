@@ -89,14 +89,14 @@ async fn main() -> anyhow::Result<()> {
             .collect();
         let rpc = SolanaRpc::new_multi(&cfg.solana_rpc, fallbacks);
         tracing::info!(
-            primary = %cfg.solana_rpc,
-            fallbacks = %cfg.solana_rpc_fallback,
+            primary = %error::redact_secrets(&cfg.solana_rpc),
+            fallbacks = %error::redact_secrets(&cfg.solana_rpc_fallback),
             "Solana Multi-RPC client initialized"
         );
         rpc
     } else {
         let rpc = SolanaRpc::new(&cfg.solana_rpc);
-        tracing::info!(endpoint = %cfg.solana_rpc, "Solana RPC client initialized");
+        tracing::info!(endpoint = %error::redact_secrets(&cfg.solana_rpc), "Solana RPC client initialized");
         rpc
     };
 

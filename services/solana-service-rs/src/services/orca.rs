@@ -43,7 +43,7 @@ use orca_whirlpools::{
     IncreaseLiquidityParam, PositionOrBundle, SwapQuote, SwapType,
 };
 
-use crate::error::AppError;
+use crate::error::{redact_secrets, AppError};
 use crate::services::builder::{ActionPreview, BuildResponse};
 use crate::solana::tokens::{get_token_info, resolve_token_address};
 
@@ -2961,7 +2961,9 @@ pub async fn build_orca_get_user_positions(
 
     let all = fetch_positions_for_owner(&sdk_rpc, to_sdk_pk(&wallet_pk))
         .await
-        .map_err(|e| AppError::ProtocolError(format!("fetch_positions_for_owner: {e}")))?;
+        .map_err(|e| {
+            AppError::ProtocolError(redact_secrets(&format!("fetch_positions_for_owner: {e}")))
+        })?;
 
     let mut positions: Vec<serde_json::Value> = Vec::new();
     // One RPC read per DISTINCT pool: a wallet's positions cluster in a
@@ -3145,7 +3147,9 @@ pub async fn build_orca_get_pool_positions(
 
     let all = fetch_positions_in_whirlpool(&sdk_rpc, to_sdk_pk(&whirlpool_pk))
         .await
-        .map_err(|e| AppError::ProtocolError(format!("fetch_positions_in_whirlpool: {e}")))?;
+        .map_err(|e| {
+            AppError::ProtocolError(redact_secrets(&format!("fetch_positions_in_whirlpool: {e}")))
+        })?;
 
     let positions: Vec<serde_json::Value> = all
         .iter()
