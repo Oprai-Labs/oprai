@@ -34,6 +34,14 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
           // Redirect to login; the guard will re-validate on next navigation.
           router.navigate(['/admin/login']);
         } else {
+          // Was there a live session before this 401? Capture it BEFORE clearing,
+          // so an EVM (SIWE) session — which has no Solana adapter, so
+          // walletService.connected() is false — is still recoverable. Without
+          // this, a single transient 401 right after EVM login (a component's
+          // early authed fetch racing the cookie) wiped the session with no
+          // recovery, and the app fell back to "connect your wallet".
+          const wasAuthenticated = authService.isAuthenticated();
+
           // Drop the (already-rejected) in-memory token/user silently. Calling
           // logout() here would POST /auth/logout with that token, which the
           // gateway blocklists — a 401-loop self-DOS. clearLocalAuth() no longer
@@ -54,7 +62,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
           // loop if it 401s again (dead cookie) — surface it instead.
           const alreadyRetried = req.headers.has('X-Auth-Retry');
 
-          if (!isAuthEndpoint && walletService.connected() && !alreadyRetried) {
+          if (!isAuthEndpoint && !alreadyRetried && (walletService.connected() || wasAuthenticated)) {
             // Prefer a SILENT cookie-based recovery: the HttpOnly cookie usually
             // outlives the in-memory Bearer, so a stale-token 401 (e.g. the
             // Portfolio cost-basis fetch) can be healed via GET /auth/session
