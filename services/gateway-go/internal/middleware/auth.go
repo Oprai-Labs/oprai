@@ -14,6 +14,15 @@ import (
 // solanaAddressRe matches a valid base58 Solana public key (32–44 chars, no 0/O/I/l).
 var solanaAddressRe = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{32,44}$`)
 
+// evmAddressRe matches a 0x-prefixed 20-byte hex EVM address.
+var evmAddressRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+
+// isValidEVMAddress returns true if addr looks like an Ethereum-style address —
+// the wallet a SIWE (Sign-In With Ethereum) session carries.
+func isValidEVMAddress(addr string) bool {
+	return evmAddressRe.MatchString(addr)
+}
+
 // isValidSolanaAddress returns true if addr looks like a valid Solana public key.
 func isValidSolanaAddress(addr string) bool {
 	return solanaAddressRe.MatchString(addr)
@@ -138,9 +147,13 @@ func JWTAuth(jwtSecret, previousSecret string, blocklist *TokenBlocklist) func(h
 				return
 			}
 
-			// Extract wallet from "w" claim (as per auth-service JWT format)
+			// Extract wallet from "w" claim (as per auth-service JWT format).
+			// Accept a Solana pubkey OR an EVM address: a SIWE (Sign-In With
+			// Ethereum) session carries an 0x… wallet, and rejecting it here left
+			// the EVM JWT valid but with no X-User-Wallet injected — so every
+			// authenticated request 401'd and the app looked signed-out.
 			wallet, _ := claims["w"].(string)
-			if wallet != "" && isValidSolanaAddress(wallet) {
+			if wallet != "" && (isValidSolanaAddress(wallet) || isValidEVMAddress(wallet)) {
 				ctx := context.WithValue(r.Context(), WalletKey, wallet)
 				r = r.WithContext(ctx)
 				// Inject trusted header for downstream services
