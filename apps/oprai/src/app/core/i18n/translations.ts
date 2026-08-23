@@ -166,7 +166,7 @@ export const TR: Record<string, string> = {
   'Confirming on-chain…': 'Zincirde onaylanıyor…',
   'Connect': 'Bağlan',
   'Connect Wallet': 'Cüzdan Bağla',
-  'Connect a Solana wallet to use OPRAI.': 'OPRAI\'yi kullanmak için bir Solana cüzdanı bağlayın.',
+  'Connect a Solana or Ethereum wallet to use OPRAI.': 'OPRAI\'yi kullanmak için bir Solana veya Ethereum cüzdanı bağlayın.',
   'Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.': 'Portföyünüzü, token varlıklarınızı, stake pozisyonlarınızı ve son hareketlerinizi görmek için bir Solana cüzdanı bağlayın.',
   'Connect a wallet': 'Bir cüzdan bağlayın',
   'Connect your Solana wallet to scan for yield opportunities.': 'Getiri fırsatlarını taramak için Solana cüzdanınızı bağlayın.',

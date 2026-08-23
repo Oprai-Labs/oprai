@@ -51,8 +51,24 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
     return this._walletSnapshot;
   }
 
+  // Wallets the Solana Wallet Standard registry surfaces that CANNOT sign a
+  // Solana SIWS login: EVM-only (MetaMask, Rabby, …) and other-chain wallets
+  // (Pontem = Aptos, Leap = Cosmos). Listing them under "Detected" made clicking
+  // one run SIWS and fail. EVM ones re-appear under "Or sign in with Ethereum"
+  // (EIP-6963); the truly-unsupported ones just don't show.
+  private static readonly NON_SOLANA_WALLETS = new Set([
+    'metamask', 'rabby', 'rainbow', 'zerion', 'pontem', 'leap', 'keplr',
+    'petra', 'martian', 'trust wallet', 'trust',
+  ]);
+
   get detectedWallets(): import('@core/services/wallet.service').WalletInfo[] {
-    return this._walletSnapshot.filter((w) => w.detected);
+    const evmNames = new Set(this.evmWallets().map((w) => w.name.toLowerCase()));
+    return this._walletSnapshot.filter(
+      (w) =>
+        w.detected &&
+        !WalletButtonComponent.NON_SOLANA_WALLETS.has(w.name.trim().toLowerCase()) &&
+        !evmNames.has(w.name.trim().toLowerCase()),
+    );
   }
 
   get installableWallets(): import('@core/services/wallet.service').WalletInfo[] {

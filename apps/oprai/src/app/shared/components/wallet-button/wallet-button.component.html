@@ -1,9 +1,12 @@
 <div class="wallet-button-wrapper">
-  @if (walletService.connected()) {
-    <!-- Connected state -->
+  @if (walletService.connected() || authService.isAuthenticated()) {
+    <!-- Connected state. An EVM (SIWE) session has no Solana adapter, so fall
+         back to the authenticated account's address / an "Ethereum" label. -->
     <button class="wallet-btn wallet-btn--connected" (click)="toggleDropdown()">
       <span class="wallet-indicator"></span>
-      <span class="wallet-address">{{ walletService.publicKey() | truncateAddress }}</span>
+      <span class="wallet-address">
+        {{ (walletService.publicKey() || authService.user()?.wallet) | truncateAddress }}
+      </span>
       <lucide-icon class="chevron" [class.open]="dropdownOpen()" name="chevron-down" [size]="12" />
     </button>
 
@@ -11,11 +14,11 @@
       <div class="connected-dropdown">
         <div class="dropdown-header">
           <div class="dropdown-wallet-info">
-            <span class="dropdown-wallet-name">{{ walletService.walletName() }}</span>
+            <span class="dropdown-wallet-name">{{ walletService.walletName() || 'Ethereum' }}</span>
             <span class="dropdown-status">{{ 'Connected' | t }}</span>
           </div>
         </div>
-        <div class="dropdown-address">{{ walletService.publicKey() }}</div>
+        <div class="dropdown-address">{{ walletService.publicKey() || authService.user()?.wallet }}</div>
         <div class="dropdown-divider"></div>
         <button class="dropdown-item dropdown-item--danger" (click)="disconnect()">
           <lucide-icon name="log-out" [size]="16" />
@@ -47,7 +50,7 @@
         <div class="wallet-modal-header">
           <div class="wallet-modal-header-text">
             <span class="wallet-modal-title">{{ 'Connect Wallet' | t }}</span>
-            <span class="wallet-modal-subtitle">{{ 'Connect a Solana wallet to use OPRAI.' | t }}</span>
+            <span class="wallet-modal-subtitle">{{ 'Connect a Solana or Ethereum wallet to use OPRAI.' | t }}</span>
           </div>
           <button class="wallet-modal-close" (click)="closeModal()" [attr.aria-label]="'Close' | t">
             <lucide-icon name="x" [size]="16" />
