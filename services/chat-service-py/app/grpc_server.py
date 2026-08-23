@@ -8,6 +8,7 @@ regenerate if the .proto files change.
 import asyncio
 import logging
 import os
+import secrets
 import sys
 from concurrent import futures
 from pathlib import Path
@@ -43,6 +44,74 @@ except ImportError as _import_err:
         _import_err,
     )
     _STUBS_AVAILABLE = False
+
+
+# ─── Auth interceptor ─────────────────────────────────────────────────────────
+
+
+class _InternalAuthInterceptor(grpc_aio.ServerInterceptor):
+    """Require the shared internal API key on EVERY gRPC call.
+
+    The chat gRPC surface (session read/rename/delete, message history) is
+    reachable by every container on the docker network and had NO authorization
+    of its own — ownership was assumed from "gRPC is trusted internal", but
+    nothing enforced that trust, so any container that could guess a session
+    UUID could read or delete another account's chat. Mirror the HTTP
+    `require_auth` constant-time internal-key check here.
+
+    The only gRPC "client" today is the gateway health check, which merely calls
+    ``conn.GetState()`` (no RPC method invocation), so requiring the key breaks
+    no legitimate caller — it simply closes the surface to everyone without it.
+    Fail-closed: an unset key denies all calls (consistent with require_auth).
+    """
+
+    def __init__(self, expected_key: str) -> None:
+        self._expected = expected_key
+
+    def _authed(self, metadata) -> bool:
+        key = dict(metadata or ()).get("x-internal-api-key")
+        return bool(self._expected) and bool(key) and secrets.compare_digest(key, self._expected)
+
+    async def intercept_service(self, continuation, handler_call_details):
+        handler = await continuation(handler_call_details)
+        if handler is None:
+            return handler
+
+        authed = self._authed
+
+        # Wrap the real behaviour, preserving the RPC's cardinality. This
+        # service uses unary-unary (Get/Create/Update/Delete) and unary-stream
+        # (SendMessage); pass any other flavour through unchanged.
+        if handler.unary_unary is not None:
+            inner = handler.unary_unary
+
+            async def _uu(request, context):
+                if not authed(context.invocation_metadata()):
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "internal api key required")
+                return await inner(request, context)
+
+            return grpc_aio.unary_unary_rpc_method_handler(
+                _uu,
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+
+        if handler.unary_stream is not None:
+            inner_stream = handler.unary_stream
+
+            async def _us(request, context):
+                if not authed(context.invocation_metadata()):
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "internal api key required")
+                async for resp in inner_stream(request, context):
+                    yield resp
+
+            return grpc_aio.unary_stream_rpc_method_handler(
+                _us,
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+
+        return handler
 
 
 # ─── Session Servicer ─────────────────────────────────────────────────────────
@@ -103,6 +172,13 @@ class _ChatMessageServicer(message_pb2_grpc.ChatMessageServiceServicer if _STUBS
         offset = max(0, (pagination.page - 1) * limit) if pagination.page > 1 else 0
 
         async with async_session_factory() as db:
+            # Verify the caller owns the session BEFORE returning its messages —
+            # get_messages scopes by session_id only, so without this any
+            # (authenticated) caller with a session UUID could read another
+            # wallet's history. Mirrors the HTTP handler's get_session gate.
+            owner = await session_svc.get_session(db, request.wallet, request.session_id)
+            if owner is None:
+                await context.abort(grpc.StatusCode.NOT_FOUND, "session not found")
             messages = await message_svc.get_messages(
                 db, request.wallet, request.session_id,
                 limit=min(limit, 200), offset=offset,
@@ -216,6 +292,7 @@ async def start_grpc_server() -> grpc_aio.Server:
     """
     server = grpc_aio.server(
         futures.ThreadPoolExecutor(max_workers=10),
+        interceptors=[_InternalAuthInterceptor(settings.OPRAI_INTERNAL_API_KEY)],
         options=[
             ("grpc.max_send_message_length", 50 * 1024 * 1024),
             ("grpc.max_receive_message_length", 50 * 1024 * 1024),

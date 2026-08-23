@@ -26,6 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.message import ChatMessage
 from app.models.session import ChatSession
 from app.models.share import ChatSessionShare
+# Reuse the account-aware ownership predicate so shares scope to the ACCOUNT
+# (one account, many wallets), not the single wallet that created the row.
+from app.services.session import _owner_where
 
 # 32 URL-safe bytes ≈ 43 characters of base64url. Long enough that guessing
 # is not a threat model, short enough to paste into a chat window.
@@ -56,8 +59,10 @@ def _serialize(share: ChatSessionShare) -> dict:
     }
 
 
-async def _owned_session(db: AsyncSession, wallet: str, session_id: str) -> ChatSession | None:
-    """Return the session only if this wallet owns it and it still exists."""
+async def _owned_session(
+    db: AsyncSession, wallet: str, session_id: str, account_id: str | None = None
+) -> ChatSession | None:
+    """Return the session only if this ACCOUNT owns it and it still exists."""
     try:
         sid = uuid.UUID(session_id)
     except (ValueError, AttributeError):
@@ -65,30 +70,32 @@ async def _owned_session(db: AsyncSession, wallet: str, session_id: str) -> Chat
     result = await db.execute(
         select(ChatSession).where(
             ChatSession.id == sid,
-            ChatSession.wallet_address == wallet,
+            _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
     )
     return result.scalar_one_or_none()
 
 
-async def get_share(db: AsyncSession, wallet: str, session_id: str) -> dict | None:
-    """Return this wallet's share for a session, or None if it isn't shared."""
-    try:
-        sid = uuid.UUID(session_id)
-    except (ValueError, AttributeError):
+async def get_share(
+    db: AsyncSession, wallet: str, session_id: str, account_id: str | None = None
+) -> dict | None:
+    """Return the account's share for a session, or None if it isn't shared."""
+    # Ownership is by the SESSION (account-scoped), not the share row's creator
+    # wallet — a sibling wallet of the same account sees the account's share.
+    if await _owned_session(db, wallet, session_id, account_id) is None:
         return None
+    sid = uuid.UUID(session_id)  # valid: _owned_session returned a row
     result = await db.execute(
-        select(ChatSessionShare).where(
-            ChatSessionShare.session_id == sid,
-            ChatSessionShare.wallet_address == wallet,
-        )
+        select(ChatSessionShare).where(ChatSessionShare.session_id == sid)
     )
     share = result.scalar_one_or_none()
     return _serialize(share) if share else None
 
 
-async def create_or_refresh(db: AsyncSession, wallet: str, session_id: str) -> dict | None:
+async def create_or_refresh(
+    db: AsyncSession, wallet: str, session_id: str, account_id: str | None = None
+) -> dict | None:
     """Publish a session, or move an existing link's snapshot up to now.
 
     Returns None when the wallet does not own the session, so the caller
@@ -98,7 +105,7 @@ async def create_or_refresh(db: AsyncSession, wallet: str, session_id: str) -> d
     someone else is reading; minting a new token on every refresh would break
     it silently, and the user asked to update the link, not replace it.
     """
-    session = await _owned_session(db, wallet, session_id)
+    session = await _owned_session(db, wallet, session_id, account_id)
     if session is None:
         return None
 
@@ -127,26 +134,30 @@ async def create_or_refresh(db: AsyncSession, wallet: str, session_id: str) -> d
     return _serialize(share)
 
 
-async def revoke(db: AsyncSession, wallet: str, session_id: str) -> bool:
+async def revoke(
+    db: AsyncSession, wallet: str, session_id: str, account_id: str | None = None
+) -> bool:
     """Delete the share. The token stops resolving immediately and for good."""
-    try:
-        sid = uuid.UUID(session_id)
-    except (ValueError, AttributeError):
+    # Account-scoped ownership of the session, not the share's creator wallet.
+    if await _owned_session(db, wallet, session_id, account_id) is None:
         return False
+    sid = uuid.UUID(session_id)  # valid: _owned_session returned a row
     result = await db.execute(
-        delete(ChatSessionShare).where(
-            ChatSessionShare.session_id == sid,
-            ChatSessionShare.wallet_address == wallet,
-        )
+        delete(ChatSessionShare).where(ChatSessionShare.session_id == sid)
     )
     return (result.rowcount or 0) > 0
 
 
-async def list_shares(db: AsyncSession, wallet: str) -> list[dict]:
-    """Every link this wallet has published, newest first."""
+async def list_shares(
+    db: AsyncSession, wallet: str, account_id: str | None = None
+) -> list[dict]:
+    """Every link this ACCOUNT has published, newest first."""
+    # Shares of any session the account owns — including those created by a
+    # sibling wallet — not just rows stamped with the current wallet.
+    owned_sessions = select(ChatSession.id).where(_owner_where(wallet, account_id))
     result = await db.execute(
         select(ChatSessionShare)
-        .where(ChatSessionShare.wallet_address == wallet)
+        .where(ChatSessionShare.session_id.in_(owned_sessions))
         .order_by(ChatSessionShare.created_at.desc())
     )
     return [_serialize(s) for s in result.scalars().all()]

@@ -2592,9 +2592,10 @@ async def get_session_share(
     session_id: str,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Current share for a session, or {"share": null} when not shared."""
-    return {"share": await share_svc.get_share(db, wallet, session_id)}
+    return {"share": await share_svc.get_share(db, wallet, session_id, account_id=x_user_account)}
 
 
 @app.post("/sessions/{session_id}/share")
@@ -2602,6 +2603,7 @@ async def create_session_share(
     session_id: str,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Publish the session, or move an existing link's snapshot up to now.
 
@@ -2609,7 +2611,7 @@ async def create_session_share(
     cutoff and returns the SAME token, because the URL may already be in
     someone else's hands and "update the link" must not break it.
     """
-    share = await share_svc.create_or_refresh(db, wallet, session_id)
+    share = await share_svc.create_or_refresh(db, wallet, session_id, account_id=x_user_account)
     if share is None:
         raise HTTPException(status_code=404, detail="Session not found")
     _audit(db, AuditEvent(
@@ -2629,9 +2631,10 @@ async def revoke_session_share(
     session_id: str,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Revoke the link. The token stops resolving immediately and for good."""
-    removed = await share_svc.revoke(db, wallet, session_id)
+    removed = await share_svc.revoke(db, wallet, session_id, account_id=x_user_account)
     if not removed:
         raise HTTPException(status_code=404, detail="Share not found")
     _audit(db, AuditEvent(
@@ -2650,9 +2653,10 @@ async def revoke_session_share(
 async def list_session_shares(
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
-    """Every link this wallet has published — backs the Shared Links page."""
-    return {"shares": await share_svc.list_shares(db, wallet)}
+    """Every link this account has published — backs the Shared Links page."""
+    return {"shares": await share_svc.list_shares(db, wallet, account_id=x_user_account)}
 
 
 @app.get("/public/shares/{token}")
@@ -2884,6 +2888,7 @@ async def post_message_feedback(
     body: FeedbackRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Record a thumbs-up / thumbs-down on an assistant message.
 
@@ -2904,9 +2909,12 @@ async def post_message_feedback(
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="invalid message_id")
 
-    # Verify message exists & belongs to a session this wallet can write to.
-    # Defence in depth — middleware already attached `wallet`, but we don't
-    # let one wallet drown another wallet's message in negative feedback.
+    # Verify message exists & belongs to a session this ACCOUNT can write to.
+    # Defence in depth — middleware already attached `wallet`, but we don't let
+    # one account drown another's message in negative feedback. Scope by session
+    # ownership (account-aware), NOT the message's own wallet_address, so a
+    # sibling wallet of the same account can still rate messages in a shared
+    # conversation.
     from app.models.message import ChatMessage as _ChatMessageORM
 
     msg_q = await db.execute(
@@ -2915,7 +2923,10 @@ async def post_message_feedback(
     msg = msg_q.scalar_one_or_none()
     if msg is None:
         raise HTTPException(status_code=404, detail="message not found")
-    if msg.wallet_address != wallet:
+    owner = await session_svc.get_session(
+        db, wallet, str(msg.session_id), account_id=x_user_account
+    )
+    if owner is None:
         raise HTTPException(status_code=403, detail="not your conversation")
 
     # Upsert: one row per (message, wallet).
@@ -2943,6 +2954,7 @@ async def patch_message_metadata(
     body: PatchMessageMetaRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Merge patch dict into message metadata (action_results / query_snapshots)."""
     patch: dict = {}
@@ -2952,6 +2964,12 @@ async def patch_message_metadata(
         patch["query_snapshots"] = body.query_snapshots
     if not patch:
         return {"ok": True}
+    # Authorize by SESSION ownership (account-scoped), since update_message_metadata
+    # no longer filters by wallet — otherwise persisting a receipt from a sibling
+    # wallet of the same account would fail. get_session enforces the account scope.
+    owner = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
+    if owner is None:
+        raise HTTPException(status_code=404, detail="Session not found")
     ok = await message_svc.update_message_metadata(db, session_id, message_id, wallet, patch)
     if not ok:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -3161,12 +3179,17 @@ async def edit_message_stream(
     except (ValueError, AttributeError):
         raise HTTPException(status_code=400, detail="Invalid id format")
 
+    # Session ownership was verified account-scoped above (get_session), so the
+    # target + supersede sweep scope by SESSION, not wallet_address. In a thread
+    # with interleaved wallets of the same account (W1 starts, EVM sibling W2
+    # continues), a wallet-scoped sweep superseded only the editor's own rows and
+    # left the other wallet's later messages visible in the feed and LLM history
+    # — a broken branch-on-edit. Session scoping supersedes the whole tail.
     target_stmt = (
         select(_ChatMessageORM)
         .where(
             _ChatMessageORM.id == target_uuid,
             _ChatMessageORM.session_id == session_uuid,
-            _ChatMessageORM.wallet_address == wallet,
         )
     )
     target = (await db.execute(target_stmt)).scalar_one_or_none()
@@ -3185,7 +3208,6 @@ async def edit_message_stream(
         select(_ChatMessageORM)
         .where(
             _ChatMessageORM.session_id == session_uuid,
-            _ChatMessageORM.wallet_address == wallet,
             _ChatMessageORM.created_at >= target.created_at,
         )
     )
@@ -3238,11 +3260,13 @@ async def edit_message_stream(
                 # was to type it again. Which is exactly what it looks like
                 # from the outside: a retry that behaves as though you had
                 # sent a new message.
+                # Session-scoped (not wallet-scoped): matches the pre-stream sweep
+                # above so a thread with interleaved wallets of the same account
+                # supersedes its whole tail, not just the editor's own rows.
                 superseded_stmt = (
                     select(_ChatMessageORM)
                     .where(
                         _ChatMessageORM.session_id == session_uuid,
-                        _ChatMessageORM.wallet_address == wallet,
                         _ChatMessageORM.created_at >= target.created_at,
                     )
                 )

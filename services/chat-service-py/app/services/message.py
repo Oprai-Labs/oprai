@@ -174,10 +174,15 @@ async def update_message_metadata(
         sess_uuid = uuid.UUID(session_id)
     except ValueError:
         return False
+    # Scope by (message, session) ONLY — NOT by wallet_address. The caller must
+    # verify SESSION ownership (account-scoped get_session) before calling; a
+    # message belongs to its session, so a sibling wallet of the same account
+    # persisting a completed-card receipt would otherwise 404 (the message row
+    # carries whichever wallet created it, not the current one). `wallet` stays
+    # in the signature for callers/back-compat.
     stmt = select(ChatMessage).where(
         ChatMessage.id == msg_uuid,
         ChatMessage.session_id == sess_uuid,
-        ChatMessage.wallet_address == wallet,
     )
     result = await db.execute(stmt)
     msg = result.scalar_one_or_none()
