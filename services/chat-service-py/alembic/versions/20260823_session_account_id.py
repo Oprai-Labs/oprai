@@ -27,13 +27,16 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS ix_chat_sessions_account "
         "ON chat_schema.chat_sessions (account_id, updated_at DESC)"
     )
-    # Backfill: map each session's wallet to the account that owns it.
-    op.execute(
-        "UPDATE chat_schema.chat_sessions cs "
-        "SET account_id = li.account_id "
-        "FROM auth_schema.linked_identities li "
-        "WHERE li.identifier = cs.wallet_address AND cs.account_id IS NULL"
-    )
+    # NOTE: backfill is intentionally NOT done here. It maps wallet -> account via
+    # auth_schema.linked_identities, but the chat-service DB role (chat_app) has no
+    # privileges on auth_schema — running it here crashes chat-service on startup
+    # with "permission denied for schema auth_schema". The backfill is a one-off
+    # run separately as a superuser:
+    #   UPDATE chat_schema.chat_sessions cs SET account_id = li.account_id
+    #   FROM auth_schema.linked_identities li
+    #   WHERE li.identifier = cs.wallet_address AND cs.account_id IS NULL;
+    # New sessions are stamped with account_id at creation, so a fresh env needs
+    # no backfill; legacy rows without an account fall back to wallet scoping.
 
 
 def downgrade() -> None:
