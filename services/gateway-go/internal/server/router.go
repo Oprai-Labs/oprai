@@ -51,7 +51,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.CORSMiddleware(cfg.CORSOrigin))
 	r.Use(middleware.MetricsMiddleware)
-	r.Use(middleware.LoggerMiddleware)
+	r.Use(middleware.LoggerMiddleware(cfg.TrustProxyHeaders))
 	r.Use(middleware.GlobalRateLimit(globalRLStore, cfg.TrustProxyHeaders)) // 100/min global
 
 	// JWT validation middleware:
