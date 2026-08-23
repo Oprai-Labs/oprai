@@ -3,10 +3,41 @@
 import uuid
 from datetime import datetime, timezone, UTC
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.session import ChatSession
+
+
+def _coerce_account(account_id: str | None) -> uuid.UUID | None:
+    """A valid account UUID, or None (header absent / malformed / legacy token)."""
+    if not account_id:
+        return None
+    try:
+        return uuid.UUID(str(account_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _owner_where(wallet: str, account_id: str | None):
+    """The ownership predicate for a session row.
+
+    With a multichain account, a session belongs to the ACCOUNT — so every wallet
+    linked to it sees the same history. Legacy sessions predate accounts and have
+    a NULL account_id; those stay scoped to the wallet that created them. So:
+      account known  → account matches, OR (legacy row with no account AND this
+                        wallet created it)
+      no account     → wallet scoping only (old token / unlinked)
+    This is the single source of truth every query below uses, so read and
+    mutation access can never diverge (no "you can see it but not delete it").
+    """
+    acct = _coerce_account(account_id)
+    if acct is not None:
+        return or_(
+            ChatSession.account_id == acct,
+            and_(ChatSession.account_id.is_(None), ChatSession.wallet_address == wallet),
+        )
+    return ChatSession.wallet_address == wallet
 
 
 def _serialize(s: ChatSession) -> dict:
@@ -35,15 +66,16 @@ async def list_sessions(
     wallet: str,
     limit: int = 20,
     cursor: str | None = None,
+    account_id: str | None = None,
 ) -> tuple[list[dict], bool, str | None]:
-    """Return paginated non-deleted sessions for a wallet, newest first.
+    """Return paginated non-deleted sessions for the account (or wallet), newest first.
 
     Returns (sessions, has_more, next_cursor).
     """
     stmt = (
         select(ChatSession)
         .where(
-            ChatSession.wallet_address == wallet,
+            _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
         .order_by(ChatSession.updated_at.desc())
@@ -73,12 +105,18 @@ async def create_session(
     wallet: str,
     user_id: str,
     title: str | None = None,
+    account_id: str | None = None,
 ) -> dict:
-    """Create a new chat session and return its serialized form."""
+    """Create a new chat session and return its serialized form.
+
+    Stamps the multichain account so the session is visible from every linked
+    wallet. Falls back to wallet-only scoping when no account is known.
+    """
     session = ChatSession(
         id=uuid.uuid4(),
         user_id=user_id,
         wallet_address=wallet,
+        account_id=_coerce_account(account_id),
         title=title or "New chat",
     )
     db.add(session)
@@ -91,11 +129,12 @@ async def get_session(
     db: AsyncSession,
     wallet: str,
     session_id: str,
+    account_id: str | None = None,
 ) -> dict | None:
-    """Get a single non-deleted session by id, scoped to wallet."""
+    """Get a single non-deleted session by id, scoped to the account (or wallet)."""
     stmt = select(ChatSession).where(
         ChatSession.id == uuid.UUID(session_id),
-        ChatSession.wallet_address == wallet,
+        _owner_where(wallet, account_id),
         ChatSession.is_deleted == False,  # noqa: E712
     )
     result = await db.execute(stmt)
@@ -113,13 +152,14 @@ async def update_title(
     wallet: str,
     session_id: str,
     title: str,
+    account_id: str | None = None,
 ) -> bool:
     """Update a session title. Returns True if a row was affected."""
     stmt = (
         update(ChatSession)
         .where(
             ChatSession.id == uuid.UUID(session_id),
-            ChatSession.wallet_address == wallet,
+            _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
         .values(title=title, updated_at=datetime.now(UTC))
@@ -133,6 +173,7 @@ async def set_pinned(
     wallet: str,
     session_id: str,
     pinned: bool,
+    account_id: str | None = None,
 ) -> bool:
     """Set the pinned state of a session. Returns True if a row was affected."""
     now = datetime.now(UTC)
@@ -140,7 +181,7 @@ async def set_pinned(
         update(ChatSession)
         .where(
             ChatSession.id == uuid.UUID(session_id),
-            ChatSession.wallet_address == wallet,
+            _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
         .values(pinned=pinned, pinned_at=now if pinned else None)
@@ -153,6 +194,7 @@ async def delete_session(
     db: AsyncSession,
     wallet: str,
     session_id: str,
+    account_id: str | None = None,
 ) -> bool:
     """Soft-delete a session. Returns True if a row was affected."""
     now = datetime.now(UTC)
@@ -160,7 +202,7 @@ async def delete_session(
         update(ChatSession)
         .where(
             ChatSession.id == uuid.UUID(session_id),
-            ChatSession.wallet_address == wallet,
+            _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
         .values(is_deleted=True, deleted_at=now)
@@ -169,8 +211,8 @@ async def delete_session(
     return (result.rowcount or 0) > 0
 
 
-async def delete_all_sessions(db: AsyncSession, wallet: str) -> int:
-    """Soft-delete every session belonging to a wallet. Returns the row count.
+async def delete_all_sessions(db: AsyncSession, wallet: str, account_id: str | None = None) -> int:
+    """Soft-delete every session belonging to the account (or wallet). Returns the row count.
 
     Used by the Settings → Privacy "delete chat history" action. Soft-delete
     keeps the rows for audit / recovery; a follow-up cron can purge.
@@ -179,7 +221,7 @@ async def delete_all_sessions(db: AsyncSession, wallet: str) -> int:
     stmt = (
         update(ChatSession)
         .where(
-            ChatSession.wallet_address == wallet,
+            _owner_where(wallet, account_id),
             ChatSession.is_deleted == False,  # noqa: E712
         )
         .values(is_deleted=True, deleted_at=now)

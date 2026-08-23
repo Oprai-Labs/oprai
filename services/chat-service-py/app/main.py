@@ -2482,9 +2482,10 @@ async def list_sessions(
     db: AsyncSession = Depends(get_session),
     limit: int = Query(20, ge=1, le=50),
     cursor: str | None = Query(None),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     sessions, has_more, next_cursor = await session_svc.list_sessions(
-        db, wallet, limit=limit, cursor=cursor
+        db, wallet, limit=limit, cursor=cursor, account_id=x_user_account
     )
     return {
         "sessions": [
@@ -2510,9 +2511,10 @@ async def create_session(
     body: CreateSessionRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     title = body.title.strip() or "New chat"
-    session = await session_svc.create_session(db, wallet, wallet, title)
+    session = await session_svc.create_session(db, wallet, wallet, title, account_id=x_user_account)
     _audit(db, AuditEvent(
         event_type=AuditEventType.ACTION_EXECUTED,
         severity=AuditEventSeverity.INFO,
@@ -2537,8 +2539,9 @@ async def get_session_route(
     session_id: str,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
-    session = await session_svc.get_session(db, wallet, session_id)
+    session = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
     if session is None:
         raise HTTPException(status_code=404, detail="Not found")
     return {"session": session}
@@ -2550,12 +2553,13 @@ async def update_session_route(
     body: UpdateSessionRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     title = body.title.strip()
-    updated = await session_svc.update_title(db, wallet, session_id, title)
+    updated = await session_svc.update_title(db, wallet, session_id, title, account_id=x_user_account)
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
-    session = await session_svc.get_session(db, wallet, session_id)
+    session = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
     return {"session": session}
 
 
@@ -2565,8 +2569,9 @@ async def pin_session_route(
     body: PinSessionRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
-    updated = await session_svc.set_pinned(db, wallet, session_id, body.pinned)
+    updated = await session_svc.set_pinned(db, wallet, session_id, body.pinned, account_id=x_user_account)
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
@@ -2745,14 +2750,15 @@ async def list_own_issue_reports(
 async def delete_all_sessions_route(
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
-    """Soft-delete every session belonging to the authenticated wallet.
+    """Soft-delete every session belonging to the authenticated account/wallet.
 
     Used by Settings → Privacy → "Delete chat history". Rows are kept
     in the DB with `is_deleted=True` for audit / recovery; visible UI
     history is wiped immediately.
     """
-    count = await session_svc.delete_all_sessions(db, wallet)
+    count = await session_svc.delete_all_sessions(db, wallet, account_id=x_user_account)
     _audit(db, AuditEvent(
         event_type=AuditEventType.ACTION_EXECUTED,
         severity=AuditEventSeverity.WARNING,
@@ -2769,8 +2775,9 @@ async def delete_session_route(
     session_id: str,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
-    deleted = await session_svc.delete_session(db, wallet, session_id)
+    deleted = await session_svc.delete_session(db, wallet, session_id, account_id=x_user_account)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
     _audit(db, AuditEvent(
@@ -2837,11 +2844,12 @@ async def get_messages(
     db: AsyncSession = Depends(get_session),
     limit: int | None = Query(None, ge=1, le=200),
     offset: int | None = Query(None, ge=0),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     # Verify session ownership AND surface the per-chat lock state so the
     # frontend can render the locked composer on reload (the lock is a
     # durable DB flag — must not depend on transient SSE error state).
-    session = await session_svc.get_session(db, wallet, session_id)
+    session = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
     if session is None:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -2957,6 +2965,7 @@ async def send_message(
     body: SendMessageRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Send a user message and get a non-streaming LLM reply."""
     content = body.content.strip()
@@ -2967,11 +2976,11 @@ async def send_message(
     response_extra: dict[str, Any] = {}
 
     if is_local:
-        new_session = await session_svc.create_session(db, wallet, wallet, "New chat")
+        new_session = await session_svc.create_session(db, wallet, wallet, "New chat", account_id=x_user_account)
         actual_session_id = new_session["id"]
         response_extra["sessionId"] = actual_session_id
     else:
-        session = await session_svc.get_session(db, wallet, session_id)
+        session = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
         if session is None:
             raise HTTPException(status_code=404, detail="Not found")
 
@@ -2996,7 +3005,7 @@ async def send_message(
         if is_local or new_count == 1:
             try:
                 title = await generate_title(content)
-                await session_svc.update_title(db, wallet, actual_session_id, title)
+                await session_svc.update_title(db, wallet, actual_session_id, title, account_id=x_user_account)
                 response_extra["title"] = title
             except Exception:
                 logger.warning("Title generation failed", exc_info=True)
@@ -3046,6 +3055,7 @@ async def stream_message(
     body: StreamMessageRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Stream an LLM response as Server-Sent Events."""
     content = body.content.strip()
@@ -3058,12 +3068,12 @@ async def stream_message(
     actual_session_id = session_id
     is_first_message = False
     if is_local:
-        new_session = await session_svc.create_session(db, wallet, wallet, "New chat")
+        new_session = await session_svc.create_session(db, wallet, wallet, "New chat", account_id=x_user_account)
         actual_session_id = new_session["id"]
         is_first_message = True
         await db.commit()
     else:
-        session = await session_svc.get_session(db, wallet, session_id)
+        session = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
         if session is None:
             raise HTTPException(status_code=404, detail="Not found")
         is_first_message = session.get("messageCount", 0) == 0
@@ -3115,6 +3125,7 @@ async def edit_message_stream(
     body: EditMessageRequest,
     wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
 ):
     """Edit a previously-sent user message and stream a fresh response.
 
@@ -3139,7 +3150,7 @@ async def edit_message_stream(
     if session_id.startswith("local:"):
         raise HTTPException(status_code=400, detail="Cannot edit messages in an unpersisted session")
 
-    session = await session_svc.get_session(db, wallet, session_id)
+    session = await session_svc.get_session(db, wallet, session_id, account_id=x_user_account)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 

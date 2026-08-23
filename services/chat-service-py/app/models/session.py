@@ -31,6 +31,13 @@ class ChatSession(Base):
     )
     user_id: Mapped[str] = mapped_column(String, nullable=False)
     wallet_address: Mapped[str] = mapped_column(String, nullable=False)
+    # The multichain account this session belongs to. When set, history is
+    # scoped by account so every wallet linked to the account sees the same
+    # chats; nullable for legacy sessions created before accounts existed (those
+    # fall back to wallet scoping).
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     title: Mapped[str] = mapped_column(String, nullable=False, default="New chat")
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
