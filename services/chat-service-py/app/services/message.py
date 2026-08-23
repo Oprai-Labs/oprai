@@ -74,11 +74,17 @@ async def get_messages(
     the user soft-deleted them by editing an earlier turn, so neither the
     chat UI nor the LLM should see them again.
     """
+    # Scope by session_id ONLY, not by wallet_address. Messages belong to the
+    # SESSION, whose ownership the caller already verified (the HTTP endpoint via
+    # the account-scoped get_session; gRPC is trusted internal). Filtering by the
+    # current wallet returned NOTHING for a session opened from a DIFFERENT linked
+    # wallet of the same account — e.g. an EVM (SIWE) session viewing chats
+    # created under the account's Solana wallet: session list + count showed, but
+    # the messages came back empty. `wallet` is kept in the signature for callers.
     stmt = (
         select(ChatMessage)
         .where(
             ChatMessage.session_id == uuid.UUID(session_id),
-            ChatMessage.wallet_address == wallet,
         )
         .order_by(ChatMessage.created_at.asc())
     )

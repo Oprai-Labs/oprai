@@ -907,8 +907,12 @@ async def build_llm_context(
             )
             messages.append({"role": "system", "content": attachment_context})
 
-    # Fetch summaries
-    summaries = await get_summaries(db, session_id, wallet=wallet)
+    # Fetch summaries scoped by session_id only (ownership already verified by
+    # the caller). Passing wallet here enforced ChatSession.wallet_address ==
+    # wallet, so an EVM session got NO summaries and fell back to full raw
+    # history — correct output but token-heavy. Session-scoped keeps the rolling
+    # summary working for every linked wallet of the account.
+    summaries = await get_summaries(db, session_id)
 
     # Determine how many messages are summarised
     summarised_count = 0
@@ -925,12 +929,16 @@ async def build_llm_context(
         if rolling:
             messages.append({"role": "system", "content": rolling})
 
-    # Fetch remaining raw messages (after the summarised range)
+    # Fetch remaining raw messages (after the summarised range). Scope by
+    # session_id ONLY — messages belong to the session, whose ownership the
+    # caller verified. A wallet filter here starved the LLM of history when a
+    # session was opened from a different linked wallet of the same account
+    # (e.g. an EVM SIWE session continuing a chat created under the Solana
+    # wallet), so the model answered as if the conversation were empty.
     stmt = (
         select(ChatMessage)
         .where(
             ChatMessage.session_id == uuid.UUID(session_id),
-            ChatMessage.wallet_address == wallet,
         )
         .order_by(ChatMessage.created_at.asc())
     )
