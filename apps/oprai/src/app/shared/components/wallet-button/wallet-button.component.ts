@@ -51,23 +51,28 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
     return this._walletSnapshot;
   }
 
-  // Wallets the Solana Wallet Standard registry surfaces that CANNOT sign a
-  // Solana SIWS login: EVM-only (MetaMask, Rabby, …) and other-chain wallets
-  // (Pontem = Aptos, Leap = Cosmos). Listing them under "Detected" made clicking
-  // one run SIWS and fail. EVM ones re-appear under "Or sign in with Ethereum"
-  // (EIP-6963); the truly-unsupported ones just don't show.
+  // Which network the user is signing in with. OPRAI is Solana-native, so Solana
+  // is the default; Ethereum (SIWE) is the alternative. The modal shows the
+  // wallets for the SELECTED chain — a multichain wallet (Phantom, Backpack) can
+  // appear under both, connecting with that chain's scheme (SIWS vs SIWE).
+  readonly loginChain = signal<'solana' | 'ethereum'>('solana');
+
+  // Wallets the Solana Wallet Standard registry surfaces that are NOT Solana
+  // wallets: EVM-only (MetaMask, Rabby, …) and other-chain (Pontem = Aptos,
+  // Leap = Cosmos). They must never appear on the Solana tab (clicking would run
+  // SIWS and fail). EVM ones live on the Ethereum tab via EIP-6963; genuinely
+  // unsupported chains (Aptos/Cosmos) show nowhere. A wallet that ALSO does
+  // Solana (Phantom, Backpack) is NOT here — it stays on the Solana tab.
   private static readonly NON_SOLANA_WALLETS = new Set([
     'metamask', 'rabby', 'rainbow', 'zerion', 'pontem', 'leap', 'keplr',
     'petra', 'martian', 'trust wallet', 'trust',
   ]);
 
   get detectedWallets(): import('@core/services/wallet.service').WalletInfo[] {
-    const evmNames = new Set(this.evmWallets().map((w) => w.name.toLowerCase()));
     return this._walletSnapshot.filter(
       (w) =>
         w.detected &&
-        !WalletButtonComponent.NON_SOLANA_WALLETS.has(w.name.trim().toLowerCase()) &&
-        !evmNames.has(w.name.trim().toLowerCase()),
+        !WalletButtonComponent.NON_SOLANA_WALLETS.has(w.name.trim().toLowerCase()),
     );
   }
 
@@ -114,6 +119,30 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
     window.addEventListener('eip6963:announceProvider', handler);
     window.dispatchEvent(new Event('eip6963:requestProvider'));
     setTimeout(() => window.removeEventListener('eip6963:announceProvider', handler), 400);
+  }
+
+  /** Switch to the Ethereum tab and (re-)run EIP-6963 discovery, so a wallet
+   *  that announced late is present even if the modal opened before it did. */
+  selectEthereum(): void {
+    this.loginChain.set('ethereum');
+    this.discoverEvmWallets();
+  }
+
+  /** A wallet's own icon can be a broken/blocked data-URI (some EIP-6963
+   *  providers ship malformed ones — Phantom's was rendering broken). Swap to a
+   *  neutral inline placeholder so the row stays clean instead of a torn image. */
+  onIconError(e: Event): void {
+    const img = e.target as HTMLImageElement;
+    if (img.dataset['fallback']) return; // already swapped — don't loop
+    img.dataset['fallback'] = '1';
+    img.src =
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'>" +
+          "<rect width='32' height='32' rx='8' fill='%235b5fc7'/>" +
+          "<path d='M9 12h14v8H9z' fill='none' stroke='white' stroke-width='2' rx='2'/>" +
+          "</svg>",
+      );
   }
 
   async connectEvm(w: { name: string; provider: EvmProvider }): Promise<void> {

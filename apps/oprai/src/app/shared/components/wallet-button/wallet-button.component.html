@@ -50,7 +50,7 @@
         <div class="wallet-modal-header">
           <div class="wallet-modal-header-text">
             <span class="wallet-modal-title">{{ 'Connect Wallet' | t }}</span>
-            <span class="wallet-modal-subtitle">{{ 'Connect a Solana or Ethereum wallet to use OPRAI.' | t }}</span>
+            <span class="wallet-modal-subtitle">{{ 'Choose a network, then connect your wallet.' | t }}</span>
           </div>
           <button class="wallet-modal-close" (click)="closeModal()" [attr.aria-label]="'Close' | t">
             <lucide-icon name="x" [size]="16" />
@@ -59,55 +59,79 @@
 
         <!-- Wallet list -->
         <div class="wallet-modal-body">
-          <!-- Detected — the wallets actually installed, listed first as rows
-               so the one the user has is the obvious choice (Jupiter-style). -->
-          @if (detectedWallets.length > 0) {
-            <div class="wallet-section-label">{{ 'Detected' | t }}</div>
-            <div class="wallet-list">
-              @for (wallet of detectedWallets; track wallet.name) {
-                <button class="wallet-row" (click)="connectWallet(wallet.name)">
-                  <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" />
-                  <span class="wallet-row-name">{{ wallet.name }}</span>
-                  <span class="wallet-row-badge">
-                    <span class="wallet-row-dot"></span>
-                    {{ 'Installed' | t }}
-                  </span>
-                </button>
-              }
-            </div>
-          }
+          <!-- Network toggle — pick the chain first, then its wallets. A
+               multichain wallet (Phantom, Backpack) appears under both and
+               connects with that chain's scheme (SIWS on Solana, SIWE on
+               Ethereum). OPRAI is Solana-native, so Solana leads. -->
+          <div class="chain-toggle" role="tablist">
+            <button type="button" class="chain-toggle__btn" role="tab"
+                    [class.chain-toggle__btn--active]="loginChain() === 'solana'"
+                    [attr.aria-selected]="loginChain() === 'solana'"
+                    (click)="loginChain.set('solana')">
+              {{ 'Solana' | t }}
+            </button>
+            <button type="button" class="chain-toggle__btn" role="tab"
+                    [class.chain-toggle__btn--active]="loginChain() === 'ethereum'"
+                    [attr.aria-selected]="loginChain() === 'ethereum'"
+                    (click)="selectEthereum()">
+              {{ 'Ethereum' | t }}
+            </button>
+          </div>
 
-          <!-- More — known wallets not installed, as install prompts. -->
-          @if (installableWallets.length > 0) {
-            <div class="wallet-section-label">
-              {{ (detectedWallets.length > 0 ? 'More wallets' : 'Popular wallets') | t }}
-            </div>
-            <div class="wallet-list">
-              @for (wallet of installableWallets; track wallet.name) {
-                <button
-                  class="wallet-row wallet-row--install"
-                  (click)="openInstallUrl(wallet.url)"
-                  [attr.title]="'Install ' + wallet.name + ' to continue'"
-                >
-                  <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" />
-                  <span class="wallet-row-name">{{ wallet.name }}</span>
-                  <span class="wallet-row-install">{{ 'Install' | t }}</span>
-                </button>
-              }
-            </div>
-          }
-          <!-- Ethereum sign-in (SIWE) — one account across chains. -->
-          @if (evmWallets().length > 0) {
-            <div class="wallet-section-label">{{ 'Or sign in with Ethereum' | t }}</div>
-            <div class="wallet-list">
-              @for (w of evmWallets(); track w.uuid) {
-                <button class="wallet-row" (click)="connectEvm(w)">
-                  <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" />
-                  <span class="wallet-row-name">{{ w.name }}</span>
-                  <span class="wallet-row-badge"><span class="wallet-row-dot"></span>{{ 'Ethereum' | t }}</span>
-                </button>
-              }
-            </div>
+          @if (loginChain() === 'solana') {
+            <!-- Detected Solana wallets -->
+            @if (detectedWallets.length > 0) {
+              <div class="wallet-section-label">{{ 'Detected' | t }}</div>
+              <div class="wallet-list">
+                @for (wallet of detectedWallets; track wallet.name) {
+                  <button class="wallet-row" (click)="connectWallet(wallet.name)">
+                    <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" (error)="onIconError($event)" />
+                    <span class="wallet-row-name">{{ wallet.name }}</span>
+                    <span class="wallet-row-badge">
+                      <span class="wallet-row-dot"></span>
+                      {{ 'Installed' | t }}
+                    </span>
+                  </button>
+                }
+              </div>
+            }
+            <!-- More — known Solana wallets not installed, as install prompts. -->
+            @if (installableWallets.length > 0) {
+              <div class="wallet-section-label">
+                {{ (detectedWallets.length > 0 ? 'More wallets' : 'Popular wallets') | t }}
+              </div>
+              <div class="wallet-list">
+                @for (wallet of installableWallets; track wallet.name) {
+                  <button
+                    class="wallet-row wallet-row--install"
+                    (click)="openInstallUrl(wallet.url)"
+                    [attr.title]="'Install ' + wallet.name + ' to continue'"
+                  >
+                    <img [src]="wallet.icon" [alt]="wallet.name" class="wallet-row-icon" width="32" height="32" (error)="onIconError($event)" />
+                    <span class="wallet-row-name">{{ wallet.name }}</span>
+                    <span class="wallet-row-install">{{ 'Install' | t }}</span>
+                  </button>
+                }
+              </div>
+            }
+          } @else {
+            <!-- Ethereum sign-in (SIWE) — EIP-6963 discovered wallets. -->
+            @if (evmWallets().length > 0) {
+              <div class="wallet-section-label">{{ 'Detected' | t }}</div>
+              <div class="wallet-list">
+                @for (w of evmWallets(); track w.uuid) {
+                  <button class="wallet-row" (click)="connectEvm(w)">
+                    <img [src]="w.icon" [alt]="w.name" class="wallet-row-icon" width="32" height="32" (error)="onIconError($event)" />
+                    <span class="wallet-row-name">{{ w.name }}</span>
+                    <span class="wallet-row-badge"><span class="wallet-row-dot"></span>{{ 'Ethereum' | t }}</span>
+                  </button>
+                }
+              </div>
+            } @else {
+              <div class="wallet-empty">
+                {{ 'No Ethereum wallet detected. Install MetaMask to sign in with Ethereum.' | t }}
+              </div>
+            }
           }
         </div>
 

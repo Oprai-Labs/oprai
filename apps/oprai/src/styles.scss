@@ -764,6 +764,47 @@ html.dark .scrollbar-thin {
 }
 
 // ── Connect modal: detected/installable wallet rows (Jupiter-style) ─────────
+// Network selector — segmented toggle at the top of the connect modal.
+.chain-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 2px 0 10px;
+  background: var(--op-bg-surface-2);
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+
+  &__btn {
+    flex: 1;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--op-text-secondary);
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &:hover { color: var(--op-text-primary); }
+
+    &--active {
+      background: var(--op-bg-surface-1);
+      color: var(--op-text-primary);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+    }
+  }
+}
+
+.wallet-empty {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--op-text-tertiary);
+}
+
 .wallet-section-label {
   font-size: 11px;
   font-weight: 600;
