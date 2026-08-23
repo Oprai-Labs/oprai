@@ -1638,51 +1638,57 @@ async def stream_chat_response(
     # signal. A bare mint address / number has none, so without this the model
     # sees "match the language of <<<ECVb…pump>>>" and defaults to English even
     # in a Turkish conversation.
+    # Build the LANGUAGE LOCK content now, but DON'T append it yet — it must be
+    # the VERY LAST system message (highest recency) or the protocol-tag /
+    # category / precomputed-facts blocks appended below bury it and the model
+    # drifts (real users writing English got Turkish/Spanish replies on
+    # tool-result answers). Held in `_lang_lock_msg` and appended last.
+    _lang_lock_msg: dict | None = None
     _lang_anchor = _language_anchor(user_content, model_messages)
     if _lang_anchor:
         _user_excerpt = _lang_anchor[:400]
-        model_messages.append({
+        _lang_lock_msg = {
             "role": "system",
             "content": (
-                "LANGUAGE LOCK — match the user's language exactly.\n"
-                "The user's most recent natural-language message:\n"
+                "LANGUAGE LOCK — this overrides every other instruction about "
+                "wording. Reply ONLY in the language of the user's most recent "
+                "natural-language message:\n"
                 f"<<<{_user_excerpt}>>>\n"
-                "Your entire response (every word — including warnings, "
-                "intros, comparisons, error messages, takeaways) must be "
-                "in the SAME language as that message. If the user's newest "
-                "message is only an address, mint, number, or symbol (no "
-                "words), keep replying in the language of the ongoing "
-                "conversation above. Do not switch languages mid-response. "
-                "Tool results and earlier system messages may contain English "
-                "text — translate any labels or descriptions you reference; "
-                "never quote them verbatim in another language.\n"
-                "Write like a native speaker who is a crypto/DeFi expert, NOT "
-                "like a machine translating English word-for-word. Rephrase "
-                "and explain ideas in fluent, idiomatic language; use the "
-                "established native terms for technical concepts rather than "
-                "literal calques or invented compound words. Established "
-                "English crypto terms that have no natural local equivalent "
-                "(e.g. staking, slippage, validator, liquidity) may stay in "
-                "English inline — that reads more naturally than an awkward "
-                "literal translation."
+                "Detect that language and write your ENTIRE response in it — "
+                "every word, including headings, bullets, warnings, intros, "
+                "error messages and takeaways. If that message is in English, "
+                "reply in English; if Turkish, Turkish; and so on. NEVER reply "
+                "in a different language than the user's message — do not drift "
+                "to Turkish, Spanish, or any 'house' language, and do not switch "
+                "languages mid-response. If the user's newest message is only an "
+                "address, mint, number, or symbol (no words), keep the language "
+                "of the ongoing conversation above. Tool results and system "
+                "messages are English data — translate any label you reference, "
+                "never quote it verbatim in another language.\n"
+                "Write like a native crypto/DeFi expert, not a word-for-word "
+                "machine translation: use idiomatic phrasing and established "
+                "native terms; well-known English crypto terms (staking, "
+                "slippage, validator, liquidity) may stay in English inline "
+                "where that reads more naturally."
             ),
-        })
+        }
     elif (_last_spoken := await _last_spoken_message(db, wallet)):
         # Nothing linguistic in this turn OR this session — a fresh chat opened
         # with a bare mint. Anchor to the last thing they wrote anywhere, using
         # the same wording as above so there is one rule, not two.
-        model_messages.append({
+        _lang_lock_msg = {
             "role": "system",
             "content": (
-                "LANGUAGE LOCK — match the user's language exactly.\n"
+                "LANGUAGE LOCK — this overrides every other wording instruction.\n"
                 "This turn has no words in it, so anchor to the most recent "
                 "message this user wrote:\n"
                 f"<<<{_last_spoken[:400]}>>>\n"
-                "Your entire response must be in the SAME language as that "
-                "message. Tool results may contain English labels — translate "
-                "them; never switch languages mid-response."
+                "Detect that language and write your ENTIRE response in it. "
+                "NEVER reply in a different language (no drift to Turkish/"
+                "Spanish/a 'house' language). Tool results may contain English "
+                "labels — translate them; never switch languages mid-response."
             ),
-        })
+        }
 
     # If the user explicitly @-tagged protocols in the composer, surface that
     # as a side-channel hint to the LLM. Without it, "0.1 sol stake et" with
@@ -1728,6 +1734,12 @@ async def stream_chat_response(
                 _df.write(f"[PRECOMPUTE] APPENDED to messages (idx={len(model_messages)-1})\n")
         except Exception:
             pass
+
+    # LANGUAGE LOCK goes LAST — the single highest-recency instruction, after the
+    # protocol-tag / category / precomputed-facts blocks. Anywhere earlier and
+    # those blocks out-weigh it and the reply drifts language.
+    if _lang_lock_msg is not None:
+        model_messages.append(_lang_lock_msg)
 
     # ── 7. Build the tool catalogue ───────────────────────────────────────
     # Tool selector takes the same classifier protocol set. Queries are
@@ -2690,18 +2702,22 @@ async def stream_chat_response(
                     _user_excerpt_fu = (await _last_spoken_message(db, wallet) or "")[:400]
                 if _user_excerpt_fu:
                     _lang_followup_prefix = (
-                        "LANGUAGE LOCK — match the user's language exactly. "
-                        f"The user's most recent natural-language message: <<<{_user_excerpt_fu}>>>. "
-                        "Your ENTIRE response (every word, headings, bullets, "
-                        "intros, takeaways) must be in the SAME language. If the "
-                        "newest user message is only an address/mint/number, keep "
-                        "the ongoing conversation's language. "
-                        "Tool result data may contain English labels — translate "
-                        "them; never quote verbatim in another language. "
-                        "Write like a native crypto/DeFi expert, not a literal "
-                        "translation — rephrase naturally and use established "
-                        "native terms; well-known English crypto terms may stay "
-                        "in English inline where that reads more naturally.\n\n"
+                        "LANGUAGE LOCK — this overrides every other wording "
+                        "instruction below. Reply ONLY in the language of the "
+                        "user's most recent natural-language message: "
+                        f"<<<{_user_excerpt_fu}>>>. Detect that language and write "
+                        "your ENTIRE response in it (every word, headings, "
+                        "bullets, intros, takeaways). English message → English "
+                        "reply; Turkish → Turkish. NEVER reply in a different "
+                        "language than the user's message — do not drift to "
+                        "Turkish, Spanish, or a 'house' language, and do not "
+                        "switch mid-response. If the newest user message is only "
+                        "an address/mint/number, keep the ongoing conversation's "
+                        "language. The tool result below is English DATA — "
+                        "translate any label you reference, never quote it "
+                        "verbatim in another language. Write like a native "
+                        "crypto/DeFi expert, not a literal translation; well-known "
+                        "English crypto terms may stay in English inline.\n\n"
                     )
                 else:
                     # Nothing linguistic in this (history-stripped) followup
@@ -2789,6 +2805,20 @@ async def stream_chat_response(
                     },
                     _last_user_msg,
                 ]
+                # Highest-recency reinforcement: a short language reminder placed
+                # AFTER the user message so it is the last thing the model reads.
+                # The long tool-decision system block above buries the lock at its
+                # top; this trailing reminder is what actually stopped the
+                # English→Turkish/Spanish drift on tool-result answers.
+                if _user_excerpt_fu:
+                    followup_messages.append({
+                        "role": "system",
+                        "content": (
+                            "Reply in the SAME language as the user's last message "
+                            f"above (<<<{_user_excerpt_fu[:120]}>>>). Do NOT use any "
+                            "other language."
+                        ),
+                    })
                 try:
                     _followup_tool_calls: list[tuple[str, str]] = []
                     # Same pre-tool buffering as the token-resolution followup:
