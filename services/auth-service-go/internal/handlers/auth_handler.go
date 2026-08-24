@@ -209,7 +209,11 @@ func (h *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Message does not match the issued challenge")
 			return
 		}
-		if h.cfg.AppDomain != "" && !strings.Contains(req.Message, h.cfg.AppDomain) {
+		// The DOMAIN CLAIM is the first line ("<domain> wants you to sign in…").
+		// Check that line specifically, not Contains-anywhere: a phishing message
+		// could set the first line to evil.com yet still mention our domain in the
+		// URI line and slip past a loose substring match.
+		if h.cfg.AppDomain != "" && !strings.HasPrefix(req.Message, h.cfg.AppDomain+" wants you to sign in") {
 			slog.Warn("Login verification failed: message domain mismatch", "wallet", req.WalletAddress, "ip", ip)
 			h.logFailedLogin(r, req.WalletAddress, "", "Message domain mismatch")
 			writeError(w, http.StatusBadRequest, "Message domain not recognized")
