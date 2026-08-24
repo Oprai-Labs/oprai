@@ -1699,6 +1699,21 @@ pub async fn post_uniswap_swap(
     Ok(HttpResponse::Ok().json(serde_json::json!({ "transaction": tx })))
 }
 
+/// POST /actions/uniswap/lp/build — build the approval + create transactions for
+/// opening a Uniswap V3 liquidity position. Reads the pool on-chain, computes the
+/// tick range, and returns the ready EVM txs for the frontend to sign in order.
+#[post("/uniswap/lp/build")]
+pub async fn post_uniswap_lp_build(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<crate::services::uniswap::UniswapAddLiquidityParams>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    let result =
+        crate::services::uniswap::build_uniswap_add_liquidity(&state.http, &wallet, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/record — book economics after the swap settles on-chain.
 /// Uniswap has no authoritative post-fill record (unlike Relay's /requests), so
 /// the USD notional is derived SERVER-SIDE by pricing the swapped token into USDC

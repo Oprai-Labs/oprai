@@ -76,7 +76,7 @@ export interface ParsedHistory {
 const KNOWN_ACTION_TYPES = new Set<string>([
   // Core Solana
   'transfer', 'swap', 'stake', 'unstake', 'burn', 'claim', 'vote',
-  'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap', 'uniswap_pools',
+  'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap', 'uniswap_pools', 'uniswap_add_liquidity',
   'nft_buy', 'nft_list', 'nft_mint',
   // Jupiter
   'limit_order', 'cancel_limit_order', 'cancel_all_limit_orders', 'dca', 'cancel_dca',

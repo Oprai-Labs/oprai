@@ -1515,6 +1515,9 @@ export class SolanaActionService {
     if (action.type === 'uniswap_swap') {
       return this.executeUniswapSwap(action, callbacks);
     }
+    if (action.type === 'uniswap_add_liquidity') {
+      return this.executeUniswapAddLiquidity(action, callbacks);
+    }
 
     const wallet = this.walletService.publicKey();
     if (!wallet) {
@@ -2660,6 +2663,121 @@ export class SolanaActionService {
     }).subscribe({ error: () => { /* best-effort; server is authoritative */ } });
     callbacks.onConfirm?.(txHash);
     return txHash;
+  }
+
+  /**
+   * Open a Uniswap V3 liquidity position. Backend reads the pool, computes the
+   * tick range, and returns the approval txs + the create tx; here we switch the
+   * wallet to the chain, send each approval (waiting for it to land), then send
+   * the create tx and watch its receipt. EVM, so window.ethereum like the swap.
+   */
+  private async executeUniswapAddLiquidity(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = Number(p['chainId'] ?? p['originChainId'] ?? 0)
+      || this.evmChainIdFromName(p['chain']);
+    if (!chainId) throw new Error('Uniswap: no chain specified for this pool.');
+
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) {
+      throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to add liquidity on Uniswap.');
+    }
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+      const timer = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Uniswap: ${label} timed out after ${ms / 1000}s`)), ms));
+      return Promise.race([promise, timer]);
+    };
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(
+      ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(
+          ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }),
+          60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network than this pool. Switch it and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    // 1. Build (backend reads the pool + computes ticks + returns approve/create txs).
+    const build = await firstValueFrom(this.api.post<any>('/actions/uniswap/lp/build', {
+      chain: p['chain'] ?? String(chainId),
+      poolAddress: p['poolAddress'] ?? p['pool'] ?? p['whirlpool'],
+      version: p['version'] ?? 'v3',
+      inputToken: p['inputToken'] ?? p['token0'] ?? p['token'],
+      amount: p['amount'],
+      ...(p['rangePercent'] ? { rangePercent: Number(p['rangePercent']) } : {}),
+    }));
+
+    // 2. Approvals (ERC20 → position manager). Each must land before create.
+    const approvals: any[] = Array.isArray(build?.approvals) ? build.approvals : [];
+    for (const ap of approvals) {
+      if (!ap?.to) continue;
+      callbacks.onProgress?.();
+      const apHash = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: ap.to, data: ap.data ?? '0x', value: toHexQty(ap.value) ?? '0x0' }],
+      }), 120_000, 'token approval') as string;
+      const ok = await this.watchEvmReceipt(ethereum, apHash);
+      if (ok === false) throw new Error('A token approval reverted on-chain — no liquidity was added.');
+    }
+
+    // 3. Create the position.
+    const tx = build?.create;
+    if (!tx?.to) throw new Error('Uniswap: no create transaction was returned.');
+    callbacks.onSign?.();
+    const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+    const maxFeeHex = toHexQty(tx.maxFeePerGas);
+    const maxPrioHex = toHexQty(tx.maxPriorityFeePerGas);
+    const txHash = await withTimeout(ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: account,
+        to: tx.to,
+        data: tx.data ?? '0x',
+        value: toHexQty(tx.value) ?? '0x0',
+        ...(gasHex ? { gas: gasHex } : {}),
+        ...(maxFeeHex && maxPrioHex ? { maxFeePerGas: maxFeeHex, maxPriorityFeePerGas: maxPrioHex } : {}),
+      }],
+    }), 120_000, 'create position sign') as string;
+    callbacks.onSubmit?.(txHash);
+
+    // 4. Watch the receipt — the mined tx IS the settlement.
+    const ok = await this.watchEvmReceipt(ethereum, txHash);
+    if (ok === false) {
+      callbacks.onFail?.(
+        'The position transaction reverted on-chain — no liquidity was added. Your funds are safe minus the network fee.',
+        txHash,
+      );
+      return txHash;
+    }
+    callbacks.onConfirm?.(txHash);
+    return txHash;
+  }
+
+  /** Map a chain name/slug to its EVM chain id (for LP params that carry a name). */
+  private evmChainIdFromName(name?: string): number {
+    switch ((name ?? '').trim().toLowerCase()) {
+      case 'ethereum': case 'eth': case 'mainnet': return 1;
+      case 'base': return 8453;
+      case 'arbitrum': case 'arb': return 42161;
+      case 'optimism': case 'op': return 10;
+      case 'polygon': case 'matic': return 137;
+      case 'bsc': case 'bnb': return 56;
+      default: return 0;
+    }
   }
 
   /** EIP712Domain field descriptors matching whichever domain fields are present

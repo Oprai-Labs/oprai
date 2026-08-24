@@ -143,7 +143,7 @@ function getProtocolKey(action: ParsedAction): string {
   const t = action.type;
   // Jupiter surface: swaps, limit/DCA (incl. cancels), perpetuals, JLP — all Jupiter products.
   // A bridge is Relay's, and said Solana with Solana's mark until now.
-  if (t === 'uniswap_swap') return 'uniswap';
+  if (t === 'uniswap_swap' || t === 'uniswap_add_liquidity') return 'uniswap';
   if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') return 'relay';
   if (t.startsWith('relay_')) return 'relay';
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
@@ -350,6 +350,8 @@ function getActionFields(
   const fields: FieldDef[] = [];
   const t = action.type;
   if (t === 'launch_token' || t === 'token_launch' || t === 'pumpfun_launch') return [];
+  // Uniswap swap + add-liquidity render their own mini-app panels, no raw fields.
+  if (t === 'uniswap_swap' || t === 'uniswap_add_liquidity') return [];
   if (t === 'pumpfun_buy' || t === 'pumpswap_buy') {
     fields.push(
       { key: 'mint', label: 'Token Mint', type: 'address', placeholder: 'Token mint address...', required: true },
@@ -4143,6 +4145,82 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     error?: string;
   } | null>(null);
 
+  // ── Uniswap add-liquidity (open a V3 position) ───────────────────────────
+  readonly isUniswapAddLiquidity = computed(() => this.action?.type === 'uniswap_add_liquidity');
+
+  /** Live preview of a Uniswap LP position: the pool ratio fixes the second
+   *  amount from the one the user types, plus the resolved price range. */
+  readonly uniLpPreview = signal<{
+    loading: boolean;
+    token0Symbol?: string;
+    token1Symbol?: string;
+    amount0Display?: string;
+    amount1Display?: string;
+    token0Logo?: string;
+    token1Logo?: string;
+    minPrice?: string;
+    maxPrice?: string;
+    error?: string;
+  } | null>(null);
+
+  /** Which token the user is entering an amount of, and the chosen price band. */
+  readonly uniLpAmount = signal<string>('');
+  readonly uniLpRange = signal<'full' | '25' | '10'>('full');
+  private _uniLpTimer: ReturnType<typeof setTimeout> | null = null;
+
+  setUniLpRange(r: 'full' | '25' | '10'): void {
+    if (!this.isEditable()) return;
+    this.uniLpRange.set(r);
+    if (this.action) this.action.params['rangePercent'] = r === 'full' ? '' : r;
+    void this.fetchUniLpPreview(true);
+  }
+
+  onUniLpAmountInput(value: string): void {
+    const v = value.replace(',', '.').replace(/[^\d.]/g, '');
+    this.uniLpAmount.set(value);
+    if (this.action) this.action.params['amount'] = v;
+    if (this._uniLpTimer) clearTimeout(this._uniLpTimer);
+    if (!v || !(parseFloat(v) > 0)) { this.uniLpPreview.set(null); return; }
+    this._uniLpTimer = setTimeout(() => void this.fetchUniLpPreview(true), 500);
+  }
+
+  private _uniLpSeq = 0;
+  private async fetchUniLpPreview(silent = false): Promise<void> {
+    const p = this.action?.params ?? {};
+    const amount = (p['amount'] ?? '').toString().trim();
+    if (!amount || !(parseFloat(amount) > 0)) return;
+    const seq = ++this._uniLpSeq;
+    if (!silent) this.uniLpPreview.set({ loading: true });
+    try {
+      const b = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/lp/build', {
+        chain: p['chain'] ?? '',
+        poolAddress: p['poolAddress'] ?? p['pool'],
+        version: p['version'] ?? 'v3',
+        inputToken: p['inputToken'] ?? p['token0'],
+        amount,
+        ...(p['rangePercent'] ? { rangePercent: Number(p['rangePercent']) } : {}),
+      }));
+      if (seq !== this._uniLpSeq) return;
+      this.uniLpPreview.set({
+        loading: false,
+        token0Symbol: p['token0Symbol'] ?? b?.token0?.address?.slice(0, 6),
+        token1Symbol: p['token1Symbol'] ?? b?.token1?.address?.slice(0, 6),
+        amount0Display: b?.token0?.amountDisplay,
+        amount1Display: b?.token1?.amountDisplay,
+        token0Logo: b?.token0?.logo,
+        token1Logo: b?.token1?.logo,
+        minPrice: b?.minPrice != null ? String(b.minPrice) : undefined,
+        maxPrice: b?.maxPrice != null ? String(b.maxPrice) : undefined,
+      });
+    } catch (e: any) {
+      if (seq !== this._uniLpSeq) return;
+      this.uniLpPreview.set({
+        loading: false,
+        error: sanitizeErrorMessage(e?.error?.error ?? e?.message ?? '', 'uniswap_add_liquidity') || 'Couldn’t price this position right now.',
+      });
+    }
+  }
+
   // Which side of the Uniswap card the user is typing on. The edited side shows
   // the typed value; the other side is the live quote estimate. Edit "pay" →
   // EXACT_INPUT, edit "receive" → EXACT_OUTPUT.
@@ -6067,6 +6145,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.uniEditSide.set(tt === 'EXACT_OUTPUT' ? 'receive' : 'pay');
       this.uniTypedAmount.set(String(this.action?.params?.['amount'] ?? ''));
       void this.fetchUniswapPreview();
+    }
+    // Uniswap add-liquidity card: seed amount + range, preview if amount present.
+    if (this.isUniswapAddLiquidity() && this.status() === 'pending') {
+      const amt = String(this.action?.params?.['amount'] ?? '');
+      this.uniLpAmount.set(amt);
+      const rp = String(this.action?.params?.['rangePercent'] ?? '').trim();
+      this.uniLpRange.set(rp === '10' ? '10' : rp === '25' ? '25' : 'full');
+      // Default the input token to token0 when the LLM/pool row didn't name one.
+      if (this.action && !this.action.params['inputToken']) {
+        this.action.params['inputToken'] = this.action.params['token0'] ?? '';
+      }
+      if (amt && parseFloat(amt) > 0) void this.fetchUniLpPreview();
     }
     // Verify before seeding: the range is anchored to the pool's price, so
     // seeding first would centre it on a pool about to be replaced.

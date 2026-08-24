@@ -2204,6 +2204,30 @@
 
 // ── pump.fun / PumpSwap: mini-Uniswap swap layout ──────────────────────────
 // Uniswap card chain/route badge — small pill above the pay panel.
+// Price-range preset chips on the Uniswap add-liquidity card.
+.uni-range-chips {
+  display: inline-flex;
+  gap: 6px;
+}
+.uni-range-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--op-border, rgba(120,120,140,0.25));
+  background: transparent;
+  color: var(--op-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+
+  &.on {
+    border-color: #F50DB4;
+    background: rgba(245, 13, 180, 0.12);
+    color: #F50DB4;
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
 .uni-chip {
   display: inline-flex;
   align-items: center;

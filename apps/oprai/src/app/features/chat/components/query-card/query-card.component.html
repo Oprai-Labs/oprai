@@ -179,8 +179,7 @@
               <span class="text-right mono">{{ formatCompactUsd(p.tvlUsd) }}</span>
               <span class="text-right mono">{{ formatCompactUsd(p.volume24hUsd) }}</span>
               <span class="text-right">
-                <button class="km-deposit-btn" type="button" disabled
-                        [attr.title]="'Adding liquidity is coming next' | t">
+                <button class="km-deposit-btn" type="button" (click)="useUniswapPool(p)">
                   {{ 'Deposit' | t }}
                 </button>
               </span>
