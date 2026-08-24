@@ -78,6 +78,10 @@
                   } @else {
                     <span class="token-icon-fallback">{{ row.symbol.charAt(0) }}</span>
                   }
+                  @if (row.chain && chainBadgeLogo(row.chain); as clogo) {
+                    <img class="token-chain-badge" [src]="clogo" [alt]="row.chain" [title]="row.chain"
+                         (error)="$any($event.target).style.display='none'" />
+                  }
                 </span>
                 <span class="token-cell__info">
                   <span class="token-symbol">{{ row.symbol }}</span>

@@ -4374,6 +4374,23 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     polygon: 'Polygon', bsc: 'BNB Chain', robinhood: 'Robinhood',
   };
 
+  // Trust Wallet asset folders per chain (bsc → smartchain); Robinhood has no
+  // Trust Wallet folder, so it uses its Relay icon. Mirrors evm-holdings.
+  private static readonly EVM_TW_FOLDER: Record<string, string> = {
+    ethereum: 'ethereum', base: 'base', arbitrum: 'arbitrum', optimism: 'optimism',
+    polygon: 'polygon', bsc: 'smartchain',
+  };
+
+  /** Small network badge shown on an EVM token icon (e.g. an Optimism mark
+   *  under an ETH coin). Returns '' for Solana rows (no badge). */
+  chainBadgeLogo(chain?: string): string {
+    if (!chain) return '';
+    if (chain === 'robinhood') return 'https://assets.relay.link/icons/4663/light.png';
+    const folder = QueryCardComponent.EVM_TW_FOLDER[chain];
+    if (!folder) return '';
+    return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${folder}/info/logo.png`;
+  }
+
   /** Multichain EVM balances via the gateway portfolio endpoint. When `token`
    *  is given, keep only that asset (ETH → native ETH on each chain); otherwise
    *  return every non-spam holding. One row per (chain, token). */

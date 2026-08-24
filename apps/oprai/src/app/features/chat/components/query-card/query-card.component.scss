@@ -302,15 +302,33 @@
 }
 
 .token-icon-wrap {
+  position: relative;
   flex-shrink: 0;
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  overflow: hidden;
+  // Visible so the chain badge can sit on the bottom-right edge; the token
+  // icon is a round 28px that fills the box exactly, so nothing else leaks.
+  overflow: visible;
   background: var(--op-bg-surface-2);
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+// Small network badge overlaid on a token icon (EVM rows): which chain the
+// balance is on, e.g. an Optimism mark under the ETH coin.
+.token-chain-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--op-bg-surface-1);
+  border: 2px solid var(--op-bg-surface-1);
+  box-shadow: 0 0 0 0.5px var(--op-border, rgba(0, 0, 0, 0.12));
 }
 
 .token-icon {
