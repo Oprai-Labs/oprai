@@ -141,12 +141,20 @@ pub async fn uniswap_quote(
     let key = api_key()?;
     let chain = params.origin_chain_id;
 
-    // Resolve token names/symbols → addresses on this chain, then scale the
-    // amount to the input token's base units.
+    // Resolve token names/symbols → addresses on this chain.
     let token_in = resolve_evm_currency(http, chain, &params.origin_currency).await?;
     let token_out =
         resolve_evm_currency(http, params.destination_chain_id, &params.destination_currency).await?;
-    let amount_base = amount_base_units(http, chain, &token_in, &params.amount).await?;
+    // Scale `amount` to base units of the token it refers to: EXACT_INPUT means
+    // the amount is the INPUT (pay) token; EXACT_OUTPUT means it's the OUTPUT
+    // (receive) token. Scaling by the wrong side's decimals would misprice the
+    // whole swap.
+    let is_exact_output = params.trade_type.eq_ignore_ascii_case("EXACT_OUTPUT");
+    let amount_base = if is_exact_output {
+        amount_base_units(http, params.destination_chain_id, &token_out, &params.amount).await?
+    } else {
+        amount_base_units(http, chain, &token_in, &params.amount).await?
+    };
 
     let mut body = json!({
         "type": if params.trade_type.eq_ignore_ascii_case("EXACT_OUTPUT") { "EXACT_OUTPUT" } else { "EXACT_INPUT" },
