@@ -41,9 +41,11 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     # token_deep_analysis + all the analytics playbook load for pump tokens —
     # the most analysis/rug-heavy use case.
     "pumpfun":      ["solana_action_pumpfun.txt", "solana_action_market_data.txt"],
-    # Cross-chain bridges
+    # Cross-chain bridges + Uniswap (same-chain EVM swap; guidance lives in the
+    # same crosschain fragment).
     "relay":        ["solana_action_crosschain.txt"],
     "debridge":     ["solana_action_crosschain.txt"],
+    "uniswap":      ["solana_action_crosschain.txt"],
     # Token streaming / vesting
     "streamflow":   ["solana_action_streamflow.txt"],
     # Market data / analytics — open-ended wallet/token/NFT analysis intents

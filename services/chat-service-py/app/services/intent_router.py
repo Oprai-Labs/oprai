@@ -54,7 +54,7 @@ VALID_PROTOCOLS: frozenset[str] = frozenset({
     "marinade", "jito", "native_stake",
     "kamino", "solend",
     "tensor", "magic_eden", "pumpfun",
-    "relay", "debridge",
+    "relay", "debridge", "uniswap",
     "streamflow",
 })
 
@@ -99,6 +99,8 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "bsc", "bnb chain", "avalanche",
     ),
     "debridge":  ("debridge",),
+    # Uniswap — a single-meaning product name; the same-chain EVM swap venue.
+    "uniswap":   ("uniswap", "uni swap"),
 }
 
 

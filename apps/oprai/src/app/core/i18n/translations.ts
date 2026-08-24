@@ -1301,6 +1301,7 @@ export const TR: Record<string, string> = {
   'Cross-chain swaps via DeBridge': 'DeBridge ile zincirler arası takaslar',
   'Cross-chain transfers': 'Zincirler arası transferler',
   'DLMM + DAMM liquidity pools': 'DLMM + DAMM likidite havuzları',
+  'EVM token swaps (all chains)': 'EVM token takasları (tüm zincirler)',
   'DLMM pools': 'DLMM havuzları',
   'Deposited as the underlying asset; vault auto-allocates across yield sources.': 'Dayanak varlık olarak yatırılır; kasa getiri kaynakları arasında otomatik dağıtır.',
   'Dest wallet...': 'Hedef cüzdan...',

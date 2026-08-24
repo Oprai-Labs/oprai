@@ -14,6 +14,7 @@ export const PROTOCOLS: Protocol[] = [
   // assets/protocols/meteora.png is a black-circle "M" that is not Meteora's
   // mark; point at the same file the cards use so the chip and the cards agree.
   { id: 'meteora',      label: 'Meteora',      category: 'dex',       logo: 'assets/icons/protocols/meteora.webp', description: 'DLMM + DAMM liquidity pools' },
+  { id: 'uniswap',      label: 'Uniswap',      category: 'dex',       logo: 'assets/protocols/uniswap.svg',      description: 'EVM token swaps (all chains)' },
   // Staking
   { id: 'marinade',     label: 'Marinade',     category: 'staking',   logo: 'assets/protocols/marinade.png',     description: 'mSOL liquid staking' },
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
