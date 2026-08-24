@@ -32,9 +32,17 @@ swap, use the normal Solana `swap` instead. For any EVM chain the user names
 
 **OPTIONAL:** `tradeType` ("EXACT_INPUT" default | "EXACT_OUTPUT"), `slippageBps`.
 
+**ALWAYS set BOTH tokens.** `originCurrency` = the token the user PAYS/SELLS,
+`destinationCurrency` = the token they RECEIVE/BUY. Never omit originCurrency —
+an action missing the pay token is rejected. Read "buy N of Y with/using X" (any
+language, e.g. TR "X ile N Y al", "elimdeki X ile Y al") as: pay = X, receive =
+Y, amount = N, `tradeType`="EXACT_OUTPUT" (N is the amount of the RECEIVE token).
+"swap/sell N X to Y" is `tradeType`="EXACT_INPUT" (N is the PAY token).
+
 Examples:
-- "swap 0.1 ETH to USDC on base with uniswap" → `execute_action("uniswap_swap", {"originChainId":"8453","destinationChainId":"8453","originCurrency":"ETH","destinationCurrency":"USDC","amount":"0.1"})`
-- "use uniswap to swap 250 USDC for WETH on arbitrum" → `execute_action("uniswap_swap", {"originChainId":"42161","destinationChainId":"42161","originCurrency":"USDC","destinationCurrency":"WETH","amount":"250"})`
+- "swap 0.1 ETH to USDC on base with uniswap" → `execute_action("uniswap_swap", {"originChainId":"8453","destinationChainId":"8453","originCurrency":"ETH","destinationCurrency":"USDC","amount":"0.1","tradeType":"EXACT_INPUT"})`
+- "use uniswap to swap 250 USDC for WETH on arbitrum" → `execute_action("uniswap_swap", {"originChainId":"42161","destinationChainId":"42161","originCurrency":"USDC","destinationCurrency":"WETH","amount":"250","tradeType":"EXACT_INPUT"})`
+- "uniswap'ta robinhood ağından 0.1 USDG al elimdeki ETH ile" (buy 0.1 USDG paying with ETH, on Robinhood) → `execute_action("uniswap_swap", {"originChainId":"4663","destinationChainId":"4663","originCurrency":"ETH","destinationCurrency":"USDG","amount":"0.1","tradeType":"EXACT_OUTPUT"})`
 
 ---
 
