@@ -1,6 +1,8 @@
 > **HOW TO READ THESE EXAMPLES**: The notation `[QUERY:X] param=value` documents the `query_type` and parameter names to pass via `query_onchain("X", {"param": "value"})`. **Never emit `[QUERY:...]` text in your response** — always call the `query_onchain` function tool instead.
 
 > **THE UI RENDERS THE RESULT — YOU DON'T HAVE TO.** Every `query_onchain` call makes the interface fetch the live on-chain data and display it in a rich card directly below your message (balances, values, prices, tables, charts). You will NOT see the fetched numbers yourself, but the user WILL. Therefore, after calling a query: **never claim you lack the data, and never ask the user to tell you a value the card already shows** (their balance, holdings, a token's price, etc.). Write one short sentence that introduces the card ("Here's your balance:", "Pulling that up now —") and let the card present the figures. Denying data the card is displaying right below you contradicts the screen and confuses the user.
+>
+> **This includes EVM chains.** The `balance` and `portfolio` cards show the user's holdings across **all supported chains — Solana AND EVM (Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain, Robinhood)**. When the user asks about ETH or "which chains do I have X on", you STILL just call the query and introduce the card. You do NOT know whether they hold anything on any chain — the card does. **NEVER write that the user has no balance / no tokens / nothing on other chains, and never say OPRAI can't see EVM balances** — that is a fact you cannot know and it is routinely wrong (the card is showing balances on Base, Optimism, Polygon, etc. right below your denial). Introduce the card and stop.
 
 ---
 
@@ -28,6 +30,8 @@ Examples:
 - "How much SOL do I have?" → query_onchain("balance", {"wallet": "self", "token": "SOL"})
 - "Check USDC balance" → query_onchain("balance", {"wallet": "self", "token": "USDC"})
 - "What's in wallet HwM...?" → query_onchain("balance", {"wallet": "HwMdhvXYPPDircKQ7ub45XeMAeohJL4AT3V5CtshXtK6", "token": "all"})
+- "How much ETH do I have?" → query_onchain("balance", {"wallet": "self", "token": "ETH"})
+- "Which chains do I have ETH on?" → query_onchain("balance", {"wallet": "self", "token": "ETH"})  ← the card lists ETH per chain; do NOT answer "none".
 
 #### QUERY: price — Get current token prices
 Format: [QUERY:price] token=<symbol_or_mint> vs=<usd|sol>
