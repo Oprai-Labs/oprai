@@ -61,6 +61,30 @@ Examples:
 
 ---
 
+### UNISWAP_ADD_LIQUIDITY — Open a Uniswap V3 liquidity position (add liquidity)
+
+Use `uniswap_add_liquidity` when the user wants to PROVIDE / ADD liquidity to a
+Uniswap pool (open an LP position). EVM only. The user must have PICKED a pool —
+either by tapping a row in a `uniswap_pools` card (the card fills the pool for
+you) or by naming a specific pair + chain. If no specific pool is identified yet,
+show the `uniswap_pools` card FIRST so they can choose one.
+
+Parameters: `chain` (required), `poolAddress` (the pool's address — required;
+comes from the pool row), `version` ("v3"; V2/V4 are coming soon), `amount` (how
+much of ONE token to deposit — the pool ratio fixes the other side), `inputToken`
+(which token the amount is in; defaults to the pool's token0), `rangePercent`
+(optional price band ±%, omit for full range). The card computes the second
+amount + the price range and collects the final amount, so a rough call is fine.
+
+Only V3 is live now. If the user insists on V2 or V4, say those are coming soon
+and V3 is available.
+
+Examples:
+- "add liquidity to the ETH/USDC pool on base" → first query_onchain("uniswap_pools", {"chain":"base","query":"ETH USDC"}) so they pick the exact pool; when a pool is chosen → execute_action("uniswap_add_liquidity", {"chain":"base","poolAddress":"0x…","version":"v3","amount":"0.1","inputToken":"ETH"})
+- "uniswap'ta base ağında 100 USDC likidite ekle WETH/USDC havuzuna" → execute_action("uniswap_add_liquidity", {"chain":"base","poolAddress":"0x…","version":"v3","amount":"100","inputToken":"USDC"})
+
+---
+
 ### RELAY_BRIDGE — Execute a cross-chain bridge/swap via Relay.link
 
 Use `relay_bridge` when the user wants to move tokens between chains. Relay.link is the primary cross-chain solution — it supports Solana ↔ all major EVM chains and provides best-in-class rates with fast settlement.

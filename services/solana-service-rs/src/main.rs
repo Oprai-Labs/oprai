@@ -211,6 +211,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_relay_record)
                     .service(routes::actions::post_uniswap_quote)
                     .service(routes::actions::post_uniswap_swap)
+                    .service(routes::actions::post_uniswap_lp_build)
                     .service(routes::actions::post_uniswap_record)
                     .service(routes::actions::post_relay_index_transaction)
                     .service(routes::actions::post_relay_single_transaction)

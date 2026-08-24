@@ -426,6 +426,8 @@ class ActionType(str, Enum):
     UNISWAP_SWAP = "uniswap_swap"
     # Uniswap LP — list pools (read) is dual-listed in QueryType below
     UNISWAP_POOLS = "uniswap_pools"
+    # Uniswap LP — open a V3 position (fund-moving EVM tx)
+    UNISWAP_ADD_LIQUIDITY = "uniswap_add_liquidity"
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -842,6 +844,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "cross_chain_swap",
     # Uniswap same-chain EVM swap
     "uniswap_swap",
+    # Uniswap LP — opening a position moves both tokens into the pool
+    "uniswap_add_liquidity",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1063,6 +1067,7 @@ def validate_action_params(
         "jupsol_stake":     ("amount",),
         "jupsol_unstake":   ("amount",),
         "uniswap_swap":     ("originChainId", "destinationChainId", "originCurrency", "destinationCurrency", "amount"),
+        "uniswap_add_liquidity": ("chain", "poolAddress", "amount"),
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]

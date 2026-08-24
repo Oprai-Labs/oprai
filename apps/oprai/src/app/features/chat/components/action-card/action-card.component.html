@@ -435,7 +435,7 @@
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
-         || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap()) {
+         || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -950,6 +950,69 @@
                 <div class="swap-facts__row">
                   <span class="swap-facts__label">{{ 'Route' | t }}</span>
                   <span class="swap-facts__value">Uniswap</span>
+                </div>
+              </div>
+            }
+          </div>
+
+        } @else if (isUniswapAddLiquidity()) {
+          <!-- ─────── Uniswap add liquidity (open a V3 position) ─────── -->
+          @let ulp = uniLpPreview();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- You deposit -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'You deposit' | t }}</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="uniLpAmount()"
+                       (input)="onUniLpAmountInput($any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  <span class="pump-token__sym">{{ action.params['token0Symbol'] || action.params['pair'] || 'Token' }}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Price range chips -->
+            <div class="swap-facts">
+              <div class="swap-facts__row">
+                <span class="swap-facts__label">{{ 'Price range' | t }}</span>
+                <span class="uni-range-chips">
+                  <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === 'full'"
+                          [disabled]="!isEditable()" (click)="setUniLpRange('full')">{{ 'Full' | t }}</button>
+                  <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === '25'"
+                          [disabled]="!isEditable()" (click)="setUniLpRange('25')">±25%</button>
+                  <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === '10'"
+                          [disabled]="!isEditable()" (click)="setUniLpRange('10')">±10%</button>
+                </span>
+              </div>
+            </div>
+
+            <!-- Preview: computed amounts for BOTH sides + resolved range -->
+            @if (ulp?.loading) {
+              <div class="pump-panel__usd"><span class="proto-balance-dots">···</span> {{ 'Calculating…' | t }}</div>
+            } @else if (ulp?.error) {
+              <div class="swap-facts"><div class="swap-facts__row"><span class="swap-facts__value">{{ ulp!.error }}</span></div></div>
+            } @else if (ulp?.amount0Display) {
+              <div class="swap-facts">
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'You add' | t }}</span>
+                  <span class="swap-facts__value">
+                    {{ ulp!.amount0Display }} {{ ulp!.token0Symbol }} + {{ ulp!.amount1Display }} {{ ulp!.token1Symbol }}
+                  </span>
+                </div>
+                @if (ulp?.minPrice && ulp?.maxPrice) {
+                  <div class="swap-facts__row">
+                    <span class="swap-facts__label">{{ 'Range' | t }}</span>
+                    <span class="swap-facts__value">{{ ulp!.minPrice | number:'1.0-6' }} – {{ ulp!.maxPrice | number:'1.0-6' }}</span>
+                  </div>
+                }
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'Protocol' | t }}</span>
+                  <span class="swap-facts__value">Uniswap {{ (action.params['version'] || 'v3') | uppercase }}</span>
                 </div>
               </div>
             }
