@@ -2181,6 +2181,28 @@
 }
 
 // ── pump.fun / PumpSwap: mini-Uniswap swap layout ──────────────────────────
+// Uniswap card chain/route badge — small pill above the pay panel.
+.uni-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--op-brand) 10%, var(--op-bg-surface-2, var(--op-bg-surface-1)));
+  border: 1px solid color-mix(in srgb, var(--op-brand) 22%, transparent);
+  color: var(--op-text-secondary, var(--op-text-primary));
+  font-size: 11px;
+  font-weight: 600;
+
+  &__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--op-brand);
+  }
+}
+
 .pump-swap {
   display: flex;
   flex-direction: column;

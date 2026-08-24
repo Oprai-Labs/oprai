@@ -4103,6 +4103,55 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       || t === 'meteora_dammv2_swap' || t === 'orca_swap';
   });
 
+  /** Uniswap same-chain EVM swap — its own mini-app card (same look as the
+   * Jupiter swap panel), previewed live via /actions/uniswap/quote. */
+  readonly isUniswapSwap = computed(() => this.action?.type === 'uniswap_swap');
+
+  /** Live preview for the Uniswap card: what you receive + the rate. */
+  readonly uniswapPreview = signal<{
+    loading: boolean;
+    paySymbol?: string;
+    receiveSymbol?: string;
+    payAmount?: string;
+    receiveAmount?: string;
+    rate?: string;
+    chainName?: string;
+    error?: string;
+  } | null>(null);
+
+  /** Fetch the Uniswap quote to fill the card's "You receive" side + rate. */
+  private async fetchUniswapPreview(): Promise<void> {
+    const p = this.action?.params ?? {};
+    const chainId = Number(p['originChainId'] ?? p['chainId'] ?? 0);
+    const body = {
+      originChainId: chainId,
+      destinationChainId: chainId,
+      originCurrency: p['originCurrency'] ?? p['inputMint'] ?? p['tokenIn'] ?? p['fromToken'],
+      destinationCurrency: p['destinationCurrency'] ?? p['outputMint'] ?? p['tokenOut'] ?? p['toToken'],
+      amount: p['amount'],
+      tradeType: p['tradeType'] ?? 'EXACT_INPUT',
+    };
+    this.uniswapPreview.set({ loading: true, payAmount: String(p['amount'] ?? '') });
+    try {
+      const q = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/quote', body));
+      this.uniswapPreview.set({
+        loading: false,
+        paySymbol: q.inputSymbol,
+        receiveSymbol: q.outputSymbol,
+        payAmount: q.inputAmountDisplay ?? String(p['amount'] ?? ''),
+        receiveAmount: q.outputAmountDisplay,
+        rate: q.rate,
+        chainName: q.chainName,
+      });
+    } catch (e: any) {
+      this.uniswapPreview.set({
+        loading: false,
+        error: sanitizeErrorMessage(e?.error?.error ?? e?.message ?? '', 'uniswap_swap') || 'Couldn’t price this swap right now.',
+        payAmount: String(p['amount'] ?? ''),
+      });
+    }
+  }
+
   /**
    * Pool-scoped swaps name only the input side — the pool decides the output.
    * The panel needs both to render, so resolve the counter token from the
@@ -5936,6 +5985,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.maybeVerifyMeteoraDammV2Pool().then(() => this.maybeEnrichMeteoraDammV2Pool());
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
+    // Uniswap card: fetch the live quote to fill "You receive" + rate.
+    if (this.isUniswapSwap() && this.status() === 'pending') void this.fetchUniswapPreview();
     // Verify before seeding: the range is anchored to the pool's price, so
     // seeding first would centre it on a pool about to be replaced.
     void this.maybeVerifyOrcaPool().then(() => this.maybeSeedOrcaRange());

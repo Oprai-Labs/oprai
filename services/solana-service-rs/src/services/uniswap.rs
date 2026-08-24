@@ -94,8 +94,16 @@ pub fn is_uniswap_chain(chain_id: u64) -> bool {
 pub struct UniswapQuoteResult {
     pub action_type: String,
     pub chain_id: u64,
+    pub chain_name: String,
     pub input: Value,
     pub output: Value,
+    /// Human-readable amounts + symbols for the card (so the frontend doesn't
+    /// need EVM token decimals).
+    pub input_symbol: String,
+    pub output_symbol: String,
+    pub input_amount_display: String,
+    pub output_amount_display: Option<String>,
+    pub rate: Option<String>,
     pub description: String,
     pub estimated_gas_usd: Option<String>,
     pub price_impact: Option<f64>,
@@ -203,14 +211,26 @@ pub async fn uniswap_quote(
     let output = quote.get("output").cloned().unwrap_or(json!({}));
     let chain_name = get_chain_name(chain);
 
+    // Display symbols: prefer the caller's currency token (usually a ticker like
+    // "ETH"/"USDC"), fall back to the quote leg's symbol, then a short address.
+    let in_sym = display_symbol(&params.origin_currency, &input, &token_in);
+    let out_sym = display_symbol(&params.destination_currency, &output, &token_out);
+
+    // Human-readable receive amount, formatted with the output token's decimals.
     let out_amount = output.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
+    let out_decimals = crate::services::relay::relay_token_decimals(http, params.destination_chain_id, &token_out)
+        .await
+        .unwrap_or(18);
+    let out_display = format_units(out_amount, out_decimals);
+    // Implied rate: 1 in_sym = N out_sym.
+    let rate = match (params.amount.parse::<f64>().ok(), out_display.parse::<f64>().ok()) {
+        (Some(a), Some(o)) if a > 0.0 => Some(format!("1 {in_sym} = {:.6} {out_sym}", o / a)),
+        _ => None,
+    };
+
     let description = format!(
         "Swap {} {} → {} {} on {} (via Uniswap)",
-        params.amount,
-        symbol_of(&input, &token_in),
-        out_amount,
-        symbol_of(&output, &token_out),
-        chain_name
+        params.amount, in_sym, out_display, out_sym, chain_name
     );
 
     let permit_data = data
@@ -235,6 +255,12 @@ pub async fn uniswap_quote(
     Ok(UniswapQuoteResult {
         action_type: "uniswap_swap".to_string(),
         chain_id: chain,
+        chain_name: chain_name.to_string(),
+        input_symbol: in_sym,
+        output_symbol: out_sym,
+        input_amount_display: params.amount.clone(),
+        output_amount_display: Some(out_display),
+        rate,
         input,
         output,
         description,
@@ -386,6 +412,36 @@ async fn uniswap_check_approval(
     }
     let data: Value = resp.json().await.ok()?;
     data.get("approval").filter(|v| !v.is_null()).cloned()
+}
+
+/// Display symbol: prefer the caller's currency token when it's a ticker (not an
+/// 0x address), else the quote leg's symbol, else a shortened address.
+fn display_symbol(param_currency: &str, leg: &Value, addr: &str) -> String {
+    let pc = param_currency.trim();
+    if !pc.is_empty() && !pc.starts_with("0x") && pc.len() <= 12 {
+        return pc.to_uppercase();
+    }
+    symbol_of(leg, addr)
+}
+
+/// Format a base-unit integer string into a human decimal string with `decimals`
+/// places, trimming trailing zeros. Text math (no f64) so 18-decimal wei is exact.
+fn format_units(amount: &str, decimals: u8) -> String {
+    let a = amount.trim().trim_start_matches('0');
+    let a = if a.is_empty() { "0" } else { a };
+    let d = decimals as usize;
+    if d == 0 {
+        return a.to_string();
+    }
+    let padded = format!("{a:0>width$}", width = d + 1); // ensure at least one leading whole digit
+    let split = padded.len() - d;
+    let whole = &padded[..split];
+    let frac = padded[split..].trim_end_matches('0');
+    if frac.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{whole}.{frac}")
+    }
 }
 
 /// Best-effort symbol for a quote input/output leg: the object may carry a

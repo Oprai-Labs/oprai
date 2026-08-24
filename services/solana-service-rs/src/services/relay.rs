@@ -1070,7 +1070,7 @@ pub(crate) async fn to_base_units(
 
 /// How many decimals Relay says this token has. Cached: a chain's list does
 /// not change between two quotes.
-async fn relay_token_decimals(http: &reqwest::Client, chain_id: u64, currency: &str) -> Option<u8> {
+pub(crate) async fn relay_token_decimals(http: &reqwest::Client, chain_id: u64, currency: &str) -> Option<u8> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<HashMap<(u64, String), u8>>> = OnceLock::new();

@@ -4,6 +4,33 @@
 
 ---
 
+### UNISWAP_SWAP — Same-chain token swap on an EVM chain via Uniswap
+
+Use `uniswap_swap` ONLY when BOTH are true:
+1. the user explicitly names **Uniswap** ("swap on uniswap", "use uniswap", "via uniswap"), AND
+2. the user names an **EVM chain** (Ethereum, Base, Arbitrum, Optimism, Polygon, BNB/BSC, Avalanche, Blast, Unichain, Zora, Celo).
+
+It is SAME-CHAIN only: `originChainId` == `destinationChainId`, both EVM. For a
+plain "swap X to Y" with no venue named, DEFAULT to the normal Solana `swap` (if
+Solana) or `relay_bridge` (if the user is on EVM / named an EVM chain) — do NOT
+use Uniswap unless the user asked for it. Uniswap does NOT do cross-chain here —
+if the two chains differ, use `relay_bridge`.
+
+**REQUIRED parameters:**
+- `originChainId`: EVM chain numeric ID (same as destination; see chain table below)
+- `destinationChainId`: same value as originChainId
+- `originCurrency`: token you pay — a symbol ("ETH", "USDC") or an 0x address; native = "0x0000000000000000000000000000000000000000"
+- `destinationCurrency`: token you receive — symbol or 0x address
+- `amount`: human-readable amount as string (e.g. "0.5", "100")
+
+**OPTIONAL:** `tradeType` ("EXACT_INPUT" default | "EXACT_OUTPUT"), `slippageBps`.
+
+Examples:
+- "swap 0.1 ETH to USDC on base with uniswap" → `execute_action("uniswap_swap", {"originChainId":"8453","destinationChainId":"8453","originCurrency":"ETH","destinationCurrency":"USDC","amount":"0.1"})`
+- "use uniswap to swap 250 USDC for WETH on arbitrum" → `execute_action("uniswap_swap", {"originChainId":"42161","destinationChainId":"42161","originCurrency":"USDC","destinationCurrency":"WETH","amount":"250"})`
+
+---
+
 ### RELAY_BRIDGE — Execute a cross-chain bridge/swap via Relay.link
 
 Use `relay_bridge` when the user wants to move tokens between chains. Relay.link is the primary cross-chain solution — it supports Solana ↔ all major EVM chains and provides best-in-class rates with fast settlement.

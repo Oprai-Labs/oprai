@@ -427,7 +427,7 @@
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
-         || isBurn() || isLstPanel() || isMarinadeClaim()) {
+         || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -867,6 +867,74 @@
                  is to show what the trade costs, which it now does in dollars
                  under the amount. -->
           </div>
+        } @else if (isUniswapSwap()) {
+          <!-- ─────── Uniswap same-chain EVM swap (mini-app, Jupiter-swap look) ─────── -->
+          <!-- Same "You pay / You receive" widget as the Jupiter swap card, but
+               EVM: tokens are on one chain, quoted live via /actions/uniswap/quote.
+               Read-only in v1 (no EVM token picker yet); Confirm runs the full
+               Permit2 flow in executeUniswapSwap. -->
+          @let uni = uniswapPreview();
+          <div class="pump-swap" [class.proto-fields--shake]="shake()">
+
+            <!-- Chain badge -->
+            <div class="uni-chip">
+              <span class="uni-chip__dot"></span>
+              {{ (uni?.chainName || 'EVM') }} · {{ 'via Uniswap' | t }}
+            </div>
+
+            <!-- You pay -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'You pay' | t }}</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" class="pump-panel__amount" [value]="uni?.payAmount || ''" disabled />
+                <span class="pump-token">
+                  <span class="pump-token__icon pump-token__icon--ph">{{ (uni?.paySymbol || '?').charAt(0) }}</span>
+                  <span class="pump-token__sym">{{ uni?.paySymbol || '' }}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Direction (static) -->
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="arrow-down" [size]="16" />
+            </div>
+
+            <!-- You receive (live-quoted) -->
+            <div class="pump-panel pump-panel--recv">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'You receive (estimated)' | t }}</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" class="pump-panel__amount" placeholder="0"
+                       [value]="uni?.loading ? '' : (uni?.receiveAmount || '')" disabled />
+                <span class="pump-token">
+                  <span class="pump-token__icon pump-token__icon--ph">{{ (uni?.receiveSymbol || '?').charAt(0) }}</span>
+                  <span class="pump-token__sym">{{ uni?.receiveSymbol || '' }}</span>
+                </span>
+              </div>
+              @if (uni?.loading) {
+                <div class="pump-panel__usd"><span class="proto-balance-dots">···</span> {{ 'Pricing…' | t }}</div>
+              }
+            </div>
+
+            @if (uni?.error) {
+              <div class="swap-facts"><div class="swap-facts__row"><span class="swap-facts__value">{{ uni!.error }}</span></div></div>
+            } @else if (uni?.rate) {
+              <div class="swap-facts">
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'Rate' | t }}</span>
+                  <span class="swap-facts__value">{{ uni!.rate }}</span>
+                </div>
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'Route' | t }}</span>
+                  <span class="swap-facts__value">Uniswap</span>
+                </div>
+              </div>
+            }
+          </div>
+
         } @else if (action.type === 'limit_order') {
           <!-- ─────── Jupiter limit order: sell N of X to receive M of Y ─────── -->
           <!-- NOT an AMM swap: the BUY amount is the user's LIMIT target (typed,
