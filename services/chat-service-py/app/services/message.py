@@ -283,6 +283,10 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "orca_get_pools",
     "orca_search_pools",
     "orca_get_user_positions",
+    # Uniswap (EVM) pool list — self-fetching card (DexScreener-backed) with a
+    # per-row Deposit button that spawns uniswap_add_liquidity. Without this the
+    # query is dropped as "unfetchable" and the model just narrates it.
+    "uniswap_pools",
     # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
     # shape for all of these. The collection lists need a floor and a thumbnail
     # per row, the token lists a grid you can buy from, the offer lists an
