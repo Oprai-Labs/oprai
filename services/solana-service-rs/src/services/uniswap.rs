@@ -215,10 +215,19 @@ pub async fn uniswap_quote(
     let output = quote.get("output").cloned().unwrap_or(json!({}));
     let chain_name = get_chain_name(chain);
 
-    // Display symbols: prefer the caller's currency token (usually a ticker like
-    // "ETH"/"USDC"), fall back to the quote leg's symbol, then a short address.
-    let in_sym = display_symbol(&params.origin_currency, &input, &token_in);
-    let out_sym = display_symbol(&params.destination_currency, &output, &token_out);
+    // Display symbols: native (zero address) → the chain's native ticker (ETH/
+    // BNB/…), so the card never shows "0x0000…0000" as a token. Otherwise prefer
+    // the caller's currency token, then the quote leg's symbol, then a short addr.
+    let in_sym = if token_in.eq_ignore_ascii_case(NATIVE_TOKEN_ADDRESS) {
+        native_symbol(chain).to_string()
+    } else {
+        display_symbol(&params.origin_currency, &input, &token_in)
+    };
+    let out_sym = if token_out.eq_ignore_ascii_case(NATIVE_TOKEN_ADDRESS) {
+        native_symbol(params.destination_chain_id).to_string()
+    } else {
+        display_symbol(&params.destination_currency, &output, &token_out)
+    };
 
     // Human-readable pay + receive amounts from the QUOTE's actual legs (not the
     // request `amount`), so both sides are right for EXACT_INPUT AND EXACT_OUTPUT:
@@ -427,6 +436,19 @@ async fn uniswap_check_approval(
     }
     let data: Value = resp.json().await.ok()?;
     data.get("approval").filter(|v| !v.is_null()).cloned()
+}
+
+/// The native gas token's ticker for an EVM chain (for display when the token is
+/// the zero address). Most EVM chains are ETH; a few differ.
+fn native_symbol(chain_id: u64) -> &'static str {
+    use crate::services::relay::chain_id as c;
+    match chain_id {
+        c::BSC => "BNB",
+        c::AVALANCHE => "AVAX",
+        c::POLYGON => "POL",
+        c::CELO => "CELO",
+        _ => "ETH",
+    }
 }
 
 /// Display symbol: prefer the caller's currency token when it's a ticker (not an
