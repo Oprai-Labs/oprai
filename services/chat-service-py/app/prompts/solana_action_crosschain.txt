@@ -47,7 +47,7 @@ Examples:
 ---
 
 #### QUERY: uniswap_pools — List Uniswap liquidity pools on an EVM chain
-Format: [QUERY:uniswap_pools] {"chain":"<base|arbitrum|optimism|ethereum|polygon|bsc>","query":"<optional pair/token e.g. ETH USDC>","version":"<optional v2|v3|v4>"}
+Format: [QUERY:uniswap_pools] {"chain":"<base|arbitrum|optimism|ethereum|polygon|bsc|robinhood>","query":"<optional pair/token e.g. ETH USDC>","version":"<optional v2|v3|v4>"}
 
 Use when the user wants to SEE / BROWSE Uniswap pools (to provide liquidity, compare TVL, find a pair). It is a READ — call `query_onchain`, never `execute_action`. `chain` is REQUIRED (a pool only exists on a chain). `query` narrows to a pair or token; omit it for the chain's deepest pools. `version` filters to a protocol version; omit for all (v2 + v3 + v4).
 

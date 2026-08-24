@@ -2776,6 +2776,7 @@ export class SolanaActionService {
       case 'optimism': case 'op': return 10;
       case 'polygon': case 'matic': return 137;
       case 'bsc': case 'bnb': return 56;
+      case 'robinhood': return 4663;
       default: return 0;
     }
   }

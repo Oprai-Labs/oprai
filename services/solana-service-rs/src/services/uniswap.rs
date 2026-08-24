@@ -547,6 +547,7 @@ fn wrapped_native_address(slug: &str) -> &'static str {
         "avalanche" => "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7", // WAVAX
         "blast"     => "0x4300000000000000000000000000000000000004", // WETH
         "celo"      => "0x471ece3750da237f93b8e339c536989b8978a438", // CELO
+        "robinhood" => "0x0bd7d308f8e1639fab988df18a8011f41eacad73", // WETH on Robinhood Chain
         _           => "0x4200000000000000000000000000000000000006", // WETH default (OP-stack)
     }
 }
@@ -566,6 +567,7 @@ fn dexscreener_chain_slug(chain: &str) -> Option<&'static str> {
         "blast" | "81457" => Some("blast"),
         "celo" | "42220" => Some("celo"),
         "zora" | "7777777" => Some("zora"),
+        "robinhood" | "4663" => Some("robinhood"),
         _ => None,
     }
 }
@@ -605,7 +607,7 @@ pub fn validate_uniswap_get_pools_params(p: &UniswapGetPoolsParams) -> Result<()
     }
     if dexscreener_chain_slug(chain).is_none() {
         return Err(AppError::InvalidParams(format!(
-            "Uniswap pool listing isn't available on '{chain}'. Try ethereum, base, arbitrum, optimism, polygon, bsc."
+            "Uniswap pool listing isn't available on '{chain}'. Try ethereum, base, arbitrum, optimism, polygon, bsc, robinhood."
         )));
     }
     Ok(())
@@ -774,6 +776,7 @@ fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
         "blast" => 81457,
         "celo" => 42220,
         "zora" => 7777777,
+        "robinhood" => 4663,
         _ => 0,
     }
 }
@@ -808,6 +811,7 @@ fn alchemy_rpc(chain_id: u64) -> Option<String> {
         10 => "opt-mainnet",
         137 => "polygon-mainnet",
         56 => "bnb-mainnet",
+        4663 => "robinhood-mainnet",
         _ => return None,
     };
     Some(format!("https://{net}.g.alchemy.com/v2/{key}"))
