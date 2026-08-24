@@ -211,21 +211,28 @@ pub async fn uniswap_quote(
     let in_sym = display_symbol(&params.origin_currency, &input, &token_in);
     let out_sym = display_symbol(&params.destination_currency, &output, &token_out);
 
-    // Human-readable receive amount, formatted with the output token's decimals.
+    // Human-readable pay + receive amounts from the QUOTE's actual legs (not the
+    // request `amount`), so both sides are right for EXACT_INPUT AND EXACT_OUTPUT:
+    // on EXACT_OUTPUT the pay side is the computed input, not the requested output.
+    let in_amount = input.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
     let out_amount = output.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
+    let in_decimals = crate::services::relay::relay_token_decimals(http, chain, &token_in)
+        .await
+        .unwrap_or(18);
     let out_decimals = crate::services::relay::relay_token_decimals(http, params.destination_chain_id, &token_out)
         .await
         .unwrap_or(18);
+    let in_display = format_units(in_amount, in_decimals);
     let out_display = format_units(out_amount, out_decimals);
     // Implied rate: 1 in_sym = N out_sym.
-    let rate = match (params.amount.parse::<f64>().ok(), out_display.parse::<f64>().ok()) {
+    let rate = match (in_display.parse::<f64>().ok(), out_display.parse::<f64>().ok()) {
         (Some(a), Some(o)) if a > 0.0 => Some(format!("1 {in_sym} = {:.6} {out_sym}", o / a)),
         _ => None,
     };
 
     let description = format!(
         "Swap {} {} → {} {} on {} (via Uniswap)",
-        params.amount, in_sym, out_display, out_sym, chain_name
+        in_display, in_sym, out_display, out_sym, chain_name
     );
 
     let permit_data = data
@@ -253,7 +260,7 @@ pub async fn uniswap_quote(
         chain_name: chain_name.to_string(),
         input_symbol: in_sym,
         output_symbol: out_sym,
-        input_amount_display: params.amount.clone(),
+        input_amount_display: in_display,
         output_amount_display: Some(out_display),
         rate,
         input,
