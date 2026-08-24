@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::services::builder::{ActionPreview, BuildResponse};
-use crate::services::relay::{resolve_evm_currency, to_base_units, get_chain_name, NATIVE_TOKEN_ADDRESS, CrossChainSwapParams, relay_token_decimals, relay_token_logo, relay_chain_icon};
+use crate::services::relay::{resolve_evm_currency, to_base_units, get_chain_name, NATIVE_TOKEN_ADDRESS, CrossChainSwapParams, relay_token_logo, relay_chain_icon};
 
 pub const UNISWAP_TRADE_API: &str = "https://trade-api.gateway.uniswap.org/v1";
 
@@ -888,6 +888,32 @@ async fn read_v3_pool(http: &reqwest::Client, chain_id: u64, pool: &str) -> Resu
     })
 }
 
+/// ERC-20 `decimals()` via RPC (0x313ce567). Falls back to 18 — works for any
+/// token on any chain we have an RPC for, unlike Relay's token list (which
+/// doesn't cover every chain, e.g. Robinhood).
+async fn erc20_decimals(http: &reqwest::Client, chain_id: u64, token: &str) -> u8 {
+    let rpc = match alchemy_rpc(chain_id) { Some(r) => r, None => return 18 };
+    match eth_call(http, &rpc, token, "0x313ce567").await {
+        Ok(hex) => (hex_to_u64(&hex) as u8).clamp(0, 36),
+        Err(_) => 18,
+    }
+}
+
+/// Scale a human decimal amount into base units by `decimals`, RPC-free.
+fn scale_to_base_units(amount: &str, decimals: u8) -> Result<String, AppError> {
+    let a = amount.trim().replace(',', ".");
+    if a.is_empty() { return Err(AppError::InvalidParams("Amount is empty".into())); }
+    let (whole, frac) = a.split_once('.').unwrap_or((a.as_str(), ""));
+    let d = decimals as usize;
+    if frac.len() > d {
+        return Err(AppError::InvalidParams(format!("Too many decimal places (max {d})")));
+    }
+    let padded = format!("{frac:0<width$}", width = d);
+    let joined = format!("{}{}", whole.trim_start_matches('0'), padded);
+    let trimmed = joined.trim_start_matches('0');
+    Ok(if trimmed.is_empty() { "0".into() } else { trimmed.to_string() })
+}
+
 fn align_tick(tick: i64, spacing: i64) -> i64 {
     (tick as f64 / spacing as f64).round() as i64 * spacing
 }
@@ -967,12 +993,10 @@ pub async fn build_uniswap_add_liquidity(
     //    scale the amount to base units.
     let input_addr = resolve_evm_currency(http, chain_id, input_token_in).await?;
     let input_addr_l = input_addr.to_lowercase();
-    let decimals = relay_token_decimals(http, chain_id, &input_addr).await.unwrap_or(18);
-    let amount_base = {
-        // reuse to_base_units for ERC20; native isn't an LP input here.
-        to_base_units(http, chain_id, &input_addr, amount).await?
-    };
-    let _ = decimals;
+    // Decimals from the token contract (RPC), not Relay's list — Relay doesn't
+    // cover every chain (e.g. Robinhood), and the pool tokens are the authority.
+    let in_dec = erc20_decimals(http, chain_id, &input_addr_l).await;
+    let amount_base = scale_to_base_units(amount, in_dec)?;
 
     // 3. Tick bounds from the chosen band.
     let (tick_lower, tick_upper) = tick_bounds(p.current_tick, p.tick_spacing, params.range_percent);
@@ -1037,9 +1061,10 @@ pub async fn build_uniswap_add_liquidity(
         _ => vec![],
     };
 
-    // Display decimals + symbols for both legs.
-    let dec0 = relay_token_decimals(http, chain_id, &p.token0).await.unwrap_or(18);
-    let dec1 = relay_token_decimals(http, chain_id, &p.token1).await.unwrap_or(18);
+    // Display decimals for both legs — read from the contracts (RPC), so pairs
+    // with a 6-decimal stable (USDG/USDC) render correctly on every chain.
+    let dec0 = erc20_decimals(http, chain_id, &p.token0).await;
+    let dec1 = erc20_decimals(http, chain_id, &p.token1).await;
 
     Ok(json!({
         "actionType": "uniswap_add_liquidity",
