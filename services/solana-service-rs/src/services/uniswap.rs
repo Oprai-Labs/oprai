@@ -744,17 +744,33 @@ pub async fn build_uniswap_get_pools(
         }
     }
 
-    // When two distinct tokens were named, prefer pools that hold BOTH — but
-    // fall back to the union if that empties the list (one token may have
-    // resolved to a foreign address that isn't in any pool on this chain).
-    let selected: Vec<Value> = if candidates.len() >= 2 {
-        let (a, b) = (&candidates[0], &candidates[1]);
+    // When two tokens were named, keep pools whose pair matches BOTH — filtered
+    // by SYMBOL, not address. Address filtering was fragile: Relay could resolve
+    // a symbol to a different-but-same-ticker contract than a given pool used, so
+    // e.g. the deep V3 USDG/WETH pools got dropped and only V4 survived. Symbols
+    // (with ETH≡WETH) are stable across a chain's pools and versions. Fall back
+    // to the union if the filter empties.
+    let norm_sym = |s: &str| -> String {
+        let u = s.trim().to_uppercase();
+        if u == "ETH" { "WETH".to_string() } else if u == "BNB" { "WBNB".to_string() }
+        else if u == "MATIC" || u == "POL" { "WMATIC".to_string() }
+        else if u == "AVAX" { "WAVAX".to_string() } else { u }
+    };
+    let query_syms: Vec<String> = query
+        .split_whitespace()
+        .filter(|s| !s.is_empty() && !is_valid_evm_address(s))
+        .map(|s| norm_sym(s))
+        .collect();
+    let selected: Vec<Value> = if query_syms.len() >= 2 {
+        let want0 = &query_syms[0];
+        let want1 = &query_syms[1];
         let both: Vec<Value> = all_pools
             .iter()
             .filter(|p| {
-                let ba = p.get("baseToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-                let qa = p.get("quoteToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-                (ba == *a || qa == *a) && (ba == *b || qa == *b)
+                let bs = norm_sym(p.get("baseToken").and_then(|t| t.get("symbol")).and_then(|v| v.as_str()).unwrap_or(""));
+                let qs = norm_sym(p.get("quoteToken").and_then(|t| t.get("symbol")).and_then(|v| v.as_str()).unwrap_or(""));
+                let set = [bs.as_str(), qs.as_str()];
+                set.contains(&want0.as_str()) && set.contains(&want1.as_str())
             })
             .cloned()
             .collect();
