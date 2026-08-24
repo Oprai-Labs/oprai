@@ -62,27 +62,14 @@ pub fn fee_active() -> bool {
     )
 }
 
-/// Chains where Uniswap is deployed and the Trading API routes. Robinhood (4663)
-/// is deliberately excluded — Uniswap's swap router isn't there (its launchpad
-/// is, handled in a later phase).
+/// Whether Uniswap can swap on this chain. Uniswap is EVM, and its Trading API
+/// keeps ADDING chains (Base, Arbitrum, Robinhood, Linea, Unichain, Ink, Monad,
+/// XLayer, …), so instead of a hardcoded list that drifts, we accept any
+/// non-Solana chain and let the Trading API be the authority — it rejects a
+/// chain it doesn't route with a clean error we surface as a 400.
 pub fn is_uniswap_chain(chain_id: u64) -> bool {
     use crate::services::relay::chain_id as c;
-    matches!(
-        chain_id,
-        c::ETHEREUM
-            | c::ARBITRUM
-            | c::OPTIMISM
-            | c::BASE
-            | c::POLYGON
-            | c::BSC
-            | c::AVALANCHE
-            | c::CELO
-            | c::ZKSYNC
-            | 81457      // Blast
-            | 480        // Worldchain
-            | 130        // Unichain
-            | 7777777    // Zora
-    )
+    chain_id != 0 && chain_id != c::SOLANA && chain_id != c::SOLANA_LEGACY_ID
 }
 
 /// What `/actions/uniswap/quote` returns: a preview for the card plus everything
