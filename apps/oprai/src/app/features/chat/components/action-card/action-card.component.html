@@ -890,7 +890,10 @@
                 <span class="pump-panel__label">{{ 'You pay' | t }}</span>
               </div>
               <div class="pump-panel__row">
-                <input type="text" class="pump-panel__amount" [value]="uni?.payAmount || ''" disabled />
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="uniAmountFor('pay')"
+                       (input)="onUniswapAmountInput('pay', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
                 <span class="pump-token">
                   @if (uni?.payLogo) {
                     <img [src]="uni!.payLogo" class="pump-token__icon" alt="" />
@@ -918,8 +921,10 @@
                 }
               </div>
               <div class="pump-panel__row">
-                <input type="text" class="pump-panel__amount" placeholder="0"
-                       [value]="uni?.loading ? '' : (uni?.receiveAmount || '')" disabled />
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="uniAmountFor('receive')"
+                       (input)="onUniswapAmountInput('receive', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
                 <span class="pump-token">
                   @if (uni?.receiveLogo) {
                     <img [src]="uni!.receiveLogo" class="pump-token__icon" alt="" />

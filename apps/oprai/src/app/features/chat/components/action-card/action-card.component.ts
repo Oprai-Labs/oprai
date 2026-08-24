@@ -4124,6 +4124,36 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     error?: string;
   } | null>(null);
 
+  // Which side of the Uniswap card the user is typing on. The edited side shows
+  // the typed value; the other side is the live quote estimate. Edit "pay" →
+  // EXACT_INPUT, edit "receive" → EXACT_OUTPUT.
+  readonly uniEditSide = signal<'pay' | 'receive'>('receive');
+  readonly uniTypedAmount = signal<string>('');
+  private _uniInputTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Value shown in a Uniswap amount input: the typed value on the edited side,
+   * the live-quoted estimate on the other. */
+  uniAmountFor(side: 'pay' | 'receive'): string {
+    if (this.uniEditSide() === side) return this.uniTypedAmount();
+    const u = this.uniswapPreview();
+    return (side === 'pay' ? u?.payAmount : u?.receiveAmount) || '';
+  }
+
+  /** User edited an amount: record it, set the trade direction, and re-quote
+   * (debounced) so the other side updates. */
+  onUniswapAmountInput(side: 'pay' | 'receive', value: string): void {
+    const v = value.replace(',', '.').replace(/[^\d.]/g, '');
+    this.uniEditSide.set(side);
+    this.uniTypedAmount.set(value);
+    if (this.action) {
+      this.action.params['amount'] = v;
+      this.action.params['tradeType'] = side === 'pay' ? 'EXACT_INPUT' : 'EXACT_OUTPUT';
+    }
+    if (this._uniInputTimer) clearTimeout(this._uniInputTimer);
+    if (!v || !(parseFloat(v) > 0)) return;
+    this._uniInputTimer = setTimeout(() => void this.fetchUniswapPreview(true), 450);
+  }
+
   private _uniQuoteSeq = 0;
 
   /** Fetch the Uniswap quote to fill the card's "You receive" side + rate.
@@ -6003,8 +6033,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.maybeVerifyMeteoraDammV2Pool().then(() => this.maybeEnrichMeteoraDammV2Pool());
     void this.maybeEnrichMeteoraPosition();
     void this.maybeResolveSwapCounterToken();
-    // Uniswap card: fetch the live quote to fill "You receive" + rate.
-    if (this.isUniswapSwap() && this.status() === 'pending') void this.fetchUniswapPreview();
+    // Uniswap card: seed the edit state from the action, then fetch the live
+    // quote to fill the other side + rate.
+    if (this.isUniswapSwap() && this.status() === 'pending') {
+      const tt = String(this.action?.params?.['tradeType'] ?? 'EXACT_INPUT').toUpperCase();
+      this.uniEditSide.set(tt === 'EXACT_OUTPUT' ? 'receive' : 'pay');
+      this.uniTypedAmount.set(String(this.action?.params?.['amount'] ?? ''));
+      void this.fetchUniswapPreview();
+    }
     // Verify before seeding: the range is anchored to the pool's price, so
     // seeding first would centre it on a pool about to be replaced.
     void this.maybeVerifyOrcaPool().then(() => this.maybeSeedOrcaRange());
