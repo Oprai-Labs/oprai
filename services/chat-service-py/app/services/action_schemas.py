@@ -424,6 +424,8 @@ class ActionType(str, Enum):
     RELAY_EXECUTE = "relay_execute"
     # Uniswap — same-chain EVM swap (opt-in: user names "uniswap" + a chain)
     UNISWAP_SWAP = "uniswap_swap"
+    # Uniswap LP — list pools (read) is dual-listed in QueryType below
+    UNISWAP_POOLS = "uniswap_pools"
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -619,6 +621,10 @@ class QueryType(str, Enum):
     RAYDIUM_GET_MIGRATE_LP = "raydium_get_migrate_lp"
     RAYDIUM_GET_AUTO_FEE = "raydium_get_auto_fee"
     RAYDIUM_GET_CPMM_CONFIGS = "raydium_get_cpmm_configs"
+    # Uniswap ──────────────────────────────────────────────────────────────
+    # Read-only pool listing (EVM). Same string as ActionType.UNISWAP_POOLS;
+    # routed through query_onchain so the LLM treats it as a data card, not a tx.
+    UNISWAP_POOLS = "uniswap_pools"
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"

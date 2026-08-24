@@ -128,6 +128,71 @@
         }
       }
 
+      <!-- ── Uniswap pool listing (EVM, DexScreener-backed) ──────────────── -->
+      @if (query.type === 'uniswap_pools') {
+        <!-- Version filter chips — only versions actually present are shown. -->
+        @if (uniswapVersionsAvailable.length > 1) {
+          <div class="dlmm-sort-bar dlmm-sort-bar--chips">
+            <button class="orca-chip" [class.orca-chip--active]="uniswapVersionFilter === 'all'"
+                    (click)="setUniswapVersion('all')">{{ 'All' | t }}</button>
+            @for (v of uniswapVersionsAvailable; track v) {
+              <button class="orca-chip" [class.orca-chip--active]="uniswapVersionFilter === v"
+                      (click)="setUniswapVersion($any(v))">{{ v.toUpperCase() }}</button>
+            }
+          </div>
+        }
+
+        <div class="result-table">
+          <div class="result-table__header result-table__header--4col">
+            <span>{{ 'Pool' | t }}</span>
+            <span class="text-right">{{ 'TVL' | t }}</span>
+            <span class="text-right">{{ '24h Vol' | t }}</span>
+            <span></span>
+          </div>
+
+          @if (uniswapPoolsFetching() && uniswapPoolsResults.length === 0) {
+            <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
+          }
+
+          @for (p of filteredUniswapPools; track p.pairAddress) {
+            <div class="result-table__row result-table__row--4col dlmm-row">
+              <span class="km-pair">
+                <span class="km-icons">
+                  <span class="km-icon-slot">
+                    <span class="km-icon km-icon--fallback">{{ (p.baseSymbol || '?').charAt(0) }}</span>
+                    <img class="km-icon km-icon--img" [src]="uniTokenLogo(p.chain, p.baseAddress)" [alt]="p.baseSymbol"
+                         loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (p.quoteSymbol || '?').charAt(0) }}</span>
+                    <img class="km-icon km-icon--img" [src]="uniTokenLogo(p.chain, p.quoteAddress)" [alt]="p.quoteSymbol"
+                         loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                  </span>
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ p.baseSymbol }}/{{ p.quoteSymbol }}</span>
+                  <span class="km-pair__sub">
+                    <span class="uni-ver-badge">{{ p.version.toUpperCase() }}</span> {{ p.chain }}
+                  </span>
+                </span>
+              </span>
+              <span class="text-right mono">{{ formatCompactUsd(p.tvlUsd) }}</span>
+              <span class="text-right mono">{{ formatCompactUsd(p.volume24hUsd) }}</span>
+              <span class="text-right">
+                <button class="km-deposit-btn" type="button" disabled
+                        [attr.title]="'Adding liquidity is coming next' | t">
+                  {{ 'Deposit' | t }}
+                </button>
+              </span>
+            </div>
+          }
+
+          @if (!uniswapPoolsFetching() && !error() && uniswapPoolsResults.length === 0) {
+            <div class="dlmm-empty">{{ 'No Uniswap pools found for this query.' | t }}</div>
+          }
+        </div>
+      }
+
       <!-- ── Magic Eden ──────────────────────────────────────────────────
            Twenty-six query types, four renderers. The card switches on the
            SHAPE of what came back rather than on the endpoint name, because

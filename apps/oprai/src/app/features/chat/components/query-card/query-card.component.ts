@@ -40,6 +40,21 @@ interface BalanceResult {
   chain?: string;
 }
 
+/** One Uniswap liquidity pool row (from the DexScreener-backed listing). */
+interface UniswapPool {
+  pairAddress: string;
+  version: string;          // "v2" | "v3" | "v4"
+  baseSymbol: string;
+  quoteSymbol: string;
+  baseAddress: string;
+  quoteAddress: string;
+  tvlUsd: number;
+  volume24hUsd: number;
+  priceUsd: string;
+  url: string;
+  chain: string;
+}
+
 interface PriceResult {
   symbol: string;
   price: number;
@@ -1017,6 +1032,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     if (d['lendEarnPositions'])   this.lendEarnPositions   = d['lendEarnPositions']   as LendPosition[];
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
+    if (d['uniswapPoolsResults']) this.uniswapPoolsResults = d['uniswapPoolsResults'] as UniswapPool[];
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -1121,6 +1137,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
     if (this.lendEarnPositions.length)   d['lendEarnPositions']   = this.lendEarnPositions;
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
+    if (this.uniswapPoolsResults.length) d['uniswapPoolsResults'] = this.uniswapPoolsResults;
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
@@ -3309,6 +3326,80 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Uniswap pool listing (EVM, DexScreener-backed) ───────────────────────
+  uniswapPoolsResults: UniswapPool[] = [];
+  readonly uniswapPoolsFetching = signal(false);
+  uniswapVersionFilter: 'all' | 'v2' | 'v3' | 'v4' = 'all';
+
+  get filteredUniswapPools(): UniswapPool[] {
+    const v = this.uniswapVersionFilter;
+    return v === 'all'
+      ? this.uniswapPoolsResults
+      : this.uniswapPoolsResults.filter(p => (p.version || '').toLowerCase() === v);
+  }
+
+  /** Versions actually present in the current result set — drives the chips. */
+  get uniswapVersionsAvailable(): string[] {
+    const set = new Set(this.uniswapPoolsResults.map(p => (p.version || '').toLowerCase()).filter(Boolean));
+    return ['v2', 'v3', 'v4'].filter(v => set.has(v));
+  }
+
+  setUniswapVersion(v: 'all' | 'v2' | 'v3' | 'v4'): void { this.uniswapVersionFilter = v; }
+
+  private async fetchUniswapPools(): Promise<void> {
+    this.uniswapPoolsFetching.set(true);
+    this.error.set(null);
+    const body = {
+      type: 'uniswap_pools',
+      params: {
+        chain: this.query.params?.['chain'] ?? '',
+        ...(this.query.params?.['query'] ? { query: this.query.params['query'] } : {}),
+        ...(this.query.params?.['version'] ? { version: this.query.params['version'] } : {}),
+      },
+    };
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(15_000)));
+      const rows: UniswapPool[] = Array.isArray(resp?.data?.pools) ? resp.data.pools : [];
+      this.uniswapPoolsResults = rows;
+      this.uniswapPoolsFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch (e: any) {
+      const msg = (e?.error?.error ?? e?.message ?? '').toString();
+      // Surface the backend's clean 400 (bad/unsupported chain) but never a raw stack.
+      this.error.set(/[a-z].*(chain|available|required)/i.test(msg) ? msg : 'Failed to load Uniswap pools');
+      this.uniswapPoolsFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** A pool row → open the add-liquidity action card, pre-filled with the pool
+   *  identity. Fee tier / tickSpacing are resolved on-chain at build time
+   *  (DexScreener doesn't expose them), so we pass only what we know here. */
+  useUniswapPool(p: UniswapPool): void {
+    const params: Record<string, string> = {
+      chain: p.chain,
+      version: p.version,
+      poolAddress: p.pairAddress,
+      token0: p.baseAddress,
+      token1: p.quoteAddress,
+      token0Symbol: p.baseSymbol,
+      token1Symbol: p.quoteSymbol,
+      pair: `${p.baseSymbol}/${p.quoteSymbol}`,
+    };
+    this.useAction.emit({
+      type: 'uniswap_add_liquidity',
+      params,
+      raw: `[ACTION:uniswap_add_liquidity] ${JSON.stringify(params)}`,
+    });
+  }
+
+  /** DexScreener token image for an EVM token (great long-tail coverage). */
+  uniTokenLogo(chain: string, addr: string): string {
+    if (!addr) return '';
+    return `https://dd.dexscreener.com/ds-data/tokens/${chain}/${addr.toLowerCase()}.png`;
+  }
+
   onRaydiumPoolTypeChange(t: 'all' | 'concentrated' | 'standard'): void {
     if (this.raydiumPoolType() === t) return;
     this.raydiumPoolType.set(t);
@@ -4190,6 +4281,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'raydium_get_pools':
       case 'raydium_search_pools':
         await this.fetchRaydiumPools();
+        return;
+      case 'uniswap_pools':
+        await this.fetchUniswapPools();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.
