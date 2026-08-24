@@ -173,19 +173,25 @@ pub async fn uniswap_quote(
     if params.slippage_bps > 0 {
         body["slippageTolerance"] = json!(params.slippage_bps as f64 / 100.0);
     }
-    // Integrator fee (the current, post-2026-05-18 model; key-based fees are
-    // sunset). We send it always so we're fee-ready, but Uniswap only actually
-    // DEDUCTS it once they enable fee-taking for our recipient — until then the
-    // field validates and the output is unchanged (so shipping at "no fee" is
-    // safe). `bips` + `recipient` are both required; recipient reuses our EVM fee
-    // wallet (RELAY_FEE_RECIPIENT) unless overridden.
+    // Integrator fee. The current documented field is `integratorFee` (singular,
+    // {bps, recipient}; fractional bps allowed with the x-universal-router-version
+    // 2.1.1 header). We ALSO send the older `integratorFees` (plural array) that
+    // this gateway version still validates, so whichever the endpoint honours
+    // applies. NOTE: verified live 2026-08-24 that neither actually deducts a fee
+    // on this key yet (quote portions stay 100% to the swapper) — the field is
+    // wired and fee-ready, but the fee is effectively 0 until Uniswap's endpoint
+    // honours it for our recipient. Economics only book a fee when
+    // UNISWAP_FEE_ACTIVE=true (see the record handler), so no cashback is owed
+    // until it truly applies. Recipient reuses RELAY_FEE_RECIPIENT.
     if let Some(recipient) = fee_recipient() {
+        body["integratorFee"] = json!({ "bps": fee_bps(), "recipient": recipient });
         body["integratorFees"] = json!([{ "bips": fee_bps(), "recipient": recipient }]);
     }
 
     let resp = http
         .post(format!("{UNISWAP_TRADE_API}/quote"))
         .header("x-api-key", &key)
+        .header("x-universal-router-version", "2.1.1")
         .header("content-type", "application/json")
         .json(&body)
         .send()
@@ -304,6 +310,7 @@ pub async fn uniswap_swap(
     let resp = http
         .post(format!("{UNISWAP_TRADE_API}/swap"))
         .header("x-api-key", &key)
+        .header("x-universal-router-version", "2.1.1")
         .header("content-type", "application/json")
         .json(&body)
         .send()
