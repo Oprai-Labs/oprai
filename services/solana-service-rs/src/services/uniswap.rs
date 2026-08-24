@@ -534,6 +534,19 @@ fn is_zero_address(addr: &str) -> bool {
     a.is_empty() || a.chars().all(|c| c == '0')
 }
 
+fn is_valid_evm_address(s: &str) -> bool {
+    let s = s.trim();
+    s.len() == 42 && s.starts_with("0x") && s[2..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A gas-token symbol that maps to the chain's wrapped native (WETH/WBNB/…).
+fn is_native_symbol(sym: &str) -> bool {
+    matches!(
+        sym.trim().to_uppercase().as_str(),
+        "ETH" | "WETH" | "BNB" | "WBNB" | "MATIC" | "WMATIC" | "POL" | "AVAX" | "WAVAX" | "CELO"
+    )
+}
+
 /// Wrapped-native ERC-20 per chain — the tradeable stand-in for native ETH/BNB/…
 /// (native has no DexScreener token-pairs page). Lowercased.
 fn wrapped_native_address(slug: &str) -> &'static str {
@@ -634,63 +647,90 @@ pub async fn build_uniswap_get_pools(
 
     // DexScreener's global /search is IP-filtered for datacenter egress (returns
     // an empty result set from our host), so we use the per-token /token-pairs
-    // endpoint — which needs a token ADDRESS. Resolve the query's tokens to
-    // addresses on this chain, anchor the lookup on the first, and (when a
-    // second token is named) keep only pools that hold BOTH.
+    // endpoint — which needs a token ADDRESS. Resolve each query token to a
+    // candidate address ON THIS CHAIN: an address stays as-is; a native/wrapped
+    // symbol maps to the chain's wrapped native (reliable per-chain); anything
+    // else goes through Relay as a HINT (Relay doesn't index every chain — e.g.
+    // Robinhood — and may hand back a foreign-chain address, which simply yields
+    // no pools here, so we never trust it as gospel).
     let chain_id = dexscreener_slug_to_chain_id(slug);
-    let mut resolved: Vec<String> = Vec::new();
+    let mut candidates: Vec<String> = Vec::new();
     for tok in query.split_whitespace().filter(|s| !s.is_empty()).take(2) {
-        if let Ok(addr) = resolve_evm_currency(http, chain_id, tok).await {
-            // Native (all-zero) has no ERC-20 pairs page — anchor on the chain's
-            // wrapped native instead so "ETH" still resolves to real pools.
-            let a = if is_zero_address(&addr) {
-                wrapped_native_address(slug).to_string()
-            } else {
-                addr.to_lowercase()
-            };
-            if !a.is_empty() && !resolved.contains(&a) {
-                resolved.push(a);
+        let a = if is_valid_evm_address(tok) {
+            tok.to_lowercase()
+        } else if is_native_symbol(tok) {
+            wrapped_native_address(slug).to_string()
+        } else {
+            match resolve_evm_currency(http, chain_id, tok).await {
+                Ok(addr) if !is_zero_address(&addr) => addr.to_lowercase(),
+                Ok(_) => wrapped_native_address(slug).to_string(),
+                Err(_) => continue,
+            }
+        };
+        if !a.is_empty() && !candidates.contains(&a) {
+            candidates.push(a);
+        }
+    }
+    if candidates.is_empty() {
+        candidates.push(wrapped_native_address(slug).to_string());
+    }
+
+    // Fetch token-pairs for EACH candidate and union the uniswap pools on this
+    // chain (deduped by pool address). A candidate that resolved to a foreign
+    // address just contributes nothing.
+    let mut seen_pairs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_pools: Vec<Value> = Vec::new();
+    for cand in &candidates {
+        let url = format!("{DEXSCREENER_TOKEN_PAIRS}/{slug}/{cand}");
+        let resp = match http.get(&url).send().await {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let body: Value = match resp.json().await {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if let Some(arr) = body.as_array() {
+            for p in arr {
+                if p.get("chainId").and_then(|c| c.as_str()) != Some(slug) {
+                    continue;
+                }
+                if p.get("dexId").and_then(|d| d.as_str()) != Some("uniswap") {
+                    continue;
+                }
+                let pa = p.get("pairAddress").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                if pa.is_empty() || !seen_pairs.insert(pa) {
+                    continue;
+                }
+                all_pools.push(p.clone());
             }
         }
     }
-    if resolved.is_empty() {
-        resolved.push(wrapped_native_address(slug).to_string());
-    }
-    let anchor = resolved[0].clone();
-    let other: Option<String> = resolved.get(1).cloned();
 
-    let url = format!("{DEXSCREENER_TOKEN_PAIRS}/{slug}/{anchor}");
-    let resp = http
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("DexScreener request failed: {e}")))?;
-    let status = resp.status();
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::Internal(format!("DexScreener bad JSON: {e}")))?;
-    if !status.is_success() {
-        return Err(AppError::Internal(format!("DexScreener error ({status})")));
-    }
+    // When two distinct tokens were named, prefer pools that hold BOTH — but
+    // fall back to the union if that empties the list (one token may have
+    // resolved to a foreign address that isn't in any pool on this chain).
+    let selected: Vec<Value> = if candidates.len() >= 2 {
+        let (a, b) = (&candidates[0], &candidates[1]);
+        let both: Vec<Value> = all_pools
+            .iter()
+            .filter(|p| {
+                let ba = p.get("baseToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                let qa = p.get("quoteToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                (ba == *a || qa == *a) && (ba == *b || qa == *b)
+            })
+            .cloned()
+            .collect();
+        if both.is_empty() { all_pools } else { both }
+    } else {
+        all_pools
+    };
 
-    // /token-pairs returns a top-level array of pairs (not { pairs: [...] }).
-    let empty = vec![];
-    let pairs = body.as_array().unwrap_or(&empty);
-    let mut rows: Vec<Value> = pairs
+    let mut rows: Vec<Value> = selected
         .iter()
-        .filter(|p| {
-            p.get("chainId").and_then(|c| c.as_str()) == Some(slug)
-                && p.get("dexId").and_then(|d| d.as_str()) == Some("uniswap")
-        })
-        .filter(|p| match &other {
-            None => true,
-            Some(o) => {
-                let b = p.get("baseToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-                let q = p.get("quoteToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-                b == *o || q == *o
-            }
-        })
         .filter_map(|p| {
             // Version from DexScreener labels (["v3"]); default v3 when unlabelled.
             let version = p
