@@ -16,21 +16,24 @@ export const PROTOCOLS: Protocol[] = [
   { id: 'meteora',      label: 'Meteora',      category: 'dex',       logo: 'assets/icons/protocols/meteora.webp', description: 'DLMM + DAMM liquidity pools' },
   { id: 'uniswap',      label: 'Uniswap',      category: 'dex',       logo: 'assets/protocols/uniswap.svg',      description: 'EVM token swaps (all chains)' },
   // Staking
-  { id: 'marinade',     label: 'Marinade',     category: 'staking',   logo: 'assets/protocols/marinade.png',     description: 'mSOL liquid staking' },
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
   // Lending
   { id: 'kamino',       label: 'Kamino',       category: 'lending',   logo: 'assets/protocols/kamino.png',       description: 'Lending & borrowing' },
-  { id: 'solend',       label: 'Solend',       category: 'lending',   logo: 'assets/protocols/solend.png',       description: 'Algorithmic money market' },
   // NFT
-  { id: 'tensor',       label: 'Tensor',       category: 'nft',       logo: 'assets/protocols/tensor.png',       description: 'NFT trading & sniping' },
   { id: 'magic_eden',   label: 'Magic Eden',   category: 'nft',       logo: 'assets/protocols/magic_eden.png',   description: 'NFT marketplace' },
   { id: 'pumpfun',      label: 'Pump.fun',     category: 'nft',       logo: 'assets/protocols/pumpfun.png',      description: 'Token launches' },
   // Bridge
   { id: 'relay',        label: 'Relay',        category: 'bridge',    logo: 'assets/protocols/relay.png',        description: 'Cross-chain bridging' },
-  { id: 'debridge',     label: 'deBridge',     category: 'bridge',    logo: 'assets/protocols/debridge.png',     description: 'Cross-chain transfers' },
-  { id: 'squid',        label: 'Squid',        category: 'bridge',    logo: 'assets/protocols/squid.png',        description: 'Cross-chain swaps' },
-  // Streaming
-  { id: 'streamflow',   label: 'Streamflow',   category: 'streaming', logo: 'assets/protocols/streamflow.png',   description: 'Token streaming & vesting' },
+  // ── Hidden from the @-picker (not active enough to surface yet). The actions
+  //    still work if invoked; they're just not advertised. Restore by
+  //    un-commenting. Hidden 2026-08-24: marinade, solend, tensor, debridge,
+  //    squid, streamflow.
+  // { id: 'marinade',     label: 'Marinade',     category: 'staking',   logo: 'assets/protocols/marinade.png',     description: 'mSOL liquid staking' },
+  // { id: 'solend',       label: 'Solend',       category: 'lending',   logo: 'assets/protocols/solend.png',       description: 'Algorithmic money market' },
+  // { id: 'tensor',       label: 'Tensor',       category: 'nft',       logo: 'assets/protocols/tensor.png',       description: 'NFT trading & sniping' },
+  // { id: 'debridge',     label: 'deBridge',     category: 'bridge',    logo: 'assets/protocols/debridge.png',     description: 'Cross-chain transfers' },
+  // { id: 'squid',        label: 'Squid',        category: 'bridge',    logo: 'assets/protocols/squid.png',        description: 'Cross-chain swaps' },
+  // { id: 'streamflow',   label: 'Streamflow',   category: 'streaming', logo: 'assets/protocols/streamflow.png',   description: 'Token streaming & vesting' },
 ];
 
 export const CATEGORY_COLORS: Record<Protocol['category'], string> = {
