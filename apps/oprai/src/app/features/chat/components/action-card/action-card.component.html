@@ -1004,12 +1004,6 @@
                     {{ ulp!.amount0Display }} {{ ulp!.token0Symbol }} + {{ ulp!.amount1Display }} {{ ulp!.token1Symbol }}
                   </span>
                 </div>
-                @if (ulp?.minPrice && ulp?.maxPrice) {
-                  <div class="swap-facts__row">
-                    <span class="swap-facts__label">{{ 'Range' | t }}</span>
-                    <span class="swap-facts__value">{{ ulp!.minPrice | number:'1.0-6' }} – {{ ulp!.maxPrice | number:'1.0-6' }}</span>
-                  </div>
-                }
                 <div class="swap-facts__row">
                   <span class="swap-facts__label">{{ 'Protocol' | t }}</span>
                   <span class="swap-facts__value">Uniswap {{ (action.params['version'] || 'v3') | uppercase }}</span>
