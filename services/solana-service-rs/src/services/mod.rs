@@ -30,6 +30,7 @@ pub mod raydium;
 pub mod raydium_clmm;
 pub mod relay;
 pub mod review;
+pub mod uniswap;
 pub mod simulation;
 pub mod sns;
 pub mod solend;

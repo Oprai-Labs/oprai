@@ -1626,6 +1626,166 @@ pub async fn post_relay_record(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Uniswap (Phase 1: same-chain EVM swap via the Trading API)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// POST /actions/uniswap/quote — price a same-chain EVM swap and return the
+/// preview + the material the frontend needs to finish it (opaque quote, EIP-712
+/// permit, Permit2 approval tx). The wallet (swapper) comes from the trusted
+/// header, never the body.
+#[post("/uniswap/quote")]
+pub async fn post_uniswap_quote(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<crate::services::relay::CrossChainSwapParams>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    if body.origin_chain_id != body.destination_chain_id {
+        return Err(AppError::InvalidParams(
+            "Uniswap swaps are same-chain only — use a bridge for cross-chain.".into(),
+        ));
+    }
+    if !crate::services::uniswap::is_uniswap_chain(body.origin_chain_id) {
+        return Err(AppError::InvalidParams(format!(
+            "Uniswap isn't available on chain {}.",
+            body.origin_chain_id
+        )));
+    }
+    let result = crate::services::uniswap::uniswap_quote(&state.http, &wallet, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/uniswap/swap — turn the frontend-signed permit into the final
+/// EVM transaction. The Uniswap API key stays server-side; the client only ever
+/// reaches Uniswap through this hop.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UniswapSwapBody {
+    pub quote: serde_json::Value,
+    #[serde(default)]
+    pub permit_data: Option<serde_json::Value>,
+    #[serde(default)]
+    pub signature: Option<String>,
+}
+
+#[post("/uniswap/swap")]
+pub async fn post_uniswap_swap(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<UniswapSwapBody>,
+) -> Result<HttpResponse, AppError> {
+    let _wallet = wallet_from_req(&req)?;
+    let tx = crate::services::uniswap::uniswap_swap(
+        &state.http,
+        &body.quote,
+        body.permit_data.as_ref(),
+        body.signature.as_deref(),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "transaction": tx })))
+}
+
+/// POST /actions/uniswap/record — book economics after the swap settles on-chain.
+/// Uniswap has no authoritative post-fill record (unlike Relay's /requests), so
+/// the USD notional is derived SERVER-SIDE by pricing the swapped token into USDC
+/// — the client only supplies the tx hash + token addresses/amounts, never a USD
+/// figure. Fee is the flat 0.50% configured on the API key; cashback is booked at
+/// the account's pooled tier. Idempotent on (txHash, chain).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UniswapRecordBody {
+    #[serde(deserialize_with = "crate::services::params::lenient")]
+    pub chain_id: u64,
+    pub tx_hash: String,
+    pub input_token: String,
+    pub output_token: String,
+    pub input_amount: String,
+    pub output_amount: String,
+    #[serde(default)]
+    pub input_symbol: Option<String>,
+    #[serde(default)]
+    pub output_symbol: Option<String>,
+}
+
+/// Flat 0.50% — the Trading API takes the integrator fee configured on the key,
+/// which we set to 50 bps (recipient = our EVM fee wallet). Not per-pair-tiered
+/// like Relay because Uniswap fixes the rate on the key.
+const UNISWAP_FEE_BPS: i32 = 50;
+
+#[post("/uniswap/record")]
+pub async fn post_uniswap_record(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<UniswapRecordBody>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    let account = account_from_req(&req);
+    let tx_hash = body.tx_hash.trim().to_string();
+    if tx_hash.is_empty() {
+        return Err(AppError::InvalidParams("txHash is required".into()));
+    }
+    let not_recorded = |reason: &str| {
+        Ok(HttpResponse::Ok().json(serde_json::json!({ "recorded": false, "reason": reason })))
+    };
+    let Some(chain_key) = relay::chain_key_for_id(body.chain_id) else {
+        return not_recorded("unsupported chain");
+    };
+
+    // USD notional, server-derived (never the client's word): price the output
+    // into USDC, falling back to the input side.
+    let mut notional_usd = crate::services::uniswap::uniswap_price_usd(
+        &state.http,
+        body.chain_id,
+        &body.output_token,
+        &body.output_amount,
+    )
+    .await
+    .unwrap_or(0.0);
+    if notional_usd <= 0.0 {
+        notional_usd = crate::services::uniswap::uniswap_price_usd(
+            &state.http,
+            body.chain_id,
+            &body.input_token,
+            &body.input_amount,
+        )
+        .await
+        .unwrap_or(0.0);
+    }
+
+    let fee_bps = UNISWAP_FEE_BPS;
+    let fee_usd = notional_usd * (fee_bps as f64) / 10_000.0;
+
+    match crate::db::economics::record_evm_confirmed(
+        &state.pool,
+        wallet.clone(),
+        account,
+        chain_key.to_string(),
+        tx_hash.clone(),
+        "uniswap".to_string(),
+        "swap".to_string(),
+        body.input_symbol.clone(),
+        body.output_symbol.clone(),
+        notional_usd,
+        fee_bps,
+        fee_usd,
+    )
+    .await
+    {
+        Ok(id) => {
+            tracing::info!(action = "uniswap_record", user_wallet = %wallet, chain = %chain_key, tx = %tx_hash, notional_usd, fee_usd, "Uniswap swap economics recorded");
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "recorded": true, "transactionId": id, "chain": chain_key,
+                "notionalUsd": notional_usd, "feeUsd": fee_usd, "feeBps": fee_bps
+            })))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, tx = %tx_hash, "uniswap economics record failed");
+            not_recorded("record failed")
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // POST /actions/relay/execute-permits
 // ──────────────────────────────────────────────────────────────────────────────
 

@@ -461,6 +461,11 @@ services:
       # configured" while the key sat one file away. A value in .env that no
       # service block forwards is not configuration, it is a note to yourself.
       RELAY_API_KEY: ${RELAY_API_KEY:-}
+      # Uniswap Trading API key (same-chain EVM swaps). Server-side only; the
+      # integrator fee (flat 0.50%) is configured on the key at Uniswap's
+      # dashboard, recipient = our EVM fee wallet. Unset → Uniswap swaps return
+      # "UNISWAP_API_KEY is not configured".
+      UNISWAP_API_KEY: ${UNISWAP_API_KEY:-}
       RELAY_FEE_RECIPIENT: ${RELAY_FEE_RECIPIENT:-}
       # Cashback share of the Relay app fee is split off to this pool at collection
       # (the wallet that also pays claims → self-funding). Unset → whole fee to profit.

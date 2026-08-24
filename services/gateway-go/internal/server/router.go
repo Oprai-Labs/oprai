@@ -260,6 +260,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		// the far side landed, and records the fill for per-chain rewards.
 		r.Get("/relay/intent-status", solanaProxy.GetRelayIntentStatus)
 		r.Post("/relay/record", solanaProxy.PostRelayRecord)
+		// Uniswap same-chain EVM swap: quote → swap calldata → record.
+		r.Post("/uniswap/quote", solanaProxy.PostUniswapQuote)
+		r.Post("/uniswap/swap", solanaProxy.PostUniswapSwap)
+		r.Post("/uniswap/record", solanaProxy.PostUniswapRecord)
 	})
 	r.Route("/protocols", func(r chi.Router) {
 		r.Use(defaultTimeout)

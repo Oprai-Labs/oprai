@@ -1021,7 +1021,7 @@ pub fn canonical_chain_id(id: u64) -> u64 {
     }
 }
 
-async fn to_base_units(
+pub(crate) async fn to_base_units(
     http: &reqwest::Client,
     chain_id: u64,
     currency: &str,

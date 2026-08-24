@@ -197,6 +197,25 @@ func (p *SolanaProxy) PostRelayRecord(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// Uniswap (same-chain EVM swap via the Trading API). Three hops: quote →
+// (frontend signs the Permit2 permit) → swap calldata → send → record. The
+// Uniswap API key lives in the solana-service, never the client, so all three
+// go through here. Each is a 404 until listed in the router's explicit allowlist.
+func (p *SolanaProxy) PostUniswapQuote(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/quote"
+	p.proxy.ServeHTTP(w, r)
+}
+
+func (p *SolanaProxy) PostUniswapSwap(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/swap"
+	p.proxy.ServeHTTP(w, r)
+}
+
+func (p *SolanaProxy) PostUniswapRecord(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/record"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)
