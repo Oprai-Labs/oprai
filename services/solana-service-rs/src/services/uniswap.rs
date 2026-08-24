@@ -527,7 +527,29 @@ fn uniswap_api_error(status: reqwest::StatusCode, body: &Value) -> AppError {
 // on-chain at add-liquidity time.
 // ────────────────────────────────────────────────────────────────────────────
 
-const DEXSCREENER_SEARCH: &str = "https://api.dexscreener.com/latest/dex/search";
+const DEXSCREENER_TOKEN_PAIRS: &str = "https://api.dexscreener.com/token-pairs/v1";
+
+fn is_zero_address(addr: &str) -> bool {
+    let a = addr.trim().trim_start_matches("0x");
+    a.is_empty() || a.chars().all(|c| c == '0')
+}
+
+/// Wrapped-native ERC-20 per chain — the tradeable stand-in for native ETH/BNB/…
+/// (native has no DexScreener token-pairs page). Lowercased.
+fn wrapped_native_address(slug: &str) -> &'static str {
+    match slug {
+        "ethereum"  => "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", // WETH
+        "base"      => "0x4200000000000000000000000000000000000006", // WETH
+        "optimism"  => "0x4200000000000000000000000000000000000006", // WETH
+        "arbitrum"  => "0x82af49447d8a07e3bd95bd0d56f35241523fbab1", // WETH
+        "polygon"   => "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270", // WMATIC
+        "bsc"       => "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c", // WBNB
+        "avalanche" => "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7", // WAVAX
+        "blast"     => "0x4300000000000000000000000000000000000004", // WETH
+        "celo"      => "0x471ece3750da237f93b8e339c536989b8978a438", // CELO
+        _           => "0x4200000000000000000000000000000000000006", // WETH default (OP-stack)
+    }
+}
 
 /// Map a chain name or numeric id to the DexScreener chain slug. Uniswap's
 /// major EVM chains only — DexScreener doesn't index every rollup.
@@ -608,13 +630,36 @@ pub async fn build_uniswap_get_pools(
         .map(|v| v.trim().to_lowercase())
         .filter(|v| matches!(v.as_str(), "v2" | "v3" | "v4"));
 
-    // DexScreener search is global and caps at ~30 relevance-ranked hits, so a
-    // bare "ETH USDC" is dominated by Ethereum/Solana and drops the chain the
-    // user asked for. Appending the chain slug biases the results to it.
-    let search_term = format!("{query} {slug}");
+    // DexScreener's global /search is IP-filtered for datacenter egress (returns
+    // an empty result set from our host), so we use the per-token /token-pairs
+    // endpoint — which needs a token ADDRESS. Resolve the query's tokens to
+    // addresses on this chain, anchor the lookup on the first, and (when a
+    // second token is named) keep only pools that hold BOTH.
+    let chain_id = dexscreener_slug_to_chain_id(slug);
+    let mut resolved: Vec<String> = Vec::new();
+    for tok in query.split_whitespace().filter(|s| !s.is_empty()).take(2) {
+        if let Ok(addr) = resolve_evm_currency(http, chain_id, tok).await {
+            // Native (all-zero) has no ERC-20 pairs page — anchor on the chain's
+            // wrapped native instead so "ETH" still resolves to real pools.
+            let a = if is_zero_address(&addr) {
+                wrapped_native_address(slug).to_string()
+            } else {
+                addr.to_lowercase()
+            };
+            if !a.is_empty() && !resolved.contains(&a) {
+                resolved.push(a);
+            }
+        }
+    }
+    if resolved.is_empty() {
+        resolved.push(wrapped_native_address(slug).to_string());
+    }
+    let anchor = resolved[0].clone();
+    let other: Option<String> = resolved.get(1).cloned();
+
+    let url = format!("{DEXSCREENER_TOKEN_PAIRS}/{slug}/{anchor}");
     let resp = http
-        .get(DEXSCREENER_SEARCH)
-        .query(&[("q", search_term.as_str())])
+        .get(&url)
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("DexScreener request failed: {e}")))?;
@@ -627,13 +672,22 @@ pub async fn build_uniswap_get_pools(
         return Err(AppError::Internal(format!("DexScreener error ({status})")));
     }
 
+    // /token-pairs returns a top-level array of pairs (not { pairs: [...] }).
     let empty = vec![];
-    let pairs = body.get("pairs").and_then(|p| p.as_array()).unwrap_or(&empty);
+    let pairs = body.as_array().unwrap_or(&empty);
     let mut rows: Vec<Value> = pairs
         .iter()
         .filter(|p| {
             p.get("chainId").and_then(|c| c.as_str()) == Some(slug)
                 && p.get("dexId").and_then(|d| d.as_str()) == Some("uniswap")
+        })
+        .filter(|p| match &other {
+            None => true,
+            Some(o) => {
+                let b = p.get("baseToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                let q = p.get("quoteToken").and_then(|t| t.get("address")).and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                b == *o || q == *o
+            }
         })
         .filter_map(|p| {
             // Version from DexScreener labels (["v3"]); default v3 when unlabelled.
