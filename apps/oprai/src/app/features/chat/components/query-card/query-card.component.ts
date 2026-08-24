@@ -8,6 +8,8 @@ import { ChatApiService, QuerySnapshot } from '../../services/chat-api.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { WalletService } from '@core/services/wallet.service';
+import { AccountService } from '@core/services/account.service';
+import { EvmPortfolioService } from '@features/portfolio/services/evm-portfolio.service';
 import { PortfolioService } from '@features/portfolio/services/portfolio.service';
 import { SolanaRpcService } from '@features/portfolio/services/solana-rpc.service';
 import { BirdeyeService } from '@features/portfolio/services/birdeye.service';
@@ -34,6 +36,8 @@ interface BalanceResult {
   change24h: number;
   logoUri?: string | null;
   mint?: string;
+  /** EVM rows: which chain this balance is on (e.g. "Base"). Absent for Solana. */
+  chain?: string;
 }
 
 interface PriceResult {
@@ -419,6 +423,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private readonly priceFeed = inject(PriceFeedService);
   private readonly birdeye = inject(BirdeyeService);
   private readonly walletService = inject(WalletService);
+  private readonly accountService = inject(AccountService);
+  private readonly evmPortfolio = inject(EvmPortfolioService);
   private readonly portfolioService = inject(PortfolioService);
   private readonly solanaRpc = inject(SolanaRpcService);
   private readonly jupiterLend = inject(JupiterLendService);
@@ -4293,15 +4299,38 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private async fetchBalance(): Promise<void> {
     const paramWallet = this.query.params['wallet'] as string | undefined;
     const resolvedParam = paramWallet && paramWallet !== 'self' ? paramWallet : null;
-    const wallet = resolvedParam || this.walletService.publicKey();
+    const solWallet = resolvedParam || this.walletService.publicKey();
+    const tokenParam = (this.query.params['token'] as string | undefined)?.trim();
+    const wantsAll = !tokenParam || tokenParam.toUpperCase() === 'ALL';
+
+    // ── EVM path ────────────────────────────────────────────────────────────
+    // "which chains do I have ETH on", or any balance question when the user's
+    // connected wallet is EVM. The Solana balance path below can't answer these
+    // (ETH isn't an SPL mint). Route to the multichain EVM portfolio, keyed on
+    // the linked EVM address — never the Solana key — so a connected EVM user
+    // never sees "Connect your wallet".
+    const explicitEvmAddr = resolvedParam && /^0x[0-9a-fA-F]{40}$/.test(resolvedParam) ? resolvedParam : null;
+    const evmAddrs = explicitEvmAddr ? [explicitEvmAddr] : await this.resolveEvmAddresses();
+    const wantsEvm = this.isEvmNativeToken(tokenParam) || !!explicitEvmAddr || (!solWallet && evmAddrs.length > 0);
+    if (wantsEvm && evmAddrs.length > 0) {
+      try {
+        this.balanceResults = await this.fetchEvmBalances(evmAddrs, wantsAll ? null : tokenParam!);
+        this.loading.set(false);
+        this.persistSnapshot();
+      } catch {
+        this.error.set('Failed to load balances');
+        this.loading.set(false);
+      }
+      return;
+    }
+
+    // ── Solana path ─────────────────────────────────────────────────────────
+    const wallet = solWallet;
     if (!wallet) {
       this.error.set('Connect your wallet to see balances');
       this.loading.set(false);
       return;
     }
-
-    const tokenParam = (this.query.params['token'] as string | undefined)?.trim();
-    const wantsAll = !tokenParam || tokenParam.toUpperCase() === 'ALL';
 
     try {
       this.balanceResults = wantsAll
@@ -4313,6 +4342,71 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.error.set('Failed to load balances');
       this.loading.set(false);
     }
+  }
+
+  /** EVM addresses linked to the account (primary first), plus the live
+   *  browser-connected address as a fallback for a connected-but-unlinked
+   *  wallet. De-duped, lowercased for stable comparison. */
+  private async resolveEvmAddresses(): Promise<string[]> {
+    const addrs = new Set<string>();
+    try {
+      const me = await firstValueFrom(this.accountService.getMe().pipe(timeout(6000)));
+      for (const id of me?.identities ?? []) {
+        if (id.type === 'evm_wallet' && /^0x[0-9a-fA-F]{40}$/.test(id.identifier)) {
+          addrs.add(id.identifier.toLowerCase());
+        }
+      }
+    } catch { /* not signed in / offline — fall back to the live wallet below */ }
+    const live = (globalThis as any)?.ethereum?.selectedAddress as string | undefined;
+    if (live && /^0x[0-9a-fA-F]{40}$/.test(live)) addrs.add(live.toLowerCase());
+    return [...addrs];
+  }
+
+  /** True when the requested token is a native EVM gas asset — the signal that
+   *  a balance question is about EVM chains, not Solana. */
+  private isEvmNativeToken(token?: string): boolean {
+    if (!token) return false;
+    return ['ETH', 'WETH', 'BNB', 'MATIC', 'POL', 'AVAX'].includes(token.toUpperCase());
+  }
+
+  private static readonly EVM_CHAIN_LABEL: Record<string, string> = {
+    ethereum: 'Ethereum', base: 'Base', arbitrum: 'Arbitrum', optimism: 'Optimism',
+    polygon: 'Polygon', bsc: 'BNB Chain', robinhood: 'Robinhood',
+  };
+
+  /** Multichain EVM balances via the gateway portfolio endpoint. When `token`
+   *  is given, keep only that asset (ETH → native ETH on each chain); otherwise
+   *  return every non-spam holding. One row per (chain, token). */
+  private async fetchEvmBalances(addresses: string[], token: string | null): Promise<BalanceResult[]> {
+    const want = token?.toUpperCase() ?? null;
+    const rows: BalanceResult[] = [];
+    const portfolios = await Promise.all(
+      addresses.map((a) => firstValueFrom(this.evmPortfolio.getPortfolio(a).pipe(timeout(15000))).catch(() => null)),
+    );
+    for (const pf of portfolios) {
+      for (const t of pf?.tokens ?? []) {
+        if (t.spam) continue;
+        if (want) {
+          // "ETH" means the native gas asset, not every ERC-20 that shares the
+          // ticker; match native by symbol, or an exact ERC-20 symbol hit.
+          const sym = (t.symbol || '').toUpperCase();
+          if (sym !== want) continue;
+        }
+        const chainLabel = QueryCardComponent.EVM_CHAIN_LABEL[t.chain] ?? t.chain;
+        rows.push({
+          token: chainLabel,
+          symbol: t.symbol || '?',
+          balance: t.uiAmount,
+          value: t.valueUsd,
+          change24h: 0,
+          logoUri: t.logo ?? null,
+          chain: t.chain,
+        });
+      }
+    }
+    // Biggest holdings first so the answer leads with where the money is.
+    rows.sort((a, b) => b.value - a.value || b.balance - a.balance);
+    return rows;
   }
 
   /**
