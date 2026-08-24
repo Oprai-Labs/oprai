@@ -114,6 +114,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   streamflow:{ name: 'Streamflow', icon: 'assets/icons/protocols/streamflow.svg', accent: '#00D4FF', accentBg: 'rgba(0,212,255,0.12)' },
   pumpfun:   { name: 'pump.fun',   icon: 'assets/icons/protocols/pumpfun.png',    accent: '#AD6DFF', accentBg: 'rgba(173,109,255,0.12)' },
   relay:     { name: 'Relay',      icon: 'assets/icons/protocols/relay.png',      accent: '#7C3AED', accentBg: 'rgba(124,58,237,0.12)' },
+  uniswap:   { name: 'Uniswap',    icon: 'assets/protocols/uniswap.svg',          accent: '#FF007A', accentBg: 'rgba(255,0,122,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -123,6 +124,7 @@ function getProtocolKey(action: ParsedAction): string {
   const t = action.type;
   // Jupiter surface: swaps, limit/DCA (incl. cancels), perpetuals, JLP — all Jupiter products.
   // A bridge is Relay's, and said Solana with Solana's mark until now.
+  if (t === 'uniswap_swap') return 'uniswap';
   if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') return 'relay';
   if (t.startsWith('relay_')) return 'relay';
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
@@ -4114,6 +4116,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     receiveSymbol?: string;
     payAmount?: string;
     receiveAmount?: string;
+    payLogo?: string;
+    receiveLogo?: string;
+    chainLogo?: string;
     rate?: string;
     chainName?: string;
     error?: string;
@@ -4140,6 +4145,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         receiveSymbol: q.outputSymbol,
         payAmount: q.inputAmountDisplay ?? String(p['amount'] ?? ''),
         receiveAmount: q.outputAmountDisplay,
+        payLogo: q.inputLogo,
+        receiveLogo: q.outputLogo,
+        chainLogo: q.chainLogo,
         rate: q.rate,
         chainName: q.chainName,
       });

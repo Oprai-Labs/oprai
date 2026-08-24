@@ -1509,6 +1509,28 @@
     object-fit: contain;
     display: block;
   }
+
+  // Chain sub-badge on the protocol logo (e.g. Robinhood under Uniswap). Sits in
+  // the corner inside the rounded box; the extra specificity beats `.proto-logo
+  // img { width:100% }` above.
+  img.proto-logo__chain {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    object-fit: cover;
+    z-index: 3;
+    box-shadow: 0 0 0 1.5px var(--op-bg-surface-1);
+  }
+}
+
+.proto-sub {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--op-text-secondary, var(--op-text-tertiary));
+  line-height: 1.1;
 }
 
 .proto-header-info {

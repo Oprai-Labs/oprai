@@ -387,9 +387,17 @@
              width="36" height="36"
              (load)="protoIconLoaded.set(true)"
              (error)="$any($event.target).style.display='none'" />
+        <!-- Chain sub-badge (Uniswap runs on many EVM chains; show which one) -->
+        @if (isUniswapSwap() && uniswapPreview()?.chainLogo) {
+          <img class="proto-logo__chain" [src]="uniswapPreview()!.chainLogo" alt=""
+               width="15" height="15" (error)="$any($event.target).style.display='none'" />
+        }
       </div>
       <div class="proto-header-info">
         <span class="proto-name">{{ protocolConfig.name }}</span>
+        @if (isUniswapSwap() && uniswapPreview()?.chainName) {
+          <span class="proto-sub">{{ uniswapPreview()!.chainName }}</span>
+        }
       </div>
       <!-- Live quote countdown — only renders while the polling effect is
            active (status pending, lifetime not exceeded, tab visible). Hides
@@ -876,12 +884,6 @@
           @let uni = uniswapPreview();
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
 
-            <!-- Chain badge -->
-            <div class="uni-chip">
-              <span class="uni-chip__dot"></span>
-              {{ (uni?.chainName || 'EVM') }} · {{ 'via Uniswap' | t }}
-            </div>
-
             <!-- You pay -->
             <div class="pump-panel">
               <div class="pump-panel__top">
@@ -890,7 +892,11 @@
               <div class="pump-panel__row">
                 <input type="text" class="pump-panel__amount" [value]="uni?.payAmount || ''" disabled />
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">{{ (uni?.paySymbol || '?').charAt(0) }}</span>
+                  @if (uni?.payLogo) {
+                    <img [src]="uni!.payLogo" class="pump-token__icon" alt="" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (uni?.paySymbol || '?').charAt(0) }}</span>
+                  }
                   <span class="pump-token__sym">{{ uni?.paySymbol || '' }}</span>
                 </span>
               </div>
@@ -910,7 +916,11 @@
                 <input type="text" class="pump-panel__amount" placeholder="0"
                        [value]="uni?.loading ? '' : (uni?.receiveAmount || '')" disabled />
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">{{ (uni?.receiveSymbol || '?').charAt(0) }}</span>
+                  @if (uni?.receiveLogo) {
+                    <img [src]="uni!.receiveLogo" class="pump-token__icon" alt="" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (uni?.receiveSymbol || '?').charAt(0) }}</span>
+                  }
                   <span class="pump-token__sym">{{ uni?.receiveSymbol || '' }}</span>
                 </span>
               </div>

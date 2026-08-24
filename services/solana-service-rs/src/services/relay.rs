@@ -1090,6 +1090,27 @@ pub(crate) async fn relay_token_decimals(http: &reqwest::Client, chain_id: u64, 
     found
 }
 
+/// The logo URL Relay lists for a token on a chain (for the swap card's token
+/// pills). Best-effort — None if the token or its logo isn't listed.
+pub(crate) async fn relay_token_logo(http: &reqwest::Client, chain_id: u64, currency: &str) -> Option<String> {
+    let chain_id = canonical_chain_id(chain_id);
+    let tokens = get_chain_tokens(http, chain_id).await.ok()?;
+    let t = tokens
+        .iter()
+        .find(|t| t.address.eq_ignore_ascii_case(currency))?;
+    t.logo_uri
+        .clone()
+        .or_else(|| t.metadata.as_ref().and_then(|m| m.logo_uri.clone()))
+}
+
+/// The chain's mark Relay hosts (for the swap card's chain badge). Best-effort.
+pub(crate) async fn relay_chain_icon(http: &reqwest::Client, chain_id: u64) -> Option<String> {
+    let chain_id = canonical_chain_id(chain_id);
+    let chains = get_supported_chains(http, None).await.ok()?;
+    let c = chains.iter().find(|c| c.id == chain_id)?;
+    c.icon_url.clone().or_else(|| c.logo_uri.clone())
+}
+
 /// Fetch a cross-chain swap quote from Relay API.
 pub async fn get_cross_chain_quote(
     http: &reqwest::Client,
