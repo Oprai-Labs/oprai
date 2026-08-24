@@ -7283,6 +7283,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Frozen swap pay/receive captured at submit, persisted with the result. */
   private lastSwapView: { pay: string; receive: string; payUsd?: number; recvUsd?: number } | null = null;
 
+  /** Frozen Uniswap swap receipt captured at submit (see StoredActionResult.uniswapReceipt). */
+  private lastUniswapReceipt: StoredActionResult['uniswapReceipt'] | null = null;
+
   /** Re-arms the execute() stall timeout; set per-run, called on each progress event. */
   private resetStallTimeout: () => void = () => {};
   /** Set once a bridge's deposit is away: from then on there is nothing to
@@ -7716,6 +7719,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (this.cachedResult.lendSnapshot) {
         this.lendInfo.set(this.cachedResult.lendSnapshot as unknown as LendActionInfo);
       }
+      // Restore the frozen Uniswap receipt so a completed EVM swap re-hydrates
+      // its final state (symbols/logos/amounts/chain/rate) from the snapshot —
+      // it has no live quote to re-fetch on reload, and must not re-fetch one.
+      if (this.cachedResult.uniswapReceipt) {
+        const r = this.cachedResult.uniswapReceipt;
+        this.uniswapPreview.set({ loading: false, ...r });
+        // Seed both amount inputs so uniAmountFor() shows the frozen legs on the
+        // now-disabled (non-editable) card, regardless of which side was edited.
+        this.uniEditSide.set('pay');
+        this.uniTypedAmount.set(r.payAmount ?? '');
+      }
       // Restored "submitted" — start the elapsed ticker + auto re-check once,
       // so a page refresh after a network blip surfaces a recovery path.
       if (this.cachedResult.status === 'submitted' && this.cachedResult.txSignature) {
@@ -7987,6 +8001,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.executedSwapView.set(this.lastSwapView);
     }
 
+    // Uniswap EVM swap: freeze the whole receipt (symbols/logos/amounts/chain)
+    // from the live preview. It has no re-fetchable quote on reload, so the
+    // completed card renders entirely from this snapshot.
+    if (this.isUniswapSwap()) {
+      const u = this.uniswapPreview();
+      this.lastUniswapReceipt = {
+        paySymbol: u?.paySymbol,
+        receiveSymbol: u?.receiveSymbol,
+        payAmount: this.uniAmountFor('pay') || u?.payAmount,
+        receiveAmount: this.uniAmountFor('receive') || u?.receiveAmount,
+        payLogo: u?.payLogo,
+        receiveLogo: u?.receiveLogo,
+        chainLogo: u?.chainLogo,
+        chainName: u?.chainName,
+        rate: u?.rate,
+      };
+    }
+
     this.status.set('quoting');
     const mergedParams: Record<string, string> = Object.fromEntries(
       Object.entries(this.editParams()).filter(([, v]) => v !== undefined),
@@ -8140,7 +8172,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         this.txSignature.set(sig);
         this.status.set('submitted');
         this.startSubmittedTick();
-        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined });
+        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined, uniswapReceipt: this.lastUniswapReceipt ?? undefined });
       },
       onConfirm: (result?: string) => {
         this.stopSubmittedTick();
@@ -8149,7 +8181,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           this.dataResult.set(result);
         }
         const sig = this.txSignature() ?? result ?? '';
-        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined };
+        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined, uniswapReceipt: this.lastUniswapReceipt ?? undefined };
         this.storeResult(mergedAction, sig);
         this.persistResult(stored);
         this.clearDraft();
@@ -8175,6 +8207,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           errorMessage: this.errorMessage(),
           executedParams: mergedParams,
           swapView: this.lastSwapView ?? undefined,
+          uniswapReceipt: this.lastUniswapReceipt ?? undefined,
         });
       },
     };

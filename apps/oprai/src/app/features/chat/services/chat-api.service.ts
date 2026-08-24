@@ -20,6 +20,21 @@ export interface StoredActionResult {
    *  and from where — rendered statically, without re-running the live loader
    *  (which would flash "Loading protocol data..." for a done transaction). */
   lendSnapshot?: { kind: 'earn' | 'borrow'; data: Record<string, unknown> };
+  /** Frozen Uniswap swap receipt captured at submit: the pay/receive symbols,
+   *  logos, amounts, chain and rate. A completed EVM swap has no live quote to
+   *  re-fetch on reload (and must not), so the card re-hydrates its final state
+   *  entirely from this snapshot — see feedback_completed_cards_final_state. */
+  uniswapReceipt?: {
+    paySymbol?: string;
+    receiveSymbol?: string;
+    payAmount?: string;
+    receiveAmount?: string;
+    payLogo?: string;
+    receiveLogo?: string;
+    chainLogo?: string;
+    chainName?: string;
+    rate?: string;
+  };
 }
 
 export interface QuerySnapshot {
