@@ -608,9 +608,13 @@ pub async fn build_uniswap_get_pools(
         .map(|v| v.trim().to_lowercase())
         .filter(|v| matches!(v.as_str(), "v2" | "v3" | "v4"));
 
+    // DexScreener search is global and caps at ~30 relevance-ranked hits, so a
+    // bare "ETH USDC" is dominated by Ethereum/Solana and drops the chain the
+    // user asked for. Appending the chain slug biases the results to it.
+    let search_term = format!("{query} {slug}");
     let resp = http
         .get(DEXSCREENER_SEARCH)
-        .query(&[("q", query)])
+        .query(&[("q", search_term.as_str())])
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("DexScreener request failed: {e}")))?;

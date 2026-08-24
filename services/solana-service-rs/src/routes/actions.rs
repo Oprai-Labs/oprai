@@ -421,6 +421,20 @@ pub async fn post_build(
     state: web::Data<AppState>,
     body: web::Json<BuildRequest>,
 ) -> Result<HttpResponse, AppError> {
+    // Read-only, wallet-independent EVM data query: listing Uniswap pools needs
+    // no signer. Serve it BEFORE the Solana-wallet gate — an EVM-session user's
+    // X-User-Wallet is a 0x address that wallet_from_req would reject, and the
+    // pool list is the same for everyone anyway.
+    if body.action_type == "uniswap_pools" {
+        let p: crate::services::uniswap::UniswapGetPoolsParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid uniswap_pools params: {e}"))
+            })?;
+        crate::services::uniswap::validate_uniswap_get_pools_params(&p)?;
+        let resp = crate::services::uniswap::build_uniswap_get_pools(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
     let wallet = wallet_from_req(&req)?;
     let mut body = body.into_inner();
 
