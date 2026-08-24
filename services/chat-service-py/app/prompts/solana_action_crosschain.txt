@@ -16,6 +16,14 @@ Solana) or `relay_bridge` (if the user is on EVM / named an EVM chain) — do NO
 use Uniswap unless the user asked for it. Uniswap does NOT do cross-chain here —
 if the two chains differ, use `relay_bridge`.
 
+**Uniswap chains ONLY:** Ethereum(1), Base(8453), Arbitrum(42161), Optimism(10),
+Polygon(137), BSC(56), Avalanche(43114), Blast(81457), Unichain(130), Zora(7777777),
+Celo(42220). Uniswap is NOT on Robinhood (4663) or Solana. If the user asks for
+Uniswap on a chain it isn't on (e.g. "on uniswap … on robinhood"), DO NOT silently
+switch to Relay — instead REPLY (no action) explaining Uniswap isn't available on
+that chain and offer either a Uniswap chain (Base/Arbitrum/…) or Relay for that
+chain, and let them choose.
+
 **REQUIRED parameters:**
 - `originChainId`: EVM chain numeric ID (same as destination; see chain table below)
 - `destinationChainId`: same value as originChainId
