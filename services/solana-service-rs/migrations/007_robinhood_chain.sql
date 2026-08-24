@@ -14,5 +14,6 @@ BEGIN
     END IF;
     ALTER TABLE solana_schema.transactions
         ADD CONSTRAINT valid_chain CHECK (chain IN
-            ('solana','ethereum','base','bsc','polygon','arbitrum','optimism','robinhood'));
+            ('solana','ethereum','base','bsc','polygon','arbitrum','optimism','robinhood',
+             'avalanche','unichain','blast','celo','zora'));
 END $$;

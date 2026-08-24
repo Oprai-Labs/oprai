@@ -48,18 +48,25 @@ CREATE INDEX IF NOT EXISTS idx_tx_econ_chain
     ON solana_schema.tx_economics (chain);
 
 -- The transactions table's chain CHECK only allowed solana/ethereum/polygon —
--- EVM swaps land on Base, BNB, Arbitrum, Optimism too. Widen it to the full set
--- Relay routes so an EVM swap can be logged. Drop-and-re-add, guarded.
+-- EVM swaps land on Base, BNB, Arbitrum, Optimism too. Widen it.
+--
+-- These migrations re-run on EVERY startup, so this block must be a no-op once a
+-- constraint already exists. It USED to drop-and-re-add unconditionally with a
+-- set that omitted 'robinhood' — which meant that once a robinhood transaction
+-- was booked (migration 007 added that chain), this earlier migration would, on
+-- the next boot, drop the good constraint and try to re-add a narrower one that
+-- the robinhood rows violate → startup panic. Fix: only ADD when absent; never
+-- clobber a wider constraint a later migration installed. 007 owns the canonical
+-- set and keeps it current.
 DO $$
 BEGIN
-    IF EXISTS (
+    IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'valid_chain'
           AND conrelid = 'solana_schema.transactions'::regclass
     ) THEN
-        ALTER TABLE solana_schema.transactions DROP CONSTRAINT valid_chain;
+        ALTER TABLE solana_schema.transactions
+            ADD CONSTRAINT valid_chain CHECK (chain IN
+                ('solana','ethereum','base','bsc','polygon','arbitrum','optimism'));
     END IF;
-    ALTER TABLE solana_schema.transactions
-        ADD CONSTRAINT valid_chain CHECK (chain IN
-            ('solana','ethereum','base','bsc','polygon','arbitrum','optimism'));
 END $$;
