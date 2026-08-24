@@ -1056,6 +1056,7 @@ def validate_action_params(
         "marinade_unstake": ("amount",),
         "jupsol_stake":     ("amount",),
         "jupsol_unstake":   ("amount",),
+        "uniswap_swap":     ("originChainId", "destinationChainId", "originCurrency", "destinationCurrency", "amount"),
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]
@@ -1513,6 +1514,18 @@ def _validate_execute_action(
     if not isinstance(raw_params, dict):
         logger.warning("execute_action: params is not a dict")
         return None
+
+    # Deterministic remap: the LLM sometimes emits action_type="swap" (the Solana
+    # swap) but with EVM chain params (originChainId/destinationChainId), which the
+    # Solana swap never carries — that's a misrouted same-chain EVM swap. Route it
+    # to uniswap_swap (the dedicated same-chain EVM swap) so the mini-app card
+    # opens instead of the action being dropped. Prompt teaches the right type;
+    # this backstops the model when it doesn't.
+    if action_type == ActionType.SWAP and (
+        "originChainId" in raw_params or "destinationChainId" in raw_params
+    ):
+        logger.info("execute_action: remapping swap+EVM-chain params → uniswap_swap")
+        action_type = ActionType.UNISWAP_SWAP
 
     # Normalize: LLM sometimes emits params at the top level instead of
     # nested under the "params" key (observed with pumpfun actions).
