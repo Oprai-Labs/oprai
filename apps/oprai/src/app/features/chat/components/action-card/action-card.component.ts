@@ -118,6 +118,25 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
+/** EVM tx explorers by chain id — each chain opens in ITS OWN scanner, not
+ * Solscan. tx URL is `${base}/tx/${hash}`. */
+const EVM_EXPLORERS: Record<number, string> = {
+  1: 'https://etherscan.io',
+  8453: 'https://basescan.org',
+  42161: 'https://arbiscan.io',
+  10: 'https://optimistic.etherscan.io',
+  137: 'https://polygonscan.com',
+  56: 'https://bscscan.com',
+  43114: 'https://snowscan.xyz',
+  81457: 'https://blastscan.io',
+  130: 'https://uniscan.xyz',
+  7777777: 'https://explorer.zora.energy',
+  59144: 'https://lineascan.build',
+  324: 'https://explorer.zksync.io',
+  42220: 'https://celoscan.io',
+  4663: 'https://robinhoodchain.blockscout.com',
+};
+
 function getProtocolKey(action: ParsedAction): string {
   const p = (action.params['protocol'] ?? '').toLowerCase();
   if (p && PROTOCOL_CONFIGS[p]) return p;
@@ -5749,7 +5768,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     return 'Confirm';
   }
-  get explorerUrl(): string { const s = this.txSignature(); return s ? `https://solscan.io/tx/${s}` : ''; }
+  get explorerUrl(): string {
+    const s = this.txSignature();
+    if (!s) return '';
+    // EVM tx → the chain's own scanner (Etherscan/Basescan/…/Robinhood
+    // Blockscout); the tx hash is on the ORIGIN chain. Solana → Solscan.
+    const chainId = Number(this.action?.params?.['originChainId'] ?? this.action?.params?.['chainId'] ?? 0);
+    const base = EVM_EXPLORERS[chainId];
+    return base ? `${base}/tx/${s}` : `https://solscan.io/tx/${s}`;
+  }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
 
   readonly isLaunchAction = computed(() =>
