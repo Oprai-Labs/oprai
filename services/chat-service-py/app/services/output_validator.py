@@ -204,6 +204,13 @@ Look for:
   single-sided deposit. Do NOT block "user said USDS-USDC, action uses
   USDC" or "user said SOL-JUP, action uses SOL". Both sides are legitimate
   for liquidity actions on the named pair.
+  EXCEPTION 2 — the user DID name the pay asset. "buy N of Y WITH X",
+  "pay with X", "using my X", TR "elimdeki X ile Y al", "X ile Y al",
+  "X ödeyerek" — X is the specified source asset, in ANY language. This is
+  NOT fabrication; do NOT block it. In particular, native ETH/BNB/AVAX/etc.
+  is legitimately the ZERO ADDRESS (0x0000…0000) on EVM chains — an
+  originCurrency of the zero address when the user said "with my ETH" (TR
+  "elimdeki ether(ler) ile") is CORRECT, never "input token fabrication".
 - **Trade direction reversal** — the money-critical one. When the user's verb
   unambiguously says SELL and the action is a buy (`*_buy`), or says BUY and
   the action is a sell (`*_sell`), that is a BLOCK. Read the verb in whatever
