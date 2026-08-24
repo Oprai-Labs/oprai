@@ -1510,6 +1510,12 @@ export class SolanaActionService {
     action: ParsedAction,
     callbacks: ActionCallbacks = {}
   ): Promise<string> {
+    // Uniswap same-chain EVM swaps run entirely on the EVM side (window.ethereum),
+    // so they must NOT hit the Solana-wallet guard below — route them out first.
+    if (action.type === 'uniswap_swap') {
+      return this.executeUniswapSwap(action, callbacks);
+    }
+
     const wallet = this.walletService.publicKey();
     if (!wallet) {
       // The user may be signed in through an EVM (SIWE) session with no Solana
@@ -2519,6 +2525,154 @@ export class SolanaActionService {
   }
 
   // ─── Frontend Action Dispatcher ────────────────────────────────────────────
+
+  /**
+   * Uniswap same-chain EVM swap (Phase 1). Multi-step because Uniswap uses
+   * Permit2: quote → (ERC20 only) approve the token to Permit2 → sign the EIP-712
+   * permit → get the swap calldata → send → watch → record. The Uniswap API key
+   * lives in the backend, so quote/swap/record all go through our gateway. Native
+   * (ETH) input skips the approval + permit steps entirely.
+   */
+  private async executeUniswapSwap(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = Number(p['originChainId'] ?? p['chainId'] ?? 0);
+    if (!chainId) throw new Error('Uniswap: no chain specified for this swap.');
+
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) {
+      throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to swap on Uniswap.');
+    }
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+      const timer = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Uniswap: ${label} timed out after ${ms / 1000}s`)), ms),
+      );
+      return Promise.race([promise, timer]);
+    };
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s; // already hex (Uniswap returns value in hex)
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(
+      ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+
+    // Make sure the wallet is on the swap's chain before anything is signed.
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(
+          ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }),
+          60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network than this swap. Switch it and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    // 1. Quote (backend injects the API key + the swapper from the auth header).
+    const q = await firstValueFrom(this.api.post<any>('/actions/uniswap/quote', {
+      originChainId: chainId,
+      destinationChainId: chainId,
+      originCurrency: p['originCurrency'] ?? p['inputMint'] ?? p['tokenIn'] ?? p['fromToken'],
+      destinationCurrency: p['destinationCurrency'] ?? p['outputMint'] ?? p['tokenOut'] ?? p['toToken'],
+      amount: p['amount'],
+      tradeType: p['tradeType'] ?? 'EXACT_INPUT',
+      ...(p['slippageBps'] ? { slippageBps: p['slippageBps'] } : {}),
+    }));
+
+    // 2. Permit2 approval (ERC20 input only) — a one-time approve of the token to
+    // the Permit2 contract. Must land before the permit signature is valid.
+    if (q?.approval?.to) {
+      const approvalHash = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: q.approval.to, data: q.approval.data ?? '0x', value: toHexQty(q.approval.value) ?? '0x0' }],
+      }), 120_000, 'token approval');
+      const ok = await this.watchEvmReceipt(ethereum, approvalHash as string);
+      if (ok === false) throw new Error('The token approval reverted on-chain — nothing was swapped.');
+    }
+
+    // 3. Permit2 signature (ERC20 input only). eth_signTypedData_v4 needs the
+    // EIP712Domain type, which Uniswap omits — add it from the domain's fields.
+    let signature: string | undefined;
+    if (q?.permitData?.domain) {
+      const typedData = {
+        domain: q.permitData.domain,
+        types: { EIP712Domain: this.eip712DomainFields(q.permitData.domain), ...q.permitData.types },
+        primaryType: 'PermitSingle',
+        message: q.permitData.values,
+      };
+      signature = await withTimeout(
+        ethereum.request({ method: 'eth_signTypedData_v4', params: [account, JSON.stringify(typedData)] }),
+        120_000, 'permit sign') as string;
+    }
+
+    callbacks.onSign?.();
+    // 4. Swap calldata (backend → Uniswap /swap with the signed permit).
+    const swapResp = await firstValueFrom(this.api.post<any>('/actions/uniswap/swap', {
+      quote: q.quote,
+      permitData: q.permitData ?? null,
+      signature: signature ?? null,
+    }));
+    const tx = swapResp?.transaction;
+    if (!tx?.to) throw new Error('Uniswap: no swap transaction was returned.');
+
+    // 5. Send the swap.
+    const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+    const maxFeeHex = toHexQty(tx.maxFeePerGas);
+    const maxPrioHex = toHexQty(tx.maxPriorityFeePerGas);
+    const txHash = await withTimeout(ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: account,
+        to: tx.to,
+        data: tx.data ?? '0x',
+        value: toHexQty(tx.value) ?? '0x0',
+        ...(gasHex ? { gas: gasHex } : {}),
+        ...(maxFeeHex && maxPrioHex ? { maxFeePerGas: maxFeeHex, maxPriorityFeePerGas: maxPrioHex } : {}),
+      }],
+    }), 120_000, 'swap sign') as string;
+    callbacks.onSubmit?.(txHash);
+
+    // 6. Watch this chain's receipt (same-chain: the mined tx IS the settlement).
+    const ok = await this.watchEvmReceipt(ethereum, txHash);
+    if (ok === false) {
+      callbacks.onFail?.(
+        'The swap reverted on-chain — nothing was swapped. Your funds are safe minus the network fee.',
+        txHash,
+      );
+      return txHash;
+    }
+    // Book economics best-effort (server re-derives the USD notional itself).
+    this.api.post('/actions/uniswap/record', {
+      chainId,
+      txHash,
+      inputToken: q.input?.token,
+      outputToken: q.output?.token,
+      inputAmount: q.input?.amount,
+      outputAmount: q.output?.amount,
+      inputSymbol: q.input?.symbol,
+      outputSymbol: q.output?.symbol,
+    }).subscribe({ error: () => { /* best-effort; server is authoritative */ } });
+    callbacks.onConfirm?.(txHash);
+    return txHash;
+  }
+
+  /** EIP712Domain field descriptors matching whichever domain fields are present
+   * (Uniswap's Permit2 domain carries name + chainId + verifyingContract). */
+  private eip712DomainFields(domain: any): Array<{ name: string; type: string }> {
+    const f: Array<{ name: string; type: string }> = [];
+    if (domain?.name != null) f.push({ name: 'name', type: 'string' });
+    if (domain?.version != null) f.push({ name: 'version', type: 'string' });
+    if (domain?.chainId != null) f.push({ name: 'chainId', type: 'uint256' });
+    if (domain?.verifyingContract != null) f.push({ name: 'verifyingContract', type: 'address' });
+    if (domain?.salt != null) f.push({ name: 'salt', type: 'bytes32' });
+    return f;
+  }
 
   private async executeFrontendAction(
     action: ParsedAction,

@@ -422,6 +422,8 @@ class ActionType(str, Enum):
     RELAY_CLAIM_APP_FEES = "relay_claim_app_fees"
     RELAY_FAST_FILL = "relay_fast_fill"
     RELAY_EXECUTE = "relay_execute"
+    # Uniswap — same-chain EVM swap (opt-in: user names "uniswap" + a chain)
+    UNISWAP_SWAP = "uniswap_swap"
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -832,6 +834,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "tensor_buy", "tensor_list", "tensor_make_offer",
     # Cross-chain Squid swap (may specify recipient on destination chain)
     "cross_chain_swap",
+    # Uniswap same-chain EVM swap
+    "uniswap_swap",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
