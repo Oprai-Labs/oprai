@@ -1067,6 +1067,44 @@
   flex-shrink: 0;
 }
 
+// Uniswap protocol-version pill on a pool row's sub-line (V2 / V3 / V4).
+.uni-ver-badge {
+  display: inline-block;
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #F50DB4;
+  background: rgba(245, 13, 180, 0.12);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+// "Deposit" affordance that turns a pool row into an add-liquidity card.
+.km-deposit-btn {
+  border: 1px solid var(--op-border, rgba(120, 120, 140, 0.25));
+  background: transparent;
+  color: var(--op-text-primary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+
+  &:hover:not(:disabled) {
+    background: rgba(245, 13, 180, 0.10);
+    border-color: #F50DB4;
+    color: #F50DB4;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
 // A 28px slot holding the letter chip with the logo layered over it.
 //
 // The logo used to REPLACE the letter, which meant an empty circle for as long

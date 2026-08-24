@@ -7,7 +7,7 @@ use crate::error::AppError;
 use crate::services::{
     burn, dca, debridge, helius, jito, jupiter_lend, jupiter_perp, jupiter_query, jupsol, kamino,
     limit_order, magic_eden, marinade, meteora, native_stake, orca, pumpfun, raydium, relay, sns,
-    solend, squid, streamflow, swap, tensor, token_safety, transfer,
+    solend, squid, streamflow, swap, tensor, token_safety, transfer, uniswap,
 };
 use crate::solana::connection::SolanaRpc;
 
@@ -1413,6 +1413,13 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                     AppError::InvalidParams(format!("Invalid orca_get_pools params: {e}"))
                 })?;
             orca::validate_orca_get_pools_params(&p)
+        }
+        "uniswap_pools" => {
+            let p: uniswap::UniswapGetPoolsParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid uniswap_pools params: {e}"))
+                })?;
+            uniswap::validate_uniswap_get_pools_params(&p)
         }
         "orca_search_pools" => {
             let p: orca::OrcaSearchPoolsParams =
@@ -4107,6 +4114,10 @@ async fn build_action_inner(
         "orca_get_pools" => {
             let p: orca::OrcaGetPoolsParams = serde_json::from_value(params)?;
             orca::build_orca_get_pools(http, &p).await
+        }
+        "uniswap_pools" => {
+            let p: uniswap::UniswapGetPoolsParams = serde_json::from_value(params)?;
+            uniswap::build_uniswap_get_pools(http, &p).await
         }
         "orca_search_pools" => {
             let p: orca::OrcaSearchPoolsParams = serde_json::from_value(params)?;

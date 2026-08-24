@@ -76,7 +76,7 @@ export interface ParsedHistory {
 const KNOWN_ACTION_TYPES = new Set<string>([
   // Core Solana
   'transfer', 'swap', 'stake', 'unstake', 'burn', 'claim', 'vote',
-  'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap',
+  'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap', 'uniswap_pools',
   'nft_buy', 'nft_list', 'nft_mint',
   // Jupiter
   'limit_order', 'cancel_limit_order', 'cancel_all_limit_orders', 'dca', 'cancel_dca',
@@ -261,6 +261,8 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'sns_resolve', 'sns_reverse_lookup', 'sns_domains', 'sns_record',
   'sns_domain_info', 'sns_check_available', 'sns_primary_domain', 'sns_subdomains',
   'sns_twitter_handle',
+  // Uniswap LP pool listing (self-fetching query-card, EVM)
+  'uniswap_pools',
   // Cross-chain queries
   'cross_chain_quote', 'cross_chain_chains', 'cross_chain_tokens',
   // Relay.link queries — quotes, chains, tokens, history, status
@@ -1328,6 +1330,13 @@ export class IntentParserService {
         return 'Meteora DLMM Positions';
       case 'meteora_dammv2_get_user_positions':
         return 'Meteora DAMM v2 Positions';
+      // ── Uniswap (EVM LP) ──────────────────────────────────────────────────
+      case 'uniswap_pools': {
+        const chain = query.params['chain'] ? ` · ${query.params['chain']}` : '';
+        return query.params['query']
+          ? `Uniswap Pools (${query.params['query']})${chain}`
+          : `Uniswap Pools${chain}`;
+      }
       // ── Orca Whirlpools ───────────────────────────────────────────────────
       case 'orca_get_pools':
         return query.params['token'] ? `Orca Pools (${query.params['token']})` : 'Orca Whirlpools';

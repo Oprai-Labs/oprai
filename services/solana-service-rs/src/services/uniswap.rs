@@ -18,8 +18,10 @@
 //! → Uniswap, never Uniswap directly.
 
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::services::builder::{ActionPreview, BuildResponse};
 use crate::services::relay::{resolve_evm_currency, to_base_units, get_chain_name, NATIVE_TOKEN_ADDRESS, CrossChainSwapParams};
 
 pub const UNISWAP_TRADE_API: &str = "https://trade-api.gateway.uniswap.org/v1";
@@ -511,5 +513,209 @@ fn uniswap_api_error(status: reqwest::StatusCode, body: &Value) -> AppError {
         AppError::InvalidParams(msg)
     } else {
         AppError::Internal(format!("Uniswap API error ({status}): {msg}"))
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Pool listing (Phase 3a of the Uniswap LP program).
+//
+// Uniswap's LP API has no pool-discovery endpoint, so we list pools via
+// DexScreener (free, no key, already used elsewhere in the stack): its search
+// returns Uniswap pairs on a given chain with pair address, v2/v3/v4 label,
+// TVL, 24h volume and price. That's everything the list card + the row→add
+// hand-off need; the fee tier / tickSpacing (absent from DexScreener) are read
+// on-chain at add-liquidity time.
+// ────────────────────────────────────────────────────────────────────────────
+
+const DEXSCREENER_SEARCH: &str = "https://api.dexscreener.com/latest/dex/search";
+
+/// Map a chain name or numeric id to the DexScreener chain slug. Uniswap's
+/// major EVM chains only — DexScreener doesn't index every rollup.
+fn dexscreener_chain_slug(chain: &str) -> Option<&'static str> {
+    match chain.trim().to_lowercase().as_str() {
+        "ethereum" | "eth" | "mainnet" | "1" => Some("ethereum"),
+        "base" | "8453" => Some("base"),
+        "arbitrum" | "arb" | "42161" => Some("arbitrum"),
+        "optimism" | "op" | "10" => Some("optimism"),
+        "polygon" | "matic" | "pol" | "137" => Some("polygon"),
+        "bsc" | "bnb" | "binance" | "56" => Some("bsc"),
+        "avalanche" | "avax" | "43114" => Some("avalanche"),
+        "unichain" | "130" => Some("unichain"),
+        "blast" | "81457" => Some("blast"),
+        "celo" | "42220" => Some("celo"),
+        "zora" | "7777777" => Some("zora"),
+        _ => None,
+    }
+}
+
+/// A friendly default search term per chain so "show me Uniswap pools on Base"
+/// (no pair named) still returns the chain's deepest pools.
+fn default_pool_query(slug: &str) -> &'static str {
+    match slug {
+        "polygon" => "WMATIC USDC",
+        "bsc" => "WBNB USDT",
+        "avalanche" => "WAVAX USDC",
+        _ => "WETH USDC",
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UniswapGetPoolsParams {
+    /// Chain name or numeric id. Required — Uniswap is multi-chain and a pool
+    /// only means anything on a specific chain.
+    #[serde(default)]
+    pub chain: Option<String>,
+    /// Free-text pair / token query (e.g. "ETH USDC", "WETH", a token address).
+    #[serde(default)]
+    pub query: Option<String>,
+    /// Filter to a single protocol version: "v2" | "v3" | "v4" (default: all).
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+pub fn validate_uniswap_get_pools_params(p: &UniswapGetPoolsParams) -> Result<(), AppError> {
+    let chain = p.chain.as_deref().unwrap_or("").trim();
+    if chain.is_empty() {
+        return Err(AppError::InvalidParams(
+            "A chain is required to list Uniswap pools (e.g. base, arbitrum, ethereum).".into(),
+        ));
+    }
+    if dexscreener_chain_slug(chain).is_none() {
+        return Err(AppError::InvalidParams(format!(
+            "Uniswap pool listing isn't available on '{chain}'. Try ethereum, base, arbitrum, optimism, polygon, bsc."
+        )));
+    }
+    Ok(())
+}
+
+pub async fn build_uniswap_get_pools(
+    http: &reqwest::Client,
+    params: &UniswapGetPoolsParams,
+) -> Result<BuildResponse, AppError> {
+    let chain = params.chain.as_deref().unwrap_or("").trim();
+    let slug = dexscreener_chain_slug(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("Unsupported chain '{chain}'")))?;
+    let query = params
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default_pool_query(slug));
+    let version_filter = params
+        .version
+        .as_deref()
+        .map(|v| v.trim().to_lowercase())
+        .filter(|v| matches!(v.as_str(), "v2" | "v3" | "v4"));
+
+    let resp = http
+        .get(DEXSCREENER_SEARCH)
+        .query(&[("q", query)])
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("DexScreener request failed: {e}")))?;
+    let status = resp.status();
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("DexScreener bad JSON: {e}")))?;
+    if !status.is_success() {
+        return Err(AppError::Internal(format!("DexScreener error ({status})")));
+    }
+
+    let empty = vec![];
+    let pairs = body.get("pairs").and_then(|p| p.as_array()).unwrap_or(&empty);
+    let mut rows: Vec<Value> = pairs
+        .iter()
+        .filter(|p| {
+            p.get("chainId").and_then(|c| c.as_str()) == Some(slug)
+                && p.get("dexId").and_then(|d| d.as_str()) == Some("uniswap")
+        })
+        .filter_map(|p| {
+            // Version from DexScreener labels (["v3"]); default v3 when unlabelled.
+            let version = p
+                .get("labels")
+                .and_then(|l| l.as_array())
+                .and_then(|a| a.iter().find_map(|x| x.as_str()))
+                .map(|s| s.to_lowercase())
+                .unwrap_or_else(|| "v3".to_string());
+            if let Some(ref vf) = version_filter {
+                if &version != vf {
+                    return None;
+                }
+            }
+            let base = p.get("baseToken")?;
+            let quote = p.get("quoteToken")?;
+            let tvl = p
+                .get("liquidity")
+                .and_then(|l| l.get("usd"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            Some(json!({
+                "pairAddress":  p.get("pairAddress").and_then(|v| v.as_str()).unwrap_or(""),
+                "version":      version,
+                "baseSymbol":   base.get("symbol").and_then(|v| v.as_str()).unwrap_or(""),
+                "quoteSymbol":  quote.get("symbol").and_then(|v| v.as_str()).unwrap_or(""),
+                "baseAddress":  base.get("address").and_then(|v| v.as_str()).unwrap_or(""),
+                "quoteAddress": quote.get("address").and_then(|v| v.as_str()).unwrap_or(""),
+                "tvlUsd":       tvl,
+                "volume24hUsd": p.get("volume").and_then(|v| v.get("h24")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+                "priceUsd":     p.get("priceUsd").and_then(|v| v.as_str()).unwrap_or(""),
+                "url":          p.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                "chain":        slug,
+            }))
+        })
+        .collect();
+
+    // Deepest liquidity first — that's the pool the user most likely wants.
+    rows.sort_by(|a, b| {
+        let av = a.get("tvlUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let bv = b.get("tvlUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    rows.truncate(30);
+
+    let chain_name = get_chain_name(dexscreener_slug_to_chain_id(slug)).to_string();
+    let description = if rows.is_empty() {
+        format!("No Uniswap pools found for \"{query}\" on {chain_name}.")
+    } else {
+        format!("Uniswap pools on {chain_name} — {} matching \"{query}\".", rows.len())
+    };
+
+    Ok(BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: "uniswap_pools".to_string(),
+            description,
+            estimated_fee: "0".to_string(),
+            estimated_refund: None,
+            params: json!({}),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(json!({ "chain": slug, "chainName": chain_name, "query": query, "pools": rows })),
+    })
+}
+
+/// Reverse of dexscreener_chain_slug for the human chain name lookup.
+fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
+    match slug {
+        "ethereum" => 1,
+        "base" => 8453,
+        "arbitrum" => 42161,
+        "optimism" => 10,
+        "polygon" => 137,
+        "bsc" => 56,
+        "avalanche" => 43114,
+        "unichain" => 130,
+        "blast" => 81457,
+        "celo" => 42220,
+        "zora" => 7777777,
+        _ => 0,
     }
 }

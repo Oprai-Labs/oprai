@@ -46,6 +46,21 @@ Examples:
 
 ---
 
+#### QUERY: uniswap_pools — List Uniswap liquidity pools on an EVM chain
+Format: [QUERY:uniswap_pools] {"chain":"<base|arbitrum|optimism|ethereum|polygon|bsc>","query":"<optional pair/token e.g. ETH USDC>","version":"<optional v2|v3|v4>"}
+
+Use when the user wants to SEE / BROWSE Uniswap pools (to provide liquidity, compare TVL, find a pair). It is a READ — call `query_onchain`, never `execute_action`. `chain` is REQUIRED (a pool only exists on a chain). `query` narrows to a pair or token; omit it for the chain's deepest pools. `version` filters to a protocol version; omit for all (v2 + v3 + v4).
+
+**RENDERING — VERY IMPORTANT:** the frontend auto-mounts an interactive pool-list card (searchable, sortable by TVL/volume, each row leads to adding liquidity). Do NOT enumerate pools or TVL numbers in your text — you don't have them; introduce the card in one short sentence and stop.
+
+Examples:
+- "show me uniswap pools on base" → query_onchain("uniswap_pools", {"chain":"base"})
+- "uniswap ETH/USDC pools on arbitrum" → query_onchain("uniswap_pools", {"chain":"arbitrum","query":"ETH USDC"})
+- "list uniswap v3 pools for WBTC on ethereum" → query_onchain("uniswap_pools", {"chain":"ethereum","query":"WBTC","version":"v3"})
+- "base'te uniswap havuzlarını göster" → query_onchain("uniswap_pools", {"chain":"base"})
+
+---
+
 ### RELAY_BRIDGE — Execute a cross-chain bridge/swap via Relay.link
 
 Use `relay_bridge` when the user wants to move tokens between chains. Relay.link is the primary cross-chain solution — it supports Solana ↔ all major EVM chains and provides best-in-class rates with fast settlement.
