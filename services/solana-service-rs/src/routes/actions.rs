@@ -1707,11 +1707,6 @@ pub struct UniswapRecordBody {
     pub output_symbol: Option<String>,
 }
 
-/// Flat 0.50% — the Trading API takes the integrator fee configured on the key,
-/// which we set to 50 bps (recipient = our EVM fee wallet). Not per-pair-tiered
-/// like Relay because Uniswap fixes the rate on the key.
-const UNISWAP_FEE_BPS: i32 = 50;
-
 #[post("/uniswap/record")]
 pub async fn post_uniswap_record(
     req: HttpRequest,
@@ -1752,7 +1747,14 @@ pub async fn post_uniswap_record(
         .unwrap_or(0.0);
     }
 
-    let fee_bps = UNISWAP_FEE_BPS;
+    // Only book a fee once Uniswap has actually enabled fee-taking for our
+    // recipient. Until then the integratorFees field is accepted but nothing is
+    // deducted, so recording a fee (and owing cashback on it) would be wrong.
+    let fee_bps: i32 = if crate::services::uniswap::fee_active() {
+        crate::services::uniswap::fee_bps() as i32
+    } else {
+        0
+    };
     let fee_usd = notional_usd * (fee_bps as f64) / 10_000.0;
 
     match crate::db::economics::record_evm_confirmed(

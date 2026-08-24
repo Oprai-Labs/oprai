@@ -32,6 +32,36 @@ fn api_key() -> Result<String, AppError> {
         .ok_or_else(|| AppError::Internal("UNISWAP_API_KEY is not configured".into()))
 }
 
+/// The EVM wallet our integrator fee is paid to. Reuses RELAY_FEE_RECIPIENT
+/// (our existing EVM fee wallet) unless a dedicated UNISWAP_FEE_RECIPIENT is set.
+/// None → no integratorFees field is sent at all.
+pub fn fee_recipient() -> Option<String> {
+    std::env::var("UNISWAP_FEE_RECIPIENT")
+        .ok()
+        .or_else(|| std::env::var("RELAY_FEE_RECIPIENT").ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Integrator fee in bips (default 50 = 0.50%).
+pub fn fee_bps() -> u16 {
+    std::env::var("UNISWAP_FEE_BPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50)
+}
+
+/// Whether Uniswap has ENABLED fee-taking for our recipient. Until they do, the
+/// integratorFees field validates but nothing is deducted — so booking a fee
+/// (and owing cashback on it) would be wrong. Ship false; flip to true only once
+/// Uniswap confirms the arrangement is live.
+pub fn fee_active() -> bool {
+    matches!(
+        std::env::var("UNISWAP_FEE_ACTIVE").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE")
+    )
+}
+
 /// Chains where Uniswap is deployed and the Trading API routes. Robinhood (4663)
 /// is deliberately excluded — Uniswap's swap router isn't there (its launchpad
 /// is, handled in a later phase).
@@ -136,6 +166,15 @@ pub async fn uniswap_quote(
     // Slippage: Uniswap wants a percentage float; our params carry bps.
     if params.slippage_bps > 0 {
         body["slippageTolerance"] = json!(params.slippage_bps as f64 / 100.0);
+    }
+    // Integrator fee (the current, post-2026-05-18 model; key-based fees are
+    // sunset). We send it always so we're fee-ready, but Uniswap only actually
+    // DEDUCTS it once they enable fee-taking for our recipient — until then the
+    // field validates and the output is unchanged (so shipping at "no fee" is
+    // safe). `bips` + `recipient` are both required; recipient reuses our EVM fee
+    // wallet (RELAY_FEE_RECIPIENT) unless overridden.
+    if let Some(recipient) = fee_recipient() {
+        body["integratorFees"] = json!([{ "bips": fee_bps(), "recipient": recipient }]);
     }
 
     let resp = http
