@@ -907,10 +907,15 @@
               <lucide-icon name="arrow-down" [size]="16" />
             </div>
 
-            <!-- You receive (live-quoted) -->
+            <!-- You receive (live-quoted, refreshes every 3s) -->
             <div class="pump-panel pump-panel--recv">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'You receive (estimated)' | t }}</span>
+                @if (quoteCountdown() !== null) {
+                  <span class="pump-panel__refresh" title="Auto-refreshes every {{ POLL_INTERVAL_S }}s">
+                    <lucide-icon name="refresh-cw" [size]="10" /> {{ quoteCountdown() }}s
+                  </span>
+                }
               </div>
               <div class="pump-panel__row">
                 <input type="text" class="pump-panel__amount" placeholder="0"

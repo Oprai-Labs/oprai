@@ -4124,8 +4124,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     error?: string;
   } | null>(null);
 
-  /** Fetch the Uniswap quote to fill the card's "You receive" side + rate. */
-  private async fetchUniswapPreview(): Promise<void> {
+  private _uniQuoteSeq = 0;
+
+  /** Fetch the Uniswap quote to fill the card's "You receive" side + rate.
+   * `silent` (the 3s poll) skips the loading flash and just swaps in fresh
+   * numbers when they arrive. */
+  private async fetchUniswapPreview(silent = false): Promise<void> {
     const p = this.action?.params ?? {};
     const chainId = Number(p['originChainId'] ?? p['chainId'] ?? 0);
     const body = {
@@ -4136,9 +4140,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       amount: p['amount'],
       tradeType: p['tradeType'] ?? 'EXACT_INPUT',
     };
-    this.uniswapPreview.set({ loading: true, payAmount: String(p['amount'] ?? '') });
+    const seq = ++this._uniQuoteSeq;
+    if (!silent) this.uniswapPreview.set({ loading: true, payAmount: String(p['amount'] ?? '') });
     try {
       const q = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/quote', body));
+      if (seq !== this._uniQuoteSeq) return; // superseded by a newer poll
       this.uniswapPreview.set({
         loading: false,
         paySymbol: q.inputSymbol,
@@ -4152,6 +4158,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         chainName: q.chainName,
       });
     } catch (e: any) {
+      if (seq !== this._uniQuoteSeq) return;
+      // A transient poll failure must not blank a good preview the user is
+      // reading — only surface an error on the initial (non-silent) fetch.
+      if (silent && this.uniswapPreview() && !this.uniswapPreview()?.error) return;
       this.uniswapPreview.set({
         loading: false,
         error: sanitizeErrorMessage(e?.error?.error ?? e?.message ?? '', 'uniswap_swap') || 'Couldn’t price this swap right now.',
@@ -7309,7 +7319,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // whenever `status()` changes, so submit / cancel / error all stop it.
   private readonly _quotePollLifecycleEffect = effect(() => {
     const isPollable = this.action?.type === 'swap' || this.action?.type === 'raydium_swap'
-      || this.action?.type === 'orca_swap' || this.pumpActionConfig() !== null;
+      || this.action?.type === 'orca_swap' || this.action?.type === 'uniswap_swap'
+      || this.pumpActionConfig() !== null;
     const shouldPoll = isPollable && this.status() === 'pending';
     if (shouldPoll) this.startQuotePolling();
     else this.stopQuotePolling();
@@ -7322,7 +7333,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * (not a swap, or status != pending).
    */
   onCardInteract(): void {
-    const eligible = (this.action?.type === 'swap' || this.action?.type === 'raydium_swap' || this.pumpActionConfig() !== null)
+    const eligible = (this.action?.type === 'swap' || this.action?.type === 'raydium_swap'
+                      || this.action?.type === 'orca_swap' || this.action?.type === 'uniswap_swap'
+                      || this.pumpActionConfig() !== null)
                      && this.status() === 'pending';
     if (!eligible) return;
     this._pollVisibleElapsedMs = 0;
@@ -7421,6 +7434,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private async refreshQuoteSilently(): Promise<void> {
     // Route pump.fun / PumpSwap cards through their own estimator.
     if (this.pumpActionConfig()) { await this.refreshPumpQuoteSilently(); return; }
+    // Uniswap re-quotes via its own endpoint (silent = no loading flash).
+    if (this.isUniswapSwap()) { await this.fetchUniswapPreview(true); return; }
     const p = this.editParams();
     const inMintRaw = (p['inputMint'] ?? '').trim();
     const outMintRaw = (p['outputMint'] ?? '').trim();
