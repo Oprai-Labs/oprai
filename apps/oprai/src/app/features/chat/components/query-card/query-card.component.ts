@@ -53,6 +53,8 @@ interface UniswapPool {
   priceUsd: string;
   url: string;
   chain: string;
+  baseLogo?: string | null;
+  quoteLogo?: string | null;
 }
 
 interface PriceResult {
@@ -3333,6 +3335,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly uniswapPoolsFetching = signal(false);
   uniswapVersionFilter: 'all' | 'v2' | 'v3' | 'v4' = 'all';
 
+  readonly UNISWAP_PAGE_SIZE = 6;
+  uniswapPoolsPage = 0;
+
   get filteredUniswapPools(): UniswapPool[] {
     const v = this.uniswapVersionFilter;
     return v === 'all'
@@ -3340,13 +3345,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       : this.uniswapPoolsResults.filter(p => (p.version || '').toLowerCase() === v);
   }
 
+  get uniswapTotalPages(): number {
+    return Math.max(1, Math.ceil(this.filteredUniswapPools.length / this.UNISWAP_PAGE_SIZE));
+  }
+
+  get pagedUniswapPools(): UniswapPool[] {
+    const page = Math.min(this.uniswapPoolsPage, this.uniswapTotalPages - 1);
+    return this.filteredUniswapPools.slice(page * this.UNISWAP_PAGE_SIZE, (page + 1) * this.UNISWAP_PAGE_SIZE);
+  }
+
+  uniswapNextPage(): void { if (this.uniswapPoolsPage < this.uniswapTotalPages - 1) this.uniswapPoolsPage++; }
+  uniswapPrevPage(): void { if (this.uniswapPoolsPage > 0) this.uniswapPoolsPage--; }
+
   /** Versions actually present in the current result set — drives the chips. */
   get uniswapVersionsAvailable(): string[] {
     const set = new Set(this.uniswapPoolsResults.map(p => (p.version || '').toLowerCase()).filter(Boolean));
     return ['v2', 'v3', 'v4'].filter(v => set.has(v));
   }
 
-  setUniswapVersion(v: 'all' | 'v2' | 'v3' | 'v4'): void { this.uniswapVersionFilter = v; }
+  setUniswapVersion(v: 'all' | 'v2' | 'v3' | 'v4'): void { this.uniswapVersionFilter = v; this.uniswapPoolsPage = 0; }
 
   private async fetchUniswapPools(): Promise<void> {
     this.uniswapPoolsFetching.set(true);

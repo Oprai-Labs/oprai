@@ -154,19 +154,23 @@
             <div class="dlmm-empty">{{ 'Loading pools…' | t }}</div>
           }
 
-          @for (p of filteredUniswapPools; track p.pairAddress) {
+          @for (p of pagedUniswapPools; track p.pairAddress) {
             <div class="result-table__row result-table__row--4col dlmm-row">
               <span class="km-pair">
                 <span class="km-icons">
                   <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (p.baseSymbol || '?').charAt(0) }}</span>
-                    <img class="km-icon km-icon--img" [src]="uniTokenLogo(p.chain, p.baseAddress)" [alt]="p.baseSymbol"
-                         loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                    @if (p.baseLogo || uniTokenLogo(p.chain, p.baseAddress); as blogo) {
+                      <img class="km-icon km-icon--img" [src]="blogo" [alt]="p.baseSymbol"
+                           loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                    }
                   </span>
                   <span class="km-icon-slot km-icon-slot--debt">
                     <span class="km-icon km-icon--fallback">{{ (p.quoteSymbol || '?').charAt(0) }}</span>
-                    <img class="km-icon km-icon--img" [src]="uniTokenLogo(p.chain, p.quoteAddress)" [alt]="p.quoteSymbol"
-                         loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                    @if (p.quoteLogo || uniTokenLogo(p.chain, p.quoteAddress); as qlogo) {
+                      <img class="km-icon km-icon--img" [src]="qlogo" [alt]="p.quoteSymbol"
+                           loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                    }
                   </span>
                 </span>
                 <span class="km-pair__text">
@@ -190,6 +194,18 @@
             <div class="dlmm-empty">{{ 'No Uniswap pools found for this query.' | t }}</div>
           }
         </div>
+
+        @if (uniswapTotalPages > 1) {
+          <div class="balance-pagination">
+            <button class="balance-page-btn" (click)="uniswapPrevPage()" [disabled]="uniswapPoolsPage === 0">
+              <lucide-icon name="chevron-left" [size]="13" />
+            </button>
+            <span class="balance-page-label">{{ uniswapPoolsPage + 1 }} / {{ uniswapTotalPages }}</span>
+            <button class="balance-page-btn" (click)="uniswapNextPage()" [disabled]="uniswapPoolsPage === uniswapTotalPages - 1">
+              <lucide-icon name="chevron-right" [size]="13" />
+            </button>
+          </div>
+        }
       }
 
       <!-- ── Magic Eden ──────────────────────────────────────────────────

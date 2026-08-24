@@ -585,6 +585,40 @@ fn dexscreener_chain_slug(chain: &str) -> Option<&'static str> {
     }
 }
 
+/// A token's logo URL for the pool list. DexScreener's image CDN covers the
+/// major chains; Robinhood tokens 404 there but carry an icon_url on Robinhood's
+/// Blockscout. Cached per address within a request.
+async fn token_logo_for(
+    http: &reqwest::Client,
+    slug: &str,
+    addr: &str,
+    cache: &mut std::collections::HashMap<String, Option<String>>,
+) -> Option<String> {
+    if addr.is_empty() {
+        return None;
+    }
+    let key = addr.to_lowercase();
+    if let Some(hit) = cache.get(&key) {
+        return hit.clone();
+    }
+    let logo = if slug == "robinhood" {
+        let url = format!("https://robinhoodchain.blockscout.com/api/v2/tokens/{addr}");
+        match http.get(&url).send().await {
+            Ok(r) if r.status().is_success() => r
+                .json::<Value>()
+                .await
+                .ok()
+                .and_then(|j| j.get("icon_url").and_then(|v| v.as_str()).map(String::from))
+                .filter(|s| !s.is_empty()),
+            _ => None,
+        }
+    } else {
+        Some(format!("https://dd.dexscreener.com/ds-data/tokens/{slug}/{key}.png"))
+    };
+    cache.insert(key, logo.clone());
+    logo
+}
+
 /// A friendly default search term per chain so "show me Uniswap pools on Base"
 /// (no pair named) still returns the chain's deepest pools.
 fn default_pool_query(slug: &str) -> &'static str {
@@ -774,6 +808,22 @@ pub async fn build_uniswap_get_pools(
         bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
     });
     rows.truncate(30);
+
+    // Attach a logo to each token. DexScreener's image CDN covers the major
+    // chains but 404s on Robinhood, whose tokens carry a real icon_url on its
+    // Blockscout. Resolve per UNIQUE address (the list is mostly one pair) and
+    // inject baseLogo/quoteLogo so the card shows coins, not letter chips.
+    let mut logo_cache: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+    for i in 0..rows.len() {
+        let base_addr = rows[i].get("baseAddress").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let quote_addr = rows[i].get("quoteAddress").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let base_logo = token_logo_for(http, slug, &base_addr, &mut logo_cache).await;
+        let quote_logo = token_logo_for(http, slug, &quote_addr, &mut logo_cache).await;
+        if let Some(obj) = rows[i].as_object_mut() {
+            obj.insert("baseLogo".into(), json!(base_logo));
+            obj.insert("quoteLogo".into(), json!(quote_logo));
+        }
+    }
 
     let chain_name = get_chain_name(dexscreener_slug_to_chain_id(slug)).to_string();
     let description = if rows.is_empty() {
