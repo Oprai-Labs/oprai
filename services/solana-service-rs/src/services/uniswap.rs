@@ -585,15 +585,22 @@ fn dexscreener_chain_slug(chain: &str) -> Option<&'static str> {
     }
 }
 
+/// Process-wide logo cache (address → URL). Only SUCCESSFUL resolutions are
+/// stored, so a transient Blockscout rate-limit (429) never poisons it — and a
+/// token resolved once is never re-fetched for the life of the process, which
+/// keeps us well under Blockscout's rate limit no matter how many pool lists
+/// are requested.
+static LOGO_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    std::sync::OnceLock::new();
+
+fn logo_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    LOGO_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 /// A token's logo URL for the pool list. DexScreener's image CDN covers the
 /// major chains; Robinhood tokens 404 there but carry an icon_url on Robinhood's
-/// Blockscout. Cached per address within a request.
-async fn token_logo_for(
-    http: &reqwest::Client,
-    slug: &str,
-    addr: &str,
-    cache: &mut std::collections::HashMap<String, Option<String>>,
-) -> Option<String> {
+/// Blockscout. Backed by a process-wide cache (successes only).
+async fn token_logo_for(http: &reqwest::Client, slug: &str, addr: &str) -> Option<String> {
     if addr.is_empty() {
         return None;
     }
@@ -601,15 +608,16 @@ async fn token_logo_for(
     // has no token page / icon anywhere. Borrow the wrapped native's logo (WETH)
     // so a native-ETH leg shows the ETH coin, not a bare letter.
     let key = if is_zero_address(addr) {
-        wrapped_native_address(slug).to_string()
+        format!("{slug}:{}", wrapped_native_address(slug))
     } else {
-        addr.to_lowercase()
+        format!("{slug}:{}", addr.to_lowercase())
     };
-    if let Some(hit) = cache.get(&key) {
-        return hit.clone();
+    if let Some(hit) = logo_cache().lock().ok().and_then(|c| c.get(&key).cloned()) {
+        return Some(hit);
     }
+    let bare = key.split_once(':').map(|(_, a)| a.to_string()).unwrap_or_default();
     let logo = if slug == "robinhood" {
-        let url = format!("https://robinhoodchain.blockscout.com/api/v2/tokens/{key}");
+        let url = format!("https://robinhoodchain.blockscout.com/api/v2/tokens/{bare}");
         match http.get(&url).send().await {
             Ok(r) if r.status().is_success() => r
                 .json::<Value>()
@@ -617,12 +625,16 @@ async fn token_logo_for(
                 .ok()
                 .and_then(|j| j.get("icon_url").and_then(|v| v.as_str()).map(String::from))
                 .filter(|s| !s.is_empty()),
-            _ => None,
+            _ => None, // transient (429/5xx) — do NOT cache, retry next request
         }
     } else {
-        Some(format!("https://dd.dexscreener.com/ds-data/tokens/{slug}/{key}.png"))
+        Some(format!("https://dd.dexscreener.com/ds-data/tokens/{slug}/{bare}.png"))
     };
-    cache.insert(key, logo.clone());
+    if let Some(ref l) = logo {
+        if let Ok(mut c) = logo_cache().lock() {
+            c.insert(key, l.clone());
+        }
+    }
     logo
 }
 
@@ -836,12 +848,11 @@ pub async fn build_uniswap_get_pools(
     // chains but 404s on Robinhood, whose tokens carry a real icon_url on its
     // Blockscout. Resolve per UNIQUE address (the list is mostly one pair) and
     // inject baseLogo/quoteLogo so the card shows coins, not letter chips.
-    let mut logo_cache: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
     for i in 0..rows.len() {
         let base_addr = rows[i].get("baseAddress").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let quote_addr = rows[i].get("quoteAddress").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let base_logo = token_logo_for(http, slug, &base_addr, &mut logo_cache).await;
-        let quote_logo = token_logo_for(http, slug, &quote_addr, &mut logo_cache).await;
+        let base_logo = token_logo_for(http, slug, &base_addr).await;
+        let quote_logo = token_logo_for(http, slug, &quote_addr).await;
         if let Some(obj) = rows[i].as_object_mut() {
             obj.insert("baseLogo".into(), json!(base_logo));
             obj.insert("quoteLogo".into(), json!(quote_logo));
