@@ -848,6 +848,34 @@ pub async fn build_uniswap_get_pools(
         }
     }
 
+    // Symbol-level fallback: the SAME ticker can appear under different contracts
+    // across versions (e.g. a V3 USDG whose contract has no Blockscout icon and a
+    // V4 USDG whose contract does). Borrow a logo from any same-symbol token that
+    // resolved one, so every USDG row shows the USDG coin, not a "U" chip.
+    let mut sym_logo: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for r in &rows {
+        for (sym_k, logo_k) in [("baseSymbol", "baseLogo"), ("quoteSymbol", "quoteLogo")] {
+            let sym = r.get(sym_k).and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
+            if let Some(l) = r.get(logo_k).and_then(|v| v.as_str()) {
+                if !sym.is_empty() && !l.is_empty() {
+                    sym_logo.entry(sym).or_insert_with(|| l.to_string());
+                }
+            }
+        }
+    }
+    for r in rows.iter_mut() {
+        for (sym_k, logo_k) in [("baseSymbol", "baseLogo"), ("quoteSymbol", "quoteLogo")] {
+            let missing = r.get(logo_k).map(|v| v.is_null()).unwrap_or(true);
+            if !missing { continue; }
+            let sym = r.get(sym_k).and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
+            if let Some(l) = sym_logo.get(&sym) {
+                if let Some(obj) = r.as_object_mut() {
+                    obj.insert(logo_k.into(), json!(l));
+                }
+            }
+        }
+    }
+
     let chain_name = get_chain_name(dexscreener_slug_to_chain_id(slug)).to_string();
     let description = if rows.is_empty() {
         format!("No Uniswap pools found for \"{query}\" on {chain_name}.")
