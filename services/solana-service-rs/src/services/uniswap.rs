@@ -1143,9 +1143,11 @@ fn tick_bounds(current: i64, spacing: i64, range_percent: Option<f64>) -> (i64, 
             (lo, hi)
         }
         _ => {
-            // Full range, one spacing inside the usable boundary.
-            let lo = ((MIN_TICK / spacing) + 1) * spacing;
-            let hi = ((MAX_TICK / spacing) - 1) * spacing;
+            // Full range = the nearest USABLE ticks to the min/max. Integer
+            // division truncates toward zero, which for these bounds yields
+            // exactly nearestUsableTick(MIN)/(MAX) (e.g. ±887220 for spacing 60).
+            let lo = (MIN_TICK / spacing) * spacing;
+            let hi = (MAX_TICK / spacing) * spacing;
             (lo, hi)
         }
     }
@@ -1194,8 +1196,8 @@ async fn v4_full_range_create(
 ) -> Result<Value, AppError> {
     let mut last: Option<(reqwest::StatusCode, Value)> = None;
     for spacing in [60i64, 10, 200, 1] {
-        let lo = ((MIN_TICK / spacing) + 1) * spacing;
-        let hi = ((MAX_TICK / spacing) - 1) * spacing;
+        let lo = (MIN_TICK / spacing) * spacing;
+        let hi = (MAX_TICK / spacing) * spacing;
         let body = json!({
             "walletAddress": wallet, "protocol": "V4", "chainId": chain_id,
             "existingPool": { "token0Address": token0, "token1Address": token1, "poolReference": pool_id },
