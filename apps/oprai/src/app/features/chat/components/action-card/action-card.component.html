@@ -966,6 +966,14 @@
             <div class="pump-panel">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'Deposit' | t }}</span>
+                @if (uniLpBalanceFor('A'); as balA) {
+                  <span class="pump-panel__bal">
+                    {{ 'Balance:' | t }} {{ balA | number:'1.0-4' }}
+                    @if (isEditable()) {
+                      <button class="pump-panel__max" type="button" (click)="uniLpMax('A')">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                }
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
@@ -992,7 +1000,14 @@
             <div class="pump-panel">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'And' | t }}</span>
-                @if (ulp?.loading) {
+                @if (uniLpBalanceFor('B'); as balB) {
+                  <span class="pump-panel__bal">
+                    {{ 'Balance:' | t }} {{ balB | number:'1.0-4' }}
+                    @if (isEditable()) {
+                      <button class="pump-panel__max" type="button" (click)="uniLpMax('B')">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                } @else if (ulp?.loading) {
                   <span class="pump-panel__bal"><span class="proto-balance-dots">···</span></span>
                 }
               </div>
@@ -1012,19 +1027,33 @@
               </div>
             </div>
 
-            <!-- Price range + protocol -->
+            <!-- Price range + protocol. Range semantics differ by version:
+                 V3 concentrated (pick a band); V4 concentrated but full-range for
+                 now; V2 is a constant-product AMM with no range at all. -->
             <div class="swap-facts">
-              <div class="swap-facts__row">
-                <span class="swap-facts__label">{{ 'Price range' | t }}</span>
-                <span class="uni-range-chips">
-                  <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === 'full'"
-                          [disabled]="!isEditable()" (click)="setUniLpRange('full')">{{ 'Full' | t }}</button>
-                  <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === '25'"
-                          [disabled]="!isEditable()" (click)="setUniLpRange('25')">±25%</button>
-                  <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === '10'"
-                          [disabled]="!isEditable()" (click)="setUniLpRange('10')">±10%</button>
-                </span>
-              </div>
+              @if (uniLpShowRangeChips()) {
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'Price range' | t }}</span>
+                  <span class="uni-range-chips">
+                    <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === 'full'"
+                            [disabled]="!isEditable()" (click)="setUniLpRange('full')">{{ 'Full' | t }}</button>
+                    <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === '25'"
+                            [disabled]="!isEditable()" (click)="setUniLpRange('25')">±25%</button>
+                    <button type="button" class="uni-range-chip" [class.on]="uniLpRange() === '10'"
+                            [disabled]="!isEditable()" (click)="setUniLpRange('10')">±10%</button>
+                  </span>
+                </div>
+              } @else if (uniLpVersion() === 'v4') {
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'Price range' | t }}</span>
+                  <span class="swap-facts__value">{{ 'Full range' | t }}</span>
+                </div>
+              } @else {
+                <div class="swap-facts__row">
+                  <span class="swap-facts__label">{{ 'Price range' | t }}</span>
+                  <span class="swap-facts__value">{{ 'Full range (V2 AMM)' | t }}</span>
+                </div>
+              }
               <div class="swap-facts__row">
                 <span class="swap-facts__label">{{ 'Route' | t }}</span>
                 <span class="swap-facts__value">Uniswap {{ (action.params['version'] || 'v3') | uppercase }} · {{ action.params['chain'] }}</span>

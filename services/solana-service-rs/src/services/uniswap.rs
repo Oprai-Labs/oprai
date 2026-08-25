@@ -929,7 +929,7 @@ pub async fn build_uniswap_get_pools(
 }
 
 /// Reverse of dexscreener_chain_slug for the human chain name lookup.
-fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
+pub(crate) fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
     match slug {
         "ethereum" => 1,
         "base" => 8453,
@@ -1054,6 +1054,53 @@ async fn read_v3_pool(http: &reqwest::Client, chain_id: u64, pool: &str) -> Resu
     })
 }
 
+/// A wallet's balance of a token on `chain_id`, as a human-readable string.
+/// Native (zero address) → eth_getBalance; ERC-20 → balanceOf. Returns "0" when
+/// the chain has no RPC or the call fails. Also returns the raw base-unit string.
+pub async fn token_balance_of(
+    http: &reqwest::Client,
+    chain_id: u64,
+    wallet: &str,
+    token: &str,
+) -> (String, String, u8) {
+    let rpc = match alchemy_rpc(chain_id) { Some(r) => r, None => return ("0".into(), "0".into(), 18) };
+    let dec = if is_zero_address(token) { 18 } else { erc20_decimals(http, chain_id, token).await };
+    let raw_hex: Option<String> = if is_zero_address(token) {
+        // eth_getBalance
+        let body = json!({ "jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":[wallet,"latest"] });
+        match http.post(&rpc).json(&body).send().await {
+            Ok(r) => futures_lite_json(r).await,
+            Err(_) => None,
+        }
+    } else {
+        // balanceOf(address) = 0x70a08231 + 32-byte padded address
+        let data = format!("0x70a08231000000000000000000000000{}", token_pad(wallet));
+        eth_call(http, &rpc, token, &data).await.ok()
+    };
+    let raw = raw_hex
+        .as_deref()
+        .map(hex_to_u128_dec)
+        .unwrap_or_else(|| "0".to_string());
+    (format_units(&raw, dec), raw, dec)
+}
+
+fn token_pad(addr: &str) -> String {
+    addr.trim().trim_start_matches("0x").to_lowercase()
+}
+
+/// Parse a 0x-hex integer into a decimal string (u128 is plenty for balances).
+fn hex_to_u128_dec(hex: &str) -> String {
+    let h = hex.trim().trim_start_matches("0x").trim_start_matches('0');
+    if h.is_empty() { return "0".into(); }
+    u128::from_str_radix(h, 16).map(|n| n.to_string()).unwrap_or_else(|_| "0".into())
+}
+
+/// Read a JSON-RPC `result` hex string from a response (helper for eth_getBalance).
+async fn futures_lite_json(r: reqwest::Response) -> Option<String> {
+    let v: Value = r.json().await.ok()?;
+    v.get("result").and_then(|x| x.as_str()).map(String::from)
+}
+
 /// ERC-20 `decimals()` via RPC (0x313ce567). Falls back to 18 — works for any
 /// token on any chain we have an RPC for, unlike Relay's token list (which
 /// doesn't cover every chain, e.g. Robinhood).
@@ -1121,6 +1168,60 @@ pub struct UniswapAddLiquidityParams {
     #[serde(default, alias = "rangePercent")]
     pub range_percent: Option<f64>,
     pub wallet: Option<String>,
+    /// The pool's two token addresses, carried from the pool row. Required for V4
+    /// (its pool is a bytes32 id, not a contract, so we can't read token0/token1
+    /// via eth_call); optional for V3 (read on-chain).
+    #[serde(default)]
+    pub token0: Option<String>,
+    #[serde(default)]
+    pub token1: Option<String>,
+}
+
+/// Try a full-range V4 create for each standard tick spacing until one is
+/// accepted (the API validates ticks against the pool's real spacing, so the
+/// wrong ones fail with a TICK_ invariant we skip). V4 pools are bytes32 ids —
+/// we can't read their spacing via eth_call — so we discover it this way.
+async fn v4_full_range_create(
+    http: &reqwest::Client,
+    key: &str,
+    chain_id: u64,
+    wallet: &str,
+    token0: &str,
+    token1: &str,
+    pool_id: &str,
+    input_addr: &str,
+    amount_base: &str,
+) -> Result<Value, AppError> {
+    let mut last: Option<(reqwest::StatusCode, Value)> = None;
+    for spacing in [60i64, 10, 200, 1] {
+        let lo = ((MIN_TICK / spacing) + 1) * spacing;
+        let hi = ((MAX_TICK / spacing) - 1) * spacing;
+        let body = json!({
+            "walletAddress": wallet, "protocol": "V4", "chainId": chain_id,
+            "existingPool": { "token0Address": token0, "token1Address": token1, "poolReference": pool_id },
+            "independentToken": { "tokenAddress": input_addr, "amount": amount_base },
+            "tickBounds": { "tickLower": lo, "tickUpper": hi },
+            "simulateTransaction": false,
+        });
+        let resp = http.post(format!("{UNISWAP_LP_API}/lp/create"))
+            .header("x-api-key", key).json(&body).send().await
+            .map_err(|e| AppError::Internal(format!("Uniswap LP create failed: {e}")))?;
+        let st = resp.status();
+        let j: Value = resp.json().await.unwrap_or(Value::Null);
+        if st.is_success() {
+            return Ok(j);
+        }
+        let msg = j.get("message").and_then(|v| v.as_str()).unwrap_or("");
+        // Wrong spacing → tick invariant; anything else is a real error, bail.
+        if !msg.contains("TICK_") {
+            return Err(uniswap_api_error(st, &j));
+        }
+        last = Some((st, j));
+    }
+    match last {
+        Some((st, j)) => Err(uniswap_api_error(st, &j)),
+        None => Err(AppError::Internal("V4 pool tick spacing not found".into())),
+    }
 }
 
 /// Build the approval + create transactions for opening a Uniswap V3 LP position.
@@ -1140,9 +1241,9 @@ pub async fn build_uniswap_add_liquidity(
         return Err(AppError::InvalidParams("A valid EVM chain is required.".into()));
     }
     let version = params.version.as_deref().unwrap_or("v3").trim().to_uppercase();
-    if version != "V3" {
+    if version != "V3" && version != "V4" {
         return Err(AppError::InvalidParams(format!(
-            "Adding liquidity to Uniswap {version} pools is coming soon — V3 pools are supported now."
+            "Adding liquidity to Uniswap {version} pools is coming soon — V3 and V4 are supported now."
         )));
     }
     let pool = params.pool_address.as_deref().map(str::trim).filter(|s| !s.is_empty())
@@ -1152,11 +1253,8 @@ pub async fn build_uniswap_add_liquidity(
     let input_token_in = params.input_token.as_deref().map(str::trim).filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::InvalidParams("Which token to deposit is required.".into()))?;
 
-    // 1. Read the pool on-chain.
-    let p = read_v3_pool(http, chain_id, pool).await?;
-
-    // 2. Resolve the input token to an address on this chain + its decimals, and
-    //    scale the amount to base units.
+    // Resolve the input token to an address on this chain + its decimals, and
+    // scale the amount to base units (common to V3 and V4).
     let input_addr = resolve_evm_currency(http, chain_id, input_token_in).await?;
     let input_addr_l = input_addr.to_lowercase();
     // Decimals from the token contract (RPC), not Relay's list — Relay doesn't
@@ -1164,51 +1262,67 @@ pub async fn build_uniswap_add_liquidity(
     let in_dec = erc20_decimals(http, chain_id, &input_addr_l).await;
     let amount_base = scale_to_base_units(amount, in_dec)?;
 
-    // 3. Tick bounds from the chosen band.
-    let (tick_lower, tick_upper) = tick_bounds(p.current_tick, p.tick_spacing, params.range_percent);
-
-    // 4. Create.
-    let create_body = json!({
-        "walletAddress": wallet,
-        "protocol": "V3",
-        "chainId": chain_id,
-        "existingPool": {
-            "token0Address": p.token0,
-            "token1Address": p.token1,
-            "fee": p.fee,
-            "tickSpacing": p.tick_spacing,
-            "poolReference": pool,
-        },
-        "independentToken": { "tokenAddress": input_addr_l, "amount": amount_base },
-        "tickBounds": { "tickLower": tick_lower, "tickUpper": tick_upper },
-        "simulateTransaction": false,
-    });
-    let create_resp = http
-        .post(format!("{UNISWAP_LP_API}/lp/create"))
-        .header("x-api-key", &key)
-        .json(&create_body)
-        .send()
-        .await
-        .map_err(|e| AppError::Internal(format!("Uniswap LP create failed: {e}")))?;
-    let cstatus = create_resp.status();
-    let create_json: Value = create_resp.json().await
-        .map_err(|e| AppError::Internal(format!("Uniswap LP create bad JSON: {e}")))?;
-    if !cstatus.is_success() {
-        return Err(uniswap_api_error(cstatus, &create_json));
-    }
+    // Build the position. V3: read the pool contract (fee/tickSpacing/current
+    // tick) → aligned tick band. V4: the pool is a bytes32 id (not a contract),
+    // so tokens come from the card and we open FULL RANGE, discovering the
+    // spacing via the LP API (concentrated ±% on V4 needs its StateView — later).
+    let (token0, token1, fee_val, create_json, tick_lower, tick_upper) = if version == "V4" {
+        let mut a = params.token0.clone().unwrap_or_default().trim().to_lowercase();
+        let mut b = params.token1.clone().unwrap_or_default().trim().to_lowercase();
+        if a.is_empty() || b.is_empty() {
+            return Err(AppError::InvalidParams("V4 add-liquidity needs the pool's token addresses.".into()));
+        }
+        if a > b { std::mem::swap(&mut a, &mut b); } // token0 = lower address (V4 PoolKey order)
+        let cj = v4_full_range_create(http, &key, chain_id, wallet, &a, &b, pool, &input_addr_l, &amount_base).await?;
+        let tl = cj.get("tickLower").and_then(|v| v.as_i64()).unwrap_or(0);
+        let tu = cj.get("tickUpper").and_then(|v| v.as_i64()).unwrap_or(0);
+        (a, b, 0u32, cj, tl, tu)
+    } else {
+        let p = read_v3_pool(http, chain_id, pool).await?;
+        let (tl, tu) = tick_bounds(p.current_tick, p.tick_spacing, params.range_percent);
+        let create_body = json!({
+            "walletAddress": wallet,
+            "protocol": "V3",
+            "chainId": chain_id,
+            "existingPool": {
+                "token0Address": p.token0,
+                "token1Address": p.token1,
+                "fee": p.fee,
+                "tickSpacing": p.tick_spacing,
+                "poolReference": pool,
+            },
+            "independentToken": { "tokenAddress": input_addr_l, "amount": amount_base },
+            "tickBounds": { "tickLower": tl, "tickUpper": tu },
+            "simulateTransaction": false,
+        });
+        let create_resp = http
+            .post(format!("{UNISWAP_LP_API}/lp/create"))
+            .header("x-api-key", &key)
+            .json(&create_body)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("Uniswap LP create failed: {e}")))?;
+        let cstatus = create_resp.status();
+        let cj: Value = create_resp.json().await
+            .map_err(|e| AppError::Internal(format!("Uniswap LP create bad JSON: {e}")))?;
+        if !cstatus.is_success() {
+            return Err(uniswap_api_error(cstatus, &cj));
+        }
+        (p.token0, p.token1, p.fee, cj, tl, tu)
+    };
 
     let amount0 = create_json.pointer("/token0/amount").and_then(|v| v.as_str()).unwrap_or("0").to_string();
     let amount1 = create_json.pointer("/token1/amount").and_then(|v| v.as_str()).unwrap_or("0").to_string();
     let create_tx = create_json.get("create").cloned().unwrap_or(Value::Null);
 
-    // 5. Approvals for both legs.
+    // Approvals for both legs.
     let approve_body = json!({
         "walletAddress": wallet,
         "chainId": chain_id,
-        "protocol": "V3",
+        "protocol": version,
         "lpTokens": [
-            { "tokenAddress": p.token0, "amount": amount0 },
-            { "tokenAddress": p.token1, "amount": amount1 },
+            { "tokenAddress": token0, "amount": amount0 },
+            { "tokenAddress": token1, "amount": amount1 },
         ],
     });
     let approvals: Vec<Value> = match http
@@ -1229,27 +1343,27 @@ pub async fn build_uniswap_add_liquidity(
 
     // Display decimals for both legs — read from the contracts (RPC), so pairs
     // with a 6-decimal stable (USDG/USDC) render correctly on every chain.
-    let dec0 = erc20_decimals(http, chain_id, &p.token0).await;
-    let dec1 = erc20_decimals(http, chain_id, &p.token1).await;
+    let dec0 = erc20_decimals(http, chain_id, &token0).await;
+    let dec1 = erc20_decimals(http, chain_id, &token1).await;
 
     Ok(json!({
         "actionType": "uniswap_add_liquidity",
         "chainId": chain_id,
         "chainName": get_chain_name(chain_id),
-        "version": "v3",
+        "version": version.to_lowercase(),
         "poolAddress": pool,
-        "fee": p.fee,
+        "fee": fee_val,
         "token0": {
-            "address": p.token0,
+            "address": token0,
             "amount": amount0,
             "amountDisplay": format_units(&amount0, dec0),
-            "logo": relay_token_logo(http, chain_id, &p.token0).await,
+            "logo": relay_token_logo(http, chain_id, &token0).await,
         },
         "token1": {
-            "address": p.token1,
+            "address": token1,
             "amount": amount1,
             "amountDisplay": format_units(&amount1, dec1),
-            "logo": relay_token_logo(http, chain_id, &p.token1).await,
+            "logo": relay_token_logo(http, chain_id, &token1).await,
         },
         "tickLower": tick_lower,
         "tickUpper": tick_upper,

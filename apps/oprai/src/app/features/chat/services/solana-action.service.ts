@@ -2718,6 +2718,8 @@ export class SolanaActionService {
       version: p['version'] ?? 'v3',
       inputToken: p['inputToken'] ?? p['token0'] ?? p['token'],
       amount: p['amount'],
+      token0: p['token0'] ?? '',
+      token1: p['token1'] ?? '',
       ...(p['rangePercent'] ? { rangePercent: Number(p['rangePercent']) } : {}),
     }));
 

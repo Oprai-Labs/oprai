@@ -1714,6 +1714,38 @@ pub async fn post_uniswap_lp_build(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/uniswap/lp/balances — the connected wallet's balance of a
+/// pool's two tokens on the pool's chain (read via Alchemy, so it's correct
+/// regardless of which network the wallet is currently on). Powers the card's
+/// "Balance: X · Max".
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UniswapLpBalancesBody {
+    pub chain: String,
+    pub token0: String,
+    pub token1: String,
+}
+
+#[post("/uniswap/lp/balances")]
+pub async fn post_uniswap_lp_balances(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<UniswapLpBalancesBody>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    let by_slug = crate::services::uniswap::dexscreener_slug_to_chain_id(&body.chain.trim().to_lowercase());
+    let chain_id = if by_slug != 0 { by_slug } else { body.chain.trim().parse::<u64>().unwrap_or(0) };
+    if chain_id == 0 {
+        return Err(AppError::InvalidParams("A valid EVM chain is required.".into()));
+    }
+    let (b0, r0, d0) = crate::services::uniswap::token_balance_of(&state.http, chain_id, &wallet, &body.token0).await;
+    let (b1, r1, d1) = crate::services::uniswap::token_balance_of(&state.http, chain_id, &wallet, &body.token1).await;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "token0": { "balance": b0, "balanceRaw": r0, "decimals": d0 },
+        "token1": { "balance": b1, "balanceRaw": r1, "decimals": d1 },
+    })))
+}
+
 /// POST /actions/uniswap/record — book economics after the swap settles on-chain.
 /// Uniswap has no authoritative post-fill record (unlike Relay's /requests), so
 /// the USD notional is derived SERVER-SIDE by pricing the swapped token into USDC

@@ -4194,6 +4194,51 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return (side === 'A' ? p['token0Logo'] : p['token1Logo']) ?? '';
   }
 
+  /** The pool's protocol version (v2/v3/v4), lowercased. */
+  readonly uniLpVersion = computed(() => (this.action?.params?.['version'] ?? 'v3').toString().toLowerCase());
+  /** Concentrated ranges apply to V3 only for now; V4's tick state isn't read
+   *  yet (full range), V2 is a constant-product AMM (no range at all). */
+  readonly uniLpShowRangeChips = computed(() => this.uniLpVersion() === 'v3');
+
+  /** Wallet balances for the two sides (human strings + raw base units), read
+   *  from the pool's chain so they're right regardless of the wallet's network. */
+  readonly uniLpBal = signal<{ a?: string; b?: string; aRaw?: string; bRaw?: string; aDec?: number; bDec?: number } | null>(null);
+
+  private async fetchUniLpBalances(): Promise<void> {
+    const p = this.action?.params ?? {};
+    if (!p['token0'] || !p['token1'] || !p['chain']) return;
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/lp/balances', {
+        chain: p['chain'], token0: p['token0'], token1: p['token1'],
+      }));
+      // Backend keys by token0/token1 = our A/B (same addresses the row carried).
+      this.uniLpBal.set({
+        a: r?.token0?.balance, aRaw: r?.token0?.balanceRaw, aDec: r?.token0?.decimals,
+        b: r?.token1?.balance, bRaw: r?.token1?.balanceRaw, bDec: r?.token1?.decimals,
+      });
+    } catch { /* balances are a nicety; never block the card */ }
+  }
+
+  uniLpBalanceFor(side: 'A' | 'B'): string | null {
+    const b = this.uniLpBal();
+    return (side === 'A' ? b?.a : b?.b) ?? null;
+  }
+
+  /** Max: deposit the full balance of that side (native leaves a little for gas). */
+  uniLpMax(side: 'A' | 'B'): void {
+    if (!this.isEditable()) return;
+    const bal = this.uniLpBalanceFor(side);
+    if (!bal) return;
+    let amt = bal;
+    const addr = (side === 'A' ? this.uniLpSideA().addr : this.uniLpSideB().addr).toLowerCase();
+    const isNative = /^0x0+$/.test(addr) || addr === '';
+    if (isNative) {
+      const n = parseFloat(bal);
+      amt = n > 0.001 ? (n - 0.001).toFixed(6) : '0'; // reserve ~0.001 for gas
+    }
+    this.onUniLpAmountInput(side, amt);
+  }
+
   setUniLpRange(r: 'full' | '25' | '10'): void {
     if (!this.isEditable()) return;
     this.uniLpRange.set(r);
@@ -4229,6 +4274,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         version: p['version'] ?? 'v3',
         inputToken: p['inputToken'] ?? this.uniLpSideA().addr,
         amount,
+        token0: p['token0'] ?? '',
+        token1: p['token1'] ?? '',
         ...(p['rangePercent'] ? { rangePercent: Number(p['rangePercent']) } : {}),
       }));
       if (seq !== this._uniLpSeq) return;
@@ -6193,6 +6240,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         this.action.params['inputToken'] = this.action.params['token0'] ?? '';
       }
       if (amt && parseFloat(amt) > 0) void this.fetchUniLpPreview();
+      void this.fetchUniLpBalances();
     }
     // Verify before seeding: the range is anchored to the pool's price, so
     // seeding first would centre it on a pool about to be replaced.

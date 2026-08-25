@@ -216,9 +216,15 @@ func (p *SolanaProxy) PostUniswapRecord(w http.ResponseWriter, r *http.Request) 
 	p.proxy.ServeHTTP(w, r)
 }
 
-// PostUniswapLpBuild — build the approve + create txs for a Uniswap V3 LP position.
+// PostUniswapLpBuild — build the approve + create txs for a Uniswap LP position.
 func (p *SolanaProxy) PostUniswapLpBuild(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/uniswap/lp/build"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostUniswapLpBalances — the wallet's balance of a pool's two tokens.
+func (p *SolanaProxy) PostUniswapLpBalances(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/lp/balances"
 	p.proxy.ServeHTTP(w, r)
 }
 
