@@ -7715,8 +7715,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
             inT.address, outT.address, String(amt), 50, swapMode,
           )
         : at === 'orca_swap'
-        ? await this.orcaService.quoteSwap(
-            inT.address, outT.address, String(amt), swapMode,
+        // Quote through Jupiter restricted to Whirlpool — the aggregator prices
+        // the SAME venue the orca_swap tx executes on, and returns BASE-unit
+        // amounts this function already scales correctly. The Orca SDK's own
+        // quote (orcaService.quoteSwap) reported est_out ~10× high (a decimals
+        // round-trip via pool-vs-registry decimals), which showed absurd USDC
+        // on the card — a WYSIWYS hazard since execution delivered the real ~1×.
+        ? await this.swapService.getQuote(
+            inT.address, outT.address, String(amt), 50, swapMode, 'Whirlpool',
           )
         : await this.swapService.getQuote(
             inT.address, outT.address, String(amt), 50, swapMode,

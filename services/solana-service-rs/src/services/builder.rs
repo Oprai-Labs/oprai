@@ -4068,15 +4068,47 @@ async fn build_action_inner(
         }
         // ── Orca Whirlpools Actions ─────────────────────────────────────────────────
         "orca_swap" => {
-            let p: orca::OrcaSwapParams = serde_json::from_value(params)?;
-            orca::build_orca_swap(
-                http,
-                rpc.endpoint(),
-                jupiter_api_key,
-                &user_pubkey.to_string(),
-                &p,
-            )
-            .await
+            // Orca swaps quote AND execute through Jupiter restricted to the
+            // Whirlpool venue. The orca_whirlpools SDK path (build_orca_swap)
+            // reported an estimate ~10x high on SOL/USDC — the card showed
+            // absurd amounts and, worse, the built tx's min-out was 10x too
+            // high so it would revert on slippage. Jupiter-Whirlpool prices the
+            // SAME venue correctly and runs our normal fee/route handling.
+            let op: orca::OrcaSwapParams = serde_json::from_value(params)?;
+            let sp = swap::SwapParams {
+                input_mint: op.input_mint,
+                output_mint: op.output_mint,
+                amount: op.amount,
+                slippage_bps: op.slippage_bps,
+                only_direct_routes: None,
+                dexes: Some("Whirlpool".to_string()),
+                swap_mode: op.swap_mode,
+                priority_fee: op.priority_fee,
+                restrict_intermediate_tokens: None,
+                fee_discount_pct,
+            };
+            let result =
+                swap::build_swap_transaction(http, jupiter_api_key, &user_pubkey.to_string(), &sp)
+                    .await?;
+            Ok(BuildResponse {
+                preview: ActionPreview {
+                    id: result.preview.id,
+                    // Keep the action identity so the card renders as an Orca swap.
+                    action_type: "orca_swap".to_string(),
+                    description: result.preview.description,
+                    estimated_fee: result.preview.estimated_fee,
+                    estimated_refund: None,
+                    params: serde_json::to_value(result.preview.params)?,
+                    warnings: result.preview.warnings,
+                    requires_approval: result.preview.requires_approval,
+                },
+                transaction: Some(result.transaction_base64),
+                additional_signers_required: 0,
+                execution_steps: None,
+                quote: None,
+                is_cross_chain: false,
+                data: None,
+            })
         }
         "orca_add_liquidity" => {
             let p: orca::OrcaAddLiquidityParams = serde_json::from_value(params)?;
