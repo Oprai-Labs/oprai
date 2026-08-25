@@ -3486,7 +3486,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       },
     };
     try {
-      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(20_000)));
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(30_000)));
       this.uniswapLaunchesResults = Array.isArray(resp?.data?.launches) ? resp.data.launches : [];
       this.uniswapLaunchesFetching.set(false);
       this.loading.set(false);

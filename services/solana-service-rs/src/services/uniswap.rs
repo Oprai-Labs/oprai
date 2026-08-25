@@ -1065,51 +1065,61 @@ pub async fn build_uniswap_launches(
     let sort = params.sort.as_deref().unwrap_or("new").to_lowercase();
 
     // 1) Newest-first launched token addresses from both launcher contracts'
-    //    logs. Keyed by block_number so combining two contracts stays ordered.
-    let mut by_addr: std::collections::HashMap<String, (u64, Option<String>)> = std::collections::HashMap::new();
-    for launcher in POOLS_TRADE_LAUNCHERS {
+    //    logs. Blockscout's log endpoint is ~8s per contract, so fetch both
+    //    CONCURRENTLY (not sequentially) and merge. Keyed by block_number so
+    //    combining two contracts stays ordered.
+    let per_launcher = futures::future::join_all(POOLS_TRADE_LAUNCHERS.iter().map(|launcher| {
         let url = format!("{BLOCKSCOUT_RH}/addresses/{launcher}/logs");
-        let body: Value = match http.get(&url).send().await {
-            Ok(r) if r.status().is_success() => r.json().await.unwrap_or(Value::Null),
-            _ => continue,
-        };
-        let items = match body.get("items").and_then(|v| v.as_array()) {
-            Some(a) => a,
-            None => continue,
-        };
-        for item in items {
-            let topic0 = item
-                .get("topics")
-                .and_then(|t| t.as_array())
-                .and_then(|a| a.first())
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if !topic0.eq_ignore_ascii_case(POOLS_TRADE_LAUNCH_TOPIC) {
-                continue;
-            }
-            let block = item.get("block_number").and_then(|v| v.as_u64()).unwrap_or(0);
-            let ts = item.get("block_timestamp").and_then(|v| v.as_str()).map(str::to_string);
-            // The launched token address is the `tokenAddress` decoded param.
-            let addr = item
-                .get("decoded")
-                .and_then(|d| d.get("parameters"))
-                .and_then(|p| p.as_array())
-                .and_then(|arr| {
-                    arr.iter()
-                        .find(|p| p.get("name").and_then(|v| v.as_str()) == Some("tokenAddress"))
-                        .and_then(|p| p.get("value"))
-                        .and_then(|v| v.as_str())
-                });
-            if let Some(a) = addr {
-                let a = a.to_lowercase();
-                if is_valid_evm_address(&a) && !is_zero_address(&a) {
-                    // Keep the highest block seen for an address (latest event).
-                    let e = by_addr.entry(a).or_insert((block, ts.clone()));
-                    if block > e.0 {
-                        *e = (block, ts);
+        async move {
+            let body: Value = match http.get(&url).send().await {
+                Ok(r) if r.status().is_success() => r.json().await.unwrap_or(Value::Null),
+                _ => return Vec::new(),
+            };
+            let items = match body.get("items").and_then(|v| v.as_array()) {
+                Some(a) => a.clone(),
+                None => return Vec::new(),
+            };
+            let mut found: Vec<(String, u64, Option<String>)> = Vec::new();
+            for item in &items {
+                let topic0 = item
+                    .get("topics")
+                    .and_then(|t| t.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !topic0.eq_ignore_ascii_case(POOLS_TRADE_LAUNCH_TOPIC) {
+                    continue;
+                }
+                let block = item.get("block_number").and_then(|v| v.as_u64()).unwrap_or(0);
+                let ts = item.get("block_timestamp").and_then(|v| v.as_str()).map(str::to_string);
+                let addr = item
+                    .get("decoded")
+                    .and_then(|d| d.get("parameters"))
+                    .and_then(|p| p.as_array())
+                    .and_then(|arr| {
+                        arr.iter()
+                            .find(|p| p.get("name").and_then(|v| v.as_str()) == Some("tokenAddress"))
+                            .and_then(|p| p.get("value"))
+                            .and_then(|v| v.as_str())
+                    });
+                if let Some(a) = addr {
+                    let a = a.to_lowercase();
+                    if is_valid_evm_address(&a) && !is_zero_address(&a) {
+                        found.push((a, block, ts));
                     }
                 }
             }
+            found
+        }
+    }))
+    .await;
+
+    let mut by_addr: std::collections::HashMap<String, (u64, Option<String>)> = std::collections::HashMap::new();
+    for (a, block, ts) in per_launcher.into_iter().flatten() {
+        // Keep the highest block seen for an address (latest event).
+        let e = by_addr.entry(a).or_insert((block, ts.clone()));
+        if block > e.0 {
+            *e = (block, ts);
         }
     }
 
@@ -1141,23 +1151,11 @@ pub async fn build_uniswap_launches(
     }
     rows.truncate(limit);
 
-    // Holders + icon only for the final set (≤ limit concurrent Blockscout calls).
-    let extras = futures::future::join_all(rows.iter().map(|r| {
-        let addr = r.get("tokenAddress").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        async move { blockscout_token_extras(http, &addr).await }
-    }))
-    .await;
-    for (row, (holders, icon)) in rows.iter_mut().zip(extras.into_iter()) {
-        if let Some(obj) = row.as_object_mut() {
-            if let Some(h) = holders {
-                obj.insert("holders".into(), json!(h));
-            }
-            // Prefer Blockscout icon; fall back to the DexScreener image already set.
-            if let Some(ic) = icon {
-                obj.insert("logo".into(), json!(ic));
-            }
-        }
-    }
+    // NOTE: holders + Blockscout icon were fetched here per-token, but that was
+    // 15 concurrent Blockscout calls that Blockscout throttled into a 30s+ tail
+    // on top of the ~8s logs call. Dropped for a fast, reliable feed — the row
+    // keeps the DexScreener image (free, from the batch) and holders shows "—".
+    // A batched holders source can reinstate it later without the latency.
 
     let description = if rows.is_empty() {
         "No recent pools.trade launches found on Robinhood Chain.".to_string()
