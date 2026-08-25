@@ -374,21 +374,27 @@ export class EvmHoldingsComponent implements OnInit {
         this.address.set(evmWallets[0] ?? null);
         if (evmWallets.length === 0) { this.loading.set(false); return; }
 
-        forkJoin(
-          evmWallets.map((addr) =>
-            forkJoin({
-              portfolio: this.evm.getPortfolio(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, tokens: [] }))),
-              positions: this.evm.getPositions(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, positions: [] }))),
-              transactions: this.evm.getTransactions(addr).pipe(catchError(() => of({ address: addr, transactions: [] }))),
-              nfts: this.evm.getNfts(addr).pipe(catchError(() => of({ address: addr, nfts: [] }))),
-            }),
+        forkJoin({
+          perWallet: forkJoin(
+            evmWallets.map((addr) =>
+              forkJoin({
+                portfolio: this.evm.getPortfolio(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, tokens: [] }))),
+                positions: this.evm.getPositions(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, positions: [] }))),
+                transactions: this.evm.getTransactions(addr).pipe(catchError(() => of({ address: addr, transactions: [] }))),
+                nfts: this.evm.getNfts(addr).pipe(catchError(() => of({ address: addr, nfts: [] }))),
+              }),
+            ),
           ),
-        )
-          .pipe(map((results) => ({
-            tokens: results.flatMap((r) => r.portfolio.tokens || []).sort((a, b) => b.valueUsd - a.valueUsd),
-            positions: results.flatMap((r) => r.positions.positions || []).sort((a, b) => b.balanceUsd - a.balanceUsd),
-            txs: results.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
-            nfts: results.flatMap((r) => r.nfts.nfts || []),
+          // Uniswap V2/V3/V4 LP positions (all chains, incl. Robinhood) —
+          // Moralis doesn't cover them, so pull from Uniswap's own feed. Loaded
+          // together with the wallet so positions never pop in after the wallet.
+          uniswap: this.uniswapPositions$(),
+        })
+          .pipe(map(({ perWallet, uniswap }) => ({
+            tokens: perWallet.flatMap((r) => r.portfolio.tokens || []).sort((a, b) => b.valueUsd - a.valueUsd),
+            positions: [...uniswap, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
+            txs: perWallet.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
+            nfts: perWallet.flatMap((r) => r.nfts.nfts || []),
           })))
           .subscribe(({ tokens, positions, txs, nfts }) => {
             this.tokens.set(tokens);
@@ -396,22 +402,18 @@ export class EvmHoldingsComponent implements OnInit {
             this.txs.set(txs);
             this.nfts.set(nfts);
             this.loading.set(false);
-            // Uniswap V2/V3/V4 LP positions (all chains, incl. Robinhood) —
-            // Moralis doesn't cover them, so pull from Uniswap's own feed and
-            // merge in. Separate call so it never blocks the wallet render.
-            this.fetchUniswapPositions();
           });
       },
       error: () => { this.loading.set(false); },
     });
   }
 
-  /** Merge Uniswap LP positions into the DeFi-positions list. */
-  private fetchUniswapPositions(): void {
-    this.api.post<{ positions: any[] }>('/actions/uniswap/lp/positions', {}).pipe(
+  /** Uniswap LP positions (V2/V3/V4, all chains) mapped to EvmPosition. Emits
+   *  [] on any error so it never blocks the combined wallet+positions load. */
+  private uniswapPositions$() {
+    return this.api.post<{ positions: any[] }>('/actions/uniswap/lp/positions', {}).pipe(
       catchError(() => of({ positions: [] })),
-    ).subscribe((res) => {
-      const uni: EvmPosition[] = (res?.positions || []).map((p) => ({
+      map((res): EvmPosition[] => (res?.positions || []).map((p) => ({
         chain: p.chain,
         protocol: 'Uniswap',
         protocolId: 'uniswap',
@@ -423,11 +425,8 @@ export class EvmHoldingsComponent implements OnInit {
           { symbol: p.token0?.symbol, type: 'supplied', amount: Number(p.token0?.amountDisplay) || 0, logo: undefined },
           { symbol: p.token1?.symbol, type: 'supplied', amount: Number(p.token1?.amountDisplay) || 0, logo: undefined },
         ],
-      }));
-      if (uni.length) {
-        this.positions.set([...uni, ...this.positions()].sort((a, b) => b.balanceUsd - a.balanceUsd));
-      }
-    });
+      }))),
+    );
   }
 
   heroChain(): string { const c = this.chainFilter(); return c === 'all' ? 'ethereum' : c; }
