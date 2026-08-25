@@ -61,14 +61,20 @@ interface UniswapLaunch {
   tokenAddress: string;
   symbol: string;
   name: string;
-  version: string;          // "v4"
+  launchpad: string;        // "pools.trade" | "Pons" | …
+  launchpadId: string;
   priceUsd: string;
   fdvUsd: number;
   liquidityUsd: number;
   volume24hUsd: number;
   priceChange24h?: number | null;
   holders?: number | null;
-  pairAddress: string;
+  graduationProgress?: number | null;  // 0..100
+  status?: string;          // "curveLive" | …
+  isSpam?: boolean;
+  isVerified?: boolean;
+  imageEmoji?: string | null;
+  imageHue?: number | null;
   quoteSymbol: string;
   quoteAddress: string;
   logo?: string | null;
@@ -76,6 +82,7 @@ interface UniswapLaunch {
   createdAt?: string | null;
   chain: string;
 }
+interface LaunchpadOpt { id: string; label: string; }
 
 interface PriceResult {
   symbol: string;
@@ -847,7 +854,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // load, instead of always defaulting to newest and forcing a manual toggle.
     if (this.query.type === 'uniswap_launches') {
       const s = (this.query.params?.['sort'] ?? '').toString().toLowerCase();
-      this.uniswapLaunchesSort = s === 'top' ? 'top' : 'new';
+      this.uniswapLaunchesSort = s === 'top' ? 'top' : s === 'trending' ? 'trending' : 'new';
+      const lp = (this.query.params?.['launchpad'] ?? '').toString();
+      if (lp) this.uniswapLaunchFilter = lp;
     }
 
     // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
@@ -1066,6 +1075,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['uniswapPoolsResults']) this.uniswapPoolsResults = d['uniswapPoolsResults'] as UniswapPool[];
     if (d['uniswapLaunchesResults']) this.uniswapLaunchesResults = d['uniswapLaunchesResults'] as UniswapLaunch[];
+    if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
+    if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -1172,6 +1183,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
     if (this.uniswapPoolsResults.length) d['uniswapPoolsResults'] = this.uniswapPoolsResults;
     if (this.uniswapLaunchesResults.length) d['uniswapLaunchesResults'] = this.uniswapLaunchesResults;
+    if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
+    if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
@@ -3453,10 +3466,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   // ── pools.trade launchpad feed (Robinhood) ─────────────────────────────
   uniswapLaunchesResults: UniswapLaunch[] = [];
+  uniswapLaunchpads: LaunchpadOpt[] = [];   // filter chips from the feed
+  uniswapLaunchFilter = '';                 // '' = all launchpads
   readonly uniswapLaunchesFetching = signal(false);
-  uniswapLaunchesSort: 'new' | 'top' = 'new';
+  uniswapLaunchesSort: 'new' | 'top' | 'trending' = 'new';
   uniswapLaunchesPage = 0;
   readonly UNISWAP_LAUNCH_PAGE_SIZE = 8;
+
+  setUniswapLaunchFilter(id: string): void {
+    if (this.uniswapLaunchFilter === id) return;
+    this.uniswapLaunchFilter = id;
+    this.uniswapLaunchesPage = 0;
+    void this.fetchUniswapLaunches();
+  }
 
   get pagedUniswapLaunches(): UniswapLaunch[] {
     const page = Math.min(this.uniswapLaunchesPage, this.uniswapLaunchesTotalPages - 1);
@@ -3468,7 +3490,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   uniswapLaunchesNextPage(): void { if (this.uniswapLaunchesPage < this.uniswapLaunchesTotalPages - 1) this.uniswapLaunchesPage++; }
   uniswapLaunchesPrevPage(): void { if (this.uniswapLaunchesPage > 0) this.uniswapLaunchesPage--; }
 
-  setUniswapLaunchesSort(s: 'new' | 'top'): void {
+  setUniswapLaunchesSort(s: 'new' | 'top' | 'trending'): void {
     if (this.uniswapLaunchesSort === s) return;
     this.uniswapLaunchesSort = s;
     this.uniswapLaunchesPage = 0;
@@ -3482,12 +3504,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       type: 'uniswap_launches',
       params: {
         sort: this.uniswapLaunchesSort,
+        ...(this.uniswapLaunchFilter ? { launchpad: this.uniswapLaunchFilter } : {}),
         ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : {}),
       },
     };
     try {
       const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(30_000)));
       this.uniswapLaunchesResults = Array.isArray(resp?.data?.launches) ? resp.data.launches : [];
+      // Keep the union of launchpads seen (a filtered response only carries the
+      // one filtered launchpad, so never shrink the chip set to a single option).
+      const opts: LaunchpadOpt[] = Array.isArray(resp?.data?.launchpads) ? resp.data.launchpads : [];
+      const merged = new Map<string, LaunchpadOpt>(this.uniswapLaunchpads.map(o => [o.id, o]));
+      for (const o of opts) if (o?.id) merged.set(o.id, o);
+      this.uniswapLaunchpads = [...merged.values()];
       this.uniswapLaunchesFetching.set(false);
       this.loading.set(false);
       this.persistSnapshot();

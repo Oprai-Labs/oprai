@@ -215,7 +215,21 @@
                   (click)="setUniswapLaunchesSort('new')">{{ 'Newest' | t }}</button>
           <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'top'"
                   (click)="setUniswapLaunchesSort('top')">{{ 'Top by FDV' | t }}</button>
+          <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'trending'"
+                  (click)="setUniswapLaunchesSort('trending')">{{ 'Trending' | t }}</button>
         </div>
+
+        <!-- Launchpad filter (pools.trade / Pons / …) — only when >1 is present. -->
+        @if (uniswapLaunchpads.length > 1) {
+          <div class="dlmm-sort-bar dlmm-sort-bar--chips uni-lp-chips">
+            <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchFilter === ''"
+                    (click)="setUniswapLaunchFilter('')">{{ 'All' | t }}</button>
+            @for (lp of uniswapLaunchpads; track lp.id) {
+              <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchFilter === lp.id"
+                      (click)="setUniswapLaunchFilter(lp.id)">{{ lp.label }}</button>
+            }
+          </div>
+        }
 
         <div class="result-table">
           <div class="result-table__header result-table__header--5col">
@@ -233,24 +247,35 @@
           @for (l of pagedUniswapLaunches; track l.tokenAddress) {
             <div class="result-table__row result-table__row--5col dlmm-row">
               <span class="km-pair">
-                <span class="km-icon-slot">
-                  <span class="km-icon km-icon--fallback">{{ (l.symbol || '?').charAt(0) }}</span>
+                <span class="km-icon-slot" [style.background]="l.imageHue != null ? 'hsl(' + l.imageHue + ' 45% 22%)' : null">
                   @if (l.logo) {
                     <img class="km-icon km-icon--img" [src]="l.logo" [alt]="l.symbol"
                          loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                  } @else if (l.imageEmoji) {
+                    <span class="km-icon uni-launch-emoji">{{ l.imageEmoji }}</span>
+                  } @else {
+                    <span class="km-icon km-icon--fallback">{{ (l.symbol || '?').charAt(0) }}</span>
                   }
                 </span>
                 <span class="km-pair__text">
-                  <span class="km-pair__name">{{ l.symbol }}</span>
+                  <span class="km-pair__name">
+                    {{ l.symbol }}
+                    @if (l.isVerified) { <span class="uni-verified" title="Verified">✓</span> }
+                    @if (l.isSpam) { <span class="uni-spam-badge">spam</span> }
+                  </span>
                   <span class="km-pair__sub">
+                    <span class="uni-lp-badge">{{ l.launchpad }}</span>
                     {{ l.name }}
                     @if (launchAge(l.createdAt); as age) { <span class="uni-launch-age">· {{ age }}</span> }
+                    @if (l.graduationProgress != null && l.graduationProgress < 100) {
+                      <span class="uni-launch-age">· {{ l.graduationProgress | number:'1.0-0' }}% grad</span>
+                    }
                   </span>
                 </span>
               </span>
               <span class="text-right mono">
                 {{ l.priceUsd ? formatPrice(+l.priceUsd) : '—' }}
-                @if (l.priceChange24h != null) {
+                @if (l.priceChange24h != null && l.priceChange24h !== 0) {
                   <span class="uni-launch-chg" [class.pos]="l.priceChange24h >= 0" [class.neg]="l.priceChange24h < 0">
                     {{ l.priceChange24h >= 0 ? '+' : '' }}{{ l.priceChange24h | number:'1.0-1' }}%
                   </span>
