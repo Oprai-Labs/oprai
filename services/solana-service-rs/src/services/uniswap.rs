@@ -604,18 +604,17 @@ async fn token_logo_for(http: &reqwest::Client, slug: &str, addr: &str) -> Optio
     if addr.is_empty() {
         return None;
     }
-    // Uniswap V4 uses the zero address for NATIVE ETH, which isn't an ERC-20 and
-    // has no token page / icon anywhere. Borrow the wrapped native's logo (WETH)
-    // so a native-ETH leg shows the ETH coin, not a bare letter.
-    let key = if is_zero_address(addr) {
-        format!("{slug}:{}", wrapped_native_address(slug))
-    } else {
-        format!("{slug}:{}", addr.to_lowercase())
-    };
+    // Uniswap V4 uses the zero address for NATIVE ETH/BNB/…, which isn't an ERC-20
+    // and has no token page. Use the NATIVE coin's own logo — not the wrapped
+    // token's (a "WETH"-branded icon on a plain-ETH pool reads as wrong).
+    if is_zero_address(addr) {
+        return native_coin_logo(slug).map(String::from);
+    }
+    let key = format!("{slug}:{}", addr.to_lowercase());
     if let Some(hit) = logo_cache().lock().ok().and_then(|c| c.get(&key).cloned()) {
         return Some(hit);
     }
-    let bare = key.split_once(':').map(|(_, a)| a.to_string()).unwrap_or_default();
+    let bare = addr.to_lowercase();
     let logo = if slug == "robinhood" {
         let url = format!("https://robinhoodchain.blockscout.com/api/v2/tokens/{bare}");
         match http.get(&url).send().await {
@@ -636,6 +635,21 @@ async fn token_logo_for(http: &reqwest::Client, slug: &str, addr: &str) -> Optio
         }
     }
     logo
+}
+
+/// Logo for a chain's NATIVE gas coin (ETH/BNB/…). Native has no token contract
+/// to read an icon from, so these are the canonical coin images. Chains whose
+/// native is ETH share the ETH mark; a plain-ETH pool must not show a WETH icon.
+fn native_coin_logo(slug: &str) -> Option<&'static str> {
+    let eth = "https://assets.coingecko.com/coins/images/279/small/ethereum.png";
+    Some(match slug {
+        "ethereum" | "base" | "optimism" | "arbitrum" | "blast" | "zora" | "robinhood" => eth,
+        "polygon" => "https://assets.coingecko.com/coins/images/4713/small/polygon.png",
+        "bsc" => "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
+        "avalanche" => "https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png",
+        "celo" => "https://assets.coingecko.com/coins/images/11090/small/InjXBNx9_400x400.jpg",
+        _ => eth,
+    })
 }
 
 /// A friendly default search term per chain so "show me Uniswap pools on Base"
