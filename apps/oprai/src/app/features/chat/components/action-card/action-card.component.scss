@@ -6936,3 +6936,17 @@
 
   &--warn { color: var(--op-loss); }
 }
+
+/* pools.trade native buy/sell card */
+.uni-lp { display: flex; flex-direction: column; gap: 8px; }
+.uni-lp__head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.uni-lp__logo { width: 34px; height: 34px; border-radius: 50%; overflow: hidden; flex: none; display: grid; place-items: center; background: var(--op-bg-surface-2, rgba(125,125,150,.12)); }
+.uni-lp__logo img { width: 34px; height: 34px; object-fit: cover; border-radius: 50%; }
+.uni-lp__headtext { display: flex; flex-direction: column; min-width: 0; }
+.uni-lp__pair { font-weight: 700; font-size: .95rem; color: var(--op-text-primary); }
+.uni-lp__sub { font-size: .72rem; color: var(--op-text-secondary); }
+.uni-lp__label { font-size: .72rem; color: var(--op-text-secondary); margin-top: 4px; }
+.uni-lp__inputrow { display: flex; align-items: center; gap: 6px; border: 1px solid var(--op-border-subtle, rgba(125,125,150,.2)); border-radius: 10px; padding: 8px 12px; background: var(--op-bg-surface-1); }
+.uni-lp__prefix, .uni-lp__suffix { color: var(--op-text-secondary); font-weight: 600; font-size: .9rem; }
+.uni-lp__input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--op-text-primary); font-size: 1rem; font-variant-numeric: tabular-nums; }
+.uni-lp__chips { display: flex; gap: 6px; flex-wrap: wrap; }

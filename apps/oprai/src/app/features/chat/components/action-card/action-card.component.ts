@@ -5900,7 +5900,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * a new `<protocol>_claim_fees` then labels itself correctly on arrival.
    */
   get confirmButtonLabel(): string {
-    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity' };
+    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token' };
     const t = this.action?.type ?? '';
     if (labels[t]) return labels[t];
     // Ordered longest-verb-first so `add_to_position` isn't read as `stake`
@@ -8559,6 +8559,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   getEditParam(key: string): string { return this.editParams()[key] ?? ''; }
+
+  /** pools.trade sell input is a token amount; prepareSell wants amountInWei
+   *  (18-decimal base units). Convert with string math (no float precision loss)
+   *  and stash both — amountTokens for the field, amountInWei for the request. */
+  onPoolsSellAmount(v: string): void {
+    this.setEditParam('amountTokens', v);
+    const s = String(v ?? '').trim();
+    if (!s || !/^\d*\.?\d*$/.test(s)) { this.setEditParam('amountInWei', '0'); return; }
+    const [intPart = '0', fracRaw = ''] = s.split('.');
+    const frac = (fracRaw + '0'.repeat(18)).slice(0, 18);
+    const digits = ((intPart.replace(/\D/g, '') || '0') + frac).replace(/^0+/, '') || '0';
+    this.setEditParam('amountInWei', digits);
+  }
+
   setEditParam(key: string, value: string): void {
     this.editParams.update(p => ({ ...p, [key]: value }));
     // Typing a band by hand is exactly the case the preset quotes cannot

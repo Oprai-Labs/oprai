@@ -234,6 +234,24 @@ func (p *SolanaProxy) PostUniswapLpPositions(w http.ResponseWriter, r *http.Requ
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostPoolsLaunchBuy — native pools.trade buy (trade.prepareBuy → tx to sign).
+func (p *SolanaProxy) PostPoolsLaunchBuy(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/launch/buy"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostPoolsLaunchSell — native pools.trade sell (trade.prepareSell → tx to sign).
+func (p *SolanaProxy) PostPoolsLaunchSell(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/launch/sell"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// PostPoolsLaunchCreate — prepare a pools.trade token launch (curve.prepareLaunch).
+func (p *SolanaProxy) PostPoolsLaunchCreate(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/launch/create"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

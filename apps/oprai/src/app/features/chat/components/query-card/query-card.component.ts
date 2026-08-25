@@ -3527,23 +3527,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Buy a launched token: opens the Uniswap swap card paying native ETH into
-   *  the launch's v4 pool on Robinhood. Trading works because every pools.trade
-   *  launch IS a real v4 pool. */
+  /** Buy a launched token natively on pools.trade (bonding curve / CCA), paying
+   *  in USD-worth of ETH on Robinhood Chain. Opens the pools_buy action card
+   *  where the user enters the USD amount. Uses trade.prepareBuy, NOT a raw v4
+   *  swap — curve-live tokens aren't swappable until they graduate. */
   buyUniswapLaunch(l: UniswapLaunch): void {
     const params: Record<string, string> = {
-      originChainId: '4663',
-      destinationChainId: '4663',
-      originCurrency: 'ETH',
-      destinationCurrency: l.tokenAddress,
-      destinationSymbol: l.symbol,
-      tradeType: 'EXACT_INPUT',
-      ...(l.logo ? { destinationLogo: l.logo } : {}),
+      chain: 'robinhood',
+      tokenAddress: l.tokenAddress,
+      symbol: l.symbol,
+      name: l.name,
+      amountUsd: '5',
+      slippagePct: '5',
+      ...(l.logo ? { logo: l.logo } : {}),
+      ...(l.launchpad ? { launchpad: l.launchpad } : {}),
     };
     this.useAction.emit({
-      type: 'uniswap_swap',
+      type: 'pools_buy',
       params,
-      raw: `[ACTION:uniswap_swap] ${JSON.stringify(params)}`,
+      raw: `[ACTION:pools_buy] ${JSON.stringify(params)}`,
     });
   }
 

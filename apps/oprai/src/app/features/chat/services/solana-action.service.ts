@@ -1518,6 +1518,11 @@ export class SolanaActionService {
     if (action.type === 'uniswap_add_liquidity') {
       return this.executeUniswapAddLiquidity(action, callbacks);
     }
+    // pools.trade launchpad native buy/sell — EVM (Robinhood chain 4663), no
+    // Solana wallet, so route out before the Solana guard.
+    if (action.type === 'pools_buy' || action.type === 'pools_sell') {
+      return this.executePoolsTrade(action, callbacks);
+    }
 
     const wallet = this.walletService.publicKey();
     if (!wallet) {
@@ -2663,6 +2668,84 @@ export class SolanaActionService {
     }).subscribe({ error: () => { /* best-effort; server is authoritative */ } });
     callbacks.onConfirm?.(txHash);
     return txHash;
+  }
+
+  /**
+   * pools.trade native buy/sell on Robinhood Chain (4663). The backend proxies
+   * trade.prepareBuy / trade.prepareSell, which return an ordered list of EVM
+   * transactions ({to, data, value}) to sign and send in sequence (an approval
+   * may precede the trade). We switch the wallet to Robinhood, send each,
+   * waiting for each to land, and return the final tx hash.
+   */
+  private async executePoolsTrade(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const isSell = action.type === 'pools_sell';
+    const chainId = 4663;
+    const token = String(p['tokenAddress'] ?? '');
+    if (!token) throw new Error('pools.trade: no token specified.');
+
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on pools.trade.');
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`pools.trade: ${label} timed out`)), ms))]);
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }), 60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network. Switch it to Robinhood Chain and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    const slippagePct = Number(p['slippagePct'] ?? 3);
+    const reqBody: Record<string, unknown> = { tokenAddress: token, walletAddress: account, slippagePct };
+    if (isSell) reqBody['amountInWei'] = String(p['amountInWei'] ?? '0');
+    else reqBody['amountUsd'] = Number(p['amountUsd'] ?? 0);
+
+    const prep = await firstValueFrom(this.api.post<any>(
+      isSell ? '/actions/uniswap/launch/sell' : '/actions/uniswap/launch/buy', reqBody));
+    const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
+    if (txs.length === 0) throw new Error('pools.trade: no transaction was returned.');
+
+    callbacks.onSign?.();
+    let lastHash = '';
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
+      if (!tx?.to) continue;
+      const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+      const hash = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: account,
+          to: tx.to,
+          data: tx.data ?? '0x',
+          value: toHexQty(tx.value) ?? '0x0',
+          ...(gasHex ? { gas: gasHex } : {}),
+        }],
+      }), 120_000, i < txs.length - 1 ? 'approval' : (isSell ? 'sell' : 'buy')) as string;
+      lastHash = hash;
+      if (i === 0) callbacks.onSubmit?.(hash);
+      const ok = await this.watchEvmReceipt(ethereum, hash);
+      if (ok === false) {
+        callbacks.onFail?.(`The ${isSell ? 'sell' : 'buy'} reverted on-chain — your funds are safe minus the network fee.`, hash);
+        return hash;
+      }
+    }
+    callbacks.onConfirm?.(lastHash);
+    return lastHash;
   }
 
   /**

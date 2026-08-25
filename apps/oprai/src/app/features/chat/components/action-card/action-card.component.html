@@ -1064,6 +1064,60 @@
             </div>
           </div>
 
+        } @else if (action.type === 'pools_buy' || action.type === 'pools_sell') {
+          <!-- ─────── pools.trade native buy / sell (Robinhood Chain) ─────── -->
+          @let pbSell = action.type === 'pools_sell';
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                @if (getEditParam('logo')) {
+                  <img class="km-icon km-icon--img" [src]="getEditParam('logo')" [alt]="getEditParam('symbol')"
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="km-icon km-icon--fallback">{{ (getEditParam('symbol') || '?').charAt(0) }}</span>
+                }
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ pbSell ? 'Sell' : 'Buy' }} {{ getEditParam('symbol') }}</span>
+                <span class="uni-lp__sub">{{ getEditParam('launchpad') || 'pools.trade' }} · Robinhood Chain</span>
+              </div>
+            </div>
+
+            @if (!pbSell) {
+              <label class="uni-lp__label">{{ 'Amount (USD)' | t }}</label>
+              <div class="uni-lp__inputrow">
+                <span class="uni-lp__prefix">$</span>
+                <input class="uni-lp__input" type="number" min="0" step="0.01" inputmode="decimal"
+                       [value]="getEditParam('amountUsd') ?? ''"
+                       [disabled]="!isEditable()"
+                       (input)="setEditParam('amountUsd', $any($event.target).value)" />
+              </div>
+              <div class="uni-lp__chips">
+                @for (v of ['5','10','25','100']; track v) {
+                  <button class="orca-chip" [class.orca-chip--active]="(getEditParam('amountUsd')||'') === v"
+                          [disabled]="!isEditable()" (click)="setEditParam('amountUsd', v)">${{ v }}</button>
+                }
+              </div>
+            } @else {
+              <label class="uni-lp__label">{{ 'Amount (tokens)' | t }}</label>
+              <div class="uni-lp__inputrow">
+                <input class="uni-lp__input" type="number" min="0" step="any" inputmode="decimal"
+                       [value]="getEditParam('amountTokens') ?? ''"
+                       [disabled]="!isEditable()"
+                       (input)="onPoolsSellAmount($any($event.target).value)" />
+                <span class="uni-lp__suffix">{{ getEditParam('symbol') }}</span>
+              </div>
+            }
+
+            <label class="uni-lp__label">{{ 'Max slippage (%)' | t }}</label>
+            <div class="uni-lp__inputrow">
+              <input class="uni-lp__input" type="number" min="0.1" step="0.1" inputmode="decimal"
+                     [value]="getEditParam('slippagePct') ?? '5'"
+                     [disabled]="!isEditable()"
+                     (input)="setEditParam('slippagePct', $any($event.target).value)" />
+            </div>
+          </div>
+
         } @else if (action.type === 'limit_order') {
           <!-- ─────── Jupiter limit order: sell N of X to receive M of Y ─────── -->
           <!-- NOT an AMM swap: the BUY amount is the user's LIMIT target (typed,

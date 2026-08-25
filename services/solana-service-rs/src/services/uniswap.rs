@@ -1148,6 +1148,45 @@ pub async fn build_uniswap_launches(
     })
 }
 
+/// Proxy a pools.trade tRPC MUTATION (trade.prepareBuy / trade.prepareSell /
+/// curve.prepareLaunch). Returns `result.data` (the `{transactions:[…], …}` the
+/// wallet must sign). The API is public (no key). We never trust the client for
+/// money: the tx is built by pools.trade from the token+amount, and the user
+/// signs it in their own wallet.
+pub async fn pools_trade_mutation(
+    http: &reqwest::Client,
+    method: &str,
+    input: &Value,
+) -> Result<Value, AppError> {
+    let url = format!("{POOLS_TRADE_TRPC}/{method}");
+    let resp = http
+        .post(&url)
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .json(input)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("pools.trade {method} request failed: {e}")))?;
+    let status = resp.status();
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("pools.trade {method} parse failed: {e}")))?;
+    if !status.is_success() {
+        let msg = body
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("request rejected");
+        return Err(AppError::InvalidParams(format!("pools.trade: {msg}")));
+    }
+    Ok(body
+        .get("result")
+        .and_then(|r| r.get("data"))
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
 /// Reverse of dexscreener_chain_slug for the human chain name lookup.
 pub(crate) fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
     match slug {

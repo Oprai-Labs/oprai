@@ -1769,6 +1769,48 @@ pub async fn post_uniswap_lp_positions(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/uniswap/launch/buy — native pools.trade buy (bonding curve /
+/// CCA). Proxies trade.prepareBuy; returns `{transactions:[{to,data,value}], …}`
+/// for the wallet to sign on Robinhood Chain. Body: {tokenAddress, walletAddress,
+/// amountUsd, slippagePct}. Public API, no signer here — the user signs.
+#[post("/uniswap/launch/buy")]
+pub async fn post_pools_launch_buy(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result =
+        crate::services::uniswap::pools_trade_mutation(&state.http, "trade.prepareBuy", &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/uniswap/launch/sell — native pools.trade sell. Proxies
+/// trade.prepareSell. Body: {tokenAddress, walletAddress, amountInWei, slippagePct}.
+#[post("/uniswap/launch/sell")]
+pub async fn post_pools_launch_sell(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result =
+        crate::services::uniswap::pools_trade_mutation(&state.http, "trade.prepareSell", &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/uniswap/launch/create — prepare a pools.trade token launch.
+/// Proxies curve.prepareLaunch; returns the tx(s) to sign. Body carries the token
+/// metadata (name/symbol/image/…) the creator entered.
+#[post("/uniswap/launch/create")]
+pub async fn post_pools_launch_create(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result =
+        crate::services::uniswap::pools_trade_mutation(&state.http, "curve.prepareLaunch", &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/record — book economics after the swap settles on-chain.
 /// Uniswap has no authoritative post-fill record (unlike Relay's /requests), so
 /// the USD notional is derived SERVER-SIDE by pricing the swapped token into USDC
