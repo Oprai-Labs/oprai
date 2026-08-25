@@ -52,26 +52,7 @@
         <h2>{{ 'Connect your wallet' | t }}</h2>
         <p>{{ 'Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.' | t }}</p>
       </div>
-    } @else if (evmOnly()) {
-      <!-- Signed in with an EVM wallet. Per-network sub-pages via the chain
-           switcher; a Solana tab appears when the account has a linked Solana
-           wallet (its positions load read-only by address). -->
-      <div class="portfolio-sections content-fade-in">
-        <div class="chain-switch">
-          <button class="chain-pill" [class.active]="activeChain() === 'all'" (click)="setChain('all')">
-            {{ 'All' | t }}
-          </button>
-          @for (c of EVM_CHAINS; track c.id) {
-            <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
-              <img [src]="c.icon" width="16" height="16" style="border-radius:50%" (error)="hideChainIcon($event)" alt="" />
-              {{ c.label }}
-            </button>
-          }
-        </div>
-        <!-- Filtered to the selected network (All = every EVM chain). -->
-        <app-evm-holdings [chain]="activeChain()" />
-      </div>
-    } @else if (!positionsSettled() && !error()) {
+    } @else if (hasSolana() && !positionsSettled() && !error()) {
       <!-- Whole-page skeleton: held until the first full load (wallet + every
            protocol + pricing) is in, so the page renders in one shot instead
            of the wallet total popping in ahead of the DeFi balances. -->
@@ -178,6 +159,21 @@
             <app-evm-holdings [chain]="activeChain()" />
           </div>
         }
+      </div>
+    } @else if (evmOnly()) {
+      <!-- EVM login with NO linked Solana wallet: per-network EVM sub-pages only
+           (no Solana tab to show). -->
+      <div class="portfolio-sections content-fade-in">
+        <div class="chain-switch">
+          @for (c of EVM_CHAINS; track c.id) {
+            <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
+              <span class="chain-pill-ico" [style.--cc]="c.color">
+                <img [src]="c.icon" [alt]="c.label" width="16" height="16" (error)="hideChainIcon($event)" />
+              </span>{{ c.label | t }}
+            </button>
+          }
+        </div>
+        <app-evm-holdings [chain]="isEvmChain() ? activeChain() : 'ethereum'" />
       </div>
     }
   </main>

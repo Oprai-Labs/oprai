@@ -99,6 +99,11 @@ export class PortfolioShellComponent implements OnDestroy {
   readonly activeChain = signal<string>('solana');
   readonly hasEvm = computed(() => !!this.evmAddr());
   readonly isEvmChain = computed(() => this.activeChain() !== 'solana');
+  // The Solana address whose portfolio to show: the connected wallet if there is
+  // one, otherwise the account's LINKED Solana wallet (read-only). Lets an
+  // EVM-login user still see their linked Solana holdings.
+  readonly solKey = computed(() => this.publicKey() ?? this.solanaAddr());
+  readonly hasSolana = computed(() => !!this.solKey());
   // The EVM chains shown as top tabs (Robinhood omitted — no provider yet).
   readonly EVM_CHAINS = [
     { id: 'ethereum', label: 'Ethereum', color: '#627eea', icon: this.tw('ethereum') },
@@ -127,12 +132,7 @@ export class PortfolioShellComponent implements OnDestroy {
         const pc = primary?.type === 'evm_wallet' ? 'ethereum' : 'solana';
         this.primaryChain.set(pc);
         // Default the view to the primary chain (only if that wallet exists).
-        // EVM-only starts on "All" so nothing is hidden; the tabs then narrow.
-        if (this.evmOnly()) {
-          this.activeChain.set('all');
-        } else {
-          this.activeChain.set(pc === 'ethereum' && this.evmAddr() ? 'ethereum' : 'solana');
-        }
+        this.activeChain.set(pc === 'ethereum' && this.evmAddr() ? 'ethereum' : 'solana');
       },
       error: () => { this.accountLoaded = false; },
     });
@@ -190,18 +190,18 @@ export class PortfolioShellComponent implements OnDestroy {
    * banner regardless.
    */
   onAccountsReclaimed(): void {
-    const key = this.publicKey();
+    const key = this.solKey();
     if (key) this.portfolioService.loadPortfolio(key).catch(() => {});
   }
 
   private readonly walletEffect = effect(() => {
-    const key = this.publicKey();
+    // Load the Solana portfolio for the connected wallet OR, for an EVM-login
+    // user, the account's linked Solana address (read-only). solKey folds both.
+    const key = this.solKey();
     if (key) {
       this.portfolioService.loadPortfolio(key);
-      // Resolve the account's linked wallets so the address switcher can offer
-      // the EVM view (loads asynchronously — no signal write inside the effect).
       this.loadAccountWallets();
-    } else {
+    } else if (!this.authed()) {
       this.portfolioService.reset();
     }
   });
@@ -220,18 +220,18 @@ export class PortfolioShellComponent implements OnDestroy {
   }
 
   onTabChange(tab: PortfolioTab): void {
-    this.portfolioService.setActiveTab(tab, this.publicKey());
+    this.portfolioService.setActiveTab(tab, this.solKey());
   }
 
   refresh(): void {
-    const key = this.publicKey();
+    const key = this.solKey();
     if (key) {
       this.portfolioService.refresh(key);
     }
   }
 
   loadMoreHistory(): void {
-    const key = this.publicKey();
+    const key = this.solKey();
     if (key) {
       this.portfolioService.loadMoreHistory(key);
     }
