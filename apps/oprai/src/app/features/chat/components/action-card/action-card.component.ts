@@ -4242,7 +4242,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   setUniLpRange(r: 'full' | '25' | '10'): void {
     if (!this.isEditable()) return;
     this.uniLpRange.set(r);
-    if (this.action) this.action.params['rangePercent'] = r === 'full' ? '' : r;
+    this.setEditParam('rangePercent', r === 'full' ? '' : r);
     void this.fetchUniLpPreview(true);
   }
 
@@ -4250,11 +4250,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const v = value.replace(',', '.').replace(/[^\d.]/g, '');
     this.uniLpEditSide.set(side);
     this.uniLpTyped.set(value);
-    if (this.action) {
-      // The edited side is the independent token the backend prices from.
-      this.action.params['inputToken'] = side === 'A' ? this.uniLpSideA().addr : this.uniLpSideB().addr;
-      this.action.params['amount'] = v;
-    }
+    // Write through editParams (NOT action.params) — execute builds its tx from
+    // editParams, so amount/inputToken must live there or the deposit fails.
+    this.setEditParam('inputToken', side === 'A' ? this.uniLpSideA().addr : this.uniLpSideB().addr);
+    this.setEditParam('amount', v);
     if (this._uniLpTimer) clearTimeout(this._uniLpTimer);
     if (!v || !(parseFloat(v) > 0)) { this.uniLpPreview.set(null); return; }
     this._uniLpTimer = setTimeout(() => void this.fetchUniLpPreview(true), 450);
@@ -4262,7 +4261,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   private _uniLpSeq = 0;
   private async fetchUniLpPreview(silent = false): Promise<void> {
-    const p = this.action?.params ?? {};
+    // editParams holds the live edits (amount/inputToken/rangePercent); the
+    // action carries the seed (chain/pool/token0/token1). Merge so both are seen.
+    const p = { ...(this.action?.params ?? {}), ...this.editParams() } as Record<string, string>;
     const amount = (p['amount'] ?? '').toString().trim();
     if (!amount || !(parseFloat(amount) > 0)) return;
     const seq = ++this._uniLpSeq;
@@ -6236,9 +6237,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const rp = String(this.action?.params?.['rangePercent'] ?? '').trim();
       this.uniLpRange.set(rp === '10' ? '10' : rp === '25' ? '25' : 'full');
       // The independent (typed) side defaults to token0 unless one was named.
-      if (this.action && !this.action.params['inputToken']) {
-        this.action.params['inputToken'] = this.action.params['token0'] ?? '';
+      if (!this.getEditParam('inputToken')) {
+        this.setEditParam('inputToken', this.action?.params?.['token0'] ?? '');
       }
+      if (amt) this.setEditParam('amount', amt);
       if (amt && parseFloat(amt) > 0) void this.fetchUniLpPreview();
       void this.fetchUniLpBalances();
     }
