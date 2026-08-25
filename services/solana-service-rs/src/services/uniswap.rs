@@ -1216,12 +1216,17 @@ async fn v4_full_range_create(
     for spacing in [60i64, 10, 200, 1] {
         let lo = (MIN_TICK / spacing) * spacing;
         let hi = (MAX_TICK / spacing) * spacing;
+        let signed = permit_data.is_some() && signature.is_some();
         let mut body = json!({
             "walletAddress": wallet, "protocol": "V4", "chainId": chain_id,
             "existingPool": { "token0Address": token0, "token1Address": token1, "poolReference": pool_id },
             "independentToken": { "tokenAddress": input_addr, "amount": amount_base },
             "tickBounds": { "tickLower": lo, "tickUpper": hi },
-            "simulateTransaction": false,
+            // Simulate ONLY the final (signed) create — it validates the full
+            // permit+mint on-chain and turns a would-be revert into a clean 4xx
+            // we surface before the user signs the tx. The unsigned probe can't
+            // simulate (no allowance yet), so leave it off there.
+            "simulateTransaction": signed,
         });
         // Finalize with the signed Permit2 batch so the position manager can pull
         // the ERC-20 leg on-chain (V4 pulls via Permit2, not a plain allowance).
