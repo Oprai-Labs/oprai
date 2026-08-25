@@ -1185,12 +1185,20 @@ pub struct UniswapAddLiquidityParams {
     pub token0: Option<String>,
     #[serde(default)]
     pub token1: Option<String>,
+    /// V4 Permit2: the batch-permit object (echoed from a prior build) the user
+    /// signed, plus the signature. When present, the create is finalized with
+    /// them so the PositionManager can pull the ERC-20 legs via Permit2.
+    #[serde(default)]
+    pub permit_data: Option<Value>,
+    #[serde(default)]
+    pub permit_signature: Option<String>,
 }
 
 /// Try a full-range V4 create for each standard tick spacing until one is
 /// accepted (the API validates ticks against the pool's real spacing, so the
 /// wrong ones fail with a TICK_ invariant we skip). V4 pools are bytes32 ids —
 /// we can't read their spacing via eth_call — so we discover it this way.
+#[allow(clippy::too_many_arguments)]
 async fn v4_full_range_create(
     http: &reqwest::Client,
     key: &str,
@@ -1201,18 +1209,26 @@ async fn v4_full_range_create(
     pool_id: &str,
     input_addr: &str,
     amount_base: &str,
+    permit_data: Option<&Value>,
+    signature: Option<&str>,
 ) -> Result<Value, AppError> {
     let mut last: Option<(reqwest::StatusCode, Value)> = None;
     for spacing in [60i64, 10, 200, 1] {
         let lo = (MIN_TICK / spacing) * spacing;
         let hi = (MAX_TICK / spacing) * spacing;
-        let body = json!({
+        let mut body = json!({
             "walletAddress": wallet, "protocol": "V4", "chainId": chain_id,
             "existingPool": { "token0Address": token0, "token1Address": token1, "poolReference": pool_id },
             "independentToken": { "tokenAddress": input_addr, "amount": amount_base },
             "tickBounds": { "tickLower": lo, "tickUpper": hi },
             "simulateTransaction": false,
         });
+        // Finalize with the signed Permit2 batch so the position manager can pull
+        // the ERC-20 leg on-chain (V4 pulls via Permit2, not a plain allowance).
+        if let (Some(pd), Some(sig)) = (permit_data, signature) {
+            body["batchPermitData"] = pd.clone();
+            body["signature"] = json!(sig);
+        }
         let resp = http.post(format!("{UNISWAP_LP_API}/lp/create"))
             .header("x-api-key", key).json(&body).send().await
             .map_err(|e| AppError::Internal(format!("Uniswap LP create failed: {e}")))?;
@@ -1283,7 +1299,10 @@ pub async fn build_uniswap_add_liquidity(
             return Err(AppError::InvalidParams("V4 add-liquidity needs the pool's token addresses.".into()));
         }
         if a > b { std::mem::swap(&mut a, &mut b); } // token0 = lower address (V4 PoolKey order)
-        let cj = v4_full_range_create(http, &key, chain_id, wallet, &a, &b, pool, &input_addr_l, &amount_base).await?;
+        let cj = v4_full_range_create(
+            http, &key, chain_id, wallet, &a, &b, pool, &input_addr_l, &amount_base,
+            params.permit_data.as_ref(), params.permit_signature.as_deref(),
+        ).await?;
         let tl = cj.get("tickLower").and_then(|v| v.as_i64()).unwrap_or(0);
         let tu = cj.get("tickUpper").and_then(|v| v.as_i64()).unwrap_or(0);
         (a, b, 0u32, cj, tl, tu)
@@ -1335,21 +1354,30 @@ pub async fn build_uniswap_add_liquidity(
             { "tokenAddress": token1, "amount": amount1 },
         ],
     });
-    let approvals: Vec<Value> = match http
+    let mut approvals: Vec<Value> = vec![];
+    // V4 pulls ERC-20 legs via Permit2 → the user signs this batch permit and we
+    // pass it back to /lp/create. Absent for V3 (plain allowance).
+    let mut v4_batch_permit: Value = Value::Null;
+    if let Ok(r) = http
         .post(format!("{UNISWAP_LP_API}/lp/check_approval"))
         .header("x-api-key", &key)
         .json(&approve_body)
         .send()
         .await
     {
-        Ok(r) if r.status().is_success() => {
+        if r.status().is_success() {
             let j: Value = r.json().await.unwrap_or(Value::Null);
-            j.get("transactions").and_then(|t| t.as_array()).map(|a| {
+            approvals = j.get("transactions").and_then(|t| t.as_array()).map(|a| {
                 a.iter().filter_map(|t| t.get("transaction").cloned()).collect()
-            }).unwrap_or_default()
+            }).unwrap_or_default();
+            v4_batch_permit = j.get("v4BatchPermitData").cloned().unwrap_or(Value::Null);
         }
-        _ => vec![],
-    };
+    }
+    // V4 needs a signed permit before the create tx will succeed; it's "ready" to
+    // sign only once we have the batch-permit and don't yet hold a signature.
+    let needs_permit = version == "V4"
+        && !v4_batch_permit.is_null()
+        && params.permit_signature.as_deref().unwrap_or("").is_empty();
 
     // Display decimals for both legs — read from the contracts (RPC), so pairs
     // with a 6-decimal stable (USDG/USDC) render correctly on every chain.
@@ -1381,6 +1409,8 @@ pub async fn build_uniswap_add_liquidity(
         "maxPrice": create_json.get("adjustedMaxPrice").cloned().unwrap_or(Value::Null),
         "approvals": approvals,
         "create": create_tx,
+        "permitData": v4_batch_permit,
+        "needsPermit": needs_permit,
         "chainLogo": relay_chain_icon(http, chain_id).await,
     }))
 }

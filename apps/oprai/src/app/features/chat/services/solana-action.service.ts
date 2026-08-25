@@ -2755,6 +2755,29 @@ export class SolanaActionService {
       build = await firstValueFrom(this.api.post<any>('/actions/uniswap/lp/build', buildBody));
     }
 
+    // 3b. V4 pulls the ERC-20 legs through Permit2, so the create only succeeds
+    // with a signed batch permit. Sign it, then re-build to get the finalized
+    // create tx carrying the signature.
+    if (build?.needsPermit && build?.permitData?.domain) {
+      const pd = build.permitData;
+      const typedData = {
+        domain: { ...pd.domain, chainId },  // API sends chainId as a name ("ROBINHOOD"); the signer needs the number
+        types: {
+          EIP712Domain: this.eip712DomainFields(pd.domain),
+          ...this.normalizePermitTypes(pd.types),
+        },
+        primaryType: 'PermitBatch',
+        message: pd.values,
+      };
+      callbacks.onSign?.();
+      const signature = await withTimeout(
+        ethereum.request({ method: 'eth_signTypedData_v4', params: [account, JSON.stringify(typedData)] }),
+        120_000, 'permit sign') as string;
+      build = await firstValueFrom(this.api.post<any>('/actions/uniswap/lp/build', {
+        ...buildBody, permitData: pd, permitSignature: signature,
+      }));
+    }
+
     // 4. Create the position.
     const tx = build?.create;
     if (!tx?.to) throw new Error('Uniswap: no create transaction was returned.');
@@ -2786,6 +2809,16 @@ export class SolanaActionService {
     }
     callbacks.onConfirm?.(txHash);
     return txHash;
+  }
+
+  /** Uniswap's LP API returns EIP-712 types wrapped as `{ Type: { fields: [...] } }`;
+   *  eth_signTypedData_v4 wants the plain `{ Type: [...] }` shape. Unwrap it. */
+  private normalizePermitTypes(types: any): Record<string, Array<{ name: string; type: string }>> {
+    const out: Record<string, Array<{ name: string; type: string }>> = {};
+    for (const [k, v] of Object.entries(types ?? {})) {
+      out[k] = Array.isArray(v) ? (v as any) : ((v as any)?.fields ?? []);
+    }
+    return out;
   }
 
   /** Map a chain name/slug to its EVM chain id (for LP params that carry a name). */
