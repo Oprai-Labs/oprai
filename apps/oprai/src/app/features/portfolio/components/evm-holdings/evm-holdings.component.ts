@@ -8,6 +8,7 @@ import { ApiService } from '../../../../core/services/api.service';
 import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx, EvmNft } from '../../services/evm-portfolio.service';
 import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allocation-chart.component';
 import { DefiPositionsComponent } from '../defi-positions/defi-positions.component';
+import { ClaimableRewardsComponent } from '../claimable-rewards/claimable-rewards.component';
 import type { ProtocolPosition, ProtocolCategory } from '../../models/portfolio.models';
 
 const CHAIN_COLOR: Record<string, string> = {
@@ -38,7 +39,7 @@ function categoryFor(label: string): ProtocolCategory {
 @Component({
   selector: 'app-evm-holdings',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule, AllocationChartComponent, DefiPositionsComponent],
+  imports: [CommonModule, LucideAngularModule, AllocationChartComponent, DefiPositionsComponent, ClaimableRewardsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (walletCount() > 0) {
@@ -81,6 +82,9 @@ function categoryFor(label: string): ProtocolCategory {
           }
         </div>
 
+        <!-- ── Active positions & rewards — the exact Solana summary panel ── -->
+        <app-claimable-rewards [protocolPositions]="protoPositions()" />
+
         <!-- ── Tabs (Portfolio / Transactions) like the Solana view ── -->
         <div class="evm-tabs">
           <button class="evm-tab" [class.on]="evmTab() === 'portfolio'" (click)="evmTab.set('portfolio')">Portfolio</button>
@@ -108,10 +112,7 @@ function categoryFor(label: string): ProtocolCategory {
         }
 
         @if (evmTab() === 'portfolio') {
-        <!-- ── Active positions & rewards — the exact Solana panel ── -->
-        <app-defi-positions [protocolPositions]="protoPositions()" [loading]="false" />
-
-        <!-- ── Wallet tokens table (Solana columns) ── -->
+        <!-- ── Wallet tokens table (Solana columns) — comes first, like Solana ── -->
         @if (visTokens().length > 0 || spamCount() > 0) {
           <section class="tok">
             <div class="tok-head">
@@ -152,6 +153,9 @@ function categoryFor(label: string): ProtocolCategory {
             </div>
           </section>
         }
+
+        <!-- ── Positions detail tables (Solana defi-positions) — below the wallet ── -->
+        <app-defi-positions [protocolPositions]="protoPositions()" [loading]="false" />
         }
 
         <!-- ── Transactions tab ── -->
@@ -214,8 +218,9 @@ function categoryFor(label: string): ProtocolCategory {
     .evm-tab { background:none; border:0; padding:0 0 10px; font-size:.92rem; font-weight:600; color:var(--op-text-secondary); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
     .evm-tab:hover { color:var(--op-text-primary); }
     .evm-tab.on { color:var(--op-brand,#5b5fc7); border-bottom-color:var(--op-brand,#5b5fc7); }
-    .proto-cards { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 4px; }
-    .proto-card { display:flex; align-items:center; gap:10px; flex:1; min-width:150px; padding:12px 14px; border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; background:var(--op-bg-surface-1); }
+    .proto-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px; margin:14px 0 4px; }
+    @media (max-width:520px) { .proto-cards { grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:8px; } }
+    .proto-card { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--op-border-subtle, rgba(255,255,255,.08)); border-radius:var(--op-radius-md, 12px); background:var(--op-bg-surface-1); }
     .proto-card-ico { width:30px; height:30px; border-radius:9px; flex:none; display:grid; place-items:center; background:color-mix(in srgb, var(--cc) 16%, transparent); overflow:hidden; }
     .proto-card-ico img { width:30px; height:30px; border-radius:9px; object-fit:cover; }
     .proto-card-dot { width:12px; height:12px; border-radius:4px; }
@@ -228,11 +233,11 @@ function categoryFor(label: string): ProtocolCategory {
     .tok-title { display:flex; align-items:center; gap:8px; font-weight:700; font-size:1.05rem; color:var(--op-text-primary); }
     .tok-ico { color:var(--op-text-secondary); }
     .tok-total { font-weight:700; color:var(--op-text-primary); font-variant-numeric:tabular-nums; }
-    .tok-table { border:1px solid var(--op-border, rgba(255,255,255,.08)); border-radius:14px; overflow:hidden; }
+    .tok-table { border:1px solid var(--op-border-subtle, rgba(255,255,255,.08)); border-radius:var(--op-radius-lg, 16px); overflow:hidden; background:var(--op-bg-surface-1); box-shadow:var(--op-shadow-sm); }
     .tok-r { display:grid; grid-template-columns:2.2fr 1fr 1fr .7fr 1fr; align-items:center; gap:8px; padding:12px 16px; }
     .tok-r:not(.tok-hr):hover { background:var(--op-bg-surface-2, rgba(125,125,150,.05)); }
     .tok-r + .tok-r { border-top:1px solid var(--op-border, rgba(255,255,255,.05)); }
-    .tok-hr { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.04)); }
+    .tok-hr { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--op-text-secondary); border-bottom:1px solid var(--op-border-subtle, rgba(125,125,150,.12)); }
     .tok-num { text-align:right; font-variant-numeric:tabular-nums; font-size:14px; font-family:var(--op-font-body); color:var(--op-text-primary); }
     .tok-dim { color:var(--op-text-secondary); } .tok-val { font-weight:700; }
     .tok-name { display:flex; align-items:center; gap:10px; min-width:0; }
