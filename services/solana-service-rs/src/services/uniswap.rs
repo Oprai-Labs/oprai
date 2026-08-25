@@ -1105,9 +1105,17 @@ async fn futures_lite_json(r: reqwest::Response) -> Option<String> {
 /// token on any chain we have an RPC for, unlike Relay's token list (which
 /// doesn't cover every chain, e.g. Robinhood).
 async fn erc20_decimals(http: &reqwest::Client, chain_id: u64, token: &str) -> u8 {
+    // Native (zero address) isn't an ERC-20 — decimals() would read nothing and
+    // yield 0, mangling amount formatting. Native gas coins are 18 decimals.
+    if is_zero_address(token) {
+        return 18;
+    }
     let rpc = match alchemy_rpc(chain_id) { Some(r) => r, None => return 18 };
     match eth_call(http, &rpc, token, "0x313ce567").await {
-        Ok(hex) => (hex_to_u64(&hex) as u8).clamp(0, 36),
+        Ok(hex) => {
+            let d = hex_to_u64(&hex) as u8;
+            if d == 0 || d > 36 { 18 } else { d } // 0 usually means the call failed
+        }
         Err(_) => 18,
     }
 }
