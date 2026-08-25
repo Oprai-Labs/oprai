@@ -956,27 +956,63 @@
           </div>
 
         } @else if (isUniswapAddLiquidity()) {
-          <!-- ─────── Uniswap add liquidity (open a V3 position) ─────── -->
+          <!-- ─────── Uniswap add liquidity: two-sided pair, auto-balanced ─────── -->
           @let ulp = uniLpPreview();
+          @let sideA = uniLpSideA();
+          @let sideB = uniLpSideB();
           <div class="pump-swap" [class.proto-fields--shake]="shake()">
 
-            <!-- You deposit -->
+            <!-- Side A (token0) -->
             <div class="pump-panel">
               <div class="pump-panel__top">
-                <span class="pump-panel__label">{{ 'You deposit' | t }}</span>
+                <span class="pump-panel__label">{{ 'Deposit' | t }}</span>
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
-                       [value]="uniLpAmount()"
-                       (input)="onUniLpAmountInput($any($event.target).value)"
+                       [value]="uniLpAmountFor('A')"
+                       (input)="onUniLpAmountInput('A', $any($event.target).value)"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">
-                  <span class="pump-token__sym">{{ action.params['token0Symbol'] || action.params['pair'] || 'Token' }}</span>
+                  @if (uniLpLogoFor('A'); as la) {
+                    <img [src]="la" class="pump-token__icon" alt="" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (sideA.sym || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ sideA.sym || 'Token' }}</span>
                 </span>
               </div>
             </div>
 
-            <!-- Price range chips -->
+            <!-- Both sides are required (plus icon between them) -->
+            <div class="pump-swap__arrow" aria-hidden="true">
+              <lucide-icon name="plus" [size]="16" />
+            </div>
+
+            <!-- Side B (token1) -->
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'And' | t }}</span>
+                @if (ulp?.loading) {
+                  <span class="pump-panel__bal"><span class="proto-balance-dots">···</span></span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="uniLpAmountFor('B')"
+                       (input)="onUniLpAmountInput('B', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  @if (uniLpLogoFor('B'); as lb) {
+                    <img [src]="lb" class="pump-token__icon" alt="" (error)="$any($event.target).style.display='none'" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (sideB.sym || '?').charAt(0) }}</span>
+                  }
+                  <span class="pump-token__sym">{{ sideB.sym || 'Token' }}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Price range + protocol -->
             <div class="swap-facts">
               <div class="swap-facts__row">
                 <span class="swap-facts__label">{{ 'Price range' | t }}</span>
@@ -989,27 +1025,14 @@
                           [disabled]="!isEditable()" (click)="setUniLpRange('10')">±10%</button>
                 </span>
               </div>
-            </div>
-
-            <!-- Preview: computed amounts for BOTH sides + resolved range -->
-            @if (ulp?.loading) {
-              <div class="pump-panel__usd"><span class="proto-balance-dots">···</span> {{ 'Calculating…' | t }}</div>
-            } @else if (ulp?.error) {
-              <div class="swap-facts"><div class="swap-facts__row"><span class="swap-facts__value">{{ ulp!.error }}</span></div></div>
-            } @else if (ulp?.amount0Display) {
-              <div class="swap-facts">
-                <div class="swap-facts__row">
-                  <span class="swap-facts__label">{{ 'You add' | t }}</span>
-                  <span class="swap-facts__value">
-                    {{ ulp!.amount0Display }} {{ ulp!.token0Symbol }} + {{ ulp!.amount1Display }} {{ ulp!.token1Symbol }}
-                  </span>
-                </div>
-                <div class="swap-facts__row">
-                  <span class="swap-facts__label">{{ 'Protocol' | t }}</span>
-                  <span class="swap-facts__value">Uniswap {{ (action.params['version'] || 'v3') | uppercase }}</span>
-                </div>
+              <div class="swap-facts__row">
+                <span class="swap-facts__label">{{ 'Route' | t }}</span>
+                <span class="swap-facts__value">Uniswap {{ (action.params['version'] || 'v3') | uppercase }} · {{ action.params['chain'] }}</span>
               </div>
-            }
+              @if (ulp?.error) {
+                <div class="swap-facts__row"><span class="swap-facts__value">{{ ulp!.error }}</span></div>
+              }
+            </div>
           </div>
 
         } @else if (action.type === 'limit_order') {

@@ -3405,6 +3405,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       token0Symbol: p.baseSymbol,
       token1Symbol: p.quoteSymbol,
       pair: `${p.baseSymbol}/${p.quoteSymbol}`,
+      ...(p.baseLogo ? { token0Logo: p.baseLogo } : {}),
+      ...(p.quoteLogo ? { token1Logo: p.quoteLogo } : {}),
     };
     this.useAction.emit({
       type: 'uniswap_add_liquidity',

@@ -4148,25 +4148,51 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // ── Uniswap add-liquidity (open a V3 position) ───────────────────────────
   readonly isUniswapAddLiquidity = computed(() => this.action?.type === 'uniswap_add_liquidity');
 
-  /** Live preview of a Uniswap LP position: the pool ratio fixes the second
-   *  amount from the one the user types, plus the resolved price range. */
+  /** The pool's two sides. A = token0 (base), B = token1 (quote) as carried on
+   *  the action from the pool row the user tapped. */
+  readonly uniLpSideA = computed(() => ({
+    addr: (this.action?.params?.['token0'] ?? '').toString(),
+    sym: (this.action?.params?.['token0Symbol'] ?? '').toString(),
+  }));
+  readonly uniLpSideB = computed(() => ({
+    addr: (this.action?.params?.['token1'] ?? '').toString(),
+    sym: (this.action?.params?.['token1Symbol'] ?? '').toString(),
+  }));
+
+  /** Computed position preview: both legs' amounts + logos (mapped to A/B by
+   *  address), plus loading/error. The pool ratio fixes the non-edited side. */
   readonly uniLpPreview = signal<{
     loading: boolean;
-    token0Symbol?: string;
-    token1Symbol?: string;
-    amount0Display?: string;
-    amount1Display?: string;
-    token0Logo?: string;
-    token1Logo?: string;
-    minPrice?: string;
-    maxPrice?: string;
+    aAmount?: string;
+    bAmount?: string;
+    aLogo?: string;
+    bLogo?: string;
     error?: string;
   } | null>(null);
 
-  /** Which token the user is entering an amount of, and the chosen price band. */
-  readonly uniLpAmount = signal<string>('');
+  /** Which side the user is typing on (that side is the independent amount; the
+   *  other is computed by the pool), the typed value, and the price band. */
+  readonly uniLpEditSide = signal<'A' | 'B'>('A');
+  readonly uniLpTyped = signal<string>('');
   readonly uniLpRange = signal<'full' | '25' | '10'>('full');
   private _uniLpTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Value shown in a side's input: the typed value on the edited side, the
+   *  pool-computed estimate on the other. */
+  uniLpAmountFor(side: 'A' | 'B'): string {
+    if (this.uniLpEditSide() === side) return this.uniLpTyped();
+    const pv = this.uniLpPreview();
+    return (side === 'A' ? pv?.aAmount : pv?.bAmount) ?? '';
+  }
+
+  uniLpLogoFor(side: 'A' | 'B'): string {
+    const live = side === 'A' ? this.uniLpPreview()?.aLogo : this.uniLpPreview()?.bLogo;
+    if (live) return live;
+    // Seed logo from the pool row (before the first price call) so icons show up
+    // immediately, not only after an amount is typed.
+    const p = this.action?.params ?? {};
+    return (side === 'A' ? p['token0Logo'] : p['token1Logo']) ?? '';
+  }
 
   setUniLpRange(r: 'full' | '25' | '10'): void {
     if (!this.isEditable()) return;
@@ -4175,13 +4201,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     void this.fetchUniLpPreview(true);
   }
 
-  onUniLpAmountInput(value: string): void {
+  onUniLpAmountInput(side: 'A' | 'B', value: string): void {
     const v = value.replace(',', '.').replace(/[^\d.]/g, '');
-    this.uniLpAmount.set(value);
-    if (this.action) this.action.params['amount'] = v;
+    this.uniLpEditSide.set(side);
+    this.uniLpTyped.set(value);
+    if (this.action) {
+      // The edited side is the independent token the backend prices from.
+      this.action.params['inputToken'] = side === 'A' ? this.uniLpSideA().addr : this.uniLpSideB().addr;
+      this.action.params['amount'] = v;
+    }
     if (this._uniLpTimer) clearTimeout(this._uniLpTimer);
     if (!v || !(parseFloat(v) > 0)) { this.uniLpPreview.set(null); return; }
-    this._uniLpTimer = setTimeout(() => void this.fetchUniLpPreview(true), 500);
+    this._uniLpTimer = setTimeout(() => void this.fetchUniLpPreview(true), 450);
   }
 
   private _uniLpSeq = 0;
@@ -4196,21 +4227,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         chain: p['chain'] ?? '',
         poolAddress: p['poolAddress'] ?? p['pool'],
         version: p['version'] ?? 'v3',
-        inputToken: p['inputToken'] ?? p['token0'],
+        inputToken: p['inputToken'] ?? this.uniLpSideA().addr,
         amount,
         ...(p['rangePercent'] ? { rangePercent: Number(p['rangePercent']) } : {}),
       }));
       if (seq !== this._uniLpSeq) return;
+      // Map the backend's canonical token0/token1 to our A/B by address.
+      const norm = (s: string) => (s || '').toLowerCase();
+      const aAddr = norm(this.uniLpSideA().addr);
+      const t0 = b?.token0, t1 = b?.token1;
+      const t0IsA = norm(t0?.address) === aAddr;
+      const aLeg = t0IsA ? t0 : t1;
+      const bLeg = t0IsA ? t1 : t0;
       this.uniLpPreview.set({
         loading: false,
-        token0Symbol: p['token0Symbol'] ?? b?.token0?.address?.slice(0, 6),
-        token1Symbol: p['token1Symbol'] ?? b?.token1?.address?.slice(0, 6),
-        amount0Display: b?.token0?.amountDisplay,
-        amount1Display: b?.token1?.amountDisplay,
-        token0Logo: b?.token0?.logo,
-        token1Logo: b?.token1?.logo,
-        minPrice: b?.minPrice != null ? String(b.minPrice) : undefined,
-        maxPrice: b?.maxPrice != null ? String(b.maxPrice) : undefined,
+        aAmount: aLeg?.amountDisplay,
+        bAmount: bLeg?.amountDisplay,
+        aLogo: aLeg?.logo,
+        bLogo: bLeg?.logo,
       });
     } catch (e: any) {
       if (seq !== this._uniLpSeq) return;
@@ -6146,13 +6180,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.uniTypedAmount.set(String(this.action?.params?.['amount'] ?? ''));
       void this.fetchUniswapPreview();
     }
-    // Uniswap add-liquidity card: seed amount + range, preview if amount present.
+    // Uniswap add-liquidity card: seed the edited side (A/token0) + range, then
+    // price if an amount is already present.
     if (this.isUniswapAddLiquidity() && this.status() === 'pending') {
       const amt = String(this.action?.params?.['amount'] ?? '');
-      this.uniLpAmount.set(amt);
+      this.uniLpEditSide.set('A');
+      this.uniLpTyped.set(amt);
       const rp = String(this.action?.params?.['rangePercent'] ?? '').trim();
       this.uniLpRange.set(rp === '10' ? '10' : rp === '25' ? '25' : 'full');
-      // Default the input token to token0 when the LLM/pool row didn't name one.
+      // The independent (typed) side defaults to token0 unless one was named.
       if (this.action && !this.action.params['inputToken']) {
         this.action.params['inputToken'] = this.action.params['token0'] ?? '';
       }
