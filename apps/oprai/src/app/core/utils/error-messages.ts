@@ -309,6 +309,15 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
     .replace(/\s*Catch the [`']?SendTransactionError[`']?[\s\S]*$/i, '')
     .trim();
 
+  // EVM actions (Uniswap, Relay, cross-chain) pay gas in the CHAIN'S native
+  // token — ETH/BNB/… — never SOL. Their "insufficient funds" errors must not
+  // be routed through the Solana-worded balance/sim messages below, which talk
+  // about SOL and rent. Handle them here, up front, with chain-neutral wording.
+  const isEvmAction = /^uniswap_|^relay_|^cross_chain|^bridge$/.test(actionType ?? '');
+  if (isEvmAction && /insufficient funds|InsufficientFunds|exceeds balance|transfer amount exceeds|insufficient allowance|gas required exceeds/i.test(out)) {
+    return 'Not enough balance for this — check the amount, and that the wallet has enough of the chain’s native token (e.g. ETH) to cover gas.';
+  }
+
   // Raw on-chain program error thrown at SUBMIT time (not preflight sim, which
   // arrives as a `sim:*` machine code below). Classify the custom error code
   // from hex ("0x1771") or decimal form and reuse the same friendly text, so a
