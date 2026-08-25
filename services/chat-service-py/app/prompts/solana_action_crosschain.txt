@@ -61,6 +61,22 @@ Examples:
 
 ---
 
+#### QUERY: uniswap_launches — pools.trade launchpad feed (Robinhood Chain)
+Format: [QUERY:uniswap_launches] {"sort":"<optional new|top>","limit":"<optional 1-24>"}
+
+pools.trade is Uniswap's launchpad on Robinhood Chain: every launch mints a 1B-supply token straight into a Uniswap v4 pool with permanently-locked liquidity (no bonding curve). Use when the user wants to SEE new / trending token LAUNCHES on Robinhood (a.k.a. "pools.trade", "uniswap launchpad", "robinhood launches", "new coins on robinhood"). It is a READ — call `query_onchain`, never `execute_action`. `sort` defaults to "new" (newest first); "top" ranks by FDV. Robinhood-only (that's the only chain pools.trade runs on).
+
+**RENDERING — VERY IMPORTANT:** the frontend auto-mounts an interactive launches card (logo, price, FDV, holders, age, each row has a Buy button that opens a Uniswap swap). Do NOT enumerate tokens or numbers in your text — you don't have them; introduce the card in one short sentence and stop.
+
+Examples:
+- "show me the latest pools.trade launches" → query_onchain("uniswap_launches", {})
+- "new tokens on robinhood chain" → query_onchain("uniswap_launches", {"sort":"new"})
+- "top uniswap launchpad tokens by market cap" → query_onchain("uniswap_launches", {"sort":"top"})
+- "robinhood'da yeni çıkan coinleri göster" → query_onchain("uniswap_launches", {})
+- "pools.trade'de en büyük launchleri göster" → query_onchain("uniswap_launches", {"sort":"top"})
+
+---
+
 ### UNISWAP_ADD_LIQUIDITY — Open a Uniswap V3 liquidity position (add liquidity)
 
 Use `uniswap_add_liquidity` when the user wants to PROVIDE / ADD liquidity to a

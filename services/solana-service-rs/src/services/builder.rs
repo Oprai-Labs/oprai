@@ -1421,6 +1421,14 @@ pub fn validate_action(action_type: &str, params: &serde_json::Value) -> Result<
                 })?;
             uniswap::validate_uniswap_get_pools_params(&p)
         }
+        "uniswap_launches" => {
+            // Params are all optional (sort/limit); nothing to reject.
+            let _p: uniswap::UniswapLaunchesParams =
+                serde_json::from_value(params.clone()).map_err(|e| {
+                    AppError::InvalidParams(format!("Invalid uniswap_launches params: {e}"))
+                })?;
+            Ok(())
+        }
         "orca_search_pools" => {
             let p: orca::OrcaSearchPoolsParams =
                 serde_json::from_value(params.clone()).map_err(|e| {
@@ -4118,6 +4126,10 @@ async fn build_action_inner(
         "uniswap_pools" => {
             let p: uniswap::UniswapGetPoolsParams = serde_json::from_value(params)?;
             uniswap::build_uniswap_get_pools(http, &p).await
+        }
+        "uniswap_launches" => {
+            let p: uniswap::UniswapLaunchesParams = serde_json::from_value(params)?;
+            uniswap::build_uniswap_launches(http, &p).await
         }
         "orca_search_pools" => {
             let p: orca::OrcaSearchPoolsParams = serde_json::from_value(params)?;

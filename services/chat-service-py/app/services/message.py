@@ -287,6 +287,9 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # per-row Deposit button that spawns uniswap_add_liquidity. Without this the
     # query is dropped as "unfetchable" and the model just narrates it.
     "uniswap_pools",
+    # pools.trade launchpad feed (Robinhood) — self-fetching card with per-row
+    # Buy buttons. Prose can't carry logo/price/FDV/holders per launch.
+    "uniswap_launches",
     # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
     # shape for all of these. The collection lists need a floor and a thumbnail
     # per row, the token lists a grid you can buy from, the offer lists an

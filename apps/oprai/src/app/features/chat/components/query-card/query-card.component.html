@@ -208,6 +208,82 @@
         }
       }
 
+      <!-- ── pools.trade launchpad feed (Robinhood Chain) ─────────────────── -->
+      @if (query.type === 'uniswap_launches') {
+        <div class="dlmm-sort-bar dlmm-sort-bar--chips">
+          <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'new'"
+                  (click)="setUniswapLaunchesSort('new')">{{ 'Newest' | t }}</button>
+          <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'top'"
+                  (click)="setUniswapLaunchesSort('top')">{{ 'Top by FDV' | t }}</button>
+        </div>
+
+        <div class="result-table">
+          <div class="result-table__header result-table__header--5col">
+            <span>{{ 'Token' | t }}</span>
+            <span class="text-right">{{ 'Price' | t }}</span>
+            <span class="text-right">{{ 'FDV' | t }}</span>
+            <span class="text-right">{{ 'Holders' | t }}</span>
+            <span></span>
+          </div>
+
+          @if (uniswapLaunchesFetching() && uniswapLaunchesResults.length === 0) {
+            <div class="dlmm-empty">{{ 'Loading launches…' | t }}</div>
+          }
+
+          @for (l of pagedUniswapLaunches; track l.tokenAddress) {
+            <div class="result-table__row result-table__row--5col dlmm-row">
+              <span class="km-pair">
+                <span class="km-icon-slot">
+                  <span class="km-icon km-icon--fallback">{{ (l.symbol || '?').charAt(0) }}</span>
+                  @if (l.logo) {
+                    <img class="km-icon km-icon--img" [src]="l.logo" [alt]="l.symbol"
+                         loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                  }
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ l.symbol }}</span>
+                  <span class="km-pair__sub">
+                    {{ l.name }}
+                    @if (launchAge(l.createdAt); as age) { <span class="uni-launch-age">· {{ age }}</span> }
+                  </span>
+                </span>
+              </span>
+              <span class="text-right mono">
+                {{ l.priceUsd ? formatPrice(+l.priceUsd) : '—' }}
+                @if (l.priceChange24h != null) {
+                  <span class="uni-launch-chg" [class.pos]="l.priceChange24h >= 0" [class.neg]="l.priceChange24h < 0">
+                    {{ l.priceChange24h >= 0 ? '+' : '' }}{{ l.priceChange24h | number:'1.0-1' }}%
+                  </span>
+                }
+              </span>
+              <span class="text-right mono">{{ formatCompactUsd(l.fdvUsd) }}</span>
+              <span class="text-right mono">{{ l.holders != null ? l.holders : '—' }}</span>
+              <span class="text-right">
+                <button class="km-deposit-btn" type="button" (click)="buyUniswapLaunch(l)">
+                  {{ 'Buy' | t }}
+                </button>
+              </span>
+            </div>
+          }
+
+          @if (!uniswapLaunchesFetching() && !error() && uniswapLaunchesResults.length === 0) {
+            <div class="dlmm-empty">{{ 'No recent pools.trade launches found.' | t }}</div>
+          }
+        </div>
+
+        @if (uniswapLaunchesTotalPages > 1) {
+          <div class="balance-pagination">
+            <button class="balance-page-btn" (click)="uniswapLaunchesPrevPage()" [disabled]="uniswapLaunchesPage === 0">
+              <lucide-icon name="chevron-left" [size]="13" />
+            </button>
+            <span class="balance-page-label">{{ uniswapLaunchesPage + 1 }} / {{ uniswapLaunchesTotalPages }}</span>
+            <button class="balance-page-btn" (click)="uniswapLaunchesNextPage()" [disabled]="uniswapLaunchesPage === uniswapLaunchesTotalPages - 1">
+              <lucide-icon name="chevron-right" [size]="13" />
+            </button>
+          </div>
+        }
+      }
+
       <!-- ── Magic Eden ──────────────────────────────────────────────────
            Twenty-six query types, four renderers. The card switches on the
            SHAPE of what came back rather than on the endpoint name, because

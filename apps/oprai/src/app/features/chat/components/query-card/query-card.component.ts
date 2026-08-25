@@ -57,6 +57,26 @@ interface UniswapPool {
   quoteLogo?: string | null;
 }
 
+interface UniswapLaunch {
+  tokenAddress: string;
+  symbol: string;
+  name: string;
+  version: string;          // "v4"
+  priceUsd: string;
+  fdvUsd: number;
+  liquidityUsd: number;
+  volume24hUsd: number;
+  priceChange24h?: number | null;
+  holders?: number | null;
+  pairAddress: string;
+  quoteSymbol: string;
+  quoteAddress: string;
+  logo?: string | null;
+  url: string;
+  createdAt?: string | null;
+  chain: string;
+}
+
 interface PriceResult {
   symbol: string;
   price: number;
@@ -765,6 +785,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'orca_get_user_positions':
         return 'assets/icons/protocols/orca.webp';
       case 'uniswap_pools':
+      case 'uniswap_launches':
         return 'assets/protocols/uniswap.jpg';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
@@ -1037,6 +1058,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['lendEarnPositions'])   this.lendEarnPositions   = d['lendEarnPositions']   as LendPosition[];
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['uniswapPoolsResults']) this.uniswapPoolsResults = d['uniswapPoolsResults'] as UniswapPool[];
+    if (d['uniswapLaunchesResults']) this.uniswapLaunchesResults = d['uniswapLaunchesResults'] as UniswapLaunch[];
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -1142,6 +1164,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.lendEarnPositions.length)   d['lendEarnPositions']   = this.lendEarnPositions;
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
     if (this.uniswapPoolsResults.length) d['uniswapPoolsResults'] = this.uniswapPoolsResults;
+    if (this.uniswapLaunchesResults.length) d['uniswapLaunchesResults'] = this.uniswapLaunchesResults;
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
@@ -3421,6 +3444,85 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return `https://dd.dexscreener.com/ds-data/tokens/${chain}/${addr.toLowerCase()}.png`;
   }
 
+  // ── pools.trade launchpad feed (Robinhood) ─────────────────────────────
+  uniswapLaunchesResults: UniswapLaunch[] = [];
+  readonly uniswapLaunchesFetching = signal(false);
+  uniswapLaunchesSort: 'new' | 'top' = 'new';
+  uniswapLaunchesPage = 0;
+  readonly UNISWAP_LAUNCH_PAGE_SIZE = 8;
+
+  get pagedUniswapLaunches(): UniswapLaunch[] {
+    const page = Math.min(this.uniswapLaunchesPage, this.uniswapLaunchesTotalPages - 1);
+    return this.uniswapLaunchesResults.slice(page * this.UNISWAP_LAUNCH_PAGE_SIZE, (page + 1) * this.UNISWAP_LAUNCH_PAGE_SIZE);
+  }
+  get uniswapLaunchesTotalPages(): number {
+    return Math.max(1, Math.ceil(this.uniswapLaunchesResults.length / this.UNISWAP_LAUNCH_PAGE_SIZE));
+  }
+  uniswapLaunchesNextPage(): void { if (this.uniswapLaunchesPage < this.uniswapLaunchesTotalPages - 1) this.uniswapLaunchesPage++; }
+  uniswapLaunchesPrevPage(): void { if (this.uniswapLaunchesPage > 0) this.uniswapLaunchesPage--; }
+
+  setUniswapLaunchesSort(s: 'new' | 'top'): void {
+    if (this.uniswapLaunchesSort === s) return;
+    this.uniswapLaunchesSort = s;
+    this.uniswapLaunchesPage = 0;
+    void this.fetchUniswapLaunches();
+  }
+
+  private async fetchUniswapLaunches(): Promise<void> {
+    this.uniswapLaunchesFetching.set(true);
+    this.error.set(null);
+    const body = {
+      type: 'uniswap_launches',
+      params: {
+        sort: this.uniswapLaunchesSort,
+        ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : {}),
+      },
+    };
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', body).pipe(timeout(20_000)));
+      this.uniswapLaunchesResults = Array.isArray(resp?.data?.launches) ? resp.data.launches : [];
+      this.uniswapLaunchesFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch (e: any) {
+      this.error.set('Failed to load pools.trade launches');
+      this.uniswapLaunchesFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** Buy a launched token: opens the Uniswap swap card paying native ETH into
+   *  the launch's v4 pool on Robinhood. Trading works because every pools.trade
+   *  launch IS a real v4 pool. */
+  buyUniswapLaunch(l: UniswapLaunch): void {
+    const params: Record<string, string> = {
+      originChainId: '4663',
+      destinationChainId: '4663',
+      originCurrency: 'ETH',
+      destinationCurrency: l.tokenAddress,
+      destinationSymbol: l.symbol,
+      tradeType: 'EXACT_INPUT',
+      ...(l.logo ? { destinationLogo: l.logo } : {}),
+    };
+    this.useAction.emit({
+      type: 'uniswap_swap',
+      params,
+      raw: `[ACTION:uniswap_swap] ${JSON.stringify(params)}`,
+    });
+  }
+
+  /** Compact "3m/2h/1d ago" from an ISO timestamp. */
+  launchAge(iso?: string | null): string {
+    if (!iso) return '';
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return `${Math.floor(s)}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    return `${Math.floor(s / 86400)}d`;
+  }
+
   onRaydiumPoolTypeChange(t: 'all' | 'concentrated' | 'standard'): void {
     if (this.raydiumPoolType() === t) return;
     this.raydiumPoolType.set(t);
@@ -4305,6 +4407,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'uniswap_pools':
         await this.fetchUniswapPools();
+        return;
+      case 'uniswap_launches':
+        await this.fetchUniswapLaunches();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

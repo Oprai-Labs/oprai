@@ -627,6 +627,8 @@ class QueryType(str, Enum):
     # Read-only pool listing (EVM). Same string as ActionType.UNISWAP_POOLS;
     # routed through query_onchain so the LLM treats it as a data card, not a tx.
     UNISWAP_POOLS = "uniswap_pools"
+    # Read-only pools.trade launchpad feed (Robinhood Chain). Data card.
+    UNISWAP_LAUNCHES = "uniswap_launches"
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"
