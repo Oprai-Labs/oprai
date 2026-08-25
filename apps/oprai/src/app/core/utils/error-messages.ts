@@ -314,7 +314,13 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
   // be routed through the Solana-worded balance/sim messages below, which talk
   // about SOL and rent. Handle them here, up front, with chain-neutral wording.
   const isEvmAction = /^uniswap_|^relay_|^cross_chain|^bridge$/.test(actionType ?? '');
-  if (isEvmAction && /insufficient funds|InsufficientFunds|exceeds balance|transfer amount exceeds|insufficient allowance|gas required exceeds/i.test(out)) {
+  if (isEvmAction && /insufficient funds|InsufficientFunds|exceeds balance|transfer amount exceeds|insufficient allowance|gas required exceeds|cannot estimate gas|execution reverted|UNPREDICTABLE_GAS_LIMIT/i.test(out)) {
+    // Keep the raw wallet/RPC error in the console — the friendly text hides the
+    // real cause (a gas-estimation revert reads identically to a true shortfall).
+    console.error('[action] EVM tx failed:', { actionType, raw: msg });
+    if (/insufficient allowance|transfer amount exceeds|cannot estimate gas|execution reverted|UNPREDICTABLE_GAS_LIMIT/i.test(out)) {
+      return 'The transaction would fail on-chain right now — the token approval may still be settling, or the amount/price moved. Try again in a few seconds.';
+    }
     return 'Not enough balance for this — check the amount, and that the wallet has enough of the chain’s native token (e.g. ETH) to cover gas.';
   }
 

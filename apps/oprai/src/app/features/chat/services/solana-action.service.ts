@@ -2710,9 +2710,7 @@ export class SolanaActionService {
       }
     }
 
-    callbacks.onQuote?.();
-    // 1. Build (backend reads the pool + computes ticks + returns approve/create txs).
-    const build = await firstValueFrom(this.api.post<any>('/actions/uniswap/lp/build', {
+    const buildBody = {
       chain: p['chain'] ?? String(chainId),
       poolAddress: p['poolAddress'] ?? p['pool'] ?? p['whirlpool'],
       version: p['version'] ?? 'v3',
@@ -2721,10 +2719,18 @@ export class SolanaActionService {
       token0: p['token0'] ?? '',
       token1: p['token1'] ?? '',
       ...(p['rangePercent'] ? { rangePercent: Number(p['rangePercent']) } : {}),
-    }));
+    };
 
-    // 2. Approvals (ERC20 → position manager). Each must land before create.
+    callbacks.onQuote?.();
+    // 1. Build (backend reads the pool + computes ticks + returns approve/create txs).
+    let build = await firstValueFrom(this.api.post<any>('/actions/uniswap/lp/build', buildBody));
+
+    // 2. Approvals (ERC20 → position manager). Each MUST fully confirm before the
+    // create — the create pulls the tokens, so an unconfirmed allowance makes the
+    // wallet's gas estimation revert ("insufficient funds"/"transfer exceeds
+    // allowance"). Treat an unresolved receipt as not-confirmed, not success.
     const approvals: any[] = Array.isArray(build?.approvals) ? build.approvals : [];
+    let didApprove = false;
     for (const ap of approvals) {
       if (!ap?.to) continue;
       callbacks.onProgress?.();
@@ -2734,9 +2740,22 @@ export class SolanaActionService {
       }), 120_000, 'token approval') as string;
       const ok = await this.watchEvmReceipt(ethereum, apHash);
       if (ok === false) throw new Error('A token approval reverted on-chain — no liquidity was added.');
+      if (ok === null) throw new Error('The token approval didn’t confirm in time — try again once it lands.');
+      didApprove = true;
     }
 
-    // 3. Create the position.
+    // 3. After approving, RE-BUILD so the create tx carries a fresh deadline and
+    // is priced against the just-set allowance (the first build's create is stale
+    // by two signatures' worth of time).
+    if (didApprove) {
+      callbacks.onProgress?.();
+      // Small settle so the wallet's node sees the new allowance before it
+      // estimates gas for the create.
+      await new Promise(r => setTimeout(r, 2_000));
+      build = await firstValueFrom(this.api.post<any>('/actions/uniswap/lp/build', buildBody));
+    }
+
+    // 4. Create the position.
     const tx = build?.create;
     if (!tx?.to) throw new Error('Uniswap: no create transaction was returned.');
     callbacks.onSign?.();
