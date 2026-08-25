@@ -3335,7 +3335,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly uniswapPoolsFetching = signal(false);
   uniswapVersionFilter: 'all' | 'v2' | 'v3' | 'v4' = 'all';
 
-  readonly UNISWAP_PAGE_SIZE = 6;
+  readonly UNISWAP_PAGE_SIZE = 10;
   uniswapPoolsPage = 0;
 
   get filteredUniswapPools(): UniswapPool[] {

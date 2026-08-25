@@ -597,12 +597,19 @@ async fn token_logo_for(
     if addr.is_empty() {
         return None;
     }
-    let key = addr.to_lowercase();
+    // Uniswap V4 uses the zero address for NATIVE ETH, which isn't an ERC-20 and
+    // has no token page / icon anywhere. Borrow the wrapped native's logo (WETH)
+    // so a native-ETH leg shows the ETH coin, not a bare letter.
+    let key = if is_zero_address(addr) {
+        wrapped_native_address(slug).to_string()
+    } else {
+        addr.to_lowercase()
+    };
     if let Some(hit) = cache.get(&key) {
         return hit.clone();
     }
     let logo = if slug == "robinhood" {
-        let url = format!("https://robinhoodchain.blockscout.com/api/v2/tokens/{addr}");
+        let url = format!("https://robinhoodchain.blockscout.com/api/v2/tokens/{key}");
         match http.get(&url).send().await {
             Ok(r) if r.status().is_success() => r
                 .json::<Value>()
