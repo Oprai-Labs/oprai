@@ -127,7 +127,12 @@ export class PortfolioShellComponent implements OnDestroy {
         const pc = primary?.type === 'evm_wallet' ? 'ethereum' : 'solana';
         this.primaryChain.set(pc);
         // Default the view to the primary chain (only if that wallet exists).
-        this.activeChain.set(pc === 'ethereum' && this.evmAddr() ? 'ethereum' : 'solana');
+        // EVM-only starts on "All" so nothing is hidden; the tabs then narrow.
+        if (this.evmOnly()) {
+          this.activeChain.set('all');
+        } else {
+          this.activeChain.set(pc === 'ethereum' && this.evmAddr() ? 'ethereum' : 'solana');
+        }
       },
       error: () => { this.accountLoaded = false; },
     });

@@ -53,10 +53,23 @@
         <p>{{ 'Connect a Solana wallet to view your portfolio, token holdings, staking positions, and recent activity.' | t }}</p>
       </div>
     } @else if (evmOnly()) {
-      <!-- Signed in with an EVM wallet (no Solana connected) — show the EVM
-           portfolio directly. -->
+      <!-- Signed in with an EVM wallet. Per-network sub-pages via the chain
+           switcher; a Solana tab appears when the account has a linked Solana
+           wallet (its positions load read-only by address). -->
       <div class="portfolio-sections content-fade-in">
-        <app-evm-holdings />
+        <div class="chain-switch">
+          <button class="chain-pill" [class.active]="activeChain() === 'all'" (click)="setChain('all')">
+            {{ 'All' | t }}
+          </button>
+          @for (c of EVM_CHAINS; track c.id) {
+            <button class="chain-pill" [class.active]="activeChain() === c.id" (click)="setChain(c.id)">
+              <img [src]="c.icon" width="16" height="16" style="border-radius:50%" (error)="hideChainIcon($event)" alt="" />
+              {{ c.label }}
+            </button>
+          }
+        </div>
+        <!-- Filtered to the selected network (All = every EVM chain). -->
+        <app-evm-holdings [chain]="activeChain()" />
       </div>
     } @else if (!positionsSettled() && !error()) {
       <!-- Whole-page skeleton: held until the first full load (wallet + every
