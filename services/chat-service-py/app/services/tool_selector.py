@@ -361,6 +361,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "bridge":                        _A({"bridge"}),
     "uniswap_swap":                  _A({"bridge", "swap"}),
     "uniswap_pools":                 _A({"dex", "uniswap", "analysis", "liquidity"}),
+    "uniswap_launches":              _A({"dex", "uniswap", "analysis", "launchpad", "trending"}),
     "uniswap_add_liquidity":         _A({"dex", "uniswap", "liquidity"}),
     "relay_bridge":                  _A({"bridge", "relay"}),
     "relay_index_transaction":       _A({"bridge", "relay"}),

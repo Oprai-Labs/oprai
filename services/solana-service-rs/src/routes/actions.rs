@@ -435,6 +435,17 @@ pub async fn post_build(
         return Ok(HttpResponse::Ok().json(resp));
     }
 
+    // Same rationale as uniswap_pools: the pools.trade launch feed is read-only,
+    // wallet-independent EVM data — serve it before the Solana-wallet gate.
+    if body.action_type == "uniswap_launches" {
+        let p: crate::services::uniswap::UniswapLaunchesParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid uniswap_launches params: {e}"))
+            })?;
+        let resp = crate::services::uniswap::build_uniswap_launches(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
     let wallet = wallet_from_req(&req)?;
     let mut body = body.into_inner();
 

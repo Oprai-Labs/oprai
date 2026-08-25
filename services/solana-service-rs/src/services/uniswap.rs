@@ -928,6 +928,234 @@ pub async fn build_uniswap_get_pools(
     })
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// pools.trade launchpad (Uniswap's launchpad on Robinhood Chain, chain 4663).
+//
+// Every launch mints a fixed 1B-supply UERC20 and opens a REAL Uniswap v4 pool
+// immediately (no bonding curve) with permanently-locked, autocompounding
+// liquidity. Because launched tokens are just plain v4 pools, TRADING them
+// already works through our existing uniswap_swap path — this endpoint only has
+// to DISCOVER them.
+//
+// Discovery source: the launcher contracts' decoded logs on Robinhood
+// Blockscout (Alchemy's free tier caps eth_getLogs at 10 blocks, useless for a
+// feed; Blockscout indexes everything and needs no key). Each launch event
+// carries the new token's address; we enrich it with DexScreener (the v4 pool's
+// price / FDV / liquidity / volume) and Blockscout (name / symbol / holders /
+// icon).
+const POOLS_TRADE_LAUNCHERS: [&str; 2] = [
+    "0x0000ffffbe8efe702c8703ae3477ff5de3d319c0", // LiquidityLauncher (current)
+    "0x00004c4ccc709ef590f7c81102c0689f0263d4e9", // original entry
+];
+// topic0 shared by the launcher's TokenDistributed/TokenCreated events (the one
+// that carries the freshly-launched token address as an indexed arg).
+const POOLS_TRADE_LAUNCH_TOPIC: &str =
+    "0x67226bacccef969dab310a9e55dc1cf821363658e433fd330344f5cc00c79ac8";
+const BLOCKSCOUT_RH: &str = "https://robinhoodchain.blockscout.com/api/v2";
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UniswapLaunchesParams {
+    /// "new" (default, newest first) | "top" (highest FDV first).
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// How many launches to return (default 15, capped at 24 to bound latency).
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// One launch after enrichment. Returns None for tokens we can't price at all
+/// (no v4 pool indexed yet) — those aren't tradeable, so they'd be dead rows.
+async fn enrich_launch(
+    http: &reqwest::Client,
+    addr: &str,
+    block_ts: Option<String>,
+) -> Option<Value> {
+    // DexScreener carries the v4 pool: price, FDV, liquidity, volume, the quote
+    // token, and the base token's name/symbol.
+    let ds_url = format!("{DEXSCREENER_TOKEN_PAIRS}/robinhood/{addr}");
+    let pairs: Vec<Value> = match http.get(&ds_url).send().await {
+        Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    // Pick the uniswap pool whose base IS this token (avoid the mispricing trap
+    // where the token is the quote side of some other pair). Prefer v4.
+    let pool = pairs.iter().find(|p| {
+        p.get("dexId").and_then(|d| d.as_str()) == Some("uniswap")
+            && p.get("baseToken")
+                .and_then(|b| b.get("address"))
+                .and_then(|v| v.as_str())
+                .map(|a| a.eq_ignore_ascii_case(addr))
+                .unwrap_or(false)
+    })?;
+
+    let base = pool.get("baseToken")?;
+    let quote = pool.get("quoteToken").cloned().unwrap_or(json!({}));
+    let symbol = base.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let name = base.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let version = pool
+        .get("labels")
+        .and_then(|l| l.as_array())
+        .and_then(|a| a.iter().find_map(|x| x.as_str()))
+        .map(|s| s.to_lowercase())
+        .unwrap_or_else(|| "v4".to_string());
+
+    // Blockscout: holders + icon (a launchpad list lives or dies on holder
+    // traction; a fresh launch with 2 holders is noise). Best-effort.
+    let mut holders: Option<u64> = None;
+    let mut icon: Option<String> = None;
+    if let Ok(r) = http.get(format!("{BLOCKSCOUT_RH}/tokens/{addr}")).send().await {
+        if let Ok(meta) = r.json::<Value>().await {
+            holders = meta
+                .get("holders_count")
+                .or_else(|| meta.get("holders"))
+                .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_u64()));
+            icon = meta.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_string);
+        }
+    }
+    // DexScreener header image as a fallback when Blockscout has no icon.
+    let logo = icon.or_else(|| {
+        pool.get("info")
+            .and_then(|i| i.get("imageUrl"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    });
+
+    Some(json!({
+        "tokenAddress":  addr,
+        "symbol":        symbol,
+        "name":          name,
+        "version":       version,
+        "priceUsd":      pool.get("priceUsd").and_then(|v| v.as_str()).unwrap_or(""),
+        "fdvUsd":        pool.get("fdv").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        "liquidityUsd":  pool.get("liquidity").and_then(|l| l.get("usd")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+        "volume24hUsd":  pool.get("volume").and_then(|v| v.get("h24")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+        "priceChange24h": pool.get("priceChange").and_then(|v| v.get("h24")).and_then(|v| v.as_f64()),
+        "holders":       holders,
+        "pairAddress":   pool.get("pairAddress").and_then(|v| v.as_str()).unwrap_or(""),
+        "quoteSymbol":   quote.get("symbol").and_then(|v| v.as_str()).unwrap_or("ETH"),
+        "quoteAddress":  quote.get("address").and_then(|v| v.as_str()).unwrap_or(NATIVE_TOKEN_ADDRESS),
+        "logo":          logo,
+        "url":           pool.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "createdAt":     block_ts,
+        "chain":         "robinhood",
+    }))
+}
+
+pub async fn build_uniswap_launches(
+    http: &reqwest::Client,
+    params: &UniswapLaunchesParams,
+) -> Result<BuildResponse, AppError> {
+    let limit = params.limit.unwrap_or(15).clamp(1, 24);
+    let sort = params.sort.as_deref().unwrap_or("new").to_lowercase();
+
+    // 1) Newest-first launched token addresses from both launcher contracts'
+    //    logs. Keyed by block_number so combining two contracts stays ordered.
+    let mut by_addr: std::collections::HashMap<String, (u64, Option<String>)> = std::collections::HashMap::new();
+    for launcher in POOLS_TRADE_LAUNCHERS {
+        let url = format!("{BLOCKSCOUT_RH}/addresses/{launcher}/logs");
+        let body: Value = match http.get(&url).send().await {
+            Ok(r) if r.status().is_success() => r.json().await.unwrap_or(Value::Null),
+            _ => continue,
+        };
+        let items = match body.get("items").and_then(|v| v.as_array()) {
+            Some(a) => a,
+            None => continue,
+        };
+        for item in items {
+            let topic0 = item
+                .get("topics")
+                .and_then(|t| t.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !topic0.eq_ignore_ascii_case(POOLS_TRADE_LAUNCH_TOPIC) {
+                continue;
+            }
+            let block = item.get("block_number").and_then(|v| v.as_u64()).unwrap_or(0);
+            let ts = item.get("block_timestamp").and_then(|v| v.as_str()).map(str::to_string);
+            // The launched token address is the `tokenAddress` decoded param.
+            let addr = item
+                .get("decoded")
+                .and_then(|d| d.get("parameters"))
+                .and_then(|p| p.as_array())
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|p| p.get("name").and_then(|v| v.as_str()) == Some("tokenAddress"))
+                        .and_then(|p| p.get("value"))
+                        .and_then(|v| v.as_str())
+                });
+            if let Some(a) = addr {
+                let a = a.to_lowercase();
+                if is_valid_evm_address(&a) && !is_zero_address(&a) {
+                    // Keep the highest block seen for an address (latest event).
+                    let e = by_addr.entry(a).or_insert((block, ts.clone()));
+                    if block > e.0 {
+                        *e = (block, ts);
+                    }
+                }
+            }
+        }
+    }
+
+    // Order by recency, then enrich a generous slab concurrently (some won't
+    // have a v4 pool indexed yet and drop out, so pull more than `limit`).
+    let mut ordered: Vec<(String, u64, Option<String>)> =
+        by_addr.into_iter().map(|(a, (b, t))| (a, b, t)).collect();
+    ordered.sort_by(|a, b| b.1.cmp(&a.1));
+    let slab = (limit * 3).min(ordered.len());
+
+    let mut rows: Vec<Value> = futures::future::join_all(
+        ordered[..slab]
+            .iter()
+            .map(|(addr, _b, ts)| enrich_launch(http, addr, ts.clone())),
+    )
+    .await
+    .into_iter()
+    .flatten()
+    .collect();
+
+    // "top" = highest FDV first; "new" keeps the recency order enrich preserved.
+    if sort == "top" {
+        rows.sort_by(|a, b| {
+            let av = a.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let bv = b.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    rows.truncate(limit);
+
+    let description = if rows.is_empty() {
+        "No recent pools.trade launches found on Robinhood Chain.".to_string()
+    } else {
+        format!(
+            "Latest pools.trade launches on Robinhood Chain — {} token{}.",
+            rows.len(),
+            if rows.len() == 1 { "" } else { "s" }
+        )
+    };
+
+    Ok(BuildResponse {
+        preview: ActionPreview {
+            id: Uuid::new_v4().to_string(),
+            action_type: "uniswap_launches".to_string(),
+            description,
+            estimated_fee: "0".to_string(),
+            estimated_refund: None,
+            params: json!({}),
+            warnings: vec![],
+            requires_approval: false,
+        },
+        transaction: None,
+        additional_signers_required: 0,
+        execution_steps: None,
+        quote: None,
+        is_cross_chain: false,
+        data: Some(json!({ "chain": "robinhood", "chainName": "Robinhood", "sort": sort, "launches": rows })),
+    })
+}
+
 /// Reverse of dexscreener_chain_slug for the human chain name lookup.
 pub(crate) fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
     match slug {
