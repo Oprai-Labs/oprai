@@ -1118,6 +1118,9 @@
 }
 .uni-verified { margin-left: 4px; color: var(--op-success, #22c55e); font-weight: 800; font-size: 0.72rem; }
 .uni-launch-emoji { display: grid; place-items: center; width: 100%; height: 100%; font-size: 1rem; }
+/* Launch token avatars: force a clean circle (memecoin art is square PNG). */
+.uni-launch-slot { border-radius: 50%; overflow: hidden; }
+.uni-launch-img { border-radius: 50%; object-fit: cover; border: 0; }
 
 // "Deposit" affordance that turns a pool row into an add-liquidity card.
 .km-deposit-btn {

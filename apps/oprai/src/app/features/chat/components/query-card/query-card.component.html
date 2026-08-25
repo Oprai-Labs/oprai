@@ -247,9 +247,9 @@
           @for (l of pagedUniswapLaunches; track l.tokenAddress) {
             <div class="result-table__row result-table__row--5col dlmm-row">
               <span class="km-pair">
-                <span class="km-icon-slot" [style.background]="l.imageHue != null ? 'hsl(' + l.imageHue + ' 45% 22%)' : null">
+                <span class="km-icon-slot uni-launch-slot" [style.background]="l.imageHue != null ? 'hsl(' + l.imageHue + ' 45% 22%)' : null">
                   @if (l.logo) {
-                    <img class="km-icon km-icon--img" [src]="l.logo" [alt]="l.symbol"
+                    <img class="km-icon km-icon--img uni-launch-img" [src]="l.logo" [alt]="l.symbol"
                          loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
                   } @else if (l.imageEmoji) {
                     <span class="km-icon uni-launch-emoji">{{ l.imageEmoji }}</span>

@@ -1090,13 +1090,21 @@ pub async fn build_uniswap_launches(
         .cloned()
         .unwrap_or_default();
 
-    // Distinct launchpads present (for the frontend filter chips), before filtering.
+    // Distinct launchpads present (for the frontend filter chips), before
+    // filtering. Deduped by LABEL so pools.trade's two modes
+    // (uniswap-bonding-curve = Instant, uniswap-cca = Crowd) collapse into ONE
+    // "pools.trade" chip — they're the same launchpad. The chip's `id` is the
+    // filter STRING (label), which launchpad_matches understands.
     let mut launchpads: Vec<Value> = Vec::new();
     let mut seen_lp: std::collections::HashSet<String> = std::collections::HashSet::new();
     for l in &launches {
         let id = l.get("launchpadId").and_then(|v| v.as_str()).unwrap_or("");
-        if !id.is_empty() && seen_lp.insert(id.to_string()) {
-            launchpads.push(json!({ "id": id, "label": launchpad_label(id) }));
+        if id.is_empty() {
+            continue;
+        }
+        let label = launchpad_label(id);
+        if seen_lp.insert(label.clone()) {
+            launchpads.push(json!({ "id": label.clone(), "label": label }));
         }
     }
 
