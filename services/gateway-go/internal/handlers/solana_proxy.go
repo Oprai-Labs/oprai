@@ -228,6 +228,12 @@ func (p *SolanaProxy) PostUniswapLpBalances(w http.ResponseWriter, r *http.Reque
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostUniswapLpPositions — the wallet's Uniswap LP positions (V2/V3/V4, all chains).
+func (p *SolanaProxy) PostUniswapLpPositions(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/lp/positions"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

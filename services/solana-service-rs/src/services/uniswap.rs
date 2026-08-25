@@ -1419,3 +1419,107 @@ pub async fn build_uniswap_add_liquidity(
         "chainLogo": relay_chain_icon(http, chain_id).await,
     }))
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Position listing (Phase 3c). Uniswap has no REST "list positions" on the
+// trade/liquidity hosts, but the interface gateway that powers app.uniswap.org
+// does — decoded across V2/V3/V4 and every chain (incl. Robinhood), no key,
+// just an origin header. We proxy + normalize it for the portfolio.
+// ────────────────────────────────────────────────────────────────────────────
+
+const UNISWAP_INTERFACE_GATEWAY: &str = "https://interface.gateway.uniswap.org/v2/pools.v1.PoolsService/ListPositions";
+
+/// Every chain we surface Uniswap positions for.
+const POSITION_CHAIN_IDS: &[u64] = &[1, 8453, 42161, 10, 137, 56, 4663, 43114, 130, 81457];
+
+/// Fetch the wallet's Uniswap positions (V2+V3+V4, all chains), normalized for
+/// the portfolio: pair, per-leg amounts+symbols, fee tier, value, fees, range.
+pub async fn uniswap_positions(http: &reqwest::Client, wallet: &str) -> Result<Value, AppError> {
+    let body = json!({
+        "address": wallet,
+        "chainIds": POSITION_CHAIN_IDS,
+        "protocolVersions": ["PROTOCOL_VERSION_V2", "PROTOCOL_VERSION_V3", "PROTOCOL_VERSION_V4"],
+        "positionStatuses": ["POSITION_STATUS_IN_RANGE", "POSITION_STATUS_OUT_OF_RANGE"],
+    });
+    let resp = http
+        .post(UNISWAP_INTERFACE_GATEWAY)
+        .header("content-type", "application/json")
+        .header("origin", "https://app.uniswap.org")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Uniswap positions request failed: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(AppError::Internal(format!("Uniswap positions error ({})", resp.status())));
+    }
+    let data: Value = resp.json().await
+        .map_err(|e| AppError::Internal(format!("Uniswap positions bad JSON: {e}")))?;
+
+    let empty = vec![];
+    let raw = data.get("positions").and_then(|p| p.as_array()).unwrap_or(&empty);
+    let mut out: Vec<Value> = Vec::new();
+    for p in raw {
+        let version = match p.get("protocolVersion").and_then(|v| v.as_str()) {
+            Some(s) if s.contains("V2") => "v2",
+            Some(s) if s.contains("V3") => "v3",
+            _ => "v4",
+        };
+        let chain_id = p.get("chainId").and_then(|v| v.as_u64()).unwrap_or(0);
+        // The pool position lives under v{2,3,4}Position.poolPosition.
+        let pp = ["v4Position", "v3Position", "v2Position"].iter()
+            .find_map(|k| p.get(*k))
+            .and_then(|vp| vp.get("poolPosition").or(Some(vp)))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if pp.is_null() { continue; }
+
+        let leg = |t: &str, amt: &str| -> Value {
+            let tok = pp.get(t).cloned().unwrap_or(json!({}));
+            let dec = tok.get("decimals").and_then(|v| v.as_u64()).unwrap_or(18) as u8;
+            let amount = pp.get(amt).and_then(|v| v.as_str()).unwrap_or("0");
+            json!({
+                "symbol": tok.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                "address": tok.get("address").and_then(|v| v.as_str()).unwrap_or(""),
+                "amount": amount,
+                "amountDisplay": format_units(amount, dec),
+                "isNative": tok.get("isNative").and_then(|v| v.as_bool()).unwrap_or(false),
+            })
+        };
+        let sym0 = pp.pointer("/token0/symbol").and_then(|v| v.as_str()).unwrap_or("?");
+        let sym1 = pp.pointer("/token1/symbol").and_then(|v| v.as_str()).unwrap_or("?");
+        // feeTier is in hundredths of a bip (e.g. 460 = 0.046%); show as percent.
+        let fee_pct = pp.get("feeTier").and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .map(|f| f / 10_000.0);
+
+        let slug = match chain_id {
+            1 => "ethereum", 8453 => "base", 42161 => "arbitrum", 10 => "optimism",
+            137 => "polygon", 56 => "bsc", 4663 => "robinhood", 43114 => "avalanche",
+            130 => "unichain", 81457 => "blast", _ => "ethereum",
+        };
+        out.push(json!({
+            "chainId": chain_id,
+            "chainName": get_chain_name(chain_id),
+            "chain": slug,
+            "version": version,
+            "pair": format!("{sym0}/{sym1}"),
+            "token0": leg("token0", "amount0"),
+            "token1": leg("token1", "amount1"),
+            "feePercent": fee_pct,
+            "valueUsd": p.get("valueUsd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            "uncollectedFeesUsd": p.get("uncollectedFeesUsd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            "inRange": p.get("status").and_then(|v| v.as_str()).map(|s| s.contains("IN_RANGE")).unwrap_or(false),
+            "apr": pp.get("apr").and_then(|v| v.as_f64()),
+            "tokenId": pp.get("tokenId").and_then(|v| v.as_str()).unwrap_or(""),
+            "poolId": pp.get("poolId").and_then(|v| v.as_str()).unwrap_or(""),
+            "chainLogo": relay_chain_icon(http, chain_id).await,
+        }));
+    }
+    // Deepest value first.
+    out.sort_by(|a, b| {
+        let av = a.get("valueUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let bv = b.get("valueUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(json!({ "positions": out }))
+}

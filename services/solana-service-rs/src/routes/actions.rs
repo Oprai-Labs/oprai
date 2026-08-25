@@ -1746,6 +1746,18 @@ pub async fn post_uniswap_lp_balances(
     })))
 }
 
+/// POST /actions/uniswap/lp/positions — the wallet's Uniswap LP positions across
+/// V2/V3/V4 and every chain (proxied from Uniswap's interface gateway, decoded).
+#[post("/uniswap/lp/positions")]
+pub async fn post_uniswap_lp_positions(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+) -> Result<HttpResponse, AppError> {
+    let wallet = wallet_from_req(&req)?;
+    let result = crate::services::uniswap::uniswap_positions(&state.http, &wallet).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/record — book economics after the swap settles on-chain.
 /// Uniswap has no authoritative post-fill record (unlike Relay's /requests), so
 /// the USD notional is derived SERVER-SIDE by pricing the swapped token into USDC

@@ -4,6 +4,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
+import { ApiService } from '../../../../core/services/api.service';
 import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx, EvmNft } from '../../services/evm-portfolio.service';
 import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allocation-chart.component';
 import { DefiPositionsComponent } from '../defi-positions/defi-positions.component';
@@ -266,6 +267,7 @@ function categoryFor(label: string): ProtocolCategory {
 export class EvmHoldingsComponent implements OnInit {
   private account = inject(AccountService);
   private evm = inject(EvmPortfolioService);
+  private api = inject(ApiService);
 
   loading = signal(true);
   walletCount = signal(0);
@@ -389,9 +391,37 @@ export class EvmHoldingsComponent implements OnInit {
             this.txs.set(txs);
             this.nfts.set(nfts);
             this.loading.set(false);
+            // Uniswap V2/V3/V4 LP positions (all chains, incl. Robinhood) —
+            // Moralis doesn't cover them, so pull from Uniswap's own feed and
+            // merge in. Separate call so it never blocks the wallet render.
+            this.fetchUniswapPositions();
           });
       },
       error: () => { this.loading.set(false); },
+    });
+  }
+
+  /** Merge Uniswap LP positions into the DeFi-positions list. */
+  private fetchUniswapPositions(): void {
+    this.api.post<{ positions: any[] }>('/actions/uniswap/lp/positions', {}).pipe(
+      catchError(() => of({ positions: [] })),
+    ).subscribe((res) => {
+      const uni: EvmPosition[] = (res?.positions || []).map((p) => ({
+        chain: p.chain,
+        protocol: 'Uniswap',
+        protocolId: 'uniswap',
+        logo: 'assets/protocols/uniswap.jpg',
+        label: `${p.pair} ${String(p.version || '').toUpperCase()}${p.inRange ? '' : ' · out of range'}`,
+        balanceUsd: Number(p.valueUsd) || 0,
+        unclaimedUsd: Number(p.uncollectedFeesUsd) || 0,
+        tokens: [
+          { symbol: p.token0?.symbol, type: 'supplied', amount: Number(p.token0?.amountDisplay) || 0, logo: undefined },
+          { symbol: p.token1?.symbol, type: 'supplied', amount: Number(p.token1?.amountDisplay) || 0, logo: undefined },
+        ],
+      }));
+      if (uni.length) {
+        this.positions.set([...uni, ...this.positions()].sort((a, b) => b.balanceUsd - a.balanceUsd));
+      }
     });
   }
 
