@@ -843,6 +843,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // Honor the LLM-requested launch sort ("top by FDV" vs "newest") on first
+    // load, instead of always defaulting to newest and forcing a manual toggle.
+    if (this.query.type === 'uniswap_launches') {
+      const s = (this.query.params?.['sort'] ?? '').toString().toLowerCase();
+      this.uniswapLaunchesSort = s === 'top' ? 'top' : 'new';
+    }
+
     // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
     // SMBs nobody owned, with invented floor prices — under the user's own
     // wallet heading. It is the same question `me_wallet_tokens` answers for

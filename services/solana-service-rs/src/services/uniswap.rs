@@ -964,83 +964,97 @@ pub struct UniswapLaunchesParams {
     pub limit: Option<usize>,
 }
 
-/// One launch after enrichment. Returns None for tokens we can't price at all
-/// (no v4 pool indexed yet) — those aren't tradeable, so they'd be dead rows.
-async fn enrich_launch(
+// DexScreener's BATCH endpoint: one call prices up to 30 tokens (address →
+// primary pair). Enriching each launch with its own /token-pairs call was ~25
+// concurrent requests that DexScreener rate-limited into a 12-14s response;
+// this collapses pricing to one request.
+const DEXSCREENER_TOKENS: &str = "https://api.dexscreener.com/tokens/v1";
+
+/// address(lowercase) → the token's uniswap pool (base == that token). One
+/// request per ≤30 addresses.
+async fn dexscreener_batch(
     http: &reqwest::Client,
-    addr: &str,
-    block_ts: Option<String>,
-) -> Option<Value> {
-    // DexScreener carries the v4 pool: price, FDV, liquidity, volume, the quote
-    // token, and the base token's name/symbol.
-    let ds_url = format!("{DEXSCREENER_TOKEN_PAIRS}/robinhood/{addr}");
-    let pairs: Vec<Value> = match http.get(&ds_url).send().await {
-        Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
-        _ => Vec::new(),
-    };
-    // Pick the uniswap pool whose base IS this token (avoid the mispricing trap
-    // where the token is the quote side of some other pair). Prefer v4.
-    let pool = pairs.iter().find(|p| {
-        p.get("dexId").and_then(|d| d.as_str()) == Some("uniswap")
-            && p.get("baseToken")
+    addrs: &[String],
+) -> std::collections::HashMap<String, Value> {
+    let mut out: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    for chunk in addrs.chunks(30) {
+        let joined = chunk.join(",");
+        let url = format!("{DEXSCREENER_TOKENS}/robinhood/{joined}");
+        let pairs: Vec<Value> = match http.get(&url).send().await {
+            Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+            _ => continue,
+        };
+        for p in pairs {
+            if p.get("dexId").and_then(|d| d.as_str()) != Some("uniswap") {
+                continue;
+            }
+            if let Some(base) = p
+                .get("baseToken")
                 .and_then(|b| b.get("address"))
                 .and_then(|v| v.as_str())
-                .map(|a| a.eq_ignore_ascii_case(addr))
-                .unwrap_or(false)
-    })?;
+            {
+                // Keep the deepest-liquidity pool per token if it appears twice.
+                let key = base.to_lowercase();
+                let liq = p.get("liquidity").and_then(|l| l.get("usd")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let better = out
+                    .get(&key)
+                    .map(|e| liq > e.get("liquidity").and_then(|l| l.get("usd")).and_then(|v| v.as_f64()).unwrap_or(0.0))
+                    .unwrap_or(true);
+                if better {
+                    out.insert(key, p);
+                }
+            }
+        }
+    }
+    out
+}
 
-    let base = pool.get("baseToken")?;
+/// Blockscout holders + icon for a launched token. Only called for the final
+/// (already sorted + truncated) result set, so it's ≤ `limit` concurrent calls.
+async fn blockscout_token_extras(http: &reqwest::Client, addr: &str) -> (Option<u64>, Option<String>) {
+    if let Ok(r) = http.get(format!("{BLOCKSCOUT_RH}/tokens/{addr}")).send().await {
+        if let Ok(meta) = r.json::<Value>().await {
+            let holders = meta
+                .get("holders_count")
+                .or_else(|| meta.get("holders"))
+                .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_u64()));
+            let icon = meta.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_string);
+            return (holders, icon);
+        }
+    }
+    (None, None)
+}
+
+/// Row from a DexScreener pool (no holders/icon yet — those are merged in
+/// afterward for the final set only).
+fn launch_row(addr: &str, pool: &Value, block_ts: Option<String>) -> Value {
+    let base = pool.get("baseToken").cloned().unwrap_or(json!({}));
     let quote = pool.get("quoteToken").cloned().unwrap_or(json!({}));
-    let symbol = base.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let name = base.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let version = pool
         .get("labels")
         .and_then(|l| l.as_array())
         .and_then(|a| a.iter().find_map(|x| x.as_str()))
         .map(|s| s.to_lowercase())
         .unwrap_or_else(|| "v4".to_string());
-
-    // Blockscout: holders + icon (a launchpad list lives or dies on holder
-    // traction; a fresh launch with 2 holders is noise). Best-effort.
-    let mut holders: Option<u64> = None;
-    let mut icon: Option<String> = None;
-    if let Ok(r) = http.get(format!("{BLOCKSCOUT_RH}/tokens/{addr}")).send().await {
-        if let Ok(meta) = r.json::<Value>().await {
-            holders = meta
-                .get("holders_count")
-                .or_else(|| meta.get("holders"))
-                .and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_u64()));
-            icon = meta.get("icon_url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_string);
-        }
-    }
-    // DexScreener header image as a fallback when Blockscout has no icon.
-    let logo = icon.or_else(|| {
-        pool.get("info")
-            .and_then(|i| i.get("imageUrl"))
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    });
-
-    Some(json!({
-        "tokenAddress":  addr,
-        "symbol":        symbol,
-        "name":          name,
-        "version":       version,
-        "priceUsd":      pool.get("priceUsd").and_then(|v| v.as_str()).unwrap_or(""),
-        "fdvUsd":        pool.get("fdv").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        "liquidityUsd":  pool.get("liquidity").and_then(|l| l.get("usd")).and_then(|v| v.as_f64()).unwrap_or(0.0),
-        "volume24hUsd":  pool.get("volume").and_then(|v| v.get("h24")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+    json!({
+        "tokenAddress":   addr,
+        "symbol":         base.get("symbol").and_then(|v| v.as_str()).unwrap_or(""),
+        "name":           base.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+        "version":        version,
+        "priceUsd":       pool.get("priceUsd").and_then(|v| v.as_str()).unwrap_or(""),
+        "fdvUsd":         pool.get("fdv").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        "liquidityUsd":   pool.get("liquidity").and_then(|l| l.get("usd")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+        "volume24hUsd":   pool.get("volume").and_then(|v| v.get("h24")).and_then(|v| v.as_f64()).unwrap_or(0.0),
         "priceChange24h": pool.get("priceChange").and_then(|v| v.get("h24")).and_then(|v| v.as_f64()),
-        "holders":       holders,
-        "pairAddress":   pool.get("pairAddress").and_then(|v| v.as_str()).unwrap_or(""),
-        "quoteSymbol":   quote.get("symbol").and_then(|v| v.as_str()).unwrap_or("ETH"),
-        "quoteAddress":  quote.get("address").and_then(|v| v.as_str()).unwrap_or(NATIVE_TOKEN_ADDRESS),
-        "logo":          logo,
-        "url":           pool.get("url").and_then(|v| v.as_str()).unwrap_or(""),
-        "createdAt":     block_ts,
-        "chain":         "robinhood",
-    }))
+        "holders":        Value::Null,
+        "pairAddress":    pool.get("pairAddress").and_then(|v| v.as_str()).unwrap_or(""),
+        "quoteSymbol":    quote.get("symbol").and_then(|v| v.as_str()).unwrap_or("ETH"),
+        "quoteAddress":   quote.get("address").and_then(|v| v.as_str()).unwrap_or(NATIVE_TOKEN_ADDRESS),
+        "logo":           pool.get("info").and_then(|i| i.get("imageUrl")).and_then(|v| v.as_str()).filter(|s| !s.is_empty()),
+        "url":            pool.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "createdAt":      block_ts,
+        "chain":          "robinhood",
+    })
 }
 
 pub async fn build_uniswap_launches(
@@ -1099,24 +1113,25 @@ pub async fn build_uniswap_launches(
         }
     }
 
-    // Order by recency, then enrich a generous slab concurrently (some won't
-    // have a v4 pool indexed yet and drop out, so pull more than `limit`).
+    // Newest first. Price the whole candidate set in ONE DexScreener batch call
+    // (up to 30 addresses), then rank — enriching per-token was ~25 rate-limited
+    // requests that took 12-14s; this is a single request.
     let mut ordered: Vec<(String, u64, Option<String>)> =
         by_addr.into_iter().map(|(a, (b, t))| (a, b, t)).collect();
     ordered.sort_by(|a, b| b.1.cmp(&a.1));
-    let slab = (limit * 3).min(ordered.len());
+    ordered.truncate(30); // DexScreener batch cap
 
-    let mut rows: Vec<Value> = futures::future::join_all(
-        ordered[..slab]
-            .iter()
-            .map(|(addr, _b, ts)| enrich_launch(http, addr, ts.clone())),
-    )
-    .await
-    .into_iter()
-    .flatten()
-    .collect();
+    let cand: Vec<String> = ordered.iter().map(|(a, _, _)| a.clone()).collect();
+    let priced = dexscreener_batch(http, &cand).await;
 
-    // "top" = highest FDV first; "new" keeps the recency order enrich preserved.
+    // Rows in recency order, only tokens that actually have a uniswap pool
+    // (untradeable ones would be dead rows).
+    let mut rows: Vec<Value> = ordered
+        .iter()
+        .filter_map(|(addr, _b, ts)| priced.get(addr).map(|pool| launch_row(addr, pool, ts.clone())))
+        .collect();
+
+    // "top" = highest FDV first; "new" keeps recency order.
     if sort == "top" {
         rows.sort_by(|a, b| {
             let av = a.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1125,6 +1140,24 @@ pub async fn build_uniswap_launches(
         });
     }
     rows.truncate(limit);
+
+    // Holders + icon only for the final set (≤ limit concurrent Blockscout calls).
+    let extras = futures::future::join_all(rows.iter().map(|r| {
+        let addr = r.get("tokenAddress").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        async move { blockscout_token_extras(http, &addr).await }
+    }))
+    .await;
+    for (row, (holders, icon)) in rows.iter_mut().zip(extras.into_iter()) {
+        if let Some(obj) = row.as_object_mut() {
+            if let Some(h) = holders {
+                obj.insert("holders".into(), json!(h));
+            }
+            // Prefer Blockscout icon; fall back to the DexScreener image already set.
+            if let Some(ic) = icon {
+                obj.insert("logo".into(), json!(ic));
+            }
+        }
+    }
 
     let description = if rows.is_empty() {
         "No recent pools.trade launches found on Robinhood Chain.".to_string()
