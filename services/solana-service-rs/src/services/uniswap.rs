@@ -1250,14 +1250,17 @@ pub async fn pools_token_meta(http: &reqwest::Client, token: &str) -> Result<Val
     Ok(Value::Null)
 }
 
-/// Full-integer decimal string for a Q96 fixed-point price. The values exceed
-/// u64, so serde parses them as f64 (lossy in the low digits) — acceptable here
-/// because we only ever use them as a MAX-price ceiling for a bid, never the
-/// price actually paid (a uniform-clearing auction charges the clearing price).
+/// Full-integer decimal string for a Q96 fixed-point price. pools.trade sends
+/// these as JSON strings (they exceed u64) — pass them straight through so the
+/// exact digits survive. Fall back to formatting a numeric f64 just in case.
 fn q96_str(v: Option<&Value>) -> String {
-    match v.and_then(|x| x.as_f64()) {
-        Some(f) if f.is_finite() && f > 0.0 => format!("{f:.0}"),
-        _ => String::new(),
+    match v {
+        Some(Value::String(s)) if s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty() => s.clone(),
+        Some(x) => match x.as_f64() {
+            Some(f) if f.is_finite() && f > 0.0 => format!("{f:.0}"),
+            _ => String::new(),
+        },
+        None => String::new(),
     }
 }
 
