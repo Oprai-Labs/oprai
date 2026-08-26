@@ -415,10 +415,10 @@ pub async fn build_pons_buy(http: &reqwest::Client, body: &Value) -> Result<Valu
     if !native {
         // approve(pairToken, curve, quoteIn) then buy with value 0
         let approve = format!("{SEL_ERC20_APPROVE}{}{}", enc_addr(&curve), enc_u256(quote_in));
-        txs.push(json!({ "to": pair_token, "data": format!("0x{approve}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
-        txs.push(json!({ "to": curve, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
+        txs.push(json!({ "to": pair_token, "data": approve, "value": "0", "chainId": ROBINHOOD_CHAIN }));
+        txs.push(json!({ "to": curve, "data": data.clone(), "value": "0", "chainId": ROBINHOOD_CHAIN }));
     } else {
-        txs.push(json!({ "to": curve, "data": format!("0x{data}"), "value": quote_in.to_string(), "chainId": ROBINHOOD_CHAIN }));
+        txs.push(json!({ "to": curve, "data": data.clone(), "value": quote_in.to_string(), "chainId": ROBINHOOD_CHAIN }));
     }
     Ok(json!({
         "transactions": txs,
@@ -464,8 +464,8 @@ pub async fn build_pons_sell(http: &reqwest::Client, body: &Value) -> Result<Val
     let approve = format!("{SEL_ERC20_APPROVE}{}{}", enc_addr(&curve), enc_u256(tokens_in));
     let sell = format!("{SEL_SELL}{}{}{}", enc_u256(tokens_in), enc_u256(min_out), enc_addr(wallet));
     let txs = vec![
-        json!({ "to": token_addr, "data": format!("0x{approve}"), "value": "0", "chainId": ROBINHOOD_CHAIN }),
-        json!({ "to": curve, "data": format!("0x{sell}"), "value": "0", "chainId": ROBINHOOD_CHAIN }),
+        json!({ "to": token_addr, "data": approve, "value": "0", "chainId": ROBINHOOD_CHAIN }),
+        json!({ "to": curve, "data": sell, "value": "0", "chainId": ROBINHOOD_CHAIN }),
     ];
     Ok(json!({
         "transactions": txs,
