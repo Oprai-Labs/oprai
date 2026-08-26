@@ -127,6 +127,7 @@ func NewHTTPServer(
 		r.Post("/link/verify", accountHandler.HandleLinkVerify)
 		r.Post("/link/evm/verify", accountHandler.HandleLinkEVMVerify)
 		r.Post("/link/telegram", accountHandler.HandleLinkTelegram)
+		r.Post("/link/twitter", accountHandler.HandleSetTwitter)
 		r.Post("/identity/{id}/primary", accountHandler.HandleSetPrimary)
 		r.Delete("/identity/{id}", accountHandler.HandleUnlink)
 	})

@@ -61,6 +61,13 @@ export class AccountService {
     return this.api.post<AccountMe>('/account/link/telegram', payload);
   }
 
+  /** Save (or clear, with an empty handle) the account's self-declared X / Twitter
+   *  profile. Not OAuth-verified — a convenience field OPRAI reuses (e.g.
+   *  auto-filling a token launch). Accepts "@name", "name", or an x.com URL. */
+  setTwitter(handle: string): Observable<AccountMe> {
+    return this.api.post<AccountMe>('/account/link/twitter', { handle });
+  }
+
   /** Promote a linked Solana wallet to primary (repoints the login/economics key). */
   setPrimary(id: string): Observable<AccountMe> {
     return this.api.post<AccountMe>(`/account/identity/${id}/primary`, {});

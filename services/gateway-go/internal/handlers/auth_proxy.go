@@ -127,6 +127,12 @@ func (p *AuthProxy) PostAccountLinkTelegram(w http.ResponseWriter, r *http.Reque
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostAccountLinkTwitter proxies POST /account/link/twitter to the auth service.
+func (p *AuthProxy) PostAccountLinkTwitter(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/account/link/twitter"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // PostAccountSetPrimary proxies POST /account/identity/{id}/primary to the auth service.
 func (p *AuthProxy) PostAccountSetPrimary(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/account/identity/" + chi.URLParam(r, "id") + "/primary"

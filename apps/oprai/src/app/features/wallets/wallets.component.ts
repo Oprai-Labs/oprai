@@ -195,15 +195,40 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
               </button>
             }
 
-            <!-- X / Twitter -->
-            <div class="wl-connect wl-connect-soon" title="Coming soon">
-              <div class="wl-tile" [style.background]="TYPE_META['twitter'].tint"><app-brand-icon type="twitter" [size]="20" /></div>
-              <div class="wl-connect-text">
-                <span class="wl-connect-title">X (Twitter)</span>
-                <span class="wl-connect-sub">Connect</span>
+            <!-- X / Twitter (self-declared handle — auto-fills token launches) -->
+            @if (xEditing()) {
+              <div class="wl-connect wl-connect-edit">
+                <div class="wl-tile" [style.background]="TYPE_META['twitter'].tint"><app-brand-icon type="twitter" [size]="20" /></div>
+                <input class="wl-xinput" type="text" [value]="xInput()" placeholder="@handle or x.com/…"
+                       [disabled]="busy()" (input)="xInput.set($any($event.target).value)"
+                       (keydown.enter)="saveTwitter()" />
+                <button class="wl-xbtn" (click)="saveTwitter()" [disabled]="busy()">{{ busy() ? '…' : 'Save' }}</button>
+                <button class="wl-xbtn wl-xbtn-ghost" (click)="cancelEditX()" [disabled]="busy()">Cancel</button>
               </div>
-              <span class="wl-soon">Soon</span>
-            </div>
+            } @else if (hasTwitter()) {
+              <div class="wl-connect wl-connect-done">
+                <div class="wl-tile" [style.background]="TYPE_META['twitter'].tint"><app-brand-icon type="twitter" [size]="20" /></div>
+                <div class="wl-connect-text">
+                  <span class="wl-connect-title">X (Twitter)</span>
+                  <span class="wl-connect-sub">{{ twitterHandle() }}</span>
+                </div>
+                <button class="wl-iconbtn" (click)="startEditX()" [disabled]="busy()" title="Change">
+                  <lucide-icon name="pencil" [size]="14" />
+                </button>
+                <button class="wl-iconbtn wl-unlink" (click)="removeTwitter()" [disabled]="busy()" title="Remove">
+                  <lucide-icon name="x" [size]="14" />
+                </button>
+              </div>
+            } @else {
+              <button class="wl-connect" (click)="startEditX()" [disabled]="busy()">
+                <div class="wl-tile" [style.background]="TYPE_META['twitter'].tint"><app-brand-icon type="twitter" [size]="20" /></div>
+                <div class="wl-connect-text">
+                  <span class="wl-connect-title">X (Twitter)</span>
+                  <span class="wl-connect-sub">Connect</span>
+                </div>
+                <lucide-icon class="wl-connect-plus" name="plus" [size]="16" />
+              </button>
+            }
           </div>
 
           @if (msg()) { <div class="wl-msg" [class.ok]="msgOk()">{{ msg() }}</div> }
@@ -338,6 +363,12 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
     .wl-connect-widget { cursor:default; }
     .wl-connect-soon { cursor:not-allowed; opacity:.7; }
     .wl-soon { font-size:.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--op-text-secondary); background:var(--op-bg-surface-2, rgba(125,125,150,.14)); padding:2px 7px; border-radius:6px; flex:none; }
+    .wl-connect-edit { cursor:default; }
+    .wl-xinput { flex:1; min-width:0; background:var(--op-bg-surface-2, rgba(125,125,150,.08)); border:1px solid var(--op-border, rgba(255,255,255,.12)); border-radius:9px; padding:8px 10px; color:var(--op-text-primary); font-size:.85rem; outline:none; }
+    .wl-xinput:focus { border-color:var(--op-brand, #5b5fc7); }
+    .wl-xbtn { flex:none; border:0; border-radius:9px; padding:8px 12px; font-size:.8rem; font-weight:600; cursor:pointer; background:var(--op-brand, #5b5fc7); color:#fff; }
+    .wl-xbtn-ghost { background:var(--op-bg-surface-2, rgba(125,125,150,.14)); color:var(--op-text-secondary); }
+    .wl-xbtn:disabled { opacity:.5; cursor:default; }
     .wl-tg-widget { flex:none; display:flex; align-items:center; min-height:28px; }
     .wl-tg-widget iframe { color-scheme:normal; }
     /* Link consent */
@@ -392,6 +423,17 @@ export class WalletsComponent implements OnInit, OnDestroy {
   hasTelegram = computed(() => this.identities().some((i) => i.type === 'telegram'));
   hasSolana = computed(() => this.identities().some((i) => i.type === 'solana_wallet'));
   hasEvm = computed(() => this.identities().some((i) => i.type === 'evm_wallet'));
+  // X / Twitter (self-declared handle, no OAuth). twitterId is the identity row;
+  // twitterHandle is the "@name" shown in the UI.
+  twitterId = computed(() => this.identities().find((i) => i.type === 'twitter'));
+  hasTwitter = computed(() => !!this.twitterId());
+  twitterHandle = computed(() => {
+    const url = this.twitterId()?.identifier ?? '';
+    const m = url.match(/(?:x\.com|twitter\.com)\/@?([A-Za-z0-9_]+)/i);
+    return m ? '@' + m[1] : (url ? '@' + url.replace(/^@/, '') : '');
+  });
+  xInput = signal('');
+  xEditing = signal(false);
   evmModalOpen = signal(false);
   detectedEvm = signal<EvmWallet[]>([]);
   linkConsent = signal<EvmWallet | null>(null);
@@ -461,6 +503,33 @@ export class WalletsComponent implements OnInit, OnDestroy {
         this.flash(a.alreadyLinked ? 'That Telegram account is already linked.' : 'Telegram connected!', true);
       },
       error: () => { this.busy.set(false); this.flash('Could not connect Telegram.', false); },
+    });
+  }
+
+  startEditX(): void { this.xInput.set(this.twitterHandle()); this.xEditing.set(true); }
+  cancelEditX(): void { this.xEditing.set(false); this.xInput.set(''); }
+
+  saveTwitter(): void {
+    if (this.busy()) return;
+    const handle = this.xInput().trim();
+    if (!handle) { this.flash('Enter your X handle or profile URL.', false); return; }
+    this.busy.set(true); this.msg.set(null);
+    this.account.setTwitter(handle).subscribe({
+      next: (a) => {
+        this.identities.set(a.identities || []);
+        this.busy.set(false); this.xEditing.set(false); this.xInput.set('');
+        this.flash('X profile saved!', true);
+      },
+      error: (e) => { this.busy.set(false); this.flash(e?.error?.error || 'That doesn\'t look like a valid X handle.', false); },
+    });
+  }
+
+  removeTwitter(): void {
+    if (this.busy()) return;
+    this.busy.set(true); this.msg.set(null);
+    this.account.setTwitter('').subscribe({
+      next: (a) => { this.identities.set(a.identities || []); this.busy.set(false); this.flash('X profile removed.', true); },
+      error: () => { this.busy.set(false); this.flash('Could not remove X profile.', false); },
     });
   }
 

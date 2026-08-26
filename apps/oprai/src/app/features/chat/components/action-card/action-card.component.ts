@@ -6215,6 +6215,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnInit(): void {
     if (this.action) this.initFromAction();
+    // pools.trade launch: auto-fill the X profile from the account's saved X
+    // (set once in Wallets) unless the user/LLM already supplied one.
+    if (this.action?.type === 'pools_launch' && !this.getEditParam('xUrl')) {
+      this.account.getMe().subscribe({
+        next: (a) => {
+          const x = (a.identities || []).find((i) => i.type === 'twitter')?.identifier;
+          if (x && !this.getEditParam('xUrl')) this.setEditParam('xUrl', x);
+        },
+        error: () => { /* optional field — ignore */ },
+      });
+    }
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();

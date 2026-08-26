@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -168,6 +169,85 @@ func (h *AccountHandler) HandleLinkVerify(w http.ResponseWriter, r *http.Request
 	}
 	slog.Info("account: wallet linked", "account", accountID, "primary", primaryWallet, "linked", req.WalletAddress)
 	h.writeIdentities(w, r, accountID, map[string]any{"linked": true})
+}
+
+// twitterLinkRequest is the body for POST /account/link/twitter.
+type twitterLinkRequest struct {
+	Handle string `json:"handle"`
+}
+
+// normalizeXUrl turns "@name", "name", or an x.com/twitter.com URL into a
+// canonical "https://x.com/<handle>". Returns "" if no usable handle is found.
+func normalizeXUrl(input string) string {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return ""
+	}
+	// Pull the handle out of a URL if one was pasted.
+	if i := strings.Index(strings.ToLower(s), "x.com/"); i >= 0 {
+		s = s[i+len("x.com/"):]
+	} else if i := strings.Index(strings.ToLower(s), "twitter.com/"); i >= 0 {
+		s = s[i+len("twitter.com/"):]
+	}
+	s = strings.TrimPrefix(s, "@")
+	// Keep just the handle segment (drop any /status/… or query/fragment).
+	s = strings.FieldsFunc(s, func(r rune) bool { return r == '/' || r == '?' || r == '#' })[0]
+	// X handles: letters, digits, underscore, up to 15 chars.
+	handle := ""
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			handle += string(r)
+		}
+	}
+	if handle == "" || len(handle) > 15 {
+		return ""
+	}
+	return "https://x.com/" + handle
+}
+
+// HandleSetTwitter handles POST /account/link/twitter — save (or clear) the
+// account's self-declared X / Twitter profile. This is NOT OAuth-verified
+// ownership; it's a convenience field the user sets once and OPRAI reuses (e.g.
+// auto-filling a pools.trade token launch). An empty handle clears it.
+func (h *AccountHandler) HandleSetTwitter(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := h.resolveAccount(w, r)
+	if accountID == "" {
+		return
+	}
+	var req twitterLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Remove any existing twitter identity for this account (single X per account).
+	ids, err := h.queries.ListIdentitiesByAccount(r.Context(), accountID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to load identities")
+		return
+	}
+	for _, id := range ids {
+		if id.Type == "twitter" {
+			if _, err := h.queries.DeleteIdentityByID(r.Context(), id.ID, accountID); err != nil {
+				slog.Error("account: delete old twitter identity failed", "account", accountID, "error", err)
+			}
+		}
+	}
+
+	// Empty handle = clear only.
+	xURL := normalizeXUrl(req.Handle)
+	if req.Handle != "" && xURL == "" {
+		writeError(w, http.StatusBadRequest, "That doesn't look like a valid X handle or URL.")
+		return
+	}
+	if xURL != "" {
+		if _, err := h.queries.InsertIdentity(r.Context(), accountID, "twitter", "", xURL, false); err != nil {
+			slog.Error("account: insert twitter identity failed", "account", accountID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Failed to save X profile")
+			return
+		}
+	}
+	h.writeIdentities(w, r, accountID, map[string]any{"linked": xURL != ""})
 }
 
 // HandleUnlink handles DELETE /account/identity/{id} — detach a linked identity.
