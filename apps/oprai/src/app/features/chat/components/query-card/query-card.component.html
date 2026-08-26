@@ -267,9 +267,6 @@
                     <span class="uni-lp-badge">{{ l.launchpad }}</span>
                     {{ l.name }}
                     @if (launchAge(l.createdAt); as age) { <span class="uni-launch-age">· {{ age }}</span> }
-                    @if (l.graduationProgress != null && l.graduationProgress < 100) {
-                      <span class="uni-launch-age">· {{ l.graduationProgress | number:'1.0-0' }}% grad</span>
-                    }
                   </span>
                 </span>
               </span>
