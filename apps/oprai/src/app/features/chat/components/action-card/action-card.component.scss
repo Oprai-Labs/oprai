@@ -6950,3 +6950,11 @@
 .uni-lp__prefix, .uni-lp__suffix { color: var(--op-text-secondary); font-weight: 600; font-size: .9rem; }
 .uni-lp__input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--op-text-primary); font-size: 1rem; font-variant-numeric: tabular-nums; }
 .uni-lp__chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* pools.trade launch image picker */
+.uni-lp__imagerow { display: flex; align-items: center; gap: 10px; }
+.uni-lp__imagebtn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 14px; border: 1px dashed var(--op-border-subtle, rgba(125,125,150,.35)); border-radius: 10px; font-size: .82rem; font-weight: 600; color: var(--op-text-secondary); cursor: pointer; background: var(--op-bg-surface-1); transition: all .12s; }
+.uni-lp__imagebtn:hover { color: var(--op-text-primary); border-color: var(--op-brand, #5b5fc7); }
+.uni-lp__imagebtn--disabled { opacity: .5; pointer-events: none; }
+.uni-lp__imgpreview { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; border: 1px solid var(--op-border-subtle, rgba(125,125,150,.2)); }
+.uni-lp__err { font-size: .72rem; color: var(--op-danger, #ef4444); margin-top: 2px; }

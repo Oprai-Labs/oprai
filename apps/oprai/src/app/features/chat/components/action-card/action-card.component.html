@@ -1157,12 +1157,21 @@
                      (input)="setEditParam('description', $any($event.target).value)" />
             </div>
 
-            <label class="uni-lp__label">{{ 'Image URL (optional)' | t }}</label>
-            <div class="uni-lp__inputrow">
-              <input class="uni-lp__input" type="url" [value]="getEditParam('imageUrl')"
-                     [disabled]="!isEditable()" placeholder="https://…/logo.png"
-                     (input)="setEditParam('imageUrl', $any($event.target).value)" />
+            <label class="uni-lp__label">{{ 'Image (optional)' | t }}</label>
+            <div class="uni-lp__imagerow">
+              <label class="uni-lp__imagebtn" [class.uni-lp__imagebtn--disabled]="!isEditable() || uploadingImage()">
+                <input type="file" accept="image/png,image/webp,image/jpeg" hidden
+                       [disabled]="!isEditable() || uploadingImage()"
+                       (change)="onPoolsLaunchImage($event)" />
+                @if (uploadingImage()) { {{ 'Processing…' | t }} }
+                @else if (getEditParam('imageUrl')) { {{ 'Change image' | t }} }
+                @else { {{ 'Choose image' | t }} }
+              </label>
+              @if (getEditParam('imageUrl'); as img) {
+                <img class="uni-lp__imgpreview" [src]="img" alt="token image" />
+              }
             </div>
+            @if (imageUploadError()) { <div class="uni-lp__err">{{ imageUploadError() }}</div> }
 
             <label class="uni-lp__label">{{ 'X / Twitter (optional)' | t }}</label>
             <div class="uni-lp__inputrow">

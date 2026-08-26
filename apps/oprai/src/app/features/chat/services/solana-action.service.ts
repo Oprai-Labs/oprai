@@ -2724,7 +2724,9 @@ export class SolanaActionService {
         tokenSymbol: symbol,
         description: String(p['description'] ?? '').trim(),
         walletAddress: account,
-        ...(p['imageUrl'] && /^https?:\/\//i.test(String(p['imageUrl'])) ? { imageUrl: String(p['imageUrl']) } : {}),
+        // pools.trade wants the image inline as a PNG/WebP base64 data URI — it
+        // decodes and pins it server-side. (https/ipfs URLs are rejected.)
+        ...(p['imageUrl'] && /^data:image\/(png|webp);base64,/.test(String(p['imageUrl'])) ? { imageUrl: String(p['imageUrl']) } : {}),
         ...(p['xUrl'] ? { xUrl: String(p['xUrl']) } : {}),
         ...(p['website'] ? { website: String(p['website']) } : {}),
       };

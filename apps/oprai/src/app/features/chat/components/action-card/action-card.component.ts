@@ -8572,6 +8572,46 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   getEditParam(key: string): string { return this.editParams()[key] ?? ''; }
 
+  /** pools.trade launch image: it wants the picture inline as a PNG base64 data
+   *  URI (it pins it itself — no hosting on our side). Center-crop to a square
+   *  PNG and stash the data URI in editParams.imageUrl (also used as preview). */
+  async onPoolsLaunchImage(event: Event): Promise<void> {
+    const f = (event.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    this.uploadingImage.set(true);
+    this.imageUploadError.set(null);
+    try {
+      const dataUri = await this.fileToSquarePngDataUri(f, 512);
+      this.setEditParam('imageUrl', dataUri);
+    } catch (e: any) {
+      this.imageUploadError.set(e?.message || 'Could not read that image');
+    } finally {
+      this.uploadingImage.set(false);
+    }
+  }
+
+  private fileToSquarePngDataUri(file: File, size: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) { reject(new Error('Not an image file')); return; }
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas not supported')); return; }
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const sx = (img.naturalWidth - side) / 2;
+        const sy = (img.naturalHeight - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/png')); // data:image/png;base64,…
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Invalid image file')); };
+      img.src = url;
+    });
+  }
+
   /** pools.trade sell input is a token amount; prepareSell wants amountInWei
    *  (18-decimal base units). Convert with string math (no float precision loss)
    *  and stash both — amountTokens for the field, amountInWei for the request. */
