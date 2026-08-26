@@ -289,6 +289,10 @@ func (p *SolanaProxy) PostPonsSell(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/pons/sell"
 	p.proxy.ServeHTTP(w, r)
 }
+func (p *SolanaProxy) PostPonsLaunch(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/pons/launch"
+	p.proxy.ServeHTTP(w, r)
+}
 
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"

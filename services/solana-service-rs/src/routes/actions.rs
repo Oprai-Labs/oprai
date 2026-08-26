@@ -1862,6 +1862,17 @@ pub async fn post_pons_sell(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/pons/launch — create a Pons V2 token (factory.launchToken tx).
+#[post("/pons/launch")]
+pub async fn post_pons_launch(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::pons::build_pons_launch(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/launch/token-meta — resolve a pools.trade token's
 /// symbol / name / image / price from its 0x address, so a chat buy/sell by raw
 /// address shows the coin instead of "?". Body: {tokenAddress}. Returns the

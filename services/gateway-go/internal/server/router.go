@@ -278,6 +278,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/pons/token-meta", solanaProxy.PostPonsTokenMeta)
 		r.Post("/pons/buy", solanaProxy.PostPonsBuy)
 		r.Post("/pons/sell", solanaProxy.PostPonsSell)
+		r.Post("/pons/launch", solanaProxy.PostPonsLaunch)
 	})
 	r.Route("/protocols", func(r chi.Router) {
 		r.Use(defaultTimeout)

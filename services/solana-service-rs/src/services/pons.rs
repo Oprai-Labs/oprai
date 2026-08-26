@@ -284,7 +284,8 @@ async fn enrich(http: &reqwest::Client, r: RawLaunch, eth_usd: Option<f64>) -> O
     if let Ok(resp) = http.get(&turl).header("user-agent", "oprai").send().await {
         if let Ok(tj) = resp.json::<Value>().await {
             holders = tj
-                .get("holders")
+                .get("holders_count")
+                .or_else(|| tj.get("holders"))
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse::<u64>().ok())
                 .map(Value::from)
@@ -472,6 +473,150 @@ pub async fn build_pons_sell(http: &reqwest::Client, body: &Value) -> Result<Val
         "expectedAmountOut": format!("{}", expected as u128),
         "amountInWei": tokens_in.to_string(),
         "curve": curve,
+    }))
+}
+
+// ── Launch: ABI-encode PonsV2LaunchFactory.launchToken(TokenParams, uint256, address) ──
+const SEL_LAUNCH_TOKEN: &str = "f35abbcf"; // launchToken(params, launchConfigId, pairToken) payable
+const SEL_LAUNCH_FEE: &str = "0xcf3cf573"; // launchFee()
+const PONS_LAUNCH_FEE_FALLBACK: u128 = 500_000_000_000_000; // 0.0005 ETH
+
+fn w_u(n: u128) -> Vec<u8> {
+    let mut v = vec![0u8; 32];
+    v[16..32].copy_from_slice(&n.to_be_bytes());
+    v
+}
+fn w_addr_bytes(a: &str) -> Vec<u8> {
+    let mut v = vec![0u8; 32];
+    if let Ok(bytes) = hex::decode(format!("{:0>40}", a.trim_start_matches("0x"))) {
+        if bytes.len() == 20 {
+            v[12..32].copy_from_slice(&bytes);
+        }
+    }
+    v
+}
+/// ABI `string`: 32-byte length + data zero-padded to a 32-byte boundary.
+fn enc_string(s: &str) -> Vec<u8> {
+    let b = s.as_bytes();
+    let mut out = w_u(b.len() as u128);
+    out.extend_from_slice(b);
+    let pad = (32 - (b.len() % 32)) % 32;
+    out.extend(std::iter::repeat(0u8).take(pad));
+    out
+}
+/// ABI dynamic tuple of N strings (offsets head + string tail).
+fn enc_tuple_strings(strs: &[&str]) -> Vec<u8> {
+    let tails: Vec<Vec<u8>> = strs.iter().map(|s| enc_string(s)).collect();
+    let mut offset = strs.len() * 32;
+    let mut head = Vec::new();
+    for t in &tails {
+        head.extend(w_u(offset as u128));
+        offset += t.len();
+    }
+    for t in tails {
+        head.extend(t);
+    }
+    head
+}
+
+#[allow(clippy::too_many_arguments)]
+fn enc_token_params(
+    name: &str,
+    symbol: &str,
+    logo: &str,
+    description: &str,
+    socials: Vec<u8>,
+    fee_recipient: &str,
+    tax_bps: u128,
+    buyback: bool,
+    salt: [u8; 32],
+) -> Vec<u8> {
+    // TokenParams: 4 dynamic strings + socials(dynamic tuple) + address + uint16
+    // + bool + bytes32(expectedEconomics=0) + bytes32(salt). 10 head words.
+    let dyn_fields = [
+        enc_string(name),
+        enc_string(symbol),
+        enc_string(logo),
+        enc_string(description),
+        socials,
+    ];
+    let mut offset = 10 * 32;
+    let mut head = Vec::new();
+    for f in &dyn_fields {
+        head.extend(w_u(offset as u128));
+        offset += f.len();
+    }
+    head.extend(w_addr_bytes(fee_recipient)); // creatorFeeRecipient (0 → deployer)
+    head.extend(w_u(tax_bps)); // creatorTaxBps
+    head.extend(w_u(if buyback { 1 } else { 0 })); // buybackEnabled
+    head.extend(vec![0u8; 32]); // expectedEconomics = 0 (waives the check)
+    head.extend(salt.to_vec()); // salt
+    for f in dyn_fields {
+        head.extend(f);
+    }
+    head
+}
+
+/// Build a Pons V2 token-launch tx. Body: {walletAddress, name, symbol, logo?,
+/// description?, twitter?/telegram?/discord?/website?/farcaster?, creatorTaxBps?,
+/// buyback?, pairToken?}. Native-pair launch; value = launchFee.
+pub async fn build_pons_launch(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
+    let rpc = rpc().ok_or_else(|| AppError::Internal("no Robinhood RPC".into()))?;
+    let s = |k: &str| body.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let name = s("name");
+    let symbol = s("symbol");
+    if name.is_empty() || symbol.is_empty() {
+        return Err(AppError::InvalidParams("pons: token name and symbol are required".into()));
+    }
+    if name.len() > 64 {
+        return Err(AppError::InvalidParams("pons: name must be ≤ 64 characters".into()));
+    }
+    if symbol.len() > 16 {
+        return Err(AppError::InvalidParams("pons: ticker must be ≤ 16 characters".into()));
+    }
+    let mut logo = s("logo");
+    if logo.len() > 512 {
+        logo.truncate(512);
+    }
+    let mut description = s("description");
+    if description.len() > 2048 {
+        description.truncate(2048);
+    }
+    let socials = enc_tuple_strings(&[&s("twitter"), &s("telegram"), &s("discord"), &s("website"), &s("farcaster")]);
+    let tax_bps = body.get("creatorTaxBps").and_then(|v| v.as_str()).and_then(|x| x.parse::<u128>().ok()).unwrap_or(0).min(1000);
+    let buyback = body.get("buyback").and_then(|v| v.as_str()).map(|x| x == "true").unwrap_or(false);
+    let pair_token = body.get("pairToken").and_then(|v| v.as_str()).filter(|s| s.starts_with("0x")).unwrap_or(NATIVE);
+
+    // Unique CREATE2 salt (namespaced per account) — a uuid keeps launches from
+    // colliding on the same terms.
+    let mut salt = [0u8; 32];
+    salt[16..32].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+
+    let params_bytes = enc_token_params(&name, &symbol, &logo, &description, socials, NATIVE, tax_bps, buyback, salt);
+
+    let mut data = hex::decode(SEL_LAUNCH_TOKEN).unwrap_or_default();
+    data.extend(w_u(0x60)); // offset to params (3 args × 32)
+    data.extend(w_u(0)); // launchConfigId = 0 (only config)
+    data.extend(w_addr_bytes(pair_token)); // pairToken (native)
+    data.extend(params_bytes);
+
+    // launchFee (read live; fall back to the known 0.0005 ETH).
+    let fee = match eth_call(http, &rpc, PONS_V2_FACTORY, SEL_LAUNCH_FEE).await {
+        Ok(h) => {
+            let v = to_u128(&h);
+            if v > 0 { v } else { PONS_LAUNCH_FEE_FALLBACK }
+        }
+        Err(_) => PONS_LAUNCH_FEE_FALLBACK,
+    };
+
+    Ok(json!({
+        "transactions": [{
+            "to": PONS_V2_FACTORY,
+            "data": format!("0x{}", hex::encode(data)),
+            "value": fee.to_string(),
+            "chainId": ROBINHOOD_CHAIN,
+        }],
+        "launchFeeWei": fee.to_string(),
     }))
 }
 

@@ -224,6 +224,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_pons_token_meta)
                     .service(routes::actions::post_pons_buy)
                     .service(routes::actions::post_pons_sell)
+                    .service(routes::actions::post_pons_launch)
                     .service(routes::actions::post_uniswap_record)
                     .service(routes::actions::post_relay_index_transaction)
                     .service(routes::actions::post_relay_single_transaction)
