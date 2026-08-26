@@ -1064,13 +1064,13 @@
             </div>
           </div>
 
-        } @else if (action.type === 'pools_buy' || action.type === 'pools_sell') {
-          <!-- ─────── pools.trade native buy / sell (Robinhood Chain) ───────
-               Mini-Uniswap two-panel swap (like our Jupiter swap): pools.trade
-               only pairs against ETH, so BUY = pay ETH → receive token, and
-               SELL = pay token → receive ETH. The counter side is live-quoted
-               from prepareBuy/prepareSell (expectedAmountOut). -->
-          @let pbSell = action.type === 'pools_sell';
+        } @else if (action.type === 'pools_buy' || action.type === 'pools_sell' || action.type === 'pons_buy' || action.type === 'pons_sell') {
+          <!-- ─────── pools.trade / Pons native buy / sell (Robinhood Chain) ───
+               Mini-Uniswap two-panel swap (like our Jupiter swap): both pair
+               against ETH, so BUY = pay ETH → receive token, and SELL = pay
+               token → receive ETH. The counter side is live-quoted from the
+               launchpad's own buy/sell builder (expectedAmountOut). -->
+          @let pbSell = action.type === 'pools_sell' || action.type === 'pons_sell';
           @let pq = poolsQuote();
           <div class="uni-lp">
             <div class="uni-lp__head">
@@ -1087,7 +1087,7 @@
                   {{ (isPoolsCca() && !pbSell ? 'Commit to' : (pbSell ? 'Sell' : 'Buy')) | t }} {{ getEditParam('symbol') }}
                   @if (isPoolsCca()) { <span class="pl-cca-badge">{{ 'Crowd Launch' | t }}</span> }
                 </span>
-                <span class="uni-lp__sub">{{ getEditParam('launchpad') || 'pools.trade' }} · Robinhood Chain</span>
+                <span class="uni-lp__sub">{{ getEditParam('launchpad') || (isPonsAction() ? 'Pons' : 'pools.trade') }} · Robinhood Chain</span>
               </div>
             </div>
 

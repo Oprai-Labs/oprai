@@ -1827,6 +1827,41 @@ pub async fn post_pools_launch_bid(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/pons/token-meta — resolve a Pons token's curve/pair/status by
+/// address (chat buy/sell by 0x address). Body: {tokenAddress}.
+#[post("/pons/token-meta")]
+pub async fn post_pons_token_meta(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let token = body.get("tokenAddress").and_then(|v| v.as_str()).unwrap_or("");
+    let meta = crate::services::pons::pons_token_meta(&state.http, token).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "token": meta })))
+}
+
+/// POST /actions/pons/buy — Pons bonding-curve buy (ABI-encoded curve.buy tx).
+#[post("/pons/buy")]
+pub async fn post_pons_buy(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::pons::build_pons_buy(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/pons/sell — Pons bonding-curve sell (approve + curve.sell tx).
+#[post("/pons/sell")]
+pub async fn post_pons_sell(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::pons::build_pons_sell(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/launch/token-meta — resolve a pools.trade token's
 /// symbol / name / image / price from its 0x address, so a chat buy/sell by raw
 /// address shows the coin instead of "?". Body: {tokenAddress}. Returns the

@@ -1073,6 +1073,32 @@ pub async fn build_uniswap_launches(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
+    // The "Pons" launchpad is a separate protocol (ponsfamily.com) with no server
+    // API — served straight from its on-chain V2 contracts. When the user filters
+    // to Pons, serve Pons launches; the chip set still lists both launchpads.
+    let fl = filter.trim().to_lowercase();
+    if matches!(fl.as_str(), "pons" | "pons-v2" | "ponsfamily") {
+        let mut resp = crate::services::pons::build_pons_launches(
+            http,
+            &crate::services::pons::PonsLaunchesParams {
+                sort: params.sort.clone(),
+                limit: params.limit,
+                query: params.query.clone(),
+            },
+        )
+        .await?;
+        if let Some(data) = resp.data.as_mut().and_then(|d| d.as_object_mut()) {
+            data.insert(
+                "launchpads".to_string(),
+                json!([
+                    { "id": "pools.trade", "label": "pools.trade" },
+                    { "id": "Pons", "label": "Pons" },
+                ]),
+            );
+        }
+        return Ok(resp);
+    }
+
     // pools.trade tRPC uses RAW (non-superjson) input. A name/symbol search uses
     // searchLaunches (curve + crowd); otherwise the recency/volume list. reqwest
     // URL-encodes the input via .query().
@@ -1121,6 +1147,11 @@ pub async fn build_uniswap_launches(
         if seen_lp.insert(label.clone()) {
             launchpads.push(json!({ "id": label.clone(), "label": label }));
         }
+    }
+    // Always offer the Pons launchpad as a filter, even though its launches come
+    // from a different source (its own on-chain contracts, served on demand).
+    if seen_lp.insert("Pons".to_string()) {
+        launchpads.push(json!({ "id": "Pons", "label": "Pons" }));
     }
 
     let mut rows: Vec<Value> = launches
@@ -1237,6 +1268,33 @@ pub async fn pools_trade_mutation(
         .and_then(|r| r.get("data"))
         .cloned()
         .unwrap_or(Value::Null))
+}
+
+/// Robinhood-Chain ETH/USD, derived from the pools.trade feed (priceUsd/priceEth
+/// of any live token) — the one place we already know the native price. Used to
+/// put a USD figure on Pons launches, which are priced only in ETH on-chain.
+pub(crate) async fn pools_eth_usd(http: &reqwest::Client) -> Option<f64> {
+    let input = json!({ "sortBy": "volume" }).to_string();
+    let body: Value = http
+        .get(format!("{POOLS_TRADE_TRPC}/curve.listLaunches"))
+        .query(&[("input", input.as_str())])
+        .header("accept", "application/json")
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let rows = body.get("result")?.get("data")?.as_array()?;
+    for l in rows {
+        let ps = l.get("poolStats")?;
+        let usd = ps.get("priceUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let eth = ps.get("priceEth").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        if usd > 0.0 && eth > 0.0 {
+            return Some(usd / eth);
+        }
+    }
+    None
 }
 
 /// Resolve one pools.trade token's metadata (symbol, name, image, price) from
@@ -1371,7 +1429,7 @@ const MAX_TICK: i64 = 887272;
 
 /// Alchemy JSON-RPC URL for a chain (reuses the ALCHEMY_API_KEY the EVM
 /// portfolio uses). None → we can't read pools on that chain yet.
-fn alchemy_rpc(chain_id: u64) -> Option<String> {
+pub(crate) fn alchemy_rpc(chain_id: u64) -> Option<String> {
     let key = std::env::var("ALCHEMY_API_KEY").ok().filter(|s| !s.is_empty())?;
     let net = match chain_id {
         1 => "eth-mainnet",
@@ -1387,7 +1445,7 @@ fn alchemy_rpc(chain_id: u64) -> Option<String> {
 }
 
 /// One `eth_call`, returning the hex result string (0x…).
-async fn eth_call(http: &reqwest::Client, rpc: &str, to: &str, data: &str) -> Result<String, AppError> {
+pub(crate) async fn eth_call(http: &reqwest::Client, rpc: &str, to: &str, data: &str) -> Result<String, AppError> {
     let body = json!({
         "jsonrpc": "2.0", "id": 1, "method": "eth_call",
         "params": [{ "to": to, "data": data }, "latest"],

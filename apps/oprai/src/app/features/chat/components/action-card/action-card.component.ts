@@ -116,6 +116,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   relay:     { name: 'Relay',      icon: 'assets/icons/protocols/relay.png',      accent: '#7C3AED', accentBg: 'rgba(124,58,237,0.12)' },
   uniswap:   { name: 'Uniswap',    icon: 'assets/protocols/uniswap.jpg',          accent: '#F50DB4', accentBg: 'rgba(245,13,180,0.12)' },
   poolstrade:{ name: 'pools.trade', icon: 'assets/protocols/poolstrade.svg',      accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
+  pons:      { name: 'Pons',       icon: 'assets/protocols/pons.png',             accent: '#1a2740', accentBg: 'rgba(26,39,64,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -147,6 +148,7 @@ function getProtocolKey(action: ParsedAction): string {
   if (t === 'uniswap_swap' || t === 'uniswap_add_liquidity') return 'uniswap';
   // pools.trade launchpad (buy/sell/launch) — Uniswap's launchpad on Robinhood.
   if (t === 'pools_buy' || t === 'pools_sell' || t === 'pools_launch') return 'poolstrade';
+  if (t === 'pons_buy' || t === 'pons_sell' || t === 'pons_launch') return 'pons';
   if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') return 'relay';
   if (t.startsWith('relay_')) return 'relay';
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
@@ -5908,7 +5910,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * a new `<protocol>_claim_fees` then labels itself correctly on arrival.
    */
   get confirmButtonLabel(): string {
-    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token' };
+    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token', pons_buy:'Buy', pons_sell:'Sell' };
     const t = this.action?.type ?? '';
     if (labels[t]) return labels[t];
     // Ordered longest-verb-first so `add_to_position` isn't read as `stake`
@@ -6035,17 +6037,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // pools.trade buy pays ETH (converted to the API's USD amount); sell pays a
     // token amount. Block the click until there's a real amount to trade — for a
     // buy that also means the ETH/USD rate has loaded (amountUsd computed).
-    if (this.action?.type === 'pools_buy') {
+    if (this.action?.type === 'pools_buy' || this.action?.type === 'pons_buy') {
       if (!(Number(this.getEditParam('amountEth')) > 0)) return 'Enter an amount';
-      if (!(Number(this.getEditParam('amountUsd')) > 0)) return 'Fetching price…';
+      // Pons buys ETH directly (wei); pools.trade needs the ETH/USD rate loaded.
+      if (!this.isPonsAction() && !(Number(this.getEditParam('amountUsd')) > 0)) return 'Fetching price…';
       // The only ceiling on a buy is the wallet's ETH balance — enforce it so
-      // the card never submits a commit the wallet can't cover (leave a hair for gas).
+      // the card never submits a trade the wallet can't cover (leave a hair for gas).
       const bal = this.poolsAvailEth();
       if (bal != null && Number(this.getEditParam('amountEth')) > bal) return 'Insufficient ETH balance';
       if (this.isPoolsCca() && !this.getEditParam('auctionAddress')) return 'Resolving crowd launch…';
       if (this.isPoolsCca() && this.poolsCcaEnded()) return 'This crowd launch has ended';
     }
-    if (this.action?.type === 'pools_sell') {
+    if (this.action?.type === 'pools_sell' || this.action?.type === 'pons_sell') {
       if (!(Number(this.getEditParam('amountTokens')) > 0)) return 'Enter an amount';
     }
     if (this.isBurn()) {
@@ -6261,7 +6264,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       };
       window.addEventListener('focus', this.poolsFocusHandler);
     }
-    if (this.action?.type === 'pools_sell') {
+    if (this.action?.type === 'pools_sell' || this.action?.type === 'pons_sell') {
       void this.resolvePoolsTokenMeta();
       void this.fetchPoolsSellBalance();
       // A chat-supplied amount arrives as a token count; derive amountInWei (the
@@ -6270,7 +6273,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (at && Number(at) > 0) this.onPoolsSellAmount(at);
       else if (this.getEditParam('amountInWei') && this.getEditParam('amountInWei') !== '0') this.queuePoolsQuote();
     }
-    if (this.action?.type === 'pools_buy') {
+    if (this.action?.type === 'pools_buy' || this.action?.type === 'pons_buy') {
       // Fill in the coin's icon/symbol from its address (chat buys have only the
       // address), then load ETH/USD + the wallet's Robinhood ETH balance (drives
       // the pay-side balance/Max + USD hint), then quote any pre-filled amount.
@@ -8850,12 +8853,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!token) return;
     if (this.getEditParam('symbol') && this.getEditParam('logo')) return;
     try {
-      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/launch/token-meta', { tokenAddress: token }));
+      const r = await firstValueFrom(this.apiService.post<any>(this.poolsMetaEndpoint(), { tokenAddress: token }));
       const m = r?.token;
       if (!m) return;
       if (m.symbol && !this.getEditParam('symbol')) this.setEditParam('symbol', m.symbol);
       if (m.logo && !this.getEditParam('logo')) this.setEditParam('logo', m.logo);
       if (m.launchpad && !this.getEditParam('launchpad')) this.setEditParam('launchpad', m.launchpad);
+      if (m.curve && !this.getEditParam('curve')) this.setEditParam('curve', m.curve);
       const usd = Number(m.priceUsd), eth = Number(m.priceEth);
       if (usd > 0 && eth > 0 && this.poolsEthUsd() == null) this.poolsEthUsd.set(usd / eth);
       if (usd > 0) this.poolsTokenUsd.set(usd);
@@ -8935,6 +8939,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  auction — buying it means COMMITTING a bid, not swapping. Once it graduates
    *  it's a normal pool and trades through the swap path like any other. */
   readonly isPoolsCca = computed(() => this.getEditParam('kind') === 'cca' && this.getEditParam('ccaStatus') !== 'graduated');
+  /** Pons launchpad (its own on-chain curve) vs pools.trade — same swap card,
+   *  different backend endpoints and amount field (Pons buys pay ETH in wei). */
+  readonly isPonsAction = computed(() => (this.action?.type || '').startsWith('pons'));
+  private poolsMetaEndpoint(): string {
+    return this.isPonsAction() ? '/actions/pons/token-meta' : '/actions/uniswap/launch/token-meta';
+  }
+  private poolsTradeEndpoint(sell: boolean): string {
+    if (this.isPonsAction()) return sell ? '/actions/pons/sell' : '/actions/pons/buy';
+    return sell ? '/actions/uniswap/launch/sell' : '/actions/uniswap/launch/buy';
+  }
+  /** Decimal ETH → wei integer string (no float loss). */
+  private ethToWei(v: string): string {
+    const s = String(v ?? '').trim();
+    if (!s || !/^\d*\.?\d*$/.test(s)) return '0';
+    const [intPart = '0', fracRaw = ''] = s.split('.');
+    const frac = (fracRaw + '0'.repeat(18)).slice(0, 18);
+    return ((intPart.replace(/\D/g, '') || '0') + frac).replace(/^0+/, '') || '0';
+  }
   /** Crowd-launch graduation progress as a 0–100 percentage (null if unknown). */
   readonly poolsGradPct = computed(() => {
     const g = Number(this.getEditParam('graduationProgress'));
@@ -8954,6 +8976,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam('amountEth', v);
     const eth = Number(v), px = this.poolsEthUsd();
     this.setEditParam('amountUsd', px && eth > 0 ? String(eth * px) : '');
+    // Pons buys the curve directly with ETH (wei); pools.trade converts to USD.
+    this.setEditParam('amountWei', eth > 0 ? this.ethToWei(v) : '');
     this.queuePoolsQuote();
   }
 
@@ -8974,7 +8998,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private async runPoolsQuote(seq: number): Promise<void> {
-    const isSell = this.action?.type === 'pools_sell';
+    const isSell = (this.action?.type || '').endsWith('_sell');
+    const isPons = this.isPonsAction();
     const token = this.getEditParam('tokenAddress');
     if (!token) return;
     // Crowd Launch (CCA): prepareBid gas-estimates against the wallet, so it
@@ -8988,10 +9013,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     const slippagePct = Number(this.getEditParam('slippagePct') ?? 5) || 5;
     const body: Record<string, unknown> = { tokenAddress: token, slippagePct };
+    if (isPons && this.getEditParam('curve')) body['curve'] = this.getEditParam('curve');
     if (isSell) {
       const wei = this.getEditParam('amountInWei');
       if (!wei || wei === '0') { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
       body['amountInWei'] = wei;
+    } else if (isPons) {
+      // Pons buy pays ETH directly (wei), no USD conversion at the API.
+      const wei = this.getEditParam('amountWei');
+      if (!wei || wei === '0') { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
+      body['amountWei'] = wei;
     } else {
       const usd = Number(this.getEditParam('amountUsd'));
       if (!(usd > 0)) { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
@@ -9003,7 +9034,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     body['walletAddress'] = addr || '0x000000000000000000000000000000000000dEaD';
     this.poolsQuoting.set(true);
     try {
-      const endpoint = isSell ? '/actions/uniswap/launch/sell' : '/actions/uniswap/launch/buy';
+      const endpoint = this.poolsTradeEndpoint(isSell);
       const r = await firstValueFrom(this.apiService.post<any>(endpoint, body));
       if (seq !== this._poolsQuoteSeq) return;
       const d = r?.data ?? r;

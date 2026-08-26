@@ -81,6 +81,9 @@ interface UniswapLaunch {
   url: string;
   createdAt?: string | null;
   chain: string;
+  kind?: string;            // "pons-curve" for Pons launches
+  curve?: string;           // Pons bonding-curve address
+  pairToken?: string;
 }
 interface LaunchpadOpt { id: string; label: string; }
 
@@ -3556,21 +3559,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    *  where the user enters the USD amount. Uses trade.prepareBuy, NOT a raw v4
    *  swap — curve-live tokens aren't swappable until they graduate. */
   buyUniswapLaunch(l: UniswapLaunch): void {
+    // Pons is a separate launchpad (its own on-chain bonding curve), so its Buy
+    // routes to the pons_buy card, not pools.trade's.
+    const isPons = l.kind === 'pons-curve' || (l.launchpad || '').toLowerCase() === 'pons';
     const params: Record<string, string> = {
       chain: 'robinhood',
       tokenAddress: l.tokenAddress,
       symbol: l.symbol,
       name: l.name,
-      amountUsd: '5',
-      slippagePct: '5',
+      slippagePct: isPons ? '15' : '5',
       ...(l.logo ? { logo: l.logo } : {}),
       ...(l.launchpad ? { launchpad: l.launchpad } : {}),
+      ...(isPons && l.curve ? { curve: l.curve } : {}),
+      ...(isPons && l.pairToken ? { pairToken: l.pairToken } : {}),
     };
-    this.useAction.emit({
-      type: 'pools_buy',
-      params,
-      raw: `[ACTION:pools_buy] ${JSON.stringify(params)}`,
-    });
+    const type = isPons ? 'pons_buy' : 'pools_buy';
+    this.useAction.emit({ type, params, raw: `[ACTION:${type}] ${JSON.stringify(params)}` });
   }
 
   /** Compact "3m/2h/1d ago" from an ISO timestamp. */

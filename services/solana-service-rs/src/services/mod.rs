@@ -25,6 +25,7 @@ pub mod onchain_value;
 pub mod orca;
 pub mod params;
 pub mod protocol_reads;
+pub mod pons;
 pub mod pumpfun;
 pub mod raydium;
 pub mod raydium_clmm;

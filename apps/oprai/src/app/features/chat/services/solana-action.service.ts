@@ -1520,7 +1520,8 @@ export class SolanaActionService {
     }
     // pools.trade launchpad native buy/sell/launch — EVM (Robinhood chain 4663),
     // no Solana wallet, so route out before the Solana guard.
-    if (action.type === 'pools_buy' || action.type === 'pools_sell' || action.type === 'pools_launch') {
+    if (action.type === 'pools_buy' || action.type === 'pools_sell' || action.type === 'pools_launch'
+        || action.type === 'pons_buy' || action.type === 'pons_sell') {
       return this.executePoolsTrade(action, callbacks);
     }
 
@@ -2679,11 +2680,12 @@ export class SolanaActionService {
    */
   private async executePoolsTrade(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
     const p = action.params;
-    const isSell = action.type === 'pools_sell';
+    const isPons = action.type.startsWith('pons');
+    const isSell = action.type === 'pools_sell' || action.type === 'pons_sell';
     const isLaunch = action.type === 'pools_launch';
     const chainId = 4663;
     const token = String(p['tokenAddress'] ?? '');
-    if (!isLaunch && !token) throw new Error('pools.trade: no token specified.');
+    if (!isLaunch && !token && !p['curve']) throw new Error('no token specified.');
 
     const ethereum = (window as any).ethereum;
     if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on pools.trade.');
@@ -2754,6 +2756,14 @@ export class SolanaActionService {
         try { if (clr) maxPriceQ96 = (BigInt(clr) * BigInt(mult)).toString(); } catch { /* keep clearing */ }
         reqBody = { auctionAddress: auction, walletAddress: account, amountUsd: Number(p['amountUsd'] ?? 0), maxPriceQ96 };
         endpoint = '/actions/uniswap/launch/bid';
+      } else if (isPons) {
+        // Pons is its own on-chain bonding curve: buy pays ETH directly (wei),
+        // sell burns token base units. The backend ABI-encodes the curve tx.
+        reqBody = { tokenAddress: token, walletAddress: account, slippagePct: Number(p['slippagePct'] ?? 15) };
+        if (p['curve']) reqBody['curve'] = String(p['curve']);
+        if (isSell) reqBody['amountInWei'] = String(p['amountInWei'] ?? '0');
+        else reqBody['amountWei'] = String(p['amountWei'] ?? '0');
+        endpoint = isSell ? '/actions/pons/sell' : '/actions/pons/buy';
       } else {
         reqBody = { tokenAddress: token, walletAddress: account, slippagePct };
         if (isSell) reqBody['amountInWei'] = String(p['amountInWei'] ?? '0');
@@ -2764,7 +2774,7 @@ export class SolanaActionService {
 
     const prep = await firstValueFrom(this.api.post<any>(endpoint, reqBody));
     const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
-    if (txs.length === 0) throw new Error('pools.trade: no transaction was returned.');
+    if (txs.length === 0) throw new Error('no transaction was returned.');
 
     callbacks.onSign?.();
     let lastHash = '';

@@ -276,6 +276,20 @@ func (p *SolanaProxy) PostPoolsLaunchBid(w http.ResponseWriter, r *http.Request)
 	p.proxy.ServeHTTP(w, r)
 }
 
+// Pons launchpad (ponsfamily.com) — on-chain bonding-curve trade on Robinhood Chain.
+func (p *SolanaProxy) PostPonsTokenMeta(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/pons/token-meta"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostPonsBuy(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/pons/buy"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostPonsSell(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/pons/sell"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)
