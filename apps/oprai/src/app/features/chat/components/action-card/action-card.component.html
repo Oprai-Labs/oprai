@@ -1179,7 +1179,12 @@
               <div class="pump-panel pump-panel--recv">
                 <div class="pump-panel__top">
                   <span class="pump-panel__label">{{ 'You receive (estimated)' | t }}</span>
-                  @if (poolsQuoting()) {
+                  @if (!pbSell && poolsCountdown() !== null) {
+                    <span class="pump-panel__refresh" [attr.title]="'Re-prices every 3s' | t">
+                      <lucide-icon name="refresh-cw" [size]="10" [class.pl-spin]="poolsQuoting()" />
+                      {{ poolsCountdown() }}s
+                    </span>
+                  } @else if (poolsQuoting()) {
                     <span class="pump-panel__refresh"><lucide-icon name="refresh-cw" [size]="10" /></span>
                   }
                 </div>

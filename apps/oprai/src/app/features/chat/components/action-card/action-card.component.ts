@@ -6038,6 +6038,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type === 'pools_buy') {
       if (!(Number(this.getEditParam('amountEth')) > 0)) return 'Enter an amount';
       if (!(Number(this.getEditParam('amountUsd')) > 0)) return 'Fetching price…';
+      // The only ceiling on a buy is the wallet's ETH balance — enforce it so
+      // the card never submits a commit the wallet can't cover (leave a hair for gas).
+      const bal = this.poolsAvailEth();
+      if (bal != null && Number(this.getEditParam('amountEth')) > bal) return 'Insufficient ETH balance';
       if (this.isPoolsCca() && !this.getEditParam('auctionAddress')) return 'Resolving crowd launch…';
       if (this.isPoolsCca() && this.poolsCcaEnded()) return 'This crowd launch has ended';
     }
@@ -6282,9 +6286,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // Re-read the balance on focus so a transfer made elsewhere is reflected.
       this.poolsFocusHandler = () => this.zone.run(() => void this.refreshPoolsBalance());
       window.addEventListener('focus', this.poolsFocusHandler);
-      // Re-price the estimate every 3s (auction/curve price moves) — and it
-      // fills in on its own even before the user touches the amount.
-      this._poolsPoll = setInterval(() => this.zone.run(() => void this.refreshPoolsEstimate()), 3000);
+      // Re-price the estimate every 3s (auction/curve price moves) — it fills in
+      // on its own even before the user touches the amount, with a visible
+      // countdown. A 1s ticker drives the countdown; on 0 it re-prices.
+      this.poolsCountdown.set(3);
+      this._poolsPoll = setInterval(() => this.zone.run(() => {
+        const n = (this.poolsCountdown() ?? 3) - 1;
+        if (n <= 0) { this.poolsCountdown.set(3); void this.refreshPoolsEstimate(); }
+        else this.poolsCountdown.set(n);
+      }), 1000);
     }
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
@@ -8868,6 +8878,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private _poolsPoll: ReturnType<typeof setInterval> | null = null;
+  /** Visible "re-prices in Ns" countdown for the buy card (3 → 0, then refresh). */
+  readonly poolsCountdown = signal<number | null>(null);
 
   /** Re-read a live crowd launch's clearing price / progress / status (the
    *  auction moves as others commit) — keeps the estimate and the ended-guard
@@ -8895,6 +8907,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    *  recompute the estimate — with no debounce/blank so the figure stays put. */
   private async refreshPoolsEstimate(): Promise<void> {
     if (!this.isEditable()) return;
+    // Self-heal: if the coin never resolved (a raced/failed first lookup leaves
+    // "?" + no estimate), try again — it stops once symbol+logo are known.
+    if (!this.getEditParam('kind') && this.getEditParam('tokenAddress')) {
+      await this.resolvePoolsTokenMeta();
+    }
     const eth = Number(this.getEditParam('amountEth'));
     if (!(eth > 0)) return;
     const px = this.poolsEthUsd();

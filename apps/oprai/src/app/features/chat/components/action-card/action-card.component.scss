@@ -7027,6 +7027,8 @@
 .pl-buycost { font-size: .85rem; color: var(--op-text-secondary); font-variant-numeric: tabular-nums; }
 .pl-buyavail { text-align: right; font-size: .72rem; color: var(--op-text-secondary); }
 .pump-panel__chips { margin-top: 8px; flex-wrap: wrap; }
+.pl-spin { animation: pl-spin 0.7s linear infinite; }
+@keyframes pl-spin { to { transform: rotate(360deg); } }
 .pl-cca-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: .62rem; font-weight: 700; letter-spacing: .02em; vertical-align: middle; color: var(--op-success, #22c55e); background: color-mix(in srgb, var(--op-success, #22c55e) 14%, transparent); }
 .pl-cca-grad { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
 .pl-cca-grad__bar { flex: 1; height: 5px; border-radius: 999px; background: var(--op-bg-surface-2, rgba(125,125,150,.18)); overflow: hidden; }
