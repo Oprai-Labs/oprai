@@ -6282,6 +6282,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // Re-read the balance on focus so a transfer made elsewhere is reflected.
       this.poolsFocusHandler = () => this.zone.run(() => void this.refreshPoolsBalance());
       window.addEventListener('focus', this.poolsFocusHandler);
+      // Re-price the estimate every 3s (auction/curve price moves) — and it
+      // fills in on its own even before the user touches the amount.
+      this._poolsPoll = setInterval(() => this.zone.run(() => void this.refreshPoolsEstimate()), 3000);
     }
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
@@ -8854,12 +8857,50 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         if (m.clearingPriceQ96) this.setEditParam('clearingPriceQ96', String(m.clearingPriceQ96));
         if (m.status) this.setEditParam('ccaStatus', m.status);
         if (m.graduationProgress != null) this.setEditParam('graduationProgress', String(m.graduationProgress));
+        if (m.graduationTargetUsd != null) this.setEditParam('graduationTargetUsd', String(m.graduationTargetUsd));
+        if (m.fdvUsd != null) this.setEditParam('fdvUsd', String(m.fdvUsd));
         if (m.endsAt) this.setEditParam('endsAt', String(m.endsAt));
         // A CCA estimate is computed client-side (prepareBid can't quote a
         // placeholder wallet), so re-price whatever amount is already entered.
         this.queuePoolsQuote();
       }
     } catch { /* address may not be a pools.trade launch — leave the fallback "?" */ }
+  }
+
+  private _poolsPoll: ReturnType<typeof setInterval> | null = null;
+
+  /** Re-read a live crowd launch's clearing price / progress / status (the
+   *  auction moves as others commit) — keeps the estimate and the ended-guard
+   *  current on the 3s poll. Always fetches (unlike resolvePoolsTokenMeta, which
+   *  skips once symbol+logo are known). */
+  private async refreshPoolsCcaPrice(): Promise<void> {
+    const token = this.getEditParam('tokenAddress');
+    if (!token) return;
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/launch/token-meta', { tokenAddress: token }));
+      const m = r?.token;
+      if (!m || m.kind !== 'cca') return;
+      const usd = Number(m.priceUsd), eth = Number(m.priceEth);
+      if (usd > 0) this.poolsTokenUsd.set(usd);
+      if (usd > 0 && eth > 0) this.poolsEthUsd.set(usd / eth);
+      if (m.clearingPriceQ96) this.setEditParam('clearingPriceQ96', String(m.clearingPriceQ96));
+      if (m.graduationProgress != null) this.setEditParam('graduationProgress', String(m.graduationProgress));
+      if (m.status) this.setEditParam('ccaStatus', m.status);
+      if (m.endsAt) this.setEditParam('endsAt', String(m.endsAt));
+    } catch { /* keep last-known */ }
+  }
+
+  /** The 3s tick for the buy card: keep amountUsd in sync with the (possibly
+   *  just-loaded) ETH rate, refresh a crowd launch's clearing price, then
+   *  recompute the estimate — with no debounce/blank so the figure stays put. */
+  private async refreshPoolsEstimate(): Promise<void> {
+    if (!this.isEditable()) return;
+    const eth = Number(this.getEditParam('amountEth'));
+    if (!(eth > 0)) return;
+    const px = this.poolsEthUsd();
+    if (px) this.setEditParam('amountUsd', String(eth * px));
+    if (this.isPoolsCca()) await this.refreshPoolsCcaPrice();
+    void this.runPoolsQuote(++this._poolsQuoteSeq);
   }
 
   // ── Swap-style buy/sell: live counter-side quote (pools.trade pairs against
@@ -10386,6 +10427,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this._swapEstimateTimer) clearTimeout(this._swapEstimateTimer);
     if (this._pumpEstimateTimer) clearTimeout(this._pumpEstimateTimer);
     if (this._poolsQuoteTimer) clearTimeout(this._poolsQuoteTimer);
+    if (this._poolsPoll) { clearInterval(this._poolsPoll); this._poolsPoll = null; }
     if (this.poolsFocusHandler) { window.removeEventListener('focus', this.poolsFocusHandler); this.poolsFocusHandler = null; }
   }
 

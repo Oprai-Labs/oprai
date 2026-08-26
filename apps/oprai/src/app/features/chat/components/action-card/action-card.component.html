@@ -1207,19 +1207,6 @@
                   <div class="pump-panel__usd">{{ 'Price impact' | t }} {{ pq.impact | number:'1.0-2' }}%</div>
                 }
               </div>
-
-              <!-- Slippage -->
-              <div class="pump-swap__settings">
-                <div class="pump-setting">
-                  <label class="pump-setting__label">{{ 'Slippage' | t }}</label>
-                  <div class="pump-setting__input">
-                    <input type="number" [value]="getEditParam('slippagePct') ?? '5'"
-                           (input)="setEditParam('slippagePct', $any($event.target).value); queuePoolsQuote()"
-                           [disabled]="!isEditable()" min="0.1" max="100" step="0.1" />
-                    <span class="pump-setting__suffix">%</span>
-                  </div>
-                </div>
-              </div>
             </div>
 
             @if (isPoolsCca() && !pbSell) {

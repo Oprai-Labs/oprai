@@ -2735,18 +2735,23 @@ export class SolanaActionService {
       };
       endpoint = '/actions/uniswap/launch/create';
     } else {
-      const slippagePct = Number(p['slippagePct'] ?? 3);
+      // pools.trade's own UI has no slippage control — a swap uses a generous
+      // auto-tolerance, and a crowd-launch bid a high max-price ceiling (the
+      // uniform-clearing auction charges the clearing price regardless, so a
+      // high ceiling only ensures the bid fills through graduation, no overpay).
+      const slippagePct = 15;
       const isCca = !isSell && p['kind'] === 'cca' && p['ccaStatus'] !== 'graduated';
       if (isCca) {
-        // Buying a Crowd Launch = committing a bid into its auction. maxPriceQ96
-        // is the ceiling we'll accept — clearing price + slippage. A uniform
-        // clearing auction charges the clearing price, so the ceiling only
-        // protects the bid from being rejected as the price ticks up.
         const auction = String(p['auctionAddress'] ?? '');
         if (!auction) throw new Error('pools.trade: could not resolve this crowd launch — try again from the launch page.');
         const clr = String(p['clearingPriceQ96'] ?? '');
+        // Ceiling = clearing × how much the price can still rise to graduation
+        // (target/fdv), with headroom. Clamped so it's always a sane multiple.
+        const fdv = Number(p['fdvUsd']), target = Number(p['graduationTargetUsd']);
+        let mult = 5;
+        if (fdv > 0 && target > fdv) mult = Math.min(30, Math.max(2, Math.ceil((target / fdv) * 1.3)));
         let maxPriceQ96 = clr;
-        try { if (clr) maxPriceQ96 = ((BigInt(clr) * BigInt(Math.round(100 + slippagePct))) / 100n).toString(); } catch { /* keep clearing */ }
+        try { if (clr) maxPriceQ96 = (BigInt(clr) * BigInt(mult)).toString(); } catch { /* keep clearing */ }
         reqBody = { auctionAddress: auction, walletAddress: account, amountUsd: Number(p['amountUsd'] ?? 0), maxPriceQ96 };
         endpoint = '/actions/uniswap/launch/bid';
       } else {
