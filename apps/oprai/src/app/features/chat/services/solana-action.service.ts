@@ -1518,9 +1518,9 @@ export class SolanaActionService {
     if (action.type === 'uniswap_add_liquidity') {
       return this.executeUniswapAddLiquidity(action, callbacks);
     }
-    // pools.trade launchpad native buy/sell — EVM (Robinhood chain 4663), no
-    // Solana wallet, so route out before the Solana guard.
-    if (action.type === 'pools_buy' || action.type === 'pools_sell') {
+    // pools.trade launchpad native buy/sell/launch — EVM (Robinhood chain 4663),
+    // no Solana wallet, so route out before the Solana guard.
+    if (action.type === 'pools_buy' || action.type === 'pools_sell' || action.type === 'pools_launch') {
       return this.executePoolsTrade(action, callbacks);
     }
 
@@ -2680,9 +2680,10 @@ export class SolanaActionService {
   private async executePoolsTrade(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
     const p = action.params;
     const isSell = action.type === 'pools_sell';
+    const isLaunch = action.type === 'pools_launch';
     const chainId = 4663;
     const token = String(p['tokenAddress'] ?? '');
-    if (!token) throw new Error('pools.trade: no token specified.');
+    if (!isLaunch && !token) throw new Error('pools.trade: no token specified.');
 
     const ethereum = (window as any).ethereum;
     if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on pools.trade.');
@@ -2710,13 +2711,33 @@ export class SolanaActionService {
     }
 
     callbacks.onQuote?.();
-    const slippagePct = Number(p['slippagePct'] ?? 3);
-    const reqBody: Record<string, unknown> = { tokenAddress: token, walletAddress: account, slippagePct };
-    if (isSell) reqBody['amountInWei'] = String(p['amountInWei'] ?? '0');
-    else reqBody['amountUsd'] = Number(p['amountUsd'] ?? 0);
+    let endpoint: string;
+    let reqBody: Record<string, unknown>;
+    if (isLaunch) {
+      // Create a pools.trade token. pools.trade pins the metadata (name/symbol/
+      // description/image) during prepareLaunch and returns the create tx(s).
+      const name = String(p['tokenName'] ?? '').trim();
+      const symbol = String(p['tokenSymbol'] ?? '').trim();
+      if (!name || !symbol) throw new Error('pools.trade: a token name and symbol are required to launch.');
+      reqBody = {
+        tokenName: name,
+        tokenSymbol: symbol,
+        description: String(p['description'] ?? '').trim(),
+        walletAddress: account,
+        ...(p['imageUrl'] && /^https?:\/\//i.test(String(p['imageUrl'])) ? { imageUrl: String(p['imageUrl']) } : {}),
+        ...(p['xUrl'] ? { xUrl: String(p['xUrl']) } : {}),
+        ...(p['website'] ? { website: String(p['website']) } : {}),
+      };
+      endpoint = '/actions/uniswap/launch/create';
+    } else {
+      const slippagePct = Number(p['slippagePct'] ?? 3);
+      reqBody = { tokenAddress: token, walletAddress: account, slippagePct };
+      if (isSell) reqBody['amountInWei'] = String(p['amountInWei'] ?? '0');
+      else reqBody['amountUsd'] = Number(p['amountUsd'] ?? 0);
+      endpoint = isSell ? '/actions/uniswap/launch/sell' : '/actions/uniswap/launch/buy';
+    }
 
-    const prep = await firstValueFrom(this.api.post<any>(
-      isSell ? '/actions/uniswap/launch/sell' : '/actions/uniswap/launch/buy', reqBody));
+    const prep = await firstValueFrom(this.api.post<any>(endpoint, reqBody));
     const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
     if (txs.length === 0) throw new Error('pools.trade: no transaction was returned.');
 
@@ -2726,6 +2747,7 @@ export class SolanaActionService {
       const tx = txs[i];
       if (!tx?.to) continue;
       const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+      const verb = isLaunch ? 'launch' : isSell ? 'sell' : 'buy';
       const hash = await withTimeout(ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
@@ -2735,12 +2757,12 @@ export class SolanaActionService {
           value: toHexQty(tx.value) ?? '0x0',
           ...(gasHex ? { gas: gasHex } : {}),
         }],
-      }), 120_000, i < txs.length - 1 ? 'approval' : (isSell ? 'sell' : 'buy')) as string;
+      }), 120_000, i < txs.length - 1 ? 'approval' : verb) as string;
       lastHash = hash;
       if (i === 0) callbacks.onSubmit?.(hash);
       const ok = await this.watchEvmReceipt(ethereum, hash);
       if (ok === false) {
-        callbacks.onFail?.(`The ${isSell ? 'sell' : 'buy'} reverted on-chain — your funds are safe minus the network fee.`, hash);
+        callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
       }
     }

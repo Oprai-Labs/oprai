@@ -6016,6 +6016,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     if (this.launchBlock() === 'image') return 'Add image to launch';
     if (this.launchBlock() === 'identity') return 'Enter name & ticker';
+    // pools.trade launch: name + ticker are the only hard requirements.
+    if (this.action?.type === 'pools_launch') {
+      if (!this.getEditParam('tokenName').trim() || !this.getEditParam('tokenSymbol').trim()) {
+        return 'Enter name & ticker';
+      }
+    }
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';
       const amt = this.getEditParam('amount').trim();

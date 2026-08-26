@@ -428,6 +428,10 @@ class ActionType(str, Enum):
     UNISWAP_POOLS = "uniswap_pools"
     # Uniswap LP — open a V3 position (fund-moving EVM tx)
     UNISWAP_ADD_LIQUIDITY = "uniswap_add_liquidity"
+    # pools.trade launchpad — buy / sell a launch, and create (launch) a token
+    POOLS_BUY = "pools_buy"
+    POOLS_SELL = "pools_sell"
+    POOLS_LAUNCH = "pools_launch"
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -848,6 +852,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "uniswap_swap",
     # Uniswap LP — opening a position moves both tokens into the pool
     "uniswap_add_liquidity",
+    # pools.trade launchpad — buy/sell spend funds; launch pays gas + creates on-chain
+    "pools_buy", "pools_sell", "pools_launch",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1070,6 +1076,9 @@ def validate_action_params(
         "jupsol_unstake":   ("amount",),
         "uniswap_swap":     ("originChainId", "destinationChainId", "originCurrency", "destinationCurrency", "amount"),
         "uniswap_add_liquidity": ("chain", "poolAddress", "amount"),
+        "pools_buy":        ("tokenAddress",),
+        "pools_sell":       ("tokenAddress",),
+        "pools_launch":     ("tokenName", "tokenSymbol"),
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]

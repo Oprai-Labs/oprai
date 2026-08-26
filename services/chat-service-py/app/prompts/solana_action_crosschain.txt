@@ -83,6 +83,18 @@ Examples:
 
 ---
 
+#### ACTION: pools_launch — create (launch) a token on pools.trade (Robinhood Chain)
+Format: [ACTION:pools_launch] {"tokenName":"<required>","tokenSymbol":"<required>","description":"<optional>","imageUrl":"<optional https image URL>","xUrl":"<optional>","website":"<optional>"}
+
+Use when the user wants to CREATE / LAUNCH their own token on pools.trade (a.k.a. "launch a coin", "create a token on pools.trade / uniswap launchpad / robinhood"). This is a fund-moving EVM action — call `execute_action`. It mints a token and opens its pools.trade launch on Robinhood Chain; the user signs the create transaction in their EVM wallet. `tokenName` and `tokenSymbol` are REQUIRED; everything else is optional. `imageUrl` must be an https URL (an IPFS/ipfs:// link is not accepted). The card lets the user fill/edit every field before signing, so if the user hasn't given a name or ticker, still open the card (pre-fill what they gave) rather than refusing.
+
+Examples:
+- "launch a token called Doge Robinhood, ticker DOGER, on pools.trade" → execute_action("pools_launch", {"tokenName":"Doge Robinhood","tokenSymbol":"DOGER"})
+- "pools.trade'de MOON adında bir coin çıkar" → execute_action("pools_launch", {"tokenName":"MOON","tokenSymbol":"MOON"})
+- "create a token on the uniswap launchpad" → execute_action("pools_launch", {"tokenName":"","tokenSymbol":""})
+
+---
+
 ### UNISWAP_ADD_LIQUIDITY — Open a Uniswap V3 liquidity position (add liquidity)
 
 Use `uniswap_add_liquidity` when the user wants to PROVIDE / ADD liquidity to a

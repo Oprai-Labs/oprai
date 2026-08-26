@@ -1118,6 +1118,60 @@
             </div>
           </div>
 
+        } @else if (action.type === 'pools_launch') {
+          <!-- ─────── pools.trade launch a token (Robinhood Chain) ─────── -->
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                @if (getEditParam('imageUrl')) {
+                  <img class="km-icon km-icon--img" [src]="getEditParam('imageUrl')" alt=""
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="km-icon km-icon--fallback">{{ (getEditParam('tokenSymbol') || '🚀').charAt(0) }}</span>
+                }
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ 'Launch a token' | t }}</span>
+                <span class="uni-lp__sub">pools.trade · Robinhood Chain</span>
+              </div>
+            </div>
+
+            <label class="uni-lp__label">{{ 'Name' | t }}</label>
+            <div class="uni-lp__inputrow">
+              <input class="uni-lp__input" type="text" maxlength="32" [value]="getEditParam('tokenName')"
+                     [disabled]="!isEditable()" placeholder="My Token"
+                     (input)="setEditParam('tokenName', $any($event.target).value)" />
+            </div>
+
+            <label class="uni-lp__label">{{ 'Ticker' | t }}</label>
+            <div class="uni-lp__inputrow">
+              <input class="uni-lp__input" type="text" maxlength="10" [value]="getEditParam('tokenSymbol')"
+                     [disabled]="!isEditable()" placeholder="TKN"
+                     (input)="setEditParam('tokenSymbol', $any($event.target).value.toUpperCase())" />
+            </div>
+
+            <label class="uni-lp__label">{{ 'Description' | t }}</label>
+            <div class="uni-lp__inputrow">
+              <input class="uni-lp__input" type="text" maxlength="280" [value]="getEditParam('description')"
+                     [disabled]="!isEditable()" placeholder="What is this token about?"
+                     (input)="setEditParam('description', $any($event.target).value)" />
+            </div>
+
+            <label class="uni-lp__label">{{ 'Image URL (optional)' | t }}</label>
+            <div class="uni-lp__inputrow">
+              <input class="uni-lp__input" type="url" [value]="getEditParam('imageUrl')"
+                     [disabled]="!isEditable()" placeholder="https://…/logo.png"
+                     (input)="setEditParam('imageUrl', $any($event.target).value)" />
+            </div>
+
+            <label class="uni-lp__label">{{ 'X / Twitter (optional)' | t }}</label>
+            <div class="uni-lp__inputrow">
+              <input class="uni-lp__input" type="url" [value]="getEditParam('xUrl')"
+                     [disabled]="!isEditable()" placeholder="https://x.com/…"
+                     (input)="setEditParam('xUrl', $any($event.target).value)" />
+            </div>
+          </div>
+
         } @else if (action.type === 'limit_order') {
           <!-- ─────── Jupiter limit order: sell N of X to receive M of Y ─────── -->
           <!-- NOT an AMM swap: the BUY amount is the user's LIMIT target (typed,
