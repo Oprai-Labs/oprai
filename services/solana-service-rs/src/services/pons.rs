@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 
 use crate::error::AppError;
 use crate::services::builder::{ActionPreview, BuildResponse};
-use crate::services::uniswap::{alchemy_rpc, eth_call, pools_eth_usd};
+use crate::services::uniswap::{eth_call, pools_eth_usd};
 use uuid::Uuid;
 
 pub const PONS_V2_FACTORY: &str = "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e";
@@ -36,8 +36,16 @@ const SEL_REAL_QUOTE: &str = "0x4f1f58fd"; // realQuoteReserve() -> uint256
 // token view selectors
 const SEL_LOGO: &str = "0xfb7f21eb"; // logo() -> string
 
+/// Robinhood Chain's public RPC (Alchemy does not reliably serve chain 4663).
+/// Overridable via ROBINHOOD_RPC.
+const ROBINHOOD_PUBLIC_RPC: &str = "https://rpc.mainnet.chain.robinhood.com";
 fn rpc() -> Option<String> {
-    alchemy_rpc(ROBINHOOD_CHAIN)
+    Some(
+        std::env::var("ROBINHOOD_RPC")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| ROBINHOOD_PUBLIC_RPC.to_string()),
+    )
 }
 
 /// Last 32 hex chars of a 256-bit word → u128 → f64 (reserves/thresholds fit u128).
@@ -131,19 +139,22 @@ pub async fn fetch_pons_rows(
     search: Option<&str>,
 ) -> Vec<Value> {
     let url = format!("{PONS_BLOCKSCOUT}/addresses/{PONS_V2_FACTORY}/logs");
-    let body: Value = match http
-        .get(&url)
-        .header("user-agent", "oprai")
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-    {
-        Ok(r) => match r.json().await {
-            Ok(v) => v,
-            Err(_) => return vec![],
-        },
-        Err(_) => return vec![],
-    };
+    // Blockscout /logs intermittently 500s — retry a couple of times.
+    let mut body: Value = Value::Null;
+    for _ in 0..3 {
+        match http.get(&url).header("user-agent", "oprai").send().await {
+            Ok(r) if r.status().is_success() => {
+                if let Ok(v) = r.json::<Value>().await {
+                    if v.get("items").and_then(|i| i.as_array()).is_some() {
+                        body = v;
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    }
     let items = match body.get("items").and_then(|v| v.as_array()) {
         Some(a) => a,
         None => return vec![],
