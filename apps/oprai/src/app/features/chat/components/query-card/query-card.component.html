@@ -210,14 +210,31 @@
 
       <!-- ── pools.trade launchpad feed (Robinhood Chain) ─────────────────── -->
       @if (query.type === 'uniswap_launches') {
-        <div class="dlmm-sort-bar dlmm-sort-bar--chips">
-          <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'new'"
-                  (click)="setUniswapLaunchesSort('new')">{{ 'Newest' | t }}</button>
-          <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'top'"
-                  (click)="setUniswapLaunchesSort('top')">{{ 'Top by FDV' | t }}</button>
-          <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'trending'"
-                  (click)="setUniswapLaunchesSort('trending')">{{ 'Trending' | t }}</button>
+        <!-- Search a token by name / ticker (matches the exact token to pick). -->
+        <div class="uni-launch-search">
+          <lucide-icon name="search" [size]="15" class="uni-launch-search__icon" />
+          <input type="text" class="uni-launch-search__input"
+                 [value]="uniswapLaunchSearch"
+                 [attr.placeholder]="'Search by name or ticker…' | t"
+                 (input)="onUniswapLaunchSearch($any($event.target).value)" />
+          @if (uniswapLaunchSearch) {
+            <button class="uni-launch-search__clear" type="button"
+                    (click)="clearUniswapLaunchSearch()" [attr.aria-label]="'Clear' | t">
+              <lucide-icon name="x" [size]="14" />
+            </button>
+          }
         </div>
+
+        @if (!uniswapLaunchSearch) {
+          <div class="dlmm-sort-bar dlmm-sort-bar--chips">
+            <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'new'"
+                    (click)="setUniswapLaunchesSort('new')">{{ 'Newest' | t }}</button>
+            <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'top'"
+                    (click)="setUniswapLaunchesSort('top')">{{ 'Top by FDV' | t }}</button>
+            <button class="orca-chip" [class.orca-chip--active]="uniswapLaunchesSort === 'trending'"
+                    (click)="setUniswapLaunchesSort('trending')">{{ 'Trending' | t }}</button>
+          </div>
+        }
 
         <!-- Launchpad filter (pools.trade / Pons / …) — only when >1 is present. -->
         @if (uniswapLaunchpads.length > 1) {
@@ -289,7 +306,13 @@
           }
 
           @if (!uniswapLaunchesFetching() && !error() && uniswapLaunchesResults.length === 0) {
-            <div class="dlmm-empty">{{ 'No recent pools.trade launches found.' | t }}</div>
+            <div class="dlmm-empty">
+              @if (uniswapLaunchSearch) {
+                {{ 'No pools.trade tokens match' | t }} “{{ uniswapLaunchSearch }}”.
+              } @else {
+                {{ 'No recent pools.trade launches found.' | t }}
+              }
+            </div>
           }
         </div>
 

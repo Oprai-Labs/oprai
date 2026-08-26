@@ -858,6 +858,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.uniswapLaunchesSort = s === 'top' ? 'top' : s === 'trending' ? 'trending' : 'new';
       const lp = (this.query.params?.['launchpad'] ?? '').toString();
       if (lp) this.uniswapLaunchFilter = lp;
+      // A name/symbol search requested by the user ("buy frong") arrives as
+      // `query` — seed the search box so the card opens on the matches.
+      const q = (this.query.params?.['query'] ?? this.query.params?.['search'] ?? '').toString();
+      if (q) this.uniswapLaunchSearch = q;
     }
 
     // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
@@ -1078,6 +1082,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['uniswapLaunchesResults']) this.uniswapLaunchesResults = d['uniswapLaunchesResults'] as UniswapLaunch[];
     if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
     if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
+    if (d['uniswapLaunchSearch'] != null) this.uniswapLaunchSearch = d['uniswapLaunchSearch'] as string;
     if (d['raydiumResults']) {
       this.raydiumResults = d['raydiumResults'] as RaydiumPool[];
       this.raydiumHasNextPage.set((d['raydiumHasNextPage'] as boolean | undefined) ?? false);
@@ -1186,6 +1191,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.uniswapLaunchesResults.length) d['uniswapLaunchesResults'] = this.uniswapLaunchesResults;
     if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
     if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
+    if (this.uniswapLaunchSearch) d['uniswapLaunchSearch'] = this.uniswapLaunchSearch;
     if (this.raydiumResults.length) {
       d['raydiumResults']     = this.raydiumResults;
       d['raydiumHasNextPage'] = this.raydiumHasNextPage();
@@ -3472,6 +3478,22 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly uniswapLaunchesFetching = signal(false);
   uniswapLaunchesSort: 'new' | 'top' | 'trending' = 'new';
   uniswapLaunchesPage = 0;
+  uniswapLaunchSearch = '';                  // name/symbol search ('' = feed)
+  private _uniswapSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Debounced search-box input: re-query pools.trade by name/symbol. */
+  onUniswapLaunchSearch(v: string): void {
+    this.uniswapLaunchSearch = v;
+    this.uniswapLaunchesPage = 0;
+    if (this._uniswapSearchTimer) clearTimeout(this._uniswapSearchTimer);
+    this._uniswapSearchTimer = setTimeout(() => void this.fetchUniswapLaunches(), 400);
+  }
+  clearUniswapLaunchSearch(): void {
+    if (!this.uniswapLaunchSearch) return;
+    this.uniswapLaunchSearch = '';
+    this.uniswapLaunchesPage = 0;
+    void this.fetchUniswapLaunches();
+  }
   readonly UNISWAP_LAUNCH_PAGE_SIZE = 8;
 
   setUniswapLaunchFilter(id: string): void {
@@ -3506,6 +3528,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       params: {
         sort: this.uniswapLaunchesSort,
         ...(this.uniswapLaunchFilter ? { launchpad: this.uniswapLaunchFilter } : {}),
+        ...(this.uniswapLaunchSearch.trim() ? { query: this.uniswapLaunchSearch.trim() } : {}),
         ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : {}),
       },
     };

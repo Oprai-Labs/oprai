@@ -1093,6 +1093,24 @@
   &.neg { color: var(--op-danger, #ef4444); }
 }
 .uni-lp-chips { margin-top: 6px; }
+.uni-launch-search {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px; padding: 8px 12px;
+  border: 1px solid var(--op-border-subtle, rgba(125,125,150,.25));
+  border-radius: 12px; background: var(--op-bg-surface-1, rgba(125,125,150,.06));
+}
+.uni-launch-search:focus-within { border-color: var(--op-brand, #5b5fc7); }
+.uni-launch-search__icon { color: var(--op-text-secondary); flex: none; }
+.uni-launch-search__input {
+  flex: 1; border: 0; outline: 0; background: transparent;
+  font-size: .9rem; color: var(--op-text-primary); min-width: 0;
+}
+.uni-launch-search__input::placeholder { color: var(--op-text-secondary); }
+.uni-launch-search__clear {
+  flex: none; display: grid; place-items: center; cursor: pointer;
+  border: 0; background: transparent; color: var(--op-text-secondary); padding: 2px;
+}
+.uni-launch-search__clear:hover { color: var(--op-text-primary); }
 .uni-lp-badge {
   display: inline-block;
   font-size: 0.5625rem;
