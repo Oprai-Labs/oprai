@@ -1812,6 +1812,31 @@ pub async fn post_pools_x_auth_url(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/uniswap/eth-balance — a wallet's NATIVE ETH balance on Robinhood
+/// Chain (4663). Read via our RPC so it's the RIGHT chain regardless of what the
+/// browser wallet is currently switched to (window.ethereum reads the active
+/// chain, which is wrong for sizing a Robinhood pre-launch buy). Body: {address}.
+#[derive(Debug, Deserialize)]
+pub struct EthBalanceBody {
+    pub address: String,
+}
+
+#[post("/uniswap/eth-balance")]
+pub async fn post_pools_eth_balance(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<EthBalanceBody>,
+) -> Result<HttpResponse, AppError> {
+    let (display, raw, _dec) = crate::services::uniswap::token_balance_of(
+        &state.http,
+        4663,
+        &body.address,
+        crate::services::relay::NATIVE_TOKEN_ADDRESS,
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "balanceEth": display, "balanceWei": raw })))
+}
+
 /// POST /actions/uniswap/launch/create — prepare a pools.trade token launch.
 /// Proxies curve.prepareLaunch; returns the tx(s) to sign. Body carries the token
 /// metadata (name/symbol/image/…) the creator entered.

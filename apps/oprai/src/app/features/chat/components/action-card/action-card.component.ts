@@ -6218,14 +6218,24 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action) this.initFromAction();
     // pools.trade launch: auto-fill the X profile from the account's saved X
     // (set once in Wallets) unless the user/LLM already supplied one.
-    if (this.action?.type === 'pools_launch' && !this.getEditParam('xUrl')) {
-      this.account.getMe().subscribe({
-        next: (a) => {
-          const x = (a.identities || []).find((i) => i.type === 'twitter')?.identifier;
-          if (x && !this.getEditParam('xUrl')) this.setEditParam('xUrl', x);
-        },
-        error: () => { /* optional field — ignore */ },
-      });
+    if (this.action?.type === 'pools_launch') {
+      if (!this.getEditParam('xUrl')) {
+        this.account.getMe().subscribe({
+          next: (a) => {
+            const x = (a.identities || []).find((i) => i.type === 'twitter')?.identifier;
+            if (x && !this.getEditParam('xUrl')) this.setEditParam('xUrl', x);
+          },
+          error: () => { /* optional field — ignore */ },
+        });
+      }
+      // Re-read the ETH balance when the tab regains focus — a transfer made
+      // elsewhere then correctly disables buy sizes it can no longer cover.
+      this.poolsFocusHandler = () => {
+        if (this.getEditParam('buyAtLaunch') === 'true') {
+          this.zone.run(() => void this.refreshPoolsBalance());
+        }
+      };
+      window.addEventListener('focus', this.poolsFocusHandler);
     }
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
@@ -8693,26 +8703,51 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam('buyAmountUsd', String(this.poolsBuyUsd(pct)));
   }
 
-  /** Fetch the wallet's Robinhood ETH balance + ETH/USD (from the launch feed's
-   *  priceUsd/priceEth) so the buy sizes show real cost + affordability. */
+  private poolsBuyAddr = '';
+  private poolsFocusHandler: (() => void) | null = null;
+
+  /** The launch creator's EVM address: the connected wallet, else the account's
+   *  linked EVM wallet (so the balance shows even before window.ethereum grants). */
+  private async resolveEvmAddress(): Promise<string> {
+    try {
+      const a = await (window as any).ethereum?.request?.({ method: 'eth_accounts' });
+      if (a?.[0]) return a[0];
+    } catch { /* not connected */ }
+    try {
+      const me = await firstValueFrom(this.account.getMe());
+      return (me.identities || []).find((i) => i.type === 'evm_wallet')?.identifier || '';
+    } catch { return ''; }
+  }
+
+  /** ETH/USD (from the launch feed's priceUsd/priceEth) + the wallet's ROBINHOOD
+   *  ETH balance (via backend, so it's the right chain no matter what the wallet
+   *  is switched to) — so buy sizes show real cost + real affordability. */
   async fetchPoolsBuyContext(): Promise<void> {
-    // ETH/USD from one launch row (priceUsd / priceEth).
     firstValueFrom(this.apiService.post<any>('/actions/build', { type: 'uniswap_launches', params: { sort: 'top', limit: 1 } }))
       .then((r) => {
         const l = r?.data?.launches?.[0];
         const usd = Number(l?.priceUsd), eth = Number(l?.priceEth);
         if (usd > 0 && eth > 0) this.poolsEthUsd.set(usd / eth);
       }).catch(() => {});
-    // Wallet ETH balance on Robinhood (chain 4663).
+    if (!this.poolsBuyAddr) this.poolsBuyAddr = await this.resolveEvmAddress();
+    await this.refreshPoolsBalance();
+  }
+
+  /** Re-read the wallet's Robinhood ETH balance (called on open and on window
+   *  focus, so a transfer made elsewhere immediately disables sizes it can't cover). */
+  async refreshPoolsBalance(): Promise<void> {
+    const addr = this.poolsBuyAddr;
+    if (!addr) return;
     try {
-      const ethereum = (window as any).ethereum;
-      if (!ethereum) return;
-      const accts = await ethereum.request({ method: 'eth_accounts' });
-      const acct = accts?.[0];
-      if (!acct) return;
-      const hex = await ethereum.request({ method: 'eth_getBalance', params: [acct, 'latest'] });
-      this.poolsAvailEth.set(Number(BigInt(hex)) / 1e18);
-    } catch { /* balance unknown — sizes just won't pre-disable */ }
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr }));
+      const bal = Number(r?.balanceEth);
+      if (Number.isFinite(bal)) {
+        this.poolsAvailEth.set(bal);
+        // If the current selection is now unaffordable, drop it so the user must repick.
+        const bp = this.getEditParam('buyPct');
+        if (bp && !this.poolsBuyAffordable(+bp)) { this.setEditParam('buyPct', ''); this.setEditParam('buyAmountUsd', ''); }
+      }
+    } catch { /* leave last-known balance */ }
   }
 
   /** "10.00M" style label for a buy size's token count. */
@@ -10133,6 +10168,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.stopQuotePolling();
     if (this._swapEstimateTimer) clearTimeout(this._swapEstimateTimer);
     if (this._pumpEstimateTimer) clearTimeout(this._pumpEstimateTimer);
+    if (this.poolsFocusHandler) { window.removeEventListener('focus', this.poolsFocusHandler); this.poolsFocusHandler = null; }
   }
 
   /** Start counting how long the tx has been waiting for confirmation, and

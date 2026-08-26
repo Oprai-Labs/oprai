@@ -258,6 +258,12 @@ func (p *SolanaProxy) PostPoolsXAuthUrl(w http.ResponseWriter, r *http.Request) 
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostPoolsEthBalance — a wallet's native ETH balance on Robinhood Chain.
+func (p *SolanaProxy) PostPoolsEthBalance(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/eth-balance"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)
