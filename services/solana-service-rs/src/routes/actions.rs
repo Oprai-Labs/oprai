@@ -1812,6 +1812,26 @@ pub async fn post_pools_x_auth_url(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/uniswap/launch/token-meta — resolve a pools.trade token's
+/// symbol / name / image / price from its 0x address, so a chat buy/sell by raw
+/// address shows the coin instead of "?". Body: {tokenAddress}. Returns the
+/// launch row (or null if it isn't a pools.trade launch).
+#[derive(Debug, Deserialize)]
+pub struct PoolsTokenMetaBody {
+    #[serde(rename = "tokenAddress", alias = "token", alias = "address")]
+    pub token_address: String,
+}
+
+#[post("/uniswap/launch/token-meta")]
+pub async fn post_pools_token_meta(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<PoolsTokenMetaBody>,
+) -> Result<HttpResponse, AppError> {
+    let meta = crate::services::uniswap::pools_token_meta(&state.http, &body.token_address).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "token": meta })))
+}
+
 /// POST /actions/uniswap/eth-balance — a wallet's balance on Robinhood Chain
 /// (4663). Native ETH by default; pass `token` (an ERC-20 mint) for a token
 /// balance (used to size a Sell as a % of holdings). Read via our RPC so it's

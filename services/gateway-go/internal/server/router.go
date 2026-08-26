@@ -273,6 +273,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/uniswap/launch/create", solanaProxy.PostPoolsLaunchCreate)
 		r.Post("/uniswap/launch/x-auth-url", solanaProxy.PostPoolsXAuthUrl)
 		r.Post("/uniswap/eth-balance", solanaProxy.PostPoolsEthBalance)
+		r.Post("/uniswap/launch/token-meta", solanaProxy.PostPoolsTokenMeta)
 	})
 	r.Route("/protocols", func(r chi.Router) {
 		r.Use(defaultTimeout)

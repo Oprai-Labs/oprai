@@ -264,6 +264,12 @@ func (p *SolanaProxy) PostPoolsEthBalance(w http.ResponseWriter, r *http.Request
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostPoolsTokenMeta — resolve a pools.trade token's symbol/name/image by address.
+func (p *SolanaProxy) PostPoolsTokenMeta(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/launch/token-meta"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

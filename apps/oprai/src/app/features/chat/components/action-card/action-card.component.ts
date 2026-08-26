@@ -6252,6 +6252,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       window.addEventListener('focus', this.poolsFocusHandler);
     }
     if (this.action?.type === 'pools_sell') {
+      void this.resolvePoolsTokenMeta();
       void this.fetchPoolsSellBalance();
       // A chat-supplied amount arrives as a token count; derive amountInWei (the
       // field execute + the quote consume) and show its live ETH estimate.
@@ -6260,14 +6261,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       else if (this.getEditParam('amountInWei') && this.getEditParam('amountInWei') !== '0') this.queuePoolsQuote();
     }
     if (this.action?.type === 'pools_buy') {
-      // Load ETH/USD + the wallet's Robinhood ETH balance (drives the pay-side
-      // balance/Max and the USD hint), then quote any pre-filled amount. Re-read
-      // the balance on focus so a transfer made elsewhere is reflected at once.
+      // Fill in the coin's icon/symbol from its address (chat buys have only the
+      // address), then load ETH/USD + the wallet's Robinhood ETH balance (drives
+      // the pay-side balance/Max + USD hint), then quote any pre-filled amount.
+      void this.resolvePoolsTokenMeta();
       void this.fetchPoolsBuyContext().then(() => {
-        const eth = this.getEditParam('amountEth');
+        let eth = this.getEditParam('amountEth');
+        // A legacy/USD amount from the LLM: convert to ETH so the pay field fills.
+        if ((!eth || !(Number(eth) > 0)) && +this.getEditParam('amountUsd') > 0 && this.poolsEthUsd()) {
+          eth = String(+this.getEditParam('amountUsd') / this.poolsEthUsd()!);
+        }
         if (eth && Number(eth) > 0) this.onPoolsBuyEth(eth);
-        else if (this.getEditParam('amountUsd') && +this.getEditParam('amountUsd') > 0) this.queuePoolsQuote();
       });
+      // Re-read the balance on focus so a transfer made elsewhere is reflected.
       this.poolsFocusHandler = () => this.zone.run(() => void this.refreshPoolsBalance());
       window.addEventListener('focus', this.poolsFocusHandler);
     }
@@ -8815,6 +8821,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const bal = Number(r?.balance ?? r?.balanceEth);
       if (Number.isFinite(bal)) this.poolsSellBal.set(bal);
     } catch { /* balance unknown — user can still type an amount */ }
+  }
+
+  /** Resolve a pools.trade token's symbol / name / icon from its 0x address so a
+   *  chat buy/sell by raw address shows the coin instead of "?". No-op if the
+   *  card already has a symbol+logo (e.g. opened from the launches list). */
+  async resolvePoolsTokenMeta(): Promise<void> {
+    const token = this.getEditParam('tokenAddress');
+    if (!token) return;
+    if (this.getEditParam('symbol') && this.getEditParam('logo')) return;
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/launch/token-meta', { tokenAddress: token }));
+      const m = r?.token;
+      if (!m) return;
+      if (m.symbol && !this.getEditParam('symbol')) this.setEditParam('symbol', m.symbol);
+      if (m.logo && !this.getEditParam('logo')) this.setEditParam('logo', m.logo);
+      if (m.launchpad && !this.getEditParam('launchpad')) this.setEditParam('launchpad', m.launchpad);
+      const usd = Number(m.priceUsd), eth = Number(m.priceEth);
+      if (usd > 0 && eth > 0 && this.poolsEthUsd() == null) this.poolsEthUsd.set(usd / eth);
+    } catch { /* address may not be a pools.trade launch — leave the fallback "?" */ }
   }
 
   // ── Swap-style buy/sell: live counter-side quote (pools.trade pairs against

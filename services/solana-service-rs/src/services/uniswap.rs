@@ -1208,6 +1208,31 @@ pub async fn pools_trade_mutation(
         .unwrap_or(Value::Null))
 }
 
+/// Resolve one pools.trade token's metadata (symbol, name, image, price) from
+/// its address — so a chat buy/sell by raw 0x address can show the coin's icon
+/// and name instead of "?". GETs curve.getLaunchByAddress and maps it through
+/// the same row shape as the launches feed. Returns `null` if the address is not
+/// a pools.trade launch (e.g. a made-up address, or a token traded elsewhere).
+pub async fn pools_token_meta(http: &reqwest::Client, token: &str) -> Result<Value, AppError> {
+    let input = json!({ "tokenAddress": token }).to_string();
+    let resp = http
+        .get(format!("{POOLS_TRADE_TRPC}/curve.getLaunchByAddress"))
+        .query(&[("input", input.as_str())])
+        .header("accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("pools.trade meta request failed: {e}")))?;
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("pools.trade meta parse failed: {e}")))?;
+    let data = body.get("result").and_then(|r| r.get("data"));
+    Ok(match data.and_then(pools_launch_row) {
+        Some(row) => row,
+        None => Value::Null,
+    })
+}
+
 /// Reverse of dexscreener_chain_slug for the human chain name lookup.
 pub(crate) fn dexscreener_slug_to_chain_id(slug: &str) -> u64 {
     match slug {
