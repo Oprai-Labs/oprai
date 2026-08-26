@@ -1338,6 +1338,8 @@ export class IntentParserService {
           ? `Uniswap Pools (${query.params['query']})${chain}`
           : `Uniswap Pools${chain}`;
       }
+      case 'uniswap_launches':
+        return 'pools.trade Launches';
       // ── Orca Whirlpools ───────────────────────────────────────────────────
       case 'orca_get_pools':
         return query.params['token'] ? `Orca Pools (${query.params['token']})` : 'Orca Whirlpools';

@@ -1132,8 +1132,23 @@
               </span>
               <div class="uni-lp__headtext">
                 <span class="uni-lp__pair">{{ 'Launch a token' | t }}</span>
-                <span class="uni-lp__sub">pools.trade · Robinhood Chain</span>
+                <span class="uni-lp__sub">pools.trade · Robinhood Chain · {{ 'Fixed 1B supply' | t }}</span>
               </div>
+            </div>
+
+            <!-- Launch mode: Crowd (CCA auction) vs Instant (bonding curve) -->
+            @let plMode = getEditParam('mode') || 'instant';
+            <div class="pl-modes">
+              <button type="button" class="pl-mode" [class.pl-mode--on]="plMode === 'crowd'"
+                      [disabled]="!isEditable()" (click)="setEditParam('mode', 'crowd')">
+                <span class="pl-mode__title">🌱 {{ 'Crowd Launch' | t }}</span>
+                <span class="pl-mode__desc">{{ '4-hour bid window, fairer distribution, bundle-resistant' | t }}</span>
+              </button>
+              <button type="button" class="pl-mode" [class.pl-mode--on]="plMode === 'instant'"
+                      [disabled]="!isEditable()" (click)="setEditParam('mode', 'instant')">
+                <span class="pl-mode__title">⚡ {{ 'Instant Launch' | t }}</span>
+                <span class="pl-mode__desc">{{ 'Bonding curve, live immediately, tradable any time' | t }}</span>
+              </button>
             </div>
 
             <label class="uni-lp__label">{{ 'Name' | t }}</label>

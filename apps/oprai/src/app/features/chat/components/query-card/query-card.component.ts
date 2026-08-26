@@ -792,8 +792,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'orca_get_user_positions':
         return 'assets/icons/protocols/orca.webp';
       case 'uniswap_pools':
-      case 'uniswap_launches':
         return 'assets/protocols/uniswap.jpg';
+      case 'uniswap_launches':
+        return 'assets/protocols/poolstrade.svg';
       case 'kamino_multiply_markets':
         return 'assets/icons/protocols/kamino.svg';
       case 'marinade_exchange_rate':

@@ -115,6 +115,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   pumpfun:   { name: 'pump.fun',   icon: 'assets/icons/protocols/pumpfun.png',    accent: '#AD6DFF', accentBg: 'rgba(173,109,255,0.12)' },
   relay:     { name: 'Relay',      icon: 'assets/icons/protocols/relay.png',      accent: '#7C3AED', accentBg: 'rgba(124,58,237,0.12)' },
   uniswap:   { name: 'Uniswap',    icon: 'assets/protocols/uniswap.jpg',          accent: '#F50DB4', accentBg: 'rgba(245,13,180,0.12)' },
+  poolstrade:{ name: 'pools.trade', icon: 'assets/protocols/poolstrade.svg',      accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -144,6 +145,8 @@ function getProtocolKey(action: ParsedAction): string {
   // Jupiter surface: swaps, limit/DCA (incl. cancels), perpetuals, JLP — all Jupiter products.
   // A bridge is Relay's, and said Solana with Solana's mark until now.
   if (t === 'uniswap_swap' || t === 'uniswap_add_liquidity') return 'uniswap';
+  // pools.trade launchpad (buy/sell/launch) — Uniswap's launchpad on Robinhood.
+  if (t === 'pools_buy' || t === 'pools_sell' || t === 'pools_launch') return 'poolstrade';
   if (t === 'relay_bridge' || t === 'bridge' || t === 'cross_chain_swap') return 'relay';
   if (t.startsWith('relay_')) return 'relay';
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';

@@ -1806,8 +1806,25 @@ pub async fn post_pools_launch_create(
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
-    let result =
-        crate::services::uniswap::pools_trade_mutation(&state.http, "curve.prepareLaunch", &body).await?;
+    // Two launch modes share the same core fields but different tRPC methods:
+    //   "crowd"  → cca.prepareAuctionLaunch (Continuous Clearing Auction, 4h)
+    //   "instant"→ curve.prepareLaunch (bonding curve, live immediately, default)
+    let mut payload = body.into_inner();
+    let mode = payload
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("instant")
+        .to_lowercase();
+    let method = if matches!(mode.as_str(), "crowd" | "cca" | "auction") {
+        "cca.prepareAuctionLaunch"
+    } else {
+        "curve.prepareLaunch"
+    };
+    // `mode` is our own routing field — drop it before forwarding.
+    if let Some(obj) = payload.as_object_mut() {
+        obj.remove("mode");
+    }
+    let result = crate::services::uniswap::pools_trade_mutation(&state.http, method, &payload).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
