@@ -268,13 +268,21 @@ async fn enrich(http: &reqwest::Client, r: RawLaunch, eth_usd: Option<f64>) -> O
         0.0
     };
 
-    // Name / symbol / holders from Blockscout (cheap, cached upstream).
-    let (mut symbol, mut name, mut holders) = (String::new(), String::new(), Value::Null);
+    // Name / symbol straight from the ERC-20 via the public RPC (reliable);
+    // holders from Blockscout is a nice-to-have (don't drop the row if it fails).
+    let (sym_hex, name_hex) = futures::join!(
+        eth_call(http, &rpc, &r.token, "0x95d89b41"), // symbol()
+        eth_call(http, &rpc, &r.token, "0x06fdde03"), // name()
+    );
+    let symbol = decode_abi_string(&sym_hex.unwrap_or_default());
+    let name = decode_abi_string(&name_hex.unwrap_or_default());
+    if symbol.is_empty() && name.is_empty() {
+        return None; // couldn't identify the token — drop it
+    }
+    let mut holders = Value::Null;
     let turl = format!("{PONS_BLOCKSCOUT}/tokens/{}", r.token);
     if let Ok(resp) = http.get(&turl).header("user-agent", "oprai").send().await {
         if let Ok(tj) = resp.json::<Value>().await {
-            symbol = tj.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            name = tj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
             holders = tj
                 .get("holders")
                 .and_then(|v| v.as_str())
@@ -282,9 +290,6 @@ async fn enrich(http: &reqwest::Client, r: RawLaunch, eth_usd: Option<f64>) -> O
                 .map(Value::from)
                 .unwrap_or(Value::Null);
         }
-    }
-    if symbol.is_empty() {
-        return None; // couldn't identify the token — drop it
     }
 
     Some(json!({
