@@ -1116,6 +1116,18 @@ pub async fn build_uniswap_launches(
         })
         .filter_map(pools_launch_row)
         .collect();
+
+    // "top" = highest FDV first. The curve API only sorts by volume/recency/
+    // trending (no FDV option), so we re-rank the fetched set by fdvUsd here —
+    // BEFORE truncating — so the top-N by market cap actually surface. "new"
+    // and "trending" keep the API's order.
+    if sort_by == "volume" {
+        rows.sort_by(|a, b| {
+            let av = a.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let bv = b.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
     rows.truncate(limit);
 
     let scope = if filter.trim().is_empty() {
