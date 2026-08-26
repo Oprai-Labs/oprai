@@ -1031,6 +1031,7 @@ fn pools_launch_row(l: &Value) -> Option<Value> {
         "imageEmoji":       l.get("imageEmoji").cloned().unwrap_or(Value::Null),
         "imageHue":         l.get("imageHue").cloned().unwrap_or(Value::Null),
         "priceUsd":         if price > 0.0 { format!("{price}") } else { String::new() },
+        "priceEth":         ps.get("priceEth").and_then(|v| v.as_f64()),
         "priceChange24h":   ps.get("priceChange24hPct").and_then(|v| v.as_f64()),
         "fdvUsd":           l.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0),
         "volume24hUsd":     ps.get("volume24hUsd").and_then(|v| v.as_f64()).unwrap_or(0.0),

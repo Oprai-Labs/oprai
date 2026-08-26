@@ -7013,3 +7013,16 @@
 .pl-xicon { font-weight: 800; font-size: .95rem; line-height: 1; }
 .pl-xbtn:disabled { opacity: .5; cursor: default; }
 .pl-xok { color: var(--op-success, #22c55e); font-weight: 700; }
+
+/* pools.trade Buy-at-launch — % of supply */
+.pl-buysize { display: flex; flex-direction: column; gap: 10px; }
+.pl-buyhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pl-buychips { display: flex; gap: 6px; }
+.pl-buychip { border: 1px solid var(--op-border-subtle, rgba(125,125,150,.25)); border-radius: 999px; padding: 5px 11px; font-size: .8rem; font-weight: 600; cursor: pointer; background: var(--op-bg-surface-1); color: var(--op-text-secondary); transition: all .12s; }
+.pl-buychip:hover:not(:disabled) { color: var(--op-text-primary); }
+.pl-buychip.on { border-color: var(--op-success, #22c55e); color: var(--op-success, #22c55e); background: color-mix(in srgb, var(--op-success, #22c55e) 12%, transparent); }
+.pl-buychip:disabled { opacity: .38; cursor: not-allowed; }
+.pl-buyrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--op-border-subtle, rgba(125,125,150,.18)); border-radius: 11px; background: var(--op-bg-surface-1); }
+.pl-buytokens { font-size: 1rem; font-weight: 700; color: var(--op-text-primary); font-variant-numeric: tabular-nums; }
+.pl-buycost { font-size: .85rem; color: var(--op-text-secondary); font-variant-numeric: tabular-nums; }
+.pl-buyavail { text-align: right; font-size: .72rem; color: var(--op-text-secondary); }

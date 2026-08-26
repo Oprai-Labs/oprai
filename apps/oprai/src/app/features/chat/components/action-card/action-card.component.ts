@@ -8652,6 +8652,87 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam('xVerified', '');
   }
 
+  // ── Buy at launch: % of the fixed 1B supply, priced on the pools.trade
+  //    bonding curve. The InstantLaunchStrategy's curve is identical for every
+  //    instant launch, so these constants (read from the strategy on Robinhood)
+  //    give the exact ETH cost. Verified vs pools.trade: 10M→0.0254, 50M→0.132 ETH.
+  private readonly PL_SQRT_PA = 1582215647010010450556252328775749 / 2 ** 96; // √price (token1/token0)
+  private readonly PL_LIQ = 50074188046840591947412;                          // position liquidity
+  private readonly PL_FEE = 0.0025;                                           // 0.25% LP fee
+  readonly POOLS_BUY_PCTS = [0.5, 1, 2, 5];
+  readonly poolsAvailEth = signal<number | null>(null);
+  readonly poolsEthUsd = signal<number | null>(null);
+
+  /** Tokens for a % of the fixed 1,000,000,000 supply. */
+  poolsBuyTokens(pct: number): number { return (pct / 100) * 1_000_000_000; }
+
+  /** Exact ETH cost to buy `pct`% of supply at launch (curve integral + fee). */
+  poolsBuyEth(pct: number): number {
+    const dyBase = this.poolsBuyTokens(pct) * 1e18;         // token1 out, base units
+    const sqrtPb = this.PL_SQRT_PA - dyBase / this.PL_LIQ;  // price moves down as token is bought
+    if (!(sqrtPb > 0)) return Infinity;
+    const dxBase = this.PL_LIQ * (1 / sqrtPb - 1 / this.PL_SQRT_PA); // token0 (ETH) in, base units
+    return (dxBase / 1e18) * (1 + this.PL_FEE);
+  }
+  poolsBuyUsd(pct: number): number {
+    const eth = this.poolsBuyEth(pct);
+    const px = this.poolsEthUsd();
+    return px && Number.isFinite(eth) ? eth * px : 0;
+  }
+  /** A size is affordable only if its ETH cost fits the wallet's ETH balance. */
+  poolsBuyAffordable(pct: number): boolean {
+    const avail = this.poolsAvailEth();
+    if (avail == null) return true;             // unknown yet — don't pre-disable
+    return this.poolsBuyEth(pct) <= avail;
+  }
+
+  /** Pick a buy size; store the % and its USD cost (execute buys that USD worth). */
+  selectPoolsBuyPct(pct: number): void {
+    if (!this.poolsBuyAffordable(pct)) return;
+    this.setEditParam('buyPct', String(pct));
+    this.setEditParam('buyAmountUsd', String(this.poolsBuyUsd(pct)));
+  }
+
+  /** Fetch the wallet's Robinhood ETH balance + ETH/USD (from the launch feed's
+   *  priceUsd/priceEth) so the buy sizes show real cost + affordability. */
+  async fetchPoolsBuyContext(): Promise<void> {
+    // ETH/USD from one launch row (priceUsd / priceEth).
+    firstValueFrom(this.apiService.post<any>('/actions/build', { type: 'uniswap_launches', params: { sort: 'top', limit: 1 } }))
+      .then((r) => {
+        const l = r?.data?.launches?.[0];
+        const usd = Number(l?.priceUsd), eth = Number(l?.priceEth);
+        if (usd > 0 && eth > 0) this.poolsEthUsd.set(usd / eth);
+      }).catch(() => {});
+    // Wallet ETH balance on Robinhood (chain 4663).
+    try {
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) return;
+      const accts = await ethereum.request({ method: 'eth_accounts' });
+      const acct = accts?.[0];
+      if (!acct) return;
+      const hex = await ethereum.request({ method: 'eth_getBalance', params: [acct, 'latest'] });
+      this.poolsAvailEth.set(Number(BigInt(hex)) / 1e18);
+    } catch { /* balance unknown — sizes just won't pre-disable */ }
+  }
+
+  /** "10.00M" style label for a buy size's token count. */
+  poolsBuyTokensLabel(pct: number): string {
+    const t = this.poolsBuyTokens(pct);
+    if (t >= 1e9) return (t / 1e9).toFixed(2) + 'B';
+    if (t >= 1e6) return (t / 1e6).toFixed(2) + 'M';
+    if (t >= 1e3) return (t / 1e3).toFixed(2) + 'K';
+    return String(t);
+  }
+
+  /** Toggle Buy-at-launch; on enable, default to 1% and fetch cost context. */
+  togglePoolsBuy(): void {
+    if (this.getEditParam('buyAtLaunch') === 'true') { this.setEditParam('buyAtLaunch', 'false'); return; }
+    this.setEditParam('buyAtLaunch', 'true');
+    void this.fetchPoolsBuyContext().then(() => {
+      if (!this.getEditParam('buyPct')) this.selectPoolsBuyPct(1);
+    });
+  }
+
   /** pools.trade launch image: it wants the picture inline as a PNG base64 data
    *  URI (it pins it itself — no hosting on our side). Center-crop to a square
    *  PNG and stash the data URI in editParams.imageUrl (also used as preview). */

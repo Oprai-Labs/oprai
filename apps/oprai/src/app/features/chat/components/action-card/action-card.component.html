@@ -1212,7 +1212,8 @@
               </button>
             </div>
 
-            <!-- Buy at launch — Instant only -->
+            <!-- Buy at launch — Instant only. % of the fixed 1B supply, priced
+                 on the bonding curve; sizes the wallet can't cover are disabled. -->
             @if (plMode === 'instant') {
               <div class="pl-card pl-togcard">
                 <div class="pl-togtext">
@@ -1220,17 +1221,37 @@
                   <span class="pl-togsub">{{ 'Bundle a token buy with the launch.' | t }}</span>
                 </div>
                 <button type="button" class="pl-switch" [class.pl-switch--on]="getEditParam('buyAtLaunch') === 'true'"
-                        [disabled]="!isEditable()"
-                        (click)="setEditParam('buyAtLaunch', getEditParam('buyAtLaunch') === 'true' ? 'false' : 'true')">
+                        [disabled]="!isEditable()" (click)="togglePoolsBuy()">
                   <span class="pl-switch__knob"></span>
                 </button>
               </div>
               @if (getEditParam('buyAtLaunch') === 'true') {
-                <div class="pl-field">
-                  <label class="pl-flabel">{{ 'Buy amount (USD)' | t }}</label>
-                  <input class="pl-input" type="number" min="0" step="0.01" inputmode="decimal"
-                         [value]="getEditParam('buyAmountUsd')" [disabled]="!isEditable()" placeholder="10"
-                         (input)="setEditParam('buyAmountUsd', $any($event.target).value)" />
+                <div class="pl-card pl-buysize">
+                  <div class="pl-buyhead">
+                    <span class="pl-flabel">{{ 'Buy size, % of supply' | t }}</span>
+                    <div class="pl-buychips">
+                      @for (p of POOLS_BUY_PCTS; track p) {
+                        <button type="button" class="pl-buychip"
+                                [class.on]="getEditParam('buyPct') === (p + '')"
+                                [disabled]="!isEditable() || !poolsBuyAffordable(p)"
+                                (click)="selectPoolsBuyPct(p)">{{ p }}%</button>
+                      }
+                    </div>
+                  </div>
+                  @if (getEditParam('buyPct'); as bp) {
+                    <div class="pl-buyrow">
+                      <span class="pl-buytokens">{{ poolsBuyTokensLabel(+bp) }}</span>
+                      <span class="pl-buycost">
+                        @if (poolsEthUsd()) { ${{ poolsBuyUsd(+bp) | number:'1.2-2' }} · }{{ poolsBuyEth(+bp) | number:'1.0-4' }} ETH
+                      </span>
+                    </div>
+                  }
+                  @if (poolsAvailEth() != null) {
+                    <div class="pl-buyavail">{{ poolsAvailEth() | number:'1.0-3' }} {{ 'ETH available' | t }}</div>
+                  }
+                  @if (getEditParam('buyPct') && !poolsBuyAffordable(+getEditParam('buyPct'))) {
+                    <div class="uni-lp__err">{{ 'Your wallet can\'t cover this — pick a smaller size, add funds, or turn it off.' | t }}</div>
+                  }
                 </div>
               }
             }
