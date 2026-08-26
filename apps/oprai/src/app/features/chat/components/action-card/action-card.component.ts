@@ -4,7 +4,7 @@
  * Renders parsed actions (swaps, transfers, stakes, token launches, etc.)
  * with protocol-specific branding, editable fields, and execution flow.
  */
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges, ViewChild, ElementRef, inject, signal, computed, effect, untracked } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, SimpleChanges, ViewChild, ElementRef, inject, signal, computed, effect, untracked, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { ParsedAction, IntentParserService } from '../../services/intent-parser.service';
@@ -1160,6 +1160,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly solanaRpc = inject(SolanaRpcService);
   private readonly priceFeed = inject(PriceFeedService);
   private readonly account = inject(AccountService);
+  private readonly zone = inject(NgZone);
   private readonly jitoService = inject(JitoService);
   private readonly marinadeService = inject(MarinadeService);
   private readonly jupSolService = inject(JupSolService);
@@ -8588,10 +8589,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   getEditParam(key: string): string { return this.editParams()[key] ?? ''; }
 
-  // X Profile connect (inline, in the launch card). Typing a handle here uses it
-  // for THIS launch and persists it to the account so future launches auto-fill.
+  // X Profile — REAL X OAuth via pools.trade's own verification flow. Opening
+  // the auth URL (whose redirect lands on pools.trade's callback) verifies the
+  // X account ON pools.trade for the wallet, exactly like launching there.
   readonly xConnecting = signal(false);
-  readonly xConnectInput = signal('');
+  readonly xConnectError = signal<string | null>(null);
 
   /** "@name" shown when an X profile is set (from the stored xUrl). */
   xHandleDisplay(): string {
@@ -8600,18 +8602,54 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return m ? '@' + m[1] : (url ? '@' + url.replace(/^@/, '') : '');
   }
 
-  /** Save the typed X handle: use it for the launch AND persist to the account. */
-  commitXConnect(): void {
-    const raw = this.xConnectInput().trim();
-    this.xConnecting.set(false);
-    if (!raw) return;
-    const handle = raw.replace(/^@/, '').replace(/^https?:\/\/(?:x\.com|twitter\.com)\//i, '').split(/[/?#]/)[0];
-    if (!handle) return;
-    const url = 'https://x.com/' + handle;
-    this.setEditParam('xUrl', url);
-    // Persist to the account (fire-and-forget) so Wallets shows it and the next
-    // launch auto-fills. Failure here doesn't block the launch.
-    this.account.setTwitter(handle).subscribe({ next: () => {}, error: () => {} });
+  /** Open pools.trade's real X (Twitter) OAuth for the connected wallet. The
+   *  OAuth completes on X and redirects to pools.trade's callback, which records
+   *  the verification against the wallet — so it shows connected on pools.trade
+   *  and the launch carries it. We can't read the cross-origin result, so once
+   *  the popup closes we mark it connected. */
+  async connectX(): Promise<void> {
+    this.xConnectError.set(null);
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) { this.xConnectError.set('Connect an EVM wallet first.'); return; }
+    let wallet = '';
+    try {
+      const a = await ethereum.request({ method: 'eth_accounts' });
+      wallet = a?.[0] || '';
+      if (!wallet) { const b = await ethereum.request({ method: 'eth_requestAccounts' }); wallet = b?.[0] || ''; }
+    } catch { /* fallthrough */ }
+    if (!wallet) { this.xConnectError.set('Connect your wallet first.'); return; }
+
+    this.xConnecting.set(true);
+    try {
+      const res = await firstValueFrom(
+        this.apiService.post<{ authUrl?: string }>('/actions/uniswap/launch/x-auth-url', { walletAddress: wallet }));
+      const url = res?.authUrl;
+      if (!url) throw new Error('no url');
+      const w = 600, h = 760;
+      const left = Math.max(0, (window.screen.width - w) / 2);
+      const top = Math.max(0, (window.screen.height - h) / 2);
+      const popup = window.open(url, 'oprai_x_oauth', `width=${w},height=${h},left=${left},top=${top}`);
+      if (!popup) { this.xConnecting.set(false); this.xConnectError.set('Allow the popup to connect X.'); return; }
+      const timer = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(timer);
+          this.zone.run(() => {
+            this.xConnecting.set(false);
+            // Mark verified for the wallet — pools.trade attaches it to the launch.
+            this.setEditParam('xUrl', 'https://x.com/');
+            this.setEditParam('xVerified', 'true');
+          });
+        }
+      }, 800);
+    } catch {
+      this.xConnecting.set(false);
+      this.xConnectError.set('Could not start X connect. Try again.');
+    }
+  }
+
+  disconnectX(): void {
+    this.setEditParam('xUrl', '');
+    this.setEditParam('xVerified', '');
   }
 
   /** pools.trade launch image: it wants the picture inline as a PNG base64 data

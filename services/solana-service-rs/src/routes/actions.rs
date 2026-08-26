@@ -1797,6 +1797,21 @@ pub async fn post_pools_launch_sell(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/uniswap/launch/x-auth-url — start pools.trade's REAL X OAuth.
+/// Proxies xVerification.getAuthUrl; returns `{authUrl}` — a live x.com OAuth 2.0
+/// URL whose redirect lands on pools.trade's OWN callback, so the X account is
+/// verified ON pools.trade for the wallet (their verified-creator badge).
+#[post("/uniswap/launch/x-auth-url")]
+pub async fn post_pools_x_auth_url(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result =
+        crate::services::uniswap::pools_trade_mutation(&state.http, "xVerification.getAuthUrl", &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/launch/create — prepare a pools.trade token launch.
 /// Proxies curve.prepareLaunch; returns the tx(s) to sign. Body carries the token
 /// metadata (name/symbol/image/…) the creator entered.

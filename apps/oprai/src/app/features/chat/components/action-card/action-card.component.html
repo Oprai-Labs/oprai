@@ -1179,25 +1179,25 @@
                         (input)="setEditParam('description', $any($event.target).value)">{{ getEditParam('description') }}</textarea>
             </div>
 
-            <!-- X Profile — connected from the account, or connect inline -->
+            <!-- X Profile — real X OAuth (verifies on pools.trade for the wallet) -->
             <div class="pl-card pl-rowcard">
               <span class="pl-rowlabel">{{ 'X Profile' | t }}</span>
-              @if (getEditParam('xUrl')) {
+              @if (getEditParam('xVerified') === 'true') {
+                <span class="pl-xhandle pl-xok">✓ {{ 'X connected' | t }}</span>
+                <button type="button" class="pl-xbtn pl-xbtn-ghost" [disabled]="!isEditable()"
+                        (click)="disconnectX()">{{ 'Disconnect' | t }}</button>
+              } @else if (getEditParam('xUrl') && getEditParam('xUrl') !== 'https://x.com/') {
                 <span class="pl-xhandle">{{ xHandleDisplay() }}</span>
                 <button type="button" class="pl-xbtn pl-xbtn-ghost" [disabled]="!isEditable()"
-                        (click)="setEditParam('xUrl', ''); xConnecting.set(false)">{{ 'Change' | t }}</button>
-              } @else if (xConnecting()) {
-                <input class="pl-rowinput" type="text" [value]="xConnectInput()" placeholder="@handle"
-                       [disabled]="!isEditable()" (input)="xConnectInput.set($any($event.target).value)"
-                       (keydown.enter)="commitXConnect()" (blur)="commitXConnect()" />
-                <button type="button" class="pl-xbtn" [disabled]="!isEditable()" (click)="commitXConnect()">{{ 'Save' | t }}</button>
+                        (click)="disconnectX()">{{ 'Change' | t }}</button>
               } @else {
-                <button type="button" class="pl-xbtn pl-xbtn-x" [disabled]="!isEditable()"
-                        (click)="xConnecting.set(true)">
-                  <span class="pl-xicon">𝕏</span> {{ 'Connect' | t }}
+                <button type="button" class="pl-xbtn pl-xbtn-x" [disabled]="!isEditable() || xConnecting()"
+                        (click)="connectX()">
+                  <span class="pl-xicon">𝕏</span> {{ xConnecting() ? ('Connecting…' | t) : ('Connect' | t) }}
                 </button>
               }
             </div>
+            @if (xConnectError()) { <div class="uni-lp__err">{{ xConnectError() }}</div> }
 
             <!-- Creator fee -->
             <div class="pl-card pl-togcard">

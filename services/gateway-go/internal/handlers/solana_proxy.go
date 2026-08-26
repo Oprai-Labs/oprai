@@ -252,6 +252,12 @@ func (p *SolanaProxy) PostPoolsLaunchCreate(w http.ResponseWriter, r *http.Reque
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostPoolsXAuthUrl — start pools.trade's real X OAuth (xVerification.getAuthUrl).
+func (p *SolanaProxy) PostPoolsXAuthUrl(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/launch/x-auth-url"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)
