@@ -2720,6 +2720,8 @@ export class SolanaActionService {
       const symbol = String(p['tokenSymbol'] ?? '').trim();
       if (!name || !symbol) throw new Error('pools.trade: a token name and symbol are required to launch.');
       reqBody = {
+        // "crowd" = 4h Continuous Clearing Auction; "instant" = bonding curve.
+        mode: String(p['mode'] ?? 'instant').toLowerCase() === 'crowd' ? 'crowd' : 'instant',
         tokenName: name,
         tokenSymbol: symbol,
         description: String(p['description'] ?? '').trim(),
@@ -2729,6 +2731,7 @@ export class SolanaActionService {
         ...(p['imageUrl'] && /^data:image\/(png|webp);base64,/.test(String(p['imageUrl'])) ? { imageUrl: String(p['imageUrl']) } : {}),
         ...(p['xUrl'] ? { xUrl: String(p['xUrl']) } : {}),
         ...(p['website'] ? { website: String(p['website']) } : {}),
+        ...(p['creatorFee'] === 'true' ? { creatorFee: true } : {}),
       };
       endpoint = '/actions/uniswap/launch/create';
     } else {
@@ -2766,6 +2769,32 @@ export class SolanaActionService {
       if (ok === false) {
         callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
+      }
+    }
+
+    // Instant launch + "Buy at launch": once the token is live (bonding curve is
+    // tradable immediately), do a follow-on native buy of the just-launched token.
+    if (isLaunch && p['buyAtLaunch'] === 'true') {
+      const buyUsd = Number(p['buyAmountUsd'] ?? 0);
+      const newToken = prep?.predictedTokenAddress as string | undefined;
+      if (buyUsd > 0 && newToken) {
+        try {
+          const buyPrep = await firstValueFrom(this.api.post<any>('/actions/uniswap/launch/buy', {
+            tokenAddress: newToken, walletAddress: account, amountUsd: buyUsd, slippagePct: 10,
+          }));
+          for (const tx of (buyPrep?.transactions ?? [])) {
+            if (!tx?.to) continue;
+            const gh = toHexQty(tx.gas ?? tx.gasLimit);
+            const h = await withTimeout(ethereum.request({
+              method: 'eth_sendTransaction',
+              params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gh ? { gas: gh } : {}) }],
+            }), 120_000, 'buy at launch') as string;
+            await this.watchEvmReceipt(ethereum, h);
+          }
+        } catch {
+          // The token launched fine; only the optional bundled buy failed. Don't
+          // fail the whole action — the launch already succeeded.
+        }
       }
     }
     callbacks.onConfirm?.(lastHash);

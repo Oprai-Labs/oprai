@@ -1119,81 +1119,109 @@
           </div>
 
         } @else if (action.type === 'pools_launch') {
-          <!-- ─────── pools.trade launch a token (Robinhood Chain) ─────── -->
-          <div class="uni-lp">
-            <div class="uni-lp__head">
-              <span class="km-icon-slot uni-lp__logo">
-                @if (getEditParam('imageUrl')) {
-                  <img class="km-icon km-icon--img" [src]="getEditParam('imageUrl')" alt=""
-                       (error)="$any($event.target).style.display='none'" />
-                } @else {
-                  <span class="km-icon km-icon--fallback">{{ (getEditParam('tokenSymbol') || '🚀').charAt(0) }}</span>
-                }
-              </span>
-              <div class="uni-lp__headtext">
-                <span class="uni-lp__pair">{{ 'Launch a token' | t }}</span>
-                <span class="uni-lp__sub">pools.trade · Robinhood Chain · {{ 'Fixed 1B supply' | t }}</span>
-              </div>
-            </div>
-
-            <!-- Launch mode: Crowd (CCA auction) vs Instant (bonding curve) -->
-            @let plMode = getEditParam('mode') || 'instant';
+          <!-- ─────── pools.trade launch a token — matches the pools.trade
+               "Token info" design (Crowd/Instant selector, then the form). ─── -->
+          @let plMode = getEditParam('mode') || 'instant';
+          <div class="pl-form">
+            <!-- Step 1: launch mode (only differs by the Buy-at-launch option) -->
             <div class="pl-modes">
               <button type="button" class="pl-mode" [class.pl-mode--on]="plMode === 'crowd'"
                       [disabled]="!isEditable()" (click)="setEditParam('mode', 'crowd')">
                 <span class="pl-mode__title">🌱 {{ 'Crowd Launch' | t }}</span>
-                <span class="pl-mode__desc">{{ '4-hour bid window, fairer distribution, bundle-resistant' | t }}</span>
+                <span class="pl-mode__desc">{{ '4-hour bid window · fairer distribution' | t }}</span>
               </button>
               <button type="button" class="pl-mode" [class.pl-mode--on]="plMode === 'instant'"
                       [disabled]="!isEditable()" (click)="setEditParam('mode', 'instant')">
                 <span class="pl-mode__title">⚡ {{ 'Instant Launch' | t }}</span>
-                <span class="pl-mode__desc">{{ 'Bonding curve, live immediately, tradable any time' | t }}</span>
+                <span class="pl-mode__desc">{{ 'Bonding curve · live immediately' | t }}</span>
               </button>
             </div>
 
-            <label class="uni-lp__label">{{ 'Name' | t }}</label>
-            <div class="uni-lp__inputrow">
-              <input class="uni-lp__input" type="text" maxlength="32" [value]="getEditParam('tokenName')"
-                     [disabled]="!isEditable()" placeholder="My Token"
-                     (input)="setEditParam('tokenName', $any($event.target).value)" />
-            </div>
-
-            <label class="uni-lp__label">{{ 'Ticker' | t }}</label>
-            <div class="uni-lp__inputrow">
-              <input class="uni-lp__input" type="text" maxlength="10" [value]="getEditParam('tokenSymbol')"
-                     [disabled]="!isEditable()" placeholder="TKN"
-                     (input)="setEditParam('tokenSymbol', $any($event.target).value.toUpperCase())" />
-            </div>
-
-            <label class="uni-lp__label">{{ 'Description' | t }}</label>
-            <div class="uni-lp__inputrow">
-              <input class="uni-lp__input" type="text" maxlength="280" [value]="getEditParam('description')"
-                     [disabled]="!isEditable()" placeholder="What is this token about?"
-                     (input)="setEditParam('description', $any($event.target).value)" />
-            </div>
-
-            <label class="uni-lp__label">{{ 'Image (optional)' | t }}</label>
-            <div class="uni-lp__imagerow">
-              <label class="uni-lp__imagebtn" [class.uni-lp__imagebtn--disabled]="!isEditable() || uploadingImage()">
+            <!-- Token image (circular upload on the left) -->
+            <div class="pl-imgrow">
+              <label class="pl-imgcircle" [class.pl-imgcircle--disabled]="!isEditable() || uploadingImage()">
                 <input type="file" accept="image/png,image/webp,image/jpeg" hidden
-                       [disabled]="!isEditable() || uploadingImage()"
-                       (change)="onPoolsLaunchImage($event)" />
-                @if (uploadingImage()) { {{ 'Processing…' | t }} }
-                @else if (getEditParam('imageUrl')) { {{ 'Change image' | t }} }
-                @else { {{ 'Choose image' | t }} }
+                       [disabled]="!isEditable() || uploadingImage()" (change)="onPoolsLaunchImage($event)" />
+                @if (getEditParam('imageUrl')) {
+                  <img class="pl-imgcircle__img" [src]="getEditParam('imageUrl')" alt="token image" />
+                } @else {
+                  <span class="pl-imgcircle__ph">＋</span>
+                }
               </label>
-              @if (getEditParam('imageUrl'); as img) {
-                <img class="uni-lp__imgpreview" [src]="img" alt="token image" />
-              }
+              <div class="pl-imgtext">
+                <span class="pl-imglabel">{{ 'Token image' | t }} <span class="pl-req">*</span></span>
+                <span class="pl-imgsub">{{ uploadingImage() ? ('Processing…' | t) : ('256px or larger recommended' | t) }}</span>
+              </div>
             </div>
             @if (imageUploadError()) { <div class="uni-lp__err">{{ imageUploadError() }}</div> }
 
-            <label class="uni-lp__label">{{ 'X / Twitter (optional)' | t }}</label>
-            <div class="uni-lp__inputrow">
-              <input class="uni-lp__input" type="url" [value]="getEditParam('xUrl')"
+            <!-- Name + Ticker (two columns) -->
+            <div class="pl-grid2">
+              <div class="pl-field">
+                <label class="pl-flabel">{{ 'Token name' | t }} <span class="pl-req">*</span></label>
+                <input class="pl-input" type="text" maxlength="32" [value]="getEditParam('tokenName')"
+                       [disabled]="!isEditable()" placeholder="Untitled Token"
+                       (input)="setEditParam('tokenName', $any($event.target).value)" />
+              </div>
+              <div class="pl-field">
+                <label class="pl-flabel">{{ 'Ticker symbol' | t }} <span class="pl-req">*</span></label>
+                <input class="pl-input" type="text" maxlength="10" [value]="getEditParam('tokenSymbol')"
+                       [disabled]="!isEditable()" placeholder="$TICKER"
+                       (input)="setEditParam('tokenSymbol', $any($event.target).value.toUpperCase())" />
+              </div>
+            </div>
+
+            <!-- Description -->
+            <div class="pl-field">
+              <label class="pl-flabel">{{ 'Description' | t }} <span class="pl-req">*</span></label>
+              <textarea class="pl-input pl-textarea" maxlength="280" rows="3" [disabled]="!isEditable()"
+                        placeholder="Briefly describe your token"
+                        (input)="setEditParam('description', $any($event.target).value)">{{ getEditParam('description') }}</textarea>
+            </div>
+
+            <!-- X Profile -->
+            <div class="pl-card pl-rowcard">
+              <span class="pl-rowlabel">{{ 'X / Twitter' | t }}</span>
+              <input class="pl-rowinput" type="url" [value]="getEditParam('xUrl')"
                      [disabled]="!isEditable()" placeholder="https://x.com/…"
                      (input)="setEditParam('xUrl', $any($event.target).value)" />
             </div>
+
+            <!-- Creator fee -->
+            <div class="pl-card pl-togcard">
+              <div class="pl-togtext">
+                <span class="pl-togtitle">{{ 'Creator fee' | t }}</span>
+                <span class="pl-togsub">{{ 'Earn 0.1% of every buy. Paid in ETH.' | t }}</span>
+              </div>
+              <button type="button" class="pl-switch" [class.pl-switch--on]="getEditParam('creatorFee') === 'true'"
+                      [disabled]="!isEditable()"
+                      (click)="setEditParam('creatorFee', getEditParam('creatorFee') === 'true' ? 'false' : 'true')">
+                <span class="pl-switch__knob"></span>
+              </button>
+            </div>
+
+            <!-- Buy at launch — Instant only -->
+            @if (plMode === 'instant') {
+              <div class="pl-card pl-togcard">
+                <div class="pl-togtext">
+                  <span class="pl-togtitle">{{ 'Buy at launch' | t }}</span>
+                  <span class="pl-togsub">{{ 'Bundle a token buy with the launch.' | t }}</span>
+                </div>
+                <button type="button" class="pl-switch" [class.pl-switch--on]="getEditParam('buyAtLaunch') === 'true'"
+                        [disabled]="!isEditable()"
+                        (click)="setEditParam('buyAtLaunch', getEditParam('buyAtLaunch') === 'true' ? 'false' : 'true')">
+                  <span class="pl-switch__knob"></span>
+                </button>
+              </div>
+              @if (getEditParam('buyAtLaunch') === 'true') {
+                <div class="pl-field">
+                  <label class="pl-flabel">{{ 'Buy amount (USD)' | t }}</label>
+                  <input class="pl-input" type="number" min="0" step="0.01" inputmode="decimal"
+                         [value]="getEditParam('buyAmountUsd')" [disabled]="!isEditable()" placeholder="10"
+                         (input)="setEditParam('buyAmountUsd', $any($event.target).value)" />
+                </div>
+              }
+            }
           </div>
 
         } @else if (action.type === 'limit_order') {
