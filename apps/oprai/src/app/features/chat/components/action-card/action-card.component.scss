@@ -7026,5 +7026,6 @@
 .pl-buytokens { font-size: 1rem; font-weight: 700; color: var(--op-text-primary); font-variant-numeric: tabular-nums; }
 .pl-buycost { font-size: .85rem; color: var(--op-text-secondary); font-variant-numeric: tabular-nums; }
 .pl-buyavail { text-align: right; font-size: .72rem; color: var(--op-text-secondary); }
+.pump-panel__chips { margin-top: 8px; flex-wrap: wrap; }
 .pl-flabel-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pl-count { font-size: .68rem; font-weight: 500; color: var(--op-text-tertiary, var(--op-text-secondary)); font-variant-numeric: tabular-nums; }

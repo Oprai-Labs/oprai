@@ -1065,8 +1065,13 @@
           </div>
 
         } @else if (action.type === 'pools_buy' || action.type === 'pools_sell') {
-          <!-- ─────── pools.trade native buy / sell (Robinhood Chain) ─────── -->
+          <!-- ─────── pools.trade native buy / sell (Robinhood Chain) ───────
+               Mini-Uniswap two-panel swap (like our Jupiter swap): pools.trade
+               only pairs against ETH, so BUY = pay ETH → receive token, and
+               SELL = pay token → receive ETH. The counter side is live-quoted
+               from prepareBuy/prepareSell (expectedAmountOut). -->
           @let pbSell = action.type === 'pools_sell';
+          @let pq = poolsQuote();
           <div class="uni-lp">
             <div class="uni-lp__head">
               <span class="km-icon-slot uni-lp__logo">
@@ -1083,48 +1088,119 @@
               </div>
             </div>
 
-            @if (!pbSell) {
-              <label class="uni-lp__label">{{ 'Amount (USD)' | t }}</label>
-              <div class="uni-lp__inputrow">
-                <span class="uni-lp__prefix">$</span>
-                <input class="uni-lp__input" type="number" min="0" step="0.01" inputmode="decimal"
-                       [value]="getEditParam('amountUsd') ?? ''"
-                       [disabled]="!isEditable()"
-                       (input)="setEditParam('amountUsd', $any($event.target).value)" />
-              </div>
-              <div class="uni-lp__chips">
-                @for (v of ['5','10','25','100']; track v) {
-                  <button class="orca-chip" [class.orca-chip--active]="(getEditParam('amountUsd')||'') === v"
-                          [disabled]="!isEditable()" (click)="setEditParam('amountUsd', v)">${{ v }}</button>
+            <div class="pump-swap" [class.proto-fields--shake]="shake()">
+              <!-- You pay -->
+              <div class="pump-panel">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">{{ 'You pay' | t }}</span>
+                  @if (pbSell) {
+                    @if (poolsSellBal() != null) {
+                      <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ poolsSellBal() | number:'1.0-4' }}
+                        @if (isEditable() && poolsSellBal()! > 0) {
+                          <button class="pump-panel__max" type="button" (click)="setPoolsSellPct(100)">{{ 'Max' | t }}</button>
+                        }
+                      </span>
+                    }
+                  } @else {
+                    @if (poolsAvailEth() != null) {
+                      <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ poolsAvailEth() | number:'1.0-4' }} ETH
+                        @if (isEditable()) {
+                          <button class="pump-panel__max" type="button" (click)="poolsBuyMax()">{{ 'Max' | t }}</button>
+                        }
+                      </span>
+                    }
+                  }
+                </div>
+                <div class="pump-panel__row">
+                  <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                         [value]="pbSell ? (getEditParam('amountTokens') ?? '') : (getEditParam('amountEth') ?? '')"
+                         [disabled]="!isEditable()"
+                         (input)="pbSell ? onPoolsSellInput($any($event.target).value) : onPoolsBuyEth($any($event.target).value)" />
+                  <div class="pump-token">
+                    @if (pbSell) {
+                      @if (getEditParam('logo')) {
+                        <img [src]="getEditParam('logo')" class="pump-token__icon" alt=""
+                             (error)="$any($event.target).style.display='none'" />
+                      } @else {
+                        <span class="pump-token__icon pump-token__icon--ph">{{ (getEditParam('symbol') || '?').charAt(0) }}</span>
+                      }
+                      <span class="pump-token__sym">{{ getEditParam('symbol') || 'TOKEN' }}</span>
+                    } @else {
+                      <img src="assets/coins/eth.svg" class="pump-token__icon" alt="" />
+                      <span class="pump-token__sym">ETH</span>
+                    }
+                  </div>
+                </div>
+                <!-- pay-side hints: USD equivalent (buy) / % chips (both) -->
+                @if (!pbSell && getEditParam('amountUsd') && +getEditParam('amountUsd') > 0) {
+                  <div class="pump-panel__usd">≈ ${{ +getEditParam('amountUsd') | number:'1.2-2' }}</div>
                 }
+                <div class="pl-buychips pump-panel__chips">
+                  @if (pbSell) {
+                    @for (p of [25, 50, 100]; track p) {
+                      <button class="pl-buychip" [class.on]="poolsSellPct() === p"
+                              [disabled]="!isEditable() || !(poolsSellBal()! > 0)"
+                              (click)="setPoolsSellPct(p)">{{ p === 100 ? 'Max' : (p + '%') }}</button>
+                    }
+                  } @else {
+                    @for (v of ['0.001','0.01','0.05','0.1']; track v) {
+                      <button class="pl-buychip" [class.on]="(getEditParam('amountEth')||'') === v"
+                              [disabled]="!isEditable()" (click)="onPoolsBuyEth(v)">{{ v }} ETH</button>
+                    }
+                  }
+                </div>
               </div>
-            } @else {
-              <label class="uni-lp__label">{{ 'Amount to sell' | t }}</label>
-              <div class="uni-lp__inputrow">
-                <input class="uni-lp__input" type="number" min="0" step="any" inputmode="decimal"
-                       [value]="getEditParam('amountTokens') ?? ''"
-                       [disabled]="!isEditable()"
-                       (input)="poolsSellPct.set(null); onPoolsSellAmount($any($event.target).value)" />
-                <span class="uni-lp__suffix">{{ getEditParam('symbol') }}</span>
-              </div>
-              <div class="uni-lp__chips">
-                @for (p of [25, 50, 100]; track p) {
-                  <button class="orca-chip" [class.orca-chip--active]="poolsSellPct() === p"
-                          [disabled]="!isEditable() || !(poolsSellBal()! > 0)"
-                          (click)="setPoolsSellPct(p)">{{ p === 100 ? 'Max' : (p + '%') }}</button>
-                }
-              </div>
-              @if (poolsSellBal() != null) {
-                <div class="pl-buyavail">{{ poolsSellBal() | number:'1.0-4' }} {{ getEditParam('symbol') }} {{ 'available' | t }}</div>
-              }
-            }
 
-            <label class="uni-lp__label">{{ 'Max slippage (%)' | t }}</label>
-            <div class="uni-lp__inputrow">
-              <input class="uni-lp__input" type="number" min="0.1" step="0.1" inputmode="decimal"
-                     [value]="getEditParam('slippagePct') ?? '5'"
-                     [disabled]="!isEditable()"
-                     (input)="setEditParam('slippagePct', $any($event.target).value)" />
+              <!-- Swap direction arrow -->
+              <div class="pump-swap__arrow" aria-hidden="true">
+                <lucide-icon name="arrow-down" [size]="16" />
+              </div>
+
+              <!-- You receive (estimated, live) -->
+              <div class="pump-panel pump-panel--recv">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">{{ 'You receive (estimated)' | t }}</span>
+                  @if (poolsQuoting()) {
+                    <span class="pump-panel__refresh"><lucide-icon name="refresh-cw" [size]="10" /></span>
+                  }
+                </div>
+                <div class="pump-panel__row">
+                  <span class="pump-panel__amount pump-panel__amount--out">
+                    @if (pq) { ≈ {{ pq.out | number:'1.0-6' }} }
+                    @else { <span class="pump-panel__ph">—</span> }
+                  </span>
+                  <div class="pump-token">
+                    @if (pbSell) {
+                      <img src="assets/coins/eth.svg" class="pump-token__icon" alt="" />
+                      <span class="pump-token__sym">ETH</span>
+                    } @else {
+                      @if (getEditParam('logo')) {
+                        <img [src]="getEditParam('logo')" class="pump-token__icon" alt=""
+                             (error)="$any($event.target).style.display='none'" />
+                      } @else {
+                        <span class="pump-token__icon pump-token__icon--ph">{{ (getEditParam('symbol') || '?').charAt(0) }}</span>
+                      }
+                      <span class="pump-token__sym">{{ getEditParam('symbol') || 'TOKEN' }}</span>
+                    }
+                  </div>
+                </div>
+                @if (pq && pq.impact != null) {
+                  <div class="pump-panel__usd">{{ 'Price impact' | t }} {{ pq.impact | number:'1.0-2' }}%</div>
+                }
+              </div>
+
+              <!-- Slippage -->
+              <div class="pump-swap__settings">
+                <div class="pump-setting">
+                  <label class="pump-setting__label">{{ 'Slippage' | t }}</label>
+                  <div class="pump-setting__input">
+                    <input type="number" [value]="getEditParam('slippagePct') ?? '5'"
+                           (input)="setEditParam('slippagePct', $any($event.target).value); queuePoolsQuote()"
+                           [disabled]="!isEditable()" min="0.1" max="100" step="0.1" />
+                    <span class="pump-setting__suffix">%</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

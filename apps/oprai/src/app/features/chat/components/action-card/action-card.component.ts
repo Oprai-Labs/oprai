@@ -6028,6 +6028,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!this.getEditParam('tokenSymbol').trim()) return 'Enter a ticker';
       if (!this.getEditParam('description').trim()) return 'Add a description';
     }
+    // pools.trade buy pays ETH (converted to the API's USD amount); sell pays a
+    // token amount. Block the click until there's a real amount to trade — for a
+    // buy that also means the ETH/USD rate has loaded (amountUsd computed).
+    if (this.action?.type === 'pools_buy') {
+      if (!(Number(this.getEditParam('amountEth')) > 0)) return 'Enter an amount';
+      if (!(Number(this.getEditParam('amountUsd')) > 0)) return 'Fetching price…';
+    }
+    if (this.action?.type === 'pools_sell') {
+      if (!(Number(this.getEditParam('amountTokens')) > 0)) return 'Enter an amount';
+    }
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';
       const amt = this.getEditParam('amount').trim();
@@ -6241,7 +6251,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       };
       window.addEventListener('focus', this.poolsFocusHandler);
     }
-    if (this.action?.type === 'pools_sell') void this.fetchPoolsSellBalance();
+    if (this.action?.type === 'pools_sell') {
+      void this.fetchPoolsSellBalance();
+      // A chat-supplied amount arrives as a token count; derive amountInWei (the
+      // field execute + the quote consume) and show its live ETH estimate.
+      const at = this.getEditParam('amountTokens');
+      if (at && Number(at) > 0) this.onPoolsSellAmount(at);
+      else if (this.getEditParam('amountInWei') && this.getEditParam('amountInWei') !== '0') this.queuePoolsQuote();
+    }
+    if (this.action?.type === 'pools_buy') {
+      // Load ETH/USD + the wallet's Robinhood ETH balance (drives the pay-side
+      // balance/Max and the USD hint), then quote any pre-filled amount. Re-read
+      // the balance on focus so a transfer made elsewhere is reflected at once.
+      void this.fetchPoolsBuyContext().then(() => {
+        const eth = this.getEditParam('amountEth');
+        if (eth && Number(eth) > 0) this.onPoolsBuyEth(eth);
+        else if (this.getEditParam('amountUsd') && +this.getEditParam('amountUsd') > 0) this.queuePoolsQuote();
+      });
+      this.poolsFocusHandler = () => this.zone.run(() => void this.refreshPoolsBalance());
+      window.addEventListener('focus', this.poolsFocusHandler);
+    }
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
@@ -8788,6 +8817,77 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } catch { /* balance unknown — user can still type an amount */ }
   }
 
+  // ── Swap-style buy/sell: live counter-side quote (pools.trade pairs against
+  //    ETH only). BUY pays ETH → receives token; SELL pays token → receives ETH.
+  //    The estimate comes straight from prepareBuy/prepareSell's expectedAmountOut
+  //    so what the panel shows is what the signed tx targets. Debounced so typing
+  //    doesn't build a tx per keystroke.
+  readonly poolsQuote = signal<{ out: number; ethIn: number; impact: number | null } | null>(null);
+  readonly poolsQuoting = signal(false);
+  private _poolsQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  private _poolsQuoteSeq = 0;
+
+  /** Buy pay-side: user enters ETH. prepareBuy is USD-denominated, so we also
+   *  stash amountUsd (= ETH × ETH/USD) — the field execute + the quote consume. */
+  onPoolsBuyEth(v: string): void {
+    this.setEditParam('amountEth', v);
+    const eth = Number(v), px = this.poolsEthUsd();
+    this.setEditParam('amountUsd', px && eth > 0 ? String(eth * px) : '');
+    this.queuePoolsQuote();
+  }
+
+  /** Buy Max: whole ETH balance minus a hair for gas. */
+  poolsBuyMax(): void {
+    const bal = this.poolsAvailEth();
+    if (bal == null) return;
+    const usable = Math.max(0, bal - 0.00002);
+    this.onPoolsBuyEth(usable > 0 ? usable.toFixed(9).replace(/\.?0+$/, '') : '0');
+  }
+
+  /** Debounce a counter-side re-quote (350ms) — clears the stale estimate now. */
+  queuePoolsQuote(): void {
+    const seq = ++this._poolsQuoteSeq;
+    if (this._poolsQuoteTimer) clearTimeout(this._poolsQuoteTimer);
+    this.poolsQuote.set(null);
+    this._poolsQuoteTimer = setTimeout(() => void this.runPoolsQuote(seq), 350);
+  }
+
+  private async runPoolsQuote(seq: number): Promise<void> {
+    const isSell = this.action?.type === 'pools_sell';
+    const token = this.getEditParam('tokenAddress');
+    if (!token) return;
+    const slippagePct = Number(this.getEditParam('slippagePct') ?? 5) || 5;
+    const body: Record<string, unknown> = { tokenAddress: token, slippagePct };
+    if (isSell) {
+      const wei = this.getEditParam('amountInWei');
+      if (!wei || wei === '0') { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
+      body['amountInWei'] = wei;
+    } else {
+      const usd = Number(this.getEditParam('amountUsd'));
+      if (!(usd > 0)) { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
+      body['amountUsd'] = usd;
+    }
+    // Sell must quote against the real holder; a placeholder can quote a buy.
+    const addr = this.poolsBuyAddr || await this.resolveEvmAddress();
+    if (seq !== this._poolsQuoteSeq) return;
+    body['walletAddress'] = addr || '0x000000000000000000000000000000000000dEaD';
+    this.poolsQuoting.set(true);
+    try {
+      const endpoint = isSell ? '/actions/uniswap/launch/sell' : '/actions/uniswap/launch/buy';
+      const r = await firstValueFrom(this.apiService.post<any>(endpoint, body));
+      if (seq !== this._poolsQuoteSeq) return;
+      const d = r?.data ?? r;
+      const out = Number(d?.expectedAmountOut) / 1e18;      // buy: tokens; sell: ETH
+      const ethIn = Number(d?.amountInWei) / 1e18;
+      const impact = d?.priceImpactPct != null ? Number(d.priceImpactPct) : null;
+      this.poolsQuote.set(Number.isFinite(out) ? { out, ethIn, impact } : null);
+    } catch {
+      if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null);
+    } finally {
+      if (seq === this._poolsQuoteSeq) this.poolsQuoting.set(false);
+    }
+  }
+
   /** "10.00M" style label for a buy size's token count. */
   poolsBuyTokensLabel(pct: number): string {
     const t = this.poolsBuyTokens(pct);
@@ -8846,6 +8946,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     });
   }
 
+  /** Manual keystroke in the sell amount field — clears any active % chip. */
+  onPoolsSellInput(v: string): void {
+    this.poolsSellPct.set(null);
+    this.onPoolsSellAmount(v);
+  }
+
   /** pools.trade sell input is a token amount; prepareSell wants amountInWei
    *  (18-decimal base units). Convert with string math (no float precision loss)
    *  and stash both — amountTokens for the field, amountInWei for the request. */
@@ -8857,6 +8963,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const frac = (fracRaw + '0'.repeat(18)).slice(0, 18);
     const digits = ((intPart.replace(/\D/g, '') || '0') + frac).replace(/^0+/, '') || '0';
     this.setEditParam('amountInWei', digits);
+    this.queuePoolsQuote();
   }
 
   setEditParam(key: string, value: string): void {
@@ -10206,6 +10313,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.stopQuotePolling();
     if (this._swapEstimateTimer) clearTimeout(this._swapEstimateTimer);
     if (this._pumpEstimateTimer) clearTimeout(this._pumpEstimateTimer);
+    if (this._poolsQuoteTimer) clearTimeout(this._poolsQuoteTimer);
     if (this.poolsFocusHandler) { window.removeEventListener('focus', this.poolsFocusHandler); this.poolsFocusHandler = null; }
   }
 

@@ -84,13 +84,14 @@ Examples:
 ---
 
 #### ACTION: pools_buy / pools_sell — trade a pools.trade token (Robinhood Chain)
-Format buy:  [ACTION:pools_buy]  {"tokenAddress":"0x…<required>","symbol":"<optional>","amountUsd":"<optional>"}
-Format sell: [ACTION:pools_sell] {"tokenAddress":"0x…<required>","symbol":"<optional>"}
+Format buy:  [ACTION:pools_buy]  {"tokenAddress":"0x…<required>","symbol":"<optional>","amountEth":"<optional, ETH the user pays>"}
+Format sell: [ACTION:pools_sell] {"tokenAddress":"0x…<required>","symbol":"<optional>","amountTokens":"<optional, token amount to sell>"}
 
-Use when the user wants to BUY or SELL a specific pools.trade / Robinhood launch token they identify by its 0x token ADDRESS (buying from the launches card already works via its Buy button; this is the chat path). `tokenAddress` is REQUIRED — do NOT guess it from a symbol; if the user only gives a name/symbol and you don't have the address, ask for it or point them to the launches list / their portfolio. The card fetches balances and shows amount/size controls; a buy takes USD, a sell takes a % of holdings. Robinhood-only. Curve-live AND graduated tokens both trade through this path.
+Use when the user wants to BUY or SELL a specific pools.trade / Robinhood launch token they identify by its 0x token ADDRESS (buying from the launches card already works via its Buy button; this is the chat path). `tokenAddress` is REQUIRED — do NOT guess it from a symbol; if the user only gives a name/symbol and you don't have the address, ask for it or point them to the launches list / their portfolio. pools.trade pairs ONLY against ETH: the card is a swap where a BUY pays ETH → receives the token and a SELL pays the token → receives ETH, both live-quoted. So an amount the user gives in ETH goes in `amountEth` (NOT amountUsd — that field no longer exists); an amount in tokens goes in `amountTokens`. If the user gives a USD figure, leave the amount out and let them pick ETH in the card. The card fetches balances and shows the pay/receive panels + size chips. Robinhood-only. Curve-live AND graduated tokens both trade through this path.
 
 Examples:
-- "pools.trade'de 0xABC… tokenından $10 al" → execute_action("pools_buy", {"tokenAddress":"0xABC…","amountUsd":"10"})
+- "pools.trade'de 0xABC… tokenından 0.01 ETH'lik al" → execute_action("pools_buy", {"tokenAddress":"0xABC…","amountEth":"0.01"})
+- "0xABC… tokenımdan 1000000 sat" → execute_action("pools_sell", {"tokenAddress":"0xABC…","amountTokens":"1000000"})
 - "0xABC… tokenımı sat" → execute_action("pools_sell", {"tokenAddress":"0xABC…"})
 
 ---
