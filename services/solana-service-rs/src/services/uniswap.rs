@@ -958,6 +958,11 @@ pub struct UniswapLaunchesParams {
     pub launchpad: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Free-text name/symbol search. When present, the feed comes from
+    /// curve.searchLaunches (matches by name & ticker, curve AND crowd launches)
+    /// instead of the recency/volume list — so a user can find a token by name.
+    #[serde(default, alias = "search", alias = "q")]
+    pub query: Option<String>,
 }
 
 /// `ipfs://CID` / bare CID → the pools.trade IPFS gateway URL; http(s) passes
@@ -1062,12 +1067,21 @@ pub async fn build_uniswap_launches(
         _ => "recency",
     };
     let filter = params.launchpad.clone().unwrap_or_default();
+    let search = params
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
-    // pools.trade tRPC uses RAW (non-superjson) input. listLaunches returns ~100;
-    // reqwest URL-encodes the input via .query().
-    let input = json!({ "sortBy": sort_by }).to_string();
+    // pools.trade tRPC uses RAW (non-superjson) input. A name/symbol search uses
+    // searchLaunches (curve + crowd); otherwise the recency/volume list. reqwest
+    // URL-encodes the input via .query().
+    let (endpoint, input) = match search {
+        Some(q) => ("curve.searchLaunches", json!({ "query": q, "limit": 50 }).to_string()),
+        None => ("curve.listLaunches", json!({ "sortBy": sort_by }).to_string()),
+    };
     let resp = http
-        .get(format!("{POOLS_TRADE_TRPC}/curve.listLaunches"))
+        .get(format!("{POOLS_TRADE_TRPC}/{endpoint}"))
         .query(&[("input", input.as_str())])
         .header("accept", "application/json")
         .send()
@@ -1122,7 +1136,18 @@ pub async fn build_uniswap_launches(
     // trending (no FDV option), so we re-rank the fetched set by fdvUsd here —
     // BEFORE truncating — so the top-N by market cap actually surface. "new"
     // and "trending" keep the API's order.
-    if sort_by == "volume" {
+    if search.is_some() {
+        // Name search returns many same-name tokens (a real one + look-alike
+        // scams). Surface the most-adopted first (holders, then FDV) so the
+        // legit token tops the picker — but the user still chooses which to buy.
+        rows.sort_by(|a, b| {
+            let ah = a.get("holders").and_then(|v| v.as_u64()).unwrap_or(0);
+            let bh = b.get("holders").and_then(|v| v.as_u64()).unwrap_or(0);
+            let af = a.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let bf = b.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            bh.cmp(&ah).then(bf.partial_cmp(&af).unwrap_or(std::cmp::Ordering::Equal))
+        });
+    } else if sort_by == "volume" {
         rows.sort_by(|a, b| {
             let av = a.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let bv = b.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1136,7 +1161,13 @@ pub async fn build_uniswap_launches(
     } else {
         launchpad_label(filter.trim())
     };
-    let description = if rows.is_empty() {
+    let description = if let Some(q) = search {
+        if rows.is_empty() {
+            format!("No pools.trade tokens match “{q}”.")
+        } else {
+            format!("{} pools.trade tokens match “{q}” — pick the right one to buy.", rows.len())
+        }
+    } else if rows.is_empty() {
         format!("No launches found on {scope} (Robinhood Chain).")
     } else {
         format!("Robinhood Chain launches — {} on {scope}.", rows.len())
