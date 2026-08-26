@@ -6019,11 +6019,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     if (this.launchBlock() === 'image') return 'Add image to launch';
     if (this.launchBlock() === 'identity') return 'Enter name & ticker';
-    // pools.trade launch: name + ticker are the only hard requirements.
+    // pools.trade launch: image, name, ticker, description are the required
+    // fields (the four marked * in the pools.trade form). X is optional.
     if (this.action?.type === 'pools_launch') {
-      if (!this.getEditParam('tokenName').trim() || !this.getEditParam('tokenSymbol').trim()) {
-        return 'Enter name & ticker';
-      }
+      if (!this.getEditParam('imageUrl').trim()) return 'Add a token image';
+      if (!this.getEditParam('tokenName').trim()) return 'Enter a token name';
+      if (!this.getEditParam('tokenSymbol').trim()) return 'Enter a ticker';
+      if (!this.getEditParam('description').trim()) return 'Add a description';
     }
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';
