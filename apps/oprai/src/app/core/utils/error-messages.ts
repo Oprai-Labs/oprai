@@ -486,6 +486,16 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
   if (/pumpfun api|pump\.fun (api|is temporarily)/i.test(lower)) {
     return 'Pump.fun is temporarily unavailable. Please try again in a moment.';
   }
+  // pools.trade launch field validation (name/ticker) — surface the fixable rule.
+  if (/tokensymbol/i.test(lower)) {
+    return 'The ticker must be 1–8 letters or numbers (no spaces or symbols).';
+  }
+  if (/tokenname/i.test(lower)) {
+    return 'That token name isn’t accepted — try a shorter, simpler name.';
+  }
+  if (/description/i.test(lower) && /pools\.trade|invalid|required|pattern/i.test(lower)) {
+    return 'Add a short description for your token, then try again.';
+  }
 
   // Catch-all. Everything a user can act on has been mapped to prose above, so
   // whatever is still here is unmapped by definition — and if it still reads

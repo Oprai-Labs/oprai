@@ -1165,9 +1165,9 @@
               </div>
               <div class="pl-field">
                 <label class="pl-flabel">{{ 'Ticker symbol' | t }} <span class="pl-req">*</span></label>
-                <input class="pl-input" type="text" maxlength="10" [value]="getEditParam('tokenSymbol')"
-                       [disabled]="!isEditable()" placeholder="$TICKER"
-                       (input)="setEditParam('tokenSymbol', $any($event.target).value.toUpperCase())" />
+                <input class="pl-input" type="text" maxlength="8" [value]="getEditParam('tokenSymbol')"
+                       [disabled]="!isEditable()" placeholder="TICKER"
+                       (input)="setEditParam('tokenSymbol', sanitizeTicker($any($event.target).value))" />
               </div>
             </div>
 

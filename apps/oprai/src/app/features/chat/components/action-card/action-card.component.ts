@@ -6219,6 +6219,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // pools.trade launch: auto-fill the X profile from the account's saved X
     // (set once in Wallets) unless the user/LLM already supplied one.
     if (this.action?.type === 'pools_launch') {
+      // The name/LLM may pre-fill a too-long ticker (e.g. "ROBINHOOD" = 9). Clamp
+      // it to pools.trade's 1–8 alphanumeric rule so it doesn't fail on submit.
+      const tk = this.getEditParam('tokenSymbol');
+      if (tk && tk !== this.sanitizeTicker(tk)) this.setEditParam('tokenSymbol', this.sanitizeTicker(tk));
       if (!this.getEditParam('xUrl')) {
         this.account.getMe().subscribe({
           next: (a) => {
@@ -8604,6 +8608,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // X account ON pools.trade for the wallet, exactly like launching there.
   readonly xConnecting = signal(false);
   readonly xConnectError = signal<string | null>(null);
+
+  /** pools.trade tickers are 1–8 alphanumerics (/^[A-Za-z0-9]{1,8}$/) — enforce
+   *  it as the user types so a launch never fails validation on submit. */
+  sanitizeTicker(v: string): string {
+    return (v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  }
 
   /** "@name" shown when an X profile is set (from the stored xUrl). */
   xHandleDisplay(): string {
