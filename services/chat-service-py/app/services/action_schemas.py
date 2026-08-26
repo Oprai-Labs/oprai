@@ -432,6 +432,10 @@ class ActionType(str, Enum):
     POOLS_BUY = "pools_buy"
     POOLS_SELL = "pools_sell"
     POOLS_LAUNCH = "pools_launch"
+    # Pons launchpad (ponsfamily.com) — Robinhood Chain, on-chain bonding curve
+    PONS_BUY = "pons_buy"
+    PONS_SELL = "pons_sell"
+    PONS_LAUNCH = "pons_launch"
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -854,6 +858,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "uniswap_add_liquidity",
     # pools.trade launchpad — buy/sell spend funds; launch pays gas + creates on-chain
     "pools_buy", "pools_sell", "pools_launch",
+    # Pons launchpad (ponsfamily.com) — same fund-moving semantics
+    "pons_buy", "pons_sell", "pons_launch",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1079,6 +1085,9 @@ def validate_action_params(
         "pools_buy":        ("tokenAddress",),
         "pools_sell":       ("tokenAddress",),
         "pools_launch":     ("tokenName", "tokenSymbol"),
+        "pons_buy":         ("tokenAddress",),
+        "pons_sell":        ("tokenAddress",),
+        "pons_launch":      ("name", "symbol"),
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]

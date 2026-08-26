@@ -78,7 +78,7 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'transfer', 'swap', 'stake', 'unstake', 'burn', 'claim', 'vote',
   'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap', 'uniswap_pools', 'uniswap_add_liquidity',
   'pools_buy', 'pools_sell', 'pools_launch',
-  'pons_buy', 'pons_sell',
+  'pons_buy', 'pons_sell', 'pons_launch',
   'nft_buy', 'nft_list', 'nft_mint',
   // Jupiter
   'limit_order', 'cancel_limit_order', 'cancel_all_limit_orders', 'dca', 'cancel_dca',

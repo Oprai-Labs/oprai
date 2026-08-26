@@ -113,6 +113,20 @@ Examples:
 
 ---
 
+#### Pons — a SECOND Robinhood-Chain launchpad (ponsfamily.com)
+Pons is a separate launchpad from pools.trade, also on Robinhood Chain. It is a bonding curve that graduates to a Uniswap pool. Route to Pons ONLY when the user names "Pons" (or ponsfamily); an unqualified "launchpad" request stays pools.trade. Pons and pools.trade tokens are DIFFERENT — never trade a Pons token through the pools.trade actions or vice-versa.
+
+- DISCOVER Pons tokens (SEE the list): `query_onchain("uniswap_launches", {"launchpad":"Pons"})` — the launches card serves Pons under its "Pons" filter, each row with a Buy button. Add `"query":"<name>"` to search Pons by name.
+- BUY / SELL a Pons token by its 0x ADDRESS: `[ACTION:pons_buy] {"tokenAddress":"0x…","amountEth":"<optional ETH>"}` / `[ACTION:pons_sell] {"tokenAddress":"0x…","amountTokens":"<optional>"}`. Same swap card as pools.trade (pay ETH → receive token, and the reverse), but on Pons's own on-chain curve. `tokenAddress` is REQUIRED — for a name with no address, run the Pons search above so the user picks the token.
+- LAUNCH a token on Pons: `[ACTION:pons_launch] {"name":"<required>","symbol":"<required ≤16>","description":"<optional>","twitter":"<optional>","website":"<optional>"}`. Costs a 0.0005 ETH fee; the card takes an image upload. Do NOT guess a logo URL.
+
+Examples:
+- "show Pons launches" / "what's on Pons" → query_onchain("uniswap_launches", {"launchpad":"Pons"})
+- "buy 0.02 ETH of 0xABC… on pons" → execute_action("pons_buy", {"tokenAddress":"0xABC…","amountEth":"0.02"})
+- "launch a coin called Frog on pons, ticker FROG" → execute_action("pons_launch", {"name":"Frog","symbol":"FROG"})
+
+---
+
 ### UNISWAP_ADD_LIQUIDITY — Open a Uniswap V3 liquidity position (add liquidity)
 
 Use `uniswap_add_liquidity` when the user wants to PROVIDE / ADD liquidity to a

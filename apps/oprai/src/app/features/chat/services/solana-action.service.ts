@@ -1521,7 +1521,7 @@ export class SolanaActionService {
     // pools.trade launchpad native buy/sell/launch — EVM (Robinhood chain 4663),
     // no Solana wallet, so route out before the Solana guard.
     if (action.type === 'pools_buy' || action.type === 'pools_sell' || action.type === 'pools_launch'
-        || action.type === 'pons_buy' || action.type === 'pons_sell') {
+        || action.type === 'pons_buy' || action.type === 'pons_sell' || action.type === 'pons_launch') {
       return this.executePoolsTrade(action, callbacks);
     }
 
@@ -2682,10 +2682,11 @@ export class SolanaActionService {
     const p = action.params;
     const isPons = action.type.startsWith('pons');
     const isSell = action.type === 'pools_sell' || action.type === 'pons_sell';
+    const isPonsLaunch = action.type === 'pons_launch';
     const isLaunch = action.type === 'pools_launch';
     const chainId = 4663;
     const token = String(p['tokenAddress'] ?? '');
-    if (!isLaunch && !token && !p['curve']) throw new Error('no token specified.');
+    if (!isLaunch && !isPonsLaunch && !token && !p['curve']) throw new Error('no token specified.');
 
     const ethereum = (window as any).ethereum;
     if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on pools.trade.');
@@ -2736,6 +2737,23 @@ export class SolanaActionService {
         ...(p['creatorFee'] === 'true' ? { creatorFee: true } : {}),
       };
       endpoint = '/actions/uniswap/launch/create';
+    } else if (isPonsLaunch) {
+      // Pons launch: name/symbol/logo/description/socials go on-chain; creator
+      // fee maps to a 1% creatorTax. The backend ABI-encodes factory.launchToken.
+      const name = String(p['name'] ?? '').trim();
+      const symbol = String(p['symbol'] ?? '').trim();
+      if (!name || !symbol) throw new Error('Pons: a token name and symbol are required to launch.');
+      reqBody = {
+        walletAddress: account,
+        name,
+        symbol,
+        ...(p['logo'] ? { logo: String(p['logo']) } : {}),
+        ...(p['description'] ? { description: String(p['description']) } : {}),
+        ...(p['twitter'] ? { twitter: String(p['twitter']) } : {}),
+        ...(p['website'] ? { website: String(p['website']) } : {}),
+        creatorTaxBps: p['creatorFee'] === 'true' ? '100' : '0',
+      };
+      endpoint = '/actions/pons/launch';
     } else {
       // pools.trade's own UI has no slippage control — a swap uses a generous
       // auto-tolerance, and a crowd-launch bid a high max-price ceiling (the

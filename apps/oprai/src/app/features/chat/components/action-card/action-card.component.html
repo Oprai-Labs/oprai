@@ -1370,6 +1370,93 @@
             }
           </div>
 
+        } @else if (action.type === 'pons_launch') {
+          <!-- ─────── Pons launch a token (ponsfamily.com bonding curve) ─────── -->
+          <div class="pl-form">
+            <!-- Token image — uploaded to our host, its public URL stored on-chain. -->
+            <div class="pl-imgrow">
+              <label class="pl-imgcircle" [class.pl-imgcircle--disabled]="!isEditable() || uploadingImage()">
+                <input type="file" accept="image/png,image/webp,image/jpeg" hidden
+                       [disabled]="!isEditable() || uploadingImage()" (change)="onPonsLaunchImage($event)" />
+                @if (getEditParam('logo')) {
+                  <img class="pl-imgcircle__img" [src]="getEditParam('logo')" alt="token image"
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="pl-imgcircle__ph">＋</span>
+                }
+              </label>
+              <div class="pl-imgtext">
+                <span class="pl-imglabel">{{ 'Token image' | t }}</span>
+                <span class="pl-imgsub">{{ uploadingImage() ? ('Uploading…' | t) : ('PNG or WebP · stored on-chain as a link' | t) }}</span>
+              </div>
+            </div>
+            @if (imageUploadError()) { <div class="uni-lp__err">{{ imageUploadError() }}</div> }
+
+            <div class="pl-grid2">
+              <div class="pl-field">
+                <label class="pl-flabel pl-flabel-row">
+                  <span>{{ 'Token name' | t }} <span class="pl-req">*</span></span>
+                  <span class="pl-count">{{ getEditParam('name').length }}/64</span>
+                </label>
+                <input class="pl-input" type="text" maxlength="64" [value]="getEditParam('name')"
+                       [disabled]="!isEditable()" placeholder="Untitled Token"
+                       (input)="setEditParam('name', $any($event.target).value)" />
+              </div>
+              <div class="pl-field">
+                <label class="pl-flabel pl-flabel-row">
+                  <span>{{ 'Ticker symbol' | t }} <span class="pl-req">*</span></span>
+                  <span class="pl-count">{{ getEditParam('symbol').length }}/16</span>
+                </label>
+                <input class="pl-input" type="text" maxlength="16" [value]="getEditParam('symbol')"
+                       [disabled]="!isEditable()" placeholder="TICKER"
+                       (input)="setEditParam('symbol', $any($event.target).value)" />
+              </div>
+            </div>
+
+            <div class="pl-field">
+              <label class="pl-flabel pl-flabel-row">
+                <span>{{ 'Description' | t }}</span>
+                <span class="pl-count">{{ getEditParam('description').length }}/280</span>
+              </label>
+              <textarea class="pl-input pl-textarea" maxlength="280" rows="3" [disabled]="!isEditable()"
+                        placeholder="Briefly describe your token"
+                        (input)="setEditParam('description', $any($event.target).value)">{{ getEditParam('description') }}</textarea>
+            </div>
+
+            <div class="pl-grid2">
+              <div class="pl-field">
+                <label class="pl-flabel"><span>{{ 'X / Twitter' | t }} ({{ 'optional' | t }})</span></label>
+                <input class="pl-input" type="text" [value]="getEditParam('twitter')"
+                       [disabled]="!isEditable()" placeholder="https://x.com/yourtoken"
+                       (input)="setEditParam('twitter', $any($event.target).value)" />
+              </div>
+              <div class="pl-field">
+                <label class="pl-flabel"><span>{{ 'Website' | t }} ({{ 'optional' | t }})</span></label>
+                <input class="pl-input" type="text" [value]="getEditParam('website')"
+                       [disabled]="!isEditable()" placeholder="https://…"
+                       (input)="setEditParam('website', $any($event.target).value)" />
+              </div>
+            </div>
+
+            <!-- Creator fee → sets creatorTaxBps (1%), paid to the deployer. -->
+            <div class="pl-card pl-togcard">
+              <div class="pl-togtext">
+                <span class="pl-togtitle">{{ 'Creator fee' | t }}</span>
+                <span class="pl-togsub">{{ 'Earn 1% of every trade, paid in ETH.' | t }}</span>
+              </div>
+              <button type="button" class="pl-switch" [class.pl-switch--on]="getEditParam('creatorFee') === 'true'"
+                      [disabled]="!isEditable()"
+                      (click)="setEditParam('creatorFee', getEditParam('creatorFee') === 'true' ? 'false' : 'true')">
+                <span class="pl-switch__knob"></span>
+              </button>
+            </div>
+
+            <div class="pl-cca-note">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ 'Launching costs a 0.0005 ETH fee. Your token goes live on a Pons bonding curve immediately (graduates to a Uniswap pool at 4.2 ETH raised).' | t }}</span>
+            </div>
+          </div>
+
         } @else if (action.type === 'limit_order') {
           <!-- ─────── Jupiter limit order: sell N of X to receive M of Y ─────── -->
           <!-- NOT an AMM swap: the BUY amount is the user's LIMIT target (typed,

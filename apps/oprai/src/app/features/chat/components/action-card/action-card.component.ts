@@ -5910,7 +5910,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * a new `<protocol>_claim_fees` then labels itself correctly on arrival.
    */
   get confirmButtonLabel(): string {
-    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token', pons_buy:'Buy', pons_sell:'Sell' };
+    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token', pons_buy:'Buy', pons_sell:'Sell', pons_launch:'Launch token' };
     const t = this.action?.type ?? '';
     if (labels[t]) return labels[t];
     // Ordered longest-verb-first so `add_to_position` isn't read as `stake`
@@ -6050,6 +6050,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     if (this.action?.type === 'pools_sell' || this.action?.type === 'pons_sell') {
       if (!(Number(this.getEditParam('amountTokens')) > 0)) return 'Enter an amount';
+    }
+    if (this.action?.type === 'pons_launch') {
+      if (!this.getEditParam('name').trim()) return 'Enter a token name';
+      if (!this.getEditParam('symbol').trim()) return 'Enter a ticker';
     }
     if (this.isBurn()) {
       if (!this.getEditParam('mint').trim()) return 'Pick a token to burn';
@@ -9070,6 +9074,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** pools.trade launch image: it wants the picture inline as a PNG base64 data
    *  URI (it pins it itself — no hosting on our side). Center-crop to a square
    *  PNG and stash the data URI in editParams.imageUrl (also used as preview). */
+  /** Pons stores the token logo as an on-chain URL, so upload the image to our
+   *  host and keep its public URL — no data-URI / IPFS pinning (Pons has no API). */
+  async onPonsLaunchImage(event: Event): Promise<void> {
+    const f = (event.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    this.uploadingImage.set(true);
+    this.imageUploadError.set(null);
+    try {
+      const result = await firstValueFrom(this.uploadService.uploadImage(f));
+      if (result?.url) this.setEditParam('logo', this.uploadService.getGatewayUrl(result.url));
+    } catch (e: any) {
+      this.imageUploadError.set(e?.message || 'Could not upload that image');
+    } finally {
+      this.uploadingImage.set(false);
+    }
+  }
+
   async onPoolsLaunchImage(event: Event): Promise<void> {
     const f = (event.target as HTMLInputElement).files?.[0];
     if (!f) return;
