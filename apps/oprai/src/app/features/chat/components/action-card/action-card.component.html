@@ -1179,12 +1179,24 @@
                         (input)="setEditParam('description', $any($event.target).value)">{{ getEditParam('description') }}</textarea>
             </div>
 
-            <!-- X Profile -->
+            <!-- X Profile — connected from the account, or connect inline -->
             <div class="pl-card pl-rowcard">
-              <span class="pl-rowlabel">{{ 'X / Twitter' | t }}</span>
-              <input class="pl-rowinput" type="url" [value]="getEditParam('xUrl')"
-                     [disabled]="!isEditable()" placeholder="https://x.com/…"
-                     (input)="setEditParam('xUrl', $any($event.target).value)" />
+              <span class="pl-rowlabel">{{ 'X Profile' | t }}</span>
+              @if (getEditParam('xUrl')) {
+                <span class="pl-xhandle">{{ xHandleDisplay() }}</span>
+                <button type="button" class="pl-xbtn pl-xbtn-ghost" [disabled]="!isEditable()"
+                        (click)="setEditParam('xUrl', ''); xConnecting.set(false)">{{ 'Change' | t }}</button>
+              } @else if (xConnecting()) {
+                <input class="pl-rowinput" type="text" [value]="xConnectInput()" placeholder="@handle"
+                       [disabled]="!isEditable()" (input)="xConnectInput.set($any($event.target).value)"
+                       (keydown.enter)="commitXConnect()" (blur)="commitXConnect()" />
+                <button type="button" class="pl-xbtn" [disabled]="!isEditable()" (click)="commitXConnect()">{{ 'Save' | t }}</button>
+              } @else {
+                <button type="button" class="pl-xbtn pl-xbtn-x" [disabled]="!isEditable()"
+                        (click)="xConnecting.set(true)">
+                  <span class="pl-xicon">𝕏</span> {{ 'Connect' | t }}
+                </button>
+              }
             </div>
 
             <!-- Creator fee -->

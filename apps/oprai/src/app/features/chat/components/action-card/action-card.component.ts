@@ -8588,6 +8588,32 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   getEditParam(key: string): string { return this.editParams()[key] ?? ''; }
 
+  // X Profile connect (inline, in the launch card). Typing a handle here uses it
+  // for THIS launch and persists it to the account so future launches auto-fill.
+  readonly xConnecting = signal(false);
+  readonly xConnectInput = signal('');
+
+  /** "@name" shown when an X profile is set (from the stored xUrl). */
+  xHandleDisplay(): string {
+    const url = this.getEditParam('xUrl');
+    const m = url.match(/(?:x\.com|twitter\.com)\/@?([A-Za-z0-9_]+)/i);
+    return m ? '@' + m[1] : (url ? '@' + url.replace(/^@/, '') : '');
+  }
+
+  /** Save the typed X handle: use it for the launch AND persist to the account. */
+  commitXConnect(): void {
+    const raw = this.xConnectInput().trim();
+    this.xConnecting.set(false);
+    if (!raw) return;
+    const handle = raw.replace(/^@/, '').replace(/^https?:\/\/(?:x\.com|twitter\.com)\//i, '').split(/[/?#]/)[0];
+    if (!handle) return;
+    const url = 'https://x.com/' + handle;
+    this.setEditParam('xUrl', url);
+    // Persist to the account (fire-and-forget) so Wallets shows it and the next
+    // launch auto-fills. Failure here doesn't block the launch.
+    this.account.setTwitter(handle).subscribe({ next: () => {}, error: () => {} });
+  }
+
   /** pools.trade launch image: it wants the picture inline as a PNG base64 data
    *  URI (it pins it itself — no hosting on our side). Center-crop to a square
    *  PNG and stash the data URI in editParams.imageUrl (also used as preview). */
