@@ -1083,10 +1083,24 @@
                 }
               </span>
               <div class="uni-lp__headtext">
-                <span class="uni-lp__pair">{{ pbSell ? 'Sell' : 'Buy' }} {{ getEditParam('symbol') }}</span>
+                <span class="uni-lp__pair">
+                  {{ (isPoolsCca() && !pbSell ? 'Commit to' : (pbSell ? 'Sell' : 'Buy')) | t }} {{ getEditParam('symbol') }}
+                  @if (isPoolsCca()) { <span class="pl-cca-badge">{{ 'Crowd Launch' | t }}</span> }
+                </span>
                 <span class="uni-lp__sub">{{ getEditParam('launchpad') || 'pools.trade' }} · Robinhood Chain</span>
               </div>
             </div>
+
+            @if (isPoolsCca() && !pbSell) {
+              <!-- Crowd Launch: a bid, not a swap. Show how far the auction is to
+                   graduating, and that tokens arrive on claim after it does. -->
+              @if (poolsGradPct() !== null) {
+                <div class="pl-cca-grad">
+                  <div class="pl-cca-grad__bar"><span [style.width.%]="poolsGradPct()"></span></div>
+                  <span class="pl-cca-grad__label">{{ poolsGradPct() | number:'1.0-1' }}% {{ 'to graduation' | t }}</span>
+                </div>
+              }
+            }
 
             <div class="pump-swap" [class.proto-fields--shake]="shake()">
               <!-- You pay -->
@@ -1202,6 +1216,13 @@
                 </div>
               </div>
             </div>
+
+            @if (isPoolsCca() && !pbSell) {
+              <div class="pl-cca-note">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'You commit ETH now; your tokens are claimable once the crowd launch graduates.' | t }}</span>
+              </div>
+            }
           </div>
 
         } @else if (action.type === 'pools_launch') {

@@ -7027,5 +7027,12 @@
 .pl-buycost { font-size: .85rem; color: var(--op-text-secondary); font-variant-numeric: tabular-nums; }
 .pl-buyavail { text-align: right; font-size: .72rem; color: var(--op-text-secondary); }
 .pump-panel__chips { margin-top: 8px; flex-wrap: wrap; }
+.pl-cca-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: .62rem; font-weight: 700; letter-spacing: .02em; vertical-align: middle; color: var(--op-success, #22c55e); background: color-mix(in srgb, var(--op-success, #22c55e) 14%, transparent); }
+.pl-cca-grad { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.pl-cca-grad__bar { flex: 1; height: 5px; border-radius: 999px; background: var(--op-bg-surface-2, rgba(125,125,150,.18)); overflow: hidden; }
+.pl-cca-grad__bar span { display: block; height: 100%; border-radius: 999px; background: var(--op-success, #22c55e); transition: width .2s; }
+.pl-cca-grad__label { font-size: .7rem; color: var(--op-text-secondary); white-space: nowrap; }
+.pl-cca-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; font-size: .73rem; line-height: 1.35; color: var(--op-text-secondary); background: var(--op-bg-surface-1, rgba(125,125,150,.08)); }
+.pl-cca-note lucide-icon { flex: none; margin-top: 1px; color: var(--op-brand, #5b5fc7); }
 .pl-flabel-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pl-count { font-size: .68rem; font-weight: 500; color: var(--op-text-tertiary, var(--op-text-secondary)); font-variant-numeric: tabular-nums; }

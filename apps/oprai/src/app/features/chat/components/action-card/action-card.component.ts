@@ -5867,7 +5867,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   // Computed (template direct access)
   get protocolConfig(): ProtocolConfig { return PROTOCOL_CONFIGS[getProtocolKey(this.action)] ?? PROTOCOL_CONFIGS['default']; }
-  get actionLabel(): string { return getActionLabel(this.action); }
+  get actionLabel(): string {
+    // Buying a Crowd Launch is a commitment (a bid), not an instant buy.
+    if (this.action?.type === 'pools_buy' && this.isPoolsCca()) return 'Commit';
+    return getActionLabel(this.action);
+  }
   /** Adopt the swap widget's visual language (rounded 16px surfaces, taller
    *  inputs, larger figures) for token+amount forms that render via the generic
    *  proto-fields layout — Kamino Multiply and long/short. */
@@ -6034,6 +6038,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type === 'pools_buy') {
       if (!(Number(this.getEditParam('amountEth')) > 0)) return 'Enter an amount';
       if (!(Number(this.getEditParam('amountUsd')) > 0)) return 'Fetching price…';
+      if (this.isPoolsCca() && !this.getEditParam('auctionAddress')) return 'Resolving crowd launch…';
     }
     if (this.action?.type === 'pools_sell') {
       if (!(Number(this.getEditParam('amountTokens')) > 0)) return 'Enter an amount';
@@ -8839,6 +8844,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (m.launchpad && !this.getEditParam('launchpad')) this.setEditParam('launchpad', m.launchpad);
       const usd = Number(m.priceUsd), eth = Number(m.priceEth);
       if (usd > 0 && eth > 0 && this.poolsEthUsd() == null) this.poolsEthUsd.set(usd / eth);
+      if (usd > 0) this.poolsTokenUsd.set(usd);
+      // Crowd Launch (CCA): a bid, not a swap. Stash the auction so the card can
+      // switch to Commit mode and price the estimate off the clearing price.
+      if (m.kind) this.setEditParam('kind', m.kind);
+      if (m.kind === 'cca') {
+        if (m.auctionAddress) this.setEditParam('auctionAddress', m.auctionAddress);
+        if (m.clearingPriceQ96) this.setEditParam('clearingPriceQ96', String(m.clearingPriceQ96));
+        if (m.status) this.setEditParam('ccaStatus', m.status);
+        if (m.graduationProgress != null) this.setEditParam('graduationProgress', String(m.graduationProgress));
+        if (m.endsAt) this.setEditParam('endsAt', String(m.endsAt));
+        // A CCA estimate is computed client-side (prepareBid can't quote a
+        // placeholder wallet), so re-price whatever amount is already entered.
+        this.queuePoolsQuote();
+      }
     } catch { /* address may not be a pools.trade launch — leave the fallback "?" */ }
   }
 
@@ -8849,8 +8868,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   //    doesn't build a tx per keystroke.
   readonly poolsQuote = signal<{ out: number; ethIn: number; impact: number | null } | null>(null);
   readonly poolsQuoting = signal(false);
+  readonly poolsTokenUsd = signal<number | null>(null);   // the token's USD price (for CCA estimate)
   private _poolsQuoteTimer: ReturnType<typeof setTimeout> | null = null;
   private _poolsQuoteSeq = 0;
+
+  /** True when this token is a pools.trade Crowd Launch (CCA) still in its
+   *  auction — buying it means COMMITTING a bid, not swapping. Once it graduates
+   *  it's a normal pool and trades through the swap path like any other. */
+  readonly isPoolsCca = computed(() => this.getEditParam('kind') === 'cca' && this.getEditParam('ccaStatus') !== 'graduated');
+  /** Crowd-launch graduation progress as a 0–100 percentage (null if unknown). */
+  readonly poolsGradPct = computed(() => {
+    const g = Number(this.getEditParam('graduationProgress'));
+    return Number.isFinite(g) && g > 0 ? Math.min(100, g * 100) : null;
+  });
 
   /** Buy pay-side: user enters ETH. prepareBuy is USD-denominated, so we also
    *  stash amountUsd (= ETH × ETH/USD) — the field execute + the quote consume. */
@@ -8881,6 +8911,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const isSell = this.action?.type === 'pools_sell';
     const token = this.getEditParam('tokenAddress');
     if (!token) return;
+    // Crowd Launch (CCA): prepareBid gas-estimates against the wallet, so it
+    // can't quote a placeholder. Price the estimate off the clearing price
+    // client-side instead: tokens ≈ amountUsd / clearingPriceUsd.
+    if (!isSell && this.isPoolsCca()) {
+      const usd = Number(this.getEditParam('amountUsd'));
+      const px = this.poolsTokenUsd();
+      this.poolsQuote.set(usd > 0 && px && px > 0 ? { out: usd / px, ethIn: Number(this.getEditParam('amountEth')) || 0, impact: null } : null);
+      return;
+    }
     const slippagePct = Number(this.getEditParam('slippagePct') ?? 5) || 5;
     const body: Record<string, unknown> = { tokenAddress: token, slippagePct };
     if (isSell) {

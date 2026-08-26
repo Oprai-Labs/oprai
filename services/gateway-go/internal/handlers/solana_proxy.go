@@ -270,6 +270,12 @@ func (p *SolanaProxy) PostPoolsTokenMeta(w http.ResponseWriter, r *http.Request)
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostPoolsLaunchBid — commit (bid) into a pools.trade Crowd Launch (CCA).
+func (p *SolanaProxy) PostPoolsLaunchBid(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/uniswap/launch/bid"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

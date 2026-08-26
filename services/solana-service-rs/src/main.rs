@@ -220,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_pools_x_auth_url)
                     .service(routes::actions::post_pools_eth_balance)
                     .service(routes::actions::post_pools_token_meta)
+                    .service(routes::actions::post_pools_launch_bid)
                     .service(routes::actions::post_uniswap_record)
                     .service(routes::actions::post_relay_index_transaction)
                     .service(routes::actions::post_relay_single_transaction)

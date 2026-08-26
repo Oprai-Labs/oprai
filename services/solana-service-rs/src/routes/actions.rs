@@ -1812,6 +1812,21 @@ pub async fn post_pools_x_auth_url(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/uniswap/launch/bid — commit (bid) into a pools.trade Crowd
+/// Launch (CCA) auction. A crowd launch isn't a swap: you bid ETH during the
+/// auction and claim tokens after it graduates. Proxies cca.prepareBid. Body:
+/// {auctionAddress, walletAddress, amountUsd, maxPriceQ96}.
+#[post("/uniswap/launch/bid")]
+pub async fn post_pools_launch_bid(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result =
+        crate::services::uniswap::pools_trade_mutation(&state.http, "cca.prepareBid", &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/uniswap/launch/token-meta — resolve a pools.trade token's
 /// symbol / name / image / price from its 0x address, so a chat buy/sell by raw
 /// address shows the coin instead of "?". Body: {tokenAddress}. Returns the

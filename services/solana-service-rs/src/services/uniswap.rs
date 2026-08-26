@@ -1215,6 +1215,7 @@ pub async fn pools_trade_mutation(
 /// a pools.trade launch (e.g. a made-up address, or a token traded elsewhere).
 pub async fn pools_token_meta(http: &reqwest::Client, token: &str) -> Result<Value, AppError> {
     let input = json!({ "tokenAddress": token }).to_string();
+    // 1) A curve launch (Instant) — the common case, tradeable via trade.prepareBuy.
     let resp = http
         .get(format!("{POOLS_TRADE_TRPC}/curve.getLaunchByAddress"))
         .query(&[("input", input.as_str())])
@@ -1226,10 +1227,73 @@ pub async fn pools_token_meta(http: &reqwest::Client, token: &str) -> Result<Val
         .json()
         .await
         .map_err(|e| AppError::Internal(format!("pools.trade meta parse failed: {e}")))?;
-    let data = body.get("result").and_then(|r| r.get("data"));
-    Ok(match data.and_then(pools_launch_row) {
-        Some(row) => row,
-        None => Value::Null,
+    if let Some(mut row) = body.get("result").and_then(|r| r.get("data")).and_then(pools_launch_row) {
+        row["kind"] = Value::from("curve");
+        return Ok(row);
+    }
+    // 2) A Crowd Launch (CCA): not a swap yet — you COMMIT (bid) into the auction
+    //    and CLAIM after it graduates. Resolve it so the coin shows + is buyable.
+    let resp = http
+        .get(format!("{POOLS_TRADE_TRPC}/cca.getAuctionByAddress"))
+        .query(&[("input", input.as_str())])
+        .header("accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("pools.trade auction request failed: {e}")))?;
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("pools.trade auction parse failed: {e}")))?;
+    if let Some(a) = body.get("result").and_then(|r| r.get("data")).filter(|v| v.is_object()) {
+        return Ok(cca_auction_row(a));
+    }
+    Ok(Value::Null)
+}
+
+/// Full-integer decimal string for a Q96 fixed-point price. The values exceed
+/// u64, so serde parses them as f64 (lossy in the low digits) — acceptable here
+/// because we only ever use them as a MAX-price ceiling for a bid, never the
+/// price actually paid (a uniform-clearing auction charges the clearing price).
+fn q96_str(v: Option<&Value>) -> String {
+    match v.and_then(|x| x.as_f64()) {
+        Some(f) if f.is_finite() && f > 0.0 => format!("{f:.0}"),
+        _ => String::new(),
+    }
+}
+
+/// Map a cca.getAuctionByAddress record to the same row shape the card consumes,
+/// tagged `kind:"cca"` with the auction contract + clearing price + progress.
+fn cca_auction_row(a: &Value) -> Value {
+    let token = a.get("tokenAddress").and_then(|v| v.as_str()).unwrap_or("");
+    let logo = a.get("imageUrl").and_then(|v| v.as_str()).and_then(resolve_pools_image);
+    let price = a.get("clearingPriceUsd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    json!({
+        "kind":                "cca",
+        "tokenAddress":        token,
+        "symbol":              a.get("tokenSymbol").and_then(|v| v.as_str()).unwrap_or(""),
+        "name":                a.get("tokenName").and_then(|v| v.as_str()).unwrap_or(""),
+        "launchpadId":         "uniswap-cca",
+        "launchpad":           "pools.trade",
+        "logo":                logo,
+        "imageEmoji":          a.get("imageEmoji").cloned().unwrap_or(Value::Null),
+        "imageHue":            a.get("imageHue").cloned().unwrap_or(Value::Null),
+        "priceUsd":            if price > 0.0 { format!("{price}") } else { String::new() },
+        "priceEth":            a.get("clearingPriceEth").and_then(|v| v.as_f64()),
+        "clearingPriceQ96":    q96_str(a.get("clearingPriceQ96")),
+        "floorPriceQ96":       q96_str(a.get("floorPriceQ96")),
+        "tickSizeQ96":         q96_str(a.get("tickSizeQ96")),
+        "auctionAddress":      a.get("auctionContractAddress").and_then(|v| v.as_str()).unwrap_or(""),
+        "status":              a.get("status").and_then(|v| v.as_str()).unwrap_or(""),
+        "graduationProgress":  a.get("graduationProgress").and_then(|v| v.as_f64()),
+        "graduationTargetUsd": a.get("graduationTargetUsd").and_then(|v| v.as_f64()),
+        "raisedUsd":           a.get("raisedUsd").and_then(|v| v.as_f64()),
+        "endsAt":              a.get("endsAt").cloned().unwrap_or(Value::Null),
+        "fdvUsd":              a.get("fdvUsd").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        "holders":             a.get("bidderCount").and_then(|v| v.as_u64()),
+        "quoteSymbol":         "ETH",
+        "quoteAddress":        NATIVE_TOKEN_ADDRESS,
+        "url":                 format!("https://pools.trade/tokens/{token}"),
+        "chain":               "robinhood",
     })
 }
 
