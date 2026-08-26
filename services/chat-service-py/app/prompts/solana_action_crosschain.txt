@@ -83,6 +83,18 @@ Examples:
 
 ---
 
+#### ACTION: pools_buy / pools_sell — trade a pools.trade token (Robinhood Chain)
+Format buy:  [ACTION:pools_buy]  {"tokenAddress":"0x…<required>","symbol":"<optional>","amountUsd":"<optional>"}
+Format sell: [ACTION:pools_sell] {"tokenAddress":"0x…<required>","symbol":"<optional>"}
+
+Use when the user wants to BUY or SELL a specific pools.trade / Robinhood launch token they identify by its 0x token ADDRESS (buying from the launches card already works via its Buy button; this is the chat path). `tokenAddress` is REQUIRED — do NOT guess it from a symbol; if the user only gives a name/symbol and you don't have the address, ask for it or point them to the launches list / their portfolio. The card fetches balances and shows amount/size controls; a buy takes USD, a sell takes a % of holdings. Robinhood-only. Curve-live AND graduated tokens both trade through this path.
+
+Examples:
+- "pools.trade'de 0xABC… tokenından $10 al" → execute_action("pools_buy", {"tokenAddress":"0xABC…","amountUsd":"10"})
+- "0xABC… tokenımı sat" → execute_action("pools_sell", {"tokenAddress":"0xABC…"})
+
+---
+
 #### ACTION: pools_launch — create (launch) a token on pools.trade (Robinhood Chain)
 Format: [ACTION:pools_launch] {"tokenName":"<required>","tokenSymbol":"<required>","description":"<optional>","mode":"<optional instant|crowd>","xUrl":"<optional>","website":"<optional>"}
 `mode`: "instant" (bonding curve, live immediately — default) or "crowd" (4-hour Continuous Clearing Auction, fairer distribution). Pass it only if the user asks for a specific one; otherwise omit and the card lets them choose. The image is chosen in the card (a file picker), not via a URL.

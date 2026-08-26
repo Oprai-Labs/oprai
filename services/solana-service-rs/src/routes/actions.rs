@@ -1812,13 +1812,16 @@ pub async fn post_pools_x_auth_url(
     Ok(HttpResponse::Ok().json(result))
 }
 
-/// POST /actions/uniswap/eth-balance — a wallet's NATIVE ETH balance on Robinhood
-/// Chain (4663). Read via our RPC so it's the RIGHT chain regardless of what the
-/// browser wallet is currently switched to (window.ethereum reads the active
-/// chain, which is wrong for sizing a Robinhood pre-launch buy). Body: {address}.
+/// POST /actions/uniswap/eth-balance — a wallet's balance on Robinhood Chain
+/// (4663). Native ETH by default; pass `token` (an ERC-20 mint) for a token
+/// balance (used to size a Sell as a % of holdings). Read via our RPC so it's
+/// the RIGHT chain regardless of what the browser wallet is switched to. Body:
+/// {address, token?}.
 #[derive(Debug, Deserialize)]
 pub struct EthBalanceBody {
     pub address: String,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 #[post("/uniswap/eth-balance")]
@@ -1827,14 +1830,19 @@ pub async fn post_pools_eth_balance(
     state: web::Data<AppState>,
     body: web::Json<EthBalanceBody>,
 ) -> Result<HttpResponse, AppError> {
-    let (display, raw, _dec) = crate::services::uniswap::token_balance_of(
-        &state.http,
-        4663,
-        &body.address,
-        crate::services::relay::NATIVE_TOKEN_ADDRESS,
-    )
-    .await;
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "balanceEth": display, "balanceWei": raw })))
+    let token = body
+        .token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .unwrap_or(crate::services::relay::NATIVE_TOKEN_ADDRESS);
+    let (display, raw, decimals) =
+        crate::services::uniswap::token_balance_of(&state.http, 4663, &body.address, token).await;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "balanceEth": display,   // native (kept for the buy-size caller)
+        "balance": display,      // generic label
+        "balanceWei": raw,
+        "decimals": decimals,
+    })))
 }
 
 /// POST /actions/uniswap/launch/create — prepare a pools.trade token launch.

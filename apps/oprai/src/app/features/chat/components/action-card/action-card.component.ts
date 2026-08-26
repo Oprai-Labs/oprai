@@ -6241,6 +6241,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       };
       window.addEventListener('focus', this.poolsFocusHandler);
     }
+    if (this.action?.type === 'pools_sell') void this.fetchPoolsSellBalance();
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
@@ -8758,6 +8759,33 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         if (bp && !this.poolsBuyAffordable(+bp)) { this.setEditParam('buyPct', ''); this.setEditParam('buyAmountUsd', ''); }
       }
     } catch { /* leave last-known balance */ }
+  }
+
+  // Sell sizing — the wallet's balance of the token being sold (Robinhood).
+  readonly poolsSellBal = signal<number | null>(null);
+  readonly poolsSellPct = signal<number | null>(null);
+
+  /** Pick a sell size as a % of the held balance → set token amount + wei. */
+  setPoolsSellPct(pct: number): void {
+    const bal = this.poolsSellBal();
+    if (bal == null || !(bal > 0)) return;
+    this.poolsSellPct.set(pct);
+    const amt = pct >= 100 ? bal : bal * pct / 100;
+    // Trim float noise; onPoolsSellAmount stores amountTokens + amountInWei.
+    this.onPoolsSellAmount(amt.toFixed(9).replace(/\.?0+$/, ''));
+  }
+
+  /** Load the wallet's Robinhood balance of the sell token (for % chips + Max). */
+  async fetchPoolsSellBalance(): Promise<void> {
+    const token = this.getEditParam('tokenAddress');
+    if (!token) return;
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token }));
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      if (Number.isFinite(bal)) this.poolsSellBal.set(bal);
+    } catch { /* balance unknown — user can still type an amount */ }
   }
 
   /** "10.00M" style label for a buy size's token count. */
