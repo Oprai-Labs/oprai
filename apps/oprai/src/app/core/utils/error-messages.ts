@@ -496,6 +496,13 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
   if (/description/i.test(lower) && /pools\.trade|invalid|required|pattern/i.test(lower)) {
     return 'Add a short description for your token, then try again.';
   }
+  // pools.trade Crowd Launch (CCA): a bid on an auction that's over / not open.
+  if (/submitbid|prepare ?bid|estimate gas for bid|auction (has )?(ended|closed|not)/i.test(lower)) {
+    return 'This crowd launch isn’t accepting commitments right now — the auction has ended or hasn’t opened yet.';
+  }
+  if (/no (swap )?route|no pay-token route|tradingapinoroute/i.test(lower)) {
+    return 'This token can’t be traded yet — it isn’t live on a pool. If it’s a crowd launch, commit to the auction instead.';
+  }
 
   // Catch-all. Everything a user can act on has been mapped to prose above, so
   // whatever is still here is unmapped by definition — and if it still reads

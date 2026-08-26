@@ -6039,6 +6039,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!(Number(this.getEditParam('amountEth')) > 0)) return 'Enter an amount';
       if (!(Number(this.getEditParam('amountUsd')) > 0)) return 'Fetching price…';
       if (this.isPoolsCca() && !this.getEditParam('auctionAddress')) return 'Resolving crowd launch…';
+      if (this.isPoolsCca() && this.poolsCcaEnded()) return 'This crowd launch has ended';
     }
     if (this.action?.type === 'pools_sell') {
       if (!(Number(this.getEditParam('amountTokens')) > 0)) return 'Enter an amount';
@@ -8880,6 +8881,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly poolsGradPct = computed(() => {
     const g = Number(this.getEditParam('graduationProgress'));
     return Number.isFinite(g) && g > 0 ? Math.min(100, g * 100) : null;
+  });
+  /** A crowd launch stops taking commitments once its auction window closes.
+   *  MEME-style tokens sit at "notGraduated" after endsAt — no bids, no pool. */
+  readonly poolsCcaEnded = computed(() => {
+    const e = this.getEditParam('endsAt');
+    const t = e ? Date.parse(e) : NaN;
+    return Number.isFinite(t) && t < Date.now();
   });
 
   /** Buy pay-side: user enters ETH. prepareBuy is USD-denominated, so we also

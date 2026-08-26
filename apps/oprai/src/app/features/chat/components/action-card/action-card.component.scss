@@ -7034,5 +7034,7 @@
 .pl-cca-grad__label { font-size: .7rem; color: var(--op-text-secondary); white-space: nowrap; }
 .pl-cca-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; font-size: .73rem; line-height: 1.35; color: var(--op-text-secondary); background: var(--op-bg-surface-1, rgba(125,125,150,.08)); }
 .pl-cca-note lucide-icon { flex: none; margin-top: 1px; color: var(--op-brand, #5b5fc7); }
+.pl-cca-ended { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 4px; padding: 8px 10px; border-radius: 10px; font-size: .73rem; line-height: 1.35; color: var(--op-warning, #d97706); background: color-mix(in srgb, var(--op-warning, #d97706) 12%, transparent); }
+.pl-cca-ended lucide-icon { flex: none; margin-top: 1px; }
 .pl-flabel-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pl-count { font-size: .68rem; font-weight: 500; color: var(--op-text-tertiary, var(--op-text-secondary)); font-variant-numeric: tabular-nums; }

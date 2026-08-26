@@ -1094,7 +1094,12 @@
             @if (isPoolsCca() && !pbSell) {
               <!-- Crowd Launch: a bid, not a swap. Show how far the auction is to
                    graduating, and that tokens arrive on claim after it does. -->
-              @if (poolsGradPct() !== null) {
+              @if (poolsCcaEnded()) {
+                <div class="pl-cca-ended">
+                  <lucide-icon name="info" [size]="13" />
+                  <span>{{ 'This crowd launch has ended — it didn’t reach graduation, so it isn’t accepting commitments.' | t }}</span>
+                </div>
+              } @else if (poolsGradPct() !== null) {
                 <div class="pl-cca-grad">
                   <div class="pl-cca-grad__bar"><span [style.width.%]="poolsGradPct()"></span></div>
                   <span class="pl-cca-grad__label">{{ poolsGradPct() | number:'1.0-1' }}% {{ 'to graduation' | t }}</span>
