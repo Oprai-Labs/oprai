@@ -99,8 +99,10 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "bsc", "bnb chain", "avalanche",
     ),
     "debridge":  ("debridge",),
-    # Uniswap — a single-meaning product name; the same-chain EVM swap venue.
-    "uniswap":   ("uniswap", "uni swap"),
+    # Uniswap — same-chain EVM swap venue AND the pools.trade launchpad. The
+    # launchpad names/aliases map here so "launch a token on pools.trade / the
+    # uniswap launchpad" loads the pools_* tools (buy/sell/launch).
+    "uniswap":   ("uniswap", "uni swap", "pools.trade", "pools trade", "poolstrade", "launchpad"),
 }
 
 
