@@ -1155,25 +1155,34 @@
             </div>
             @if (imageUploadError()) { <div class="uni-lp__err">{{ imageUploadError() }}</div> }
 
-            <!-- Name + Ticker (two columns) -->
+            <!-- Name + Ticker (two columns). Limits: name ≤40, ticker 1–8 alnum. -->
             <div class="pl-grid2">
               <div class="pl-field">
-                <label class="pl-flabel">{{ 'Token name' | t }} <span class="pl-req">*</span></label>
-                <input class="pl-input" type="text" maxlength="32" [value]="getEditParam('tokenName')"
+                <label class="pl-flabel pl-flabel-row">
+                  <span>{{ 'Token name' | t }} <span class="pl-req">*</span></span>
+                  <span class="pl-count">{{ getEditParam('tokenName').length }}/40</span>
+                </label>
+                <input class="pl-input" type="text" maxlength="40" [value]="getEditParam('tokenName')"
                        [disabled]="!isEditable()" placeholder="Untitled Token"
                        (input)="setEditParam('tokenName', $any($event.target).value)" />
               </div>
               <div class="pl-field">
-                <label class="pl-flabel">{{ 'Ticker symbol' | t }} <span class="pl-req">*</span></label>
+                <label class="pl-flabel pl-flabel-row">
+                  <span>{{ 'Ticker symbol' | t }} <span class="pl-req">*</span></span>
+                  <span class="pl-count">{{ getEditParam('tokenSymbol').length }}/8</span>
+                </label>
                 <input class="pl-input" type="text" maxlength="8" [value]="getEditParam('tokenSymbol')"
                        [disabled]="!isEditable()" placeholder="TICKER"
                        (input)="setEditParam('tokenSymbol', sanitizeTicker($any($event.target).value))" />
               </div>
             </div>
 
-            <!-- Description -->
+            <!-- Description (≤280) -->
             <div class="pl-field">
-              <label class="pl-flabel">{{ 'Description' | t }} <span class="pl-req">*</span></label>
+              <label class="pl-flabel pl-flabel-row">
+                <span>{{ 'Description' | t }} <span class="pl-req">*</span></span>
+                <span class="pl-count">{{ getEditParam('description').length }}/280</span>
+              </label>
               <textarea class="pl-input pl-textarea" maxlength="280" rows="3" [disabled]="!isEditable()"
                         placeholder="Briefly describe your token"
                         (input)="setEditParam('description', $any($event.target).value)">{{ getEditParam('description') }}</textarea>
