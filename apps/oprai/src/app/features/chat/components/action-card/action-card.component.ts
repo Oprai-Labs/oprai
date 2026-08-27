@@ -8864,6 +8864,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (m.logo && !this.getEditParam('logo')) this.setEditParam('logo', m.logo);
       if (m.launchpad && !this.getEditParam('launchpad')) this.setEditParam('launchpad', m.launchpad);
       if (m.curve && !this.getEditParam('curve')) this.setEditParam('curve', m.curve);
+      if (m.graduated) this.setEditParam('graduated', 'true'); // Pons: now a Uniswap pool
       const usd = Number(m.priceUsd), eth = Number(m.priceEth);
       if (usd > 0 && eth > 0 && this.poolsEthUsd() == null) this.poolsEthUsd.set(usd / eth);
       if (usd > 0) this.poolsTokenUsd.set(usd);
@@ -9006,6 +9007,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const isPons = this.isPonsAction();
     const token = this.getEditParam('tokenAddress');
     if (!token) return;
+    // Graduated Pons token → it's a normal Uniswap pool now; price via our own
+    // Uniswap quote (ETH↔token), not the closed curve.
+    if (isPons && this.getEditParam('graduated') === 'true') {
+      const amount = isSell ? this.getEditParam('amountTokens') : this.getEditParam('amountEth');
+      if (!amount || !(Number(amount) > 0)) { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
+      this.poolsQuoting.set(true);
+      try {
+        const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/quote', {
+          originChainId: '4663', destinationChainId: '4663',
+          originCurrency: isSell ? token : 'ETH',
+          destinationCurrency: isSell ? 'ETH' : token,
+          amount, tradeType: 'EXACT_INPUT',
+        }));
+        if (seq !== this._poolsQuoteSeq) return;
+        const out = Number(r?.output?.amount) / 1e18;
+        this.poolsQuote.set(Number.isFinite(out) && out > 0 ? { out, ethIn: Number(this.getEditParam('amountEth')) || 0, impact: null } : null);
+      } catch { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); }
+      finally { if (seq === this._poolsQuoteSeq) this.poolsQuoting.set(false); }
+      return;
+    }
     // Crowd Launch (CCA): prepareBid gas-estimates against the wallet, so it
     // can't quote a placeholder. Price the estimate off the clearing price
     // client-side instead: tokens ≈ amountUsd / clearingPriceUsd.

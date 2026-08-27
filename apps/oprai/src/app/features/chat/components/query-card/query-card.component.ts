@@ -84,6 +84,7 @@ interface UniswapLaunch {
   kind?: string;            // "pons-curve" for Pons launches
   curve?: string;           // Pons bonding-curve address
   pairToken?: string;
+  graduated?: boolean;      // Pons: curve done, now a Uniswap pool
 }
 interface LaunchpadOpt { id: string; label: string; }
 
@@ -3559,9 +3560,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
    *  where the user enters the USD amount. Uses trade.prepareBuy, NOT a raw v4
    *  swap — curve-live tokens aren't swappable until they graduate. */
   buyUniswapLaunch(l: UniswapLaunch): void {
-    // Pons is a separate launchpad (its own on-chain bonding curve), so its Buy
-    // routes to the pons_buy card, not pools.trade's.
     const isPons = l.kind === 'pons-curve' || (l.launchpad || '').toLowerCase() === 'pons';
+    // A GRADUATED Pons token has left its curve for a normal Uniswap pool on
+    // Robinhood, so trade it with our own Uniswap swap — no launchpad curve, no
+    // third-party router.
+    if (isPons && (l.graduated || l.status === 'graduated')) {
+      const p: Record<string, string> = {
+        originChainId: '4663', destinationChainId: '4663',
+        originCurrency: 'ETH', destinationCurrency: l.tokenAddress,
+        amount: '0.01', tradeType: 'EXACT_INPUT',
+        symbol: l.symbol, ...(l.logo ? { logo: l.logo } : {}),
+      };
+      this.useAction.emit({ type: 'uniswap_swap', params: p, raw: `[ACTION:uniswap_swap] ${JSON.stringify(p)}` });
+      return;
+    }
+    // On-curve Pons → pons_buy; pools.trade → pools_buy.
     const params: Record<string, string> = {
       chain: 'robinhood',
       tokenAddress: l.tokenAddress,

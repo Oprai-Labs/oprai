@@ -2683,6 +2683,16 @@ export class SolanaActionService {
     const isPons = action.type.startsWith('pons');
     const isSell = action.type === 'pools_sell' || action.type === 'pons_sell';
     const isPonsLaunch = action.type === 'pons_launch';
+
+    // A graduated Pons token is a normal Uniswap pool on Robinhood — trade it
+    // through our own Uniswap swap, not the (closed) curve.
+    if (isPons && !isPonsLaunch && p['graduated'] === 'true') {
+      const t = String(p['tokenAddress'] ?? '');
+      const swapParams = isSell
+        ? { originChainId: '4663', destinationChainId: '4663', originCurrency: t, destinationCurrency: 'ETH', amount: String(p['amountTokens'] ?? ''), tradeType: 'EXACT_INPUT' }
+        : { originChainId: '4663', destinationChainId: '4663', originCurrency: 'ETH', destinationCurrency: t, amount: String(p['amountEth'] ?? ''), tradeType: 'EXACT_INPUT' };
+      return this.executeUniswapSwap({ type: 'uniswap_swap', params: swapParams, raw: '' } as ParsedAction, callbacks);
+    }
     const isLaunch = action.type === 'pools_launch';
     const chainId = 4663;
     const token = String(p['tokenAddress'] ?? '');
