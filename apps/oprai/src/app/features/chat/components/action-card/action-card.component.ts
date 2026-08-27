@@ -6291,6 +6291,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       };
       window.addEventListener('focus', this.poolsFocusHandler);
     }
+    if (this.action?.type === 'pons_launch') {
+      void this.fetchPoolsBuyContext(); // ETH balance + rate for the Developer-buy field
+    }
     if (this.action?.type === 'pools_sell' || this.action?.type === 'pons_sell') {
       void this.resolvePoolsTokenMeta();
       void this.fetchPoolsSellBalance();
@@ -9007,6 +9010,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Pons buys the curve directly with ETH (wei); pools.trade converts to USD.
     this.setEditParam('amountWei', eth > 0 ? this.ethToWei(v) : '');
     this.queuePoolsQuote();
+  }
+
+  /** Pons developer-buy Max: balance minus the 0.0005 launch fee and gas. */
+  setPonsDevBuyMax(): void {
+    const bal = this.poolsAvailEth();
+    if (bal == null) return;
+    const usable = Math.max(0, bal - 0.0005 - 0.00002);
+    this.setEditParam('devBuyEth', usable > 0 ? usable.toFixed(6).replace(/\.?0+$/, '') : '0');
   }
 
   /** Buy Max: whole ETH balance minus a hair for gas. */

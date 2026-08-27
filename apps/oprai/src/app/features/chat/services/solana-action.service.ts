@@ -2680,6 +2680,15 @@ export class SolanaActionService {
    * may precede the trade). We switch the wallet to Robinhood, send each,
    * waiting for each to land, and return the final tx hash.
    */
+  /** Decimal ETH → wei integer string (no float loss). */
+  private ethToWeiStr(v: string): string {
+    const s = String(v ?? '').trim();
+    if (!s || !/^\d*\.?\d*$/.test(s)) return '0';
+    const [intPart = '0', fracRaw = ''] = s.split('.');
+    const frac = (fracRaw + '0'.repeat(18)).slice(0, 18);
+    return ((intPart.replace(/\D/g, '') || '0') + frac).replace(/^0+/, '') || '0';
+  }
+
   private async executePoolsTrade(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
     const p = action.params;
     const isPons = action.type.startsWith('pons');
@@ -2762,6 +2771,7 @@ export class SolanaActionService {
         ...(p['logo'] ? { logo: String(p['logo']) } : {}),
         ...(p['description'] ? { description: String(p['description']) } : {}),
         ...(p['twitter'] ? { twitter: String(p['twitter']) } : {}),
+        ...(p['telegram'] ? { telegram: String(p['telegram']) } : {}),
         ...(p['website'] ? { website: String(p['website']) } : {}),
         creatorTaxBps: p['creatorFee'] === 'true' ? '100' : '0',
       };
@@ -2830,6 +2840,35 @@ export class SolanaActionService {
         callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
       }
+    }
+
+    // Pons "Developer buy": the token is live on its curve immediately, so read
+    // the launch receipt for the TokenLaunched event (token+curve), then do a
+    // follow-on native curve buy. Best-effort — a failed dev buy never fails the
+    // launch itself.
+    if (isPonsLaunch && Number(p['devBuyEth']) > 0 && lastHash) {
+      try {
+        const wei = this.ethToWeiStr(String(p['devBuyEth']));
+        const rc: any = await withTimeout(ethereum.request({ method: 'eth_getTransactionReceipt', params: [lastHash] }), 30_000, 'receipt');
+        const TL = '0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607'; // TokenLaunched
+        const factory = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
+        const log = (rc?.logs ?? []).find((l: any) => (l.topics?.[0] ?? '').toLowerCase() === TL && (l.address ?? '').toLowerCase() === factory);
+        const curve = log?.topics?.[2] ? '0x' + String(log.topics[2]).slice(26) : '';
+        if (curve && wei !== '0') {
+          const buyPrep = await firstValueFrom(this.api.post<any>('/actions/pons/buy', {
+            curve, walletAddress: account, amountWei: wei, slippagePct: 20,
+          }));
+          for (const tx of (buyPrep?.transactions ?? [])) {
+            if (!tx?.to) continue;
+            const gh = toHexQty(tx.gas ?? tx.gasLimit);
+            const h = await withTimeout(ethereum.request({
+              method: 'eth_sendTransaction',
+              params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gh ? { gas: gh } : {}) }],
+            }), 120_000, 'developer buy') as string;
+            await this.watchEvmReceipt(ethereum, h);
+          }
+        }
+      } catch { /* launch already succeeded; the optional dev buy failed — ignore */ }
     }
 
     // Instant launch + "Buy at launch": once the token is live (bonding curve is
