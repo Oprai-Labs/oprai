@@ -101,6 +101,14 @@ pub struct CrossChainSwapParams {
     /// Currently only relay is fully supported; others are placeholders for future implementation
     #[serde(default)]
     pub provider: Option<String>,
+    /// EVM swapper override. When the auth-header wallet isn't an EVM address
+    /// (e.g. a Solana-native OPRAI session with a separately-connected EVM
+    /// wallet), the client passes its connected EVM address here so a same-chain
+    /// Uniswap quote/swap can be priced/built. Pricing only for the quote; the
+    /// built swap is still signed by the user's own wallet, so this can't move
+    /// anyone else's funds.
+    #[serde(default)]
+    pub sender: Option<String>,
 }
 
 fn default_trade_type() -> String {
@@ -1881,6 +1889,7 @@ pub async fn relay_bridge(
         referrer: params.referrer.clone(),
         slippage_bps: params.slippage_tolerance.unwrap_or(50),
         provider: Some("relay".to_string()),
+        sender: None,
     };
 
     let preview = CrossChainSwapPreview {

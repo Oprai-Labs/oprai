@@ -2591,6 +2591,8 @@ export class SolanaActionService {
       destinationCurrency: p['destinationCurrency'] ?? p['outputMint'] ?? p['tokenOut'] ?? p['toToken'],
       amount: p['amount'],
       tradeType: p['tradeType'] ?? 'EXACT_INPUT',
+      // The connected EVM wallet is the swapper (the OPRAI session may be Solana).
+      sender: account,
       ...(p['slippageBps'] ? { slippageBps: p['slippageBps'] } : {}),
     }));
 

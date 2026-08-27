@@ -4347,6 +4347,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private async fetchUniswapPreview(silent = false): Promise<void> {
     const p = this.action?.params ?? {};
     const chainId = Number(p['originChainId'] ?? p['chainId'] ?? 0);
+    const evm = await this.resolveEvmAddress();
     const body = {
       originChainId: chainId,
       destinationChainId: chainId,
@@ -4354,6 +4355,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       destinationCurrency: p['destinationCurrency'] ?? p['outputMint'] ?? p['tokenOut'] ?? p['toToken'],
       amount: p['amount'],
       tradeType: p['tradeType'] ?? 'EXACT_INPUT',
+      // Connected EVM wallet is the swapper (OPRAI session may be Solana).
+      ...(evm ? { sender: evm } : {}),
     };
     const seq = ++this._uniQuoteSeq;
     if (!silent) this.uniswapPreview.set({ loading: true, payAmount: String(p['amount'] ?? '') });
@@ -9013,12 +9016,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const amount = isSell ? this.getEditParam('amountTokens') : this.getEditParam('amountEth');
       if (!amount || !(Number(amount) > 0)) { if (seq === this._poolsQuoteSeq) this.poolsQuote.set(null); return; }
       this.poolsQuoting.set(true);
+      // The OPRAI session may be a Solana wallet; the swapper must be the
+      // connected EVM address for the Uniswap quote to price.
+      const evm = this.poolsBuyAddr || await this.resolveEvmAddress();
+      if (seq !== this._poolsQuoteSeq) return;
       try {
         const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/quote', {
           originChainId: '4663', destinationChainId: '4663',
           originCurrency: isSell ? token : 'ETH',
           destinationCurrency: isSell ? 'ETH' : token,
           amount, tradeType: 'EXACT_INPUT',
+          ...(evm ? { sender: evm } : {}),
         }));
         if (seq !== this._poolsQuoteSeq) return;
         const out = Number(r?.output?.amount) / 1e18;

@@ -1664,7 +1664,13 @@ pub async fn post_uniswap_quote(
     state: web::Data<AppState>,
     body: web::Json<crate::services::relay::CrossChainSwapParams>,
 ) -> Result<HttpResponse, AppError> {
-    let wallet = wallet_from_req(&req)?;
+    // Swapper: prefer a valid EVM address the client passes (a Solana-native
+    // OPRAI session can't be the EVM swapper, but the user has a connected EVM
+    // wallet). Pricing only — the built swap is signed by the user's own wallet.
+    let wallet = match body.sender.as_deref().filter(|s| s.len() == 42 && s.starts_with("0x")) {
+        Some(s) => s.to_string(),
+        None => wallet_from_req(&req)?,
+    };
     if body.origin_chain_id != body.destination_chain_id {
         return Err(AppError::InvalidParams(
             "Uniswap swaps are same-chain only — use a bridge for cross-chain.".into(),
