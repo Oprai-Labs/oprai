@@ -352,7 +352,10 @@ pub async fn pons_token_meta(http: &reqwest::Client, token: &str) -> Result<Valu
     // 10=phase, 14=exists.
     let exists = word_f64(&raw, 14) != 0.0;
     if !exists {
-        return Ok(Value::Null);
+        // Not a V2 launch — maybe a Pons V1 token (CREATE2 + Uniswap V3). V1
+        // tokens live on a normal Uniswap V3 pool, so trade them via uniswap_swap
+        // (mark graduated:true). Resolve name/symbol/logo so the card shows them.
+        return pons_v1_meta(http, &rpc, token).await;
     }
     let curve = word_addr(&raw, 1);
     let pair_token = word_addr(&raw, 4);
@@ -372,6 +375,50 @@ pub async fn pons_token_meta(http: &reqwest::Client, token: &str) -> Result<Valu
         o.insert("phase".to_string(), Value::from(phase));
     }
     Ok(row)
+}
+
+pub const PONS_V1_FACTORY: &str = "0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB";
+
+/// Resolve a Pons V1 token (Uniswap V3). Returns a meta row tagged
+/// `kind:"pons-v1"` + `graduated:true` so the frontend trades it via uniswap_swap.
+async fn pons_v1_meta(http: &reqwest::Client, rpc: &str, token: &str) -> Result<Value, AppError> {
+    let raw = eth_call(http, rpc, PONS_V1_FACTORY, &format!("{SEL_GET_LAUNCHED}{}", enc_addr(token))).await?;
+    // V1 getLaunchedToken word0 = token; a match means it's a Pons V1 launch.
+    if !word_addr(&raw, 0).eq_ignore_ascii_case(token) {
+        return Ok(Value::Null);
+    }
+    let (sym_hex, name_hex, logo_hex) = futures::join!(
+        eth_call(http, rpc, token, "0x95d89b41"),
+        eth_call(http, rpc, token, "0x06fdde03"),
+        eth_call(http, rpc, token, SEL_LOGO),
+    );
+    let mut symbol = decode_abi_string(&sym_hex.unwrap_or_default());
+    let mut name = decode_abi_string(&name_hex.unwrap_or_default());
+    let mut logo = resolve_logo(&logo_hex.map(|h| decode_abi_string(&h)).unwrap_or_default());
+    // V1 tokens sometimes expose name/symbol/icon only via Blockscout.
+    if symbol.is_empty() || name.is_empty() || logo.is_empty() {
+        let turl = format!("{PONS_BLOCKSCOUT}/tokens/{token}");
+        if let Ok(resp) = http.get(&turl).header("user-agent", "oprai").send().await {
+            if let Ok(tj) = resp.json::<Value>().await {
+                if symbol.is_empty() { symbol = tj.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string(); }
+                if name.is_empty() { name = tj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(); }
+                if logo.is_empty() { logo = tj.get("icon_url").and_then(|v| v.as_str()).unwrap_or("").to_string(); }
+            }
+        }
+    }
+    Ok(json!({
+        "tokenAddress": token,
+        "symbol":       symbol,
+        "name":         name,
+        "launchpadId":  "pons-v1",
+        "launchpad":    "Pons",
+        "kind":         "pons-v1",
+        "graduated":    true,   // trade via uniswap_swap (it's a Uniswap V3 pool)
+        "logo":         if logo.is_empty() { Value::Null } else { Value::from(logo) },
+        "quoteSymbol":  "ETH",
+        "chain":        "robinhood",
+        "url":          format!("https://www.ponsfamily.com/token/{token}"),
+    }))
 }
 
 /// Build a Pons bonding-curve BUY. Native-pair launches pay ETH (msg.value);
