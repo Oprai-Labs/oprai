@@ -388,9 +388,22 @@ pub async fn build_pons_buy(http: &reqwest::Client, body: &Value) -> Result<Valu
     }
     let curve = resolve_curve(http, &rpc, body).await?;
     if is_graduated(http, &rpc, &curve).await {
-        return Err(AppError::InvalidParams(
-            "This Pons token has graduated — trade it on the Uniswap pool.".into(),
-        ));
+        // Graduated: no longer on the curve — it's a normal Uniswap V4 pool on
+        // Robinhood. pools.trade's aggregator routes any liquid token there via
+        // the Universal Router, so reuse it (USD-denominated) instead of
+        // encoding a raw V4 swap.
+        let token = resolve_token(http, &rpc, body, &curve).await?;
+        let eth_usd = pools_eth_usd(http).await.unwrap_or(0.0);
+        let amount_usd = (quote_in as f64 / 1e18) * eth_usd;
+        if amount_usd <= 0.0 {
+            return Err(AppError::InvalidParams("pons: could not price the swap".into()));
+        }
+        return crate::services::uniswap::pools_trade_mutation(
+            http,
+            "trade.prepareBuy",
+            &json!({ "tokenAddress": token, "walletAddress": wallet, "amountUsd": amount_usd, "slippagePct": slippage }),
+        )
+        .await;
     }
     let pair_token = word_addr(&eth_call(http, &rpc, &curve, SEL_PAIR_TOKEN).await?, 0);
     let native = pair_token.eq_ignore_ascii_case(NATIVE);
@@ -442,9 +455,15 @@ pub async fn build_pons_sell(http: &reqwest::Client, body: &Value) -> Result<Val
     let token = body.get("tokenAddress").and_then(|v| v.as_str()).unwrap_or("");
     let curve = resolve_curve(http, &rpc, body).await?;
     if is_graduated(http, &rpc, &curve).await {
-        return Err(AppError::InvalidParams(
-            "This Pons token has graduated — trade it on the Uniswap pool.".into(),
-        ));
+        // Graduated → route the sell through pools.trade's aggregator (Uniswap
+        // V4 pool via the Universal Router), same as buy.
+        let token_addr = resolve_token(http, &rpc, body, &curve).await?;
+        return crate::services::uniswap::pools_trade_mutation(
+            http,
+            "trade.prepareSell",
+            &json!({ "tokenAddress": token_addr, "walletAddress": wallet, "amountInWei": tokens_in.to_string(), "slippagePct": slippage }),
+        )
+        .await;
     }
     // expected quote out = getAmountOut(tokensIn, tokenReserve, quoteReserve), fee off output.
     let reserves = eth_call(http, &rpc, &curve, SEL_GET_RESERVES).await?;
@@ -635,6 +654,15 @@ async fn resolve_curve(http: &reqwest::Client, rpc: &str, body: &Value) -> Resul
         return Err(AppError::InvalidParams("pons: not a Pons launch".into()));
     }
     Ok(curve)
+}
+
+/// The token address for a request — from the body, else curve.token().
+async fn resolve_token(http: &reqwest::Client, rpc: &str, body: &Value, curve: &str) -> Result<String, AppError> {
+    if let Some(t) = body.get("tokenAddress").and_then(|v| v.as_str()).filter(|s| s.starts_with("0x") && s.len() == 42) {
+        return Ok(t.to_string());
+    }
+    let raw = eth_call(http, rpc, curve, "0xfc0c546a").await?; // curve.token()
+    Ok(word_addr(&raw, 0))
 }
 
 async fn is_graduated(http: &reqwest::Client, rpc: &str, curve: &str) -> bool {
