@@ -1163,20 +1163,25 @@ async def _resolve_tier_daily_token_cap(db: AsyncSession, wallet: str) -> int | 
     """
     if not wallet:
         return None
+    # Run inside a SAVEPOINT: this read shares the request's session, and if the
+    # query errors (e.g. a pgbouncer prepared-statement hiccup) it would abort
+    # the whole transaction and break the later message INSERT. A nested
+    # transaction contains the failure so the outer write survives.
     try:
-        row = (
-            await db.execute(
-                text(
-                    "SELECT tc.daily_token_limit FROM analytics_schema.tier_config tc "
-                    "WHERE tc.tier = COALESCE("
-                    "(SELECT tier FROM admin_schema.v_user_tier WHERE wallet = :w), 1)"
-                ),
-                {"w": wallet},
-            )
-        ).first()
+        async with db.begin_nested():
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT tc.daily_token_limit FROM analytics_schema.tier_config tc "
+                        "WHERE tc.tier = COALESCE("
+                        "(SELECT tier FROM admin_schema.v_user_tier WHERE wallet = :w), 1)"
+                    ),
+                    {"w": wallet},
+                )
+            ).first()
         return int(row[0]) if row and row[0] else None
     except Exception:
-        _log.debug("tier daily-token cap lookup failed; using default", exc_info=True)
+        _log.warning("tier daily-token cap lookup failed; using default", exc_info=True)
         return None
 
 
