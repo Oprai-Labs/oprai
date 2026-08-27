@@ -275,6 +275,17 @@ pub async fn get_chain_tokens(
 /// @kamino-finance SDKs (klend/farms). These have no REST endpoint and can't be
 /// built from Rust (no Kamino SDK crate), so the Rust service — the gateway's
 /// upstream — proxies them to the TS service.
+/// EVM / cross-chain build actions whose swapper is an EVM address in the params,
+/// so the Solana session pubkey is irrelevant (an EVM-native session's 0x wallet
+/// must not fail the build).
+fn is_evm_build_action(action_type: &str) -> bool {
+    matches!(
+        action_type,
+        "relay_bridge" | "cross_chain_swap" | "bridge" | "relay_get_quote"
+            | "uniswap_swap" | "uniswap_add_liquidity" | "uniswap_pools" | "uniswap_launches"
+    )
+}
+
 fn is_ts_delegated_action(action_type: &str) -> bool {
     matches!(
         action_type,
@@ -529,9 +540,15 @@ pub async fn post_build(
             .await?;
     }
 
-    let user_pubkey: solana_sdk::pubkey::Pubkey = wallet
-        .parse()
-        .map_err(|_| AppError::InvalidParams("Invalid wallet address".into()))?;
+    // The header wallet is the Solana session wallet for Solana actions. EVM /
+    // cross-chain actions (relay, cross-chain swap) instead carry their EVM
+    // sender/recipient in the params, so a Solana-format wallet isn't required —
+    // an EVM-native (SIWE) session's 0x address must not fail the whole build.
+    let user_pubkey: solana_sdk::pubkey::Pubkey = match wallet.parse() {
+        Ok(pk) => pk,
+        Err(_) if is_evm_build_action(&body.action_type) => solana_sdk::pubkey::Pubkey::default(),
+        Err(_) => return Err(AppError::InvalidParams("Invalid wallet address".into())),
+    };
 
     // Reward model is cashback, not a fee discount — full commission is charged
     // and a tier % is credited to the cashback ledger afterwards. Discount = 0.
