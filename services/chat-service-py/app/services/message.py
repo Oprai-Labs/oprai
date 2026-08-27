@@ -1176,7 +1176,7 @@ async def _resolve_tier_daily_token_cap(db: AsyncSession, wallet: str) -> int | 
         ).first()
         return int(row[0]) if row and row[0] else None
     except Exception:
-        logger.debug("tier daily-token cap lookup failed; using default", exc_info=True)
+        _log.debug("tier daily-token cap lookup failed; using default", exc_info=True)
         return None
 
 
@@ -1401,14 +1401,14 @@ async def stream_chat_response(
                 max_tokens=settings.KNOWLEDGE_RAG_TOKEN_BUDGET,
             )
         except Exception:
-            logger.warning("RAG pre-fetch failed — will skip KB injection", exc_info=True)
+            _log.warning("RAG pre-fetch failed — will skip KB injection", exc_info=True)
             return None
 
     async def _safe_summarize() -> None:
         try:
             await maybe_create_summary(db, session_id, wallet, new_count)
         except Exception:
-            logger.warning("maybe_create_summary failed — continuing without summary", exc_info=True)
+            _log.warning("maybe_create_summary failed — continuing without summary", exc_info=True)
 
     async def _last_turn_emitted_types(_db, _sid) -> list[str]:
         """Action / query types the previous assistant turn put on screen.
