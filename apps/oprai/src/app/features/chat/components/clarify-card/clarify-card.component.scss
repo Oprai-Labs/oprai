@@ -210,6 +210,7 @@
   // frame. The image fills the circle; the background is only there to sit
   // behind the letter when there is no image.
   &__token-icon {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -221,11 +222,15 @@
     overflow: hidden;
 
     img {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       border-radius: 50%;
       object-fit: cover;
     }
+    // A real icon that loaded covers the letter placeholder underneath it.
+    &.has-img .clarify-option__token-letter { display: none; }
   }
   &__token-letter {
     font-size: 0.85rem;

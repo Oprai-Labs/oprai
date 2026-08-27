@@ -58,7 +58,9 @@
           </div>
         } @else if (option.icon) {
           <div class="clarify-option__token-icon">
+            <span class="clarify-option__token-letter">{{ (option.label || '?').charAt(0) }}</span>
             <img [src]="option.icon" [alt]="option.label"
+                 (load)="$any($event.target).parentElement.classList.add('has-img')"
                  (error)="$any($event.target).style.display='none'" />
           </div>
         } @else if (fullPair) {
