@@ -1153,24 +1153,26 @@ def _build_recent_context(model_messages: list[dict]) -> str:
 
 # ── Main streaming function ───────────────────────────────────────────────────
 
-async def _resolve_tier_daily_token_cap(db: AsyncSession, wallet: str) -> int | None:
+async def _resolve_tier_daily_token_cap(wallet: str) -> int | None:
     """The wallet's tier daily LLM-token allowance (`tier_config.daily_token_limit`).
 
     Tier comes from on-chain volume (`admin_schema.v_user_tier`); a wallet that
     has never traded defaults to tier 1. Returns ``None`` on any error so the
     caller falls back to the flat default cap — a tier lookup miss must never
     lock someone out.
+
+    Runs on its OWN short-lived session, never the request's: this is an
+    incidental cross-schema read, and if it errored on the shared session it
+    would abort the transaction and break the message INSERT that follows
+    (InFailedSQLTransactionError → "couldn't generate a response").
     """
     if not wallet:
         return None
-    # Run inside a SAVEPOINT: this read shares the request's session, and if the
-    # query errors (e.g. a pgbouncer prepared-statement hiccup) it would abort
-    # the whole transaction and break the later message INSERT. A nested
-    # transaction contains the failure so the outer write survives.
+    from app.db.connection import async_session_factory
     try:
-        async with db.begin_nested():
+        async with async_session_factory() as s:
             row = (
-                await db.execute(
+                await s.execute(
                     text(
                         "SELECT tc.daily_token_limit FROM analytics_schema.tier_config tc "
                         "WHERE tc.tier = COALESCE("
@@ -1289,7 +1291,7 @@ async def stream_chat_response(
     # The daily token ceiling scales with the wallet's tier (higher lifetime
     # volume → more AI per day); resolved here where DB access exists and passed
     # into the Redis-only cap check. Falls back to the flat default on any miss.
-    _tier_daily_cap = await _resolve_tier_daily_token_cap(db, wallet)
+    _tier_daily_cap = await _resolve_tier_daily_token_cap(wallet)
     try:
         await assert_under_cap(wallet, daily_token_cap=_tier_daily_cap)
     except LLMCapExceeded as cap_err:
