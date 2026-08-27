@@ -5946,9 +5946,29 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!s) return '';
     // EVM tx → the chain's own scanner (Etherscan/Basescan/…/Robinhood
     // Blockscout); the tx hash is on the ORIGIN chain. Solana → Solscan.
-    const chainId = Number(this.action?.params?.['originChainId'] ?? this.action?.params?.['chainId'] ?? 0);
-    const base = EVM_EXPLORERS[chainId];
+    const base = EVM_EXPLORERS[this.explorerChainId()];
     return base ? `${base}/tx/${s}` : `https://solscan.io/tx/${s}`;
+  }
+
+  /** The chain a completed tx belongs to, so its link opens in that chain's
+   *  explorer. Resolves from an explicit numeric chain id, then a chain NAME,
+   *  then the action type (Robinhood-only launchpads); 0 ⇒ Solana. */
+  private explorerChainId(): number {
+    const p = this.action?.params ?? {};
+    const numeric = Number(p['originChainId'] ?? p['destinationChainId'] ?? p['chainId'] ?? 0);
+    if (numeric > 0) return numeric;
+    const byName: Record<string, number> = {
+      robinhood: 4663, robinhoodchain: 4663, ethereum: 1, eth: 1, mainnet: 1,
+      base: 8453, arbitrum: 42161, arb: 42161, optimism: 10, op: 10,
+      polygon: 137, matic: 137, bnb: 56, bsc: 56, avalanche: 43114, avax: 43114,
+      zora: 7777777, blast: 81457, zksync: 324,
+    };
+    const name = String(p['chain'] ?? p['chainName'] ?? '').toLowerCase().trim();
+    if (byName[name]) return byName[name];
+    // Robinhood-only launchpads (pools.trade / Pons) — always chain 4663.
+    const t = this.action?.type ?? '';
+    if (t.startsWith('pons_') || t.startsWith('pools_')) return 4663;
+    return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
 
