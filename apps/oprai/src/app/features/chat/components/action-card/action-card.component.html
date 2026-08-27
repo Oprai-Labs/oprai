@@ -1372,27 +1372,41 @@
 
         } @else if (action.type === 'pons_launch') {
           <!-- ─────── Pons launch a token — matches ponsfamily.com's "Launch
-               token" design: form on the left, live "Your token" summary of the
-               fixed economics on the right. ─────────────────────────────────── -->
-          <div class="pl-launch">
+               token" design: a V2/V1 toggle top-right, form on the left, live
+               "Your token" summary of the fixed economics on the right. V2 =
+               bonding curve → Uniswap V4; V1 = CREATE2 + locked Uniswap V3. ──── -->
+          @let ver = getEditParam('version') || 'v2';
+          @let nameMax = ver === 'v1' ? 32 : 64;
+          @let symMax = ver === 'v1' ? 10 : 16;
+          @let descMax = ver === 'v1' ? 256 : 280;
+          <div class="pl-launchwrap">
+            <div class="pl-launchhead">
+              <span class="pl-launchtitle">{{ 'Launch token' | t }}</span>
+              <div class="pl-vertoggle">
+                <button type="button" [class.on]="ver === 'v2'" [disabled]="!isEditable()" (click)="setEditParam('version', 'v2')">v2</button>
+                <button type="button" [class.on]="ver === 'v1'" [disabled]="!isEditable()" (click)="setEditParam('version', 'v1')">v1</button>
+              </div>
+            </div>
+
+            <div class="pl-launch">
             <div class="pl-form pl-launch__form">
-              <!-- Name + Ticker -->
+              <!-- Name + Ticker (limits differ: V1 32/10, V2 64/16) -->
               <div class="pl-grid2">
                 <div class="pl-field">
                   <label class="pl-flabel pl-flabel-row">
                     <span>{{ 'Name' | t }} <span class="pl-req">*</span></span>
-                    <span class="pl-count">{{ getEditParam('name').length }}/64</span>
+                    <span class="pl-count">{{ getEditParam('name').length }}/{{ nameMax }}</span>
                   </label>
-                  <input class="pl-input" type="text" maxlength="64" [value]="getEditParam('name')"
+                  <input class="pl-input" type="text" [attr.maxlength]="nameMax" [value]="getEditParam('name')"
                          [disabled]="!isEditable()" [attr.placeholder]="'Token name' | t"
                          (input)="setEditParam('name', $any($event.target).value)" />
                 </div>
                 <div class="pl-field">
                   <label class="pl-flabel pl-flabel-row">
                     <span>{{ 'Ticker' | t }} <span class="pl-req">*</span></span>
-                    <span class="pl-count">{{ getEditParam('symbol').length }}/16</span>
+                    <span class="pl-count">{{ getEditParam('symbol').length }}/{{ symMax }}</span>
                   </label>
-                  <input class="pl-input" type="text" maxlength="16" [value]="getEditParam('symbol')"
+                  <input class="pl-input" type="text" [attr.maxlength]="symMax" [value]="getEditParam('symbol')"
                          [disabled]="!isEditable()" placeholder="symbol"
                          (input)="setEditParam('symbol', $any($event.target).value)" />
                 </div>
@@ -1402,27 +1416,35 @@
               <div class="pl-field">
                 <label class="pl-flabel pl-flabel-row">
                   <span>{{ 'Description' | t }}</span>
-                  <span class="pl-count">{{ getEditParam('description').length }}/280</span>
+                  <span class="pl-count">{{ getEditParam('description').length }}/{{ descMax }}</span>
                 </label>
-                <textarea class="pl-input pl-textarea" maxlength="280" rows="3" [disabled]="!isEditable()"
+                <textarea class="pl-input pl-textarea" [attr.maxlength]="descMax" rows="3" [disabled]="!isEditable()"
                           [attr.placeholder]="'A short description of the token' | t"
                           (input)="setEditParam('description', $any($event.target).value)">{{ getEditParam('description') }}</textarea>
+                @if (ver === 'v1') { <span class="pl-imgsub">{{ 'No links.' | t }}</span> }
               </div>
 
-              <!-- Token image — a "Choose image" box; uploads to our host, its
-                   public URL is stored on-chain as the logo. -->
+              <!-- Token image. V1 requires a public-upload consent first. -->
               <div class="pl-field">
                 <label class="pl-flabel"><span>{{ 'Token image' | t }}</span></label>
-                <label class="pl-imgbox" [class.pl-imgbox--disabled]="!isEditable() || uploadingImage()">
+                @if (ver === 'v1') {
+                  <label class="pl-consent">
+                    <input type="checkbox" [checked]="getEditParam('imgConsent') === 'true'" [disabled]="!isEditable()"
+                           (change)="setEditParam('imgConsent', $any($event.target).checked ? 'true' : 'false')" />
+                    <span>{{ 'I understand the artwork is moderated and uploaded to public storage.' | t }}</span>
+                  </label>
+                }
+                @let imgLocked = ver === 'v1' && getEditParam('imgConsent') !== 'true';
+                <label class="pl-imgbox" [class.pl-imgbox--disabled]="!isEditable() || uploadingImage() || imgLocked">
                   <input type="file" accept="image/png,image/webp,image/jpeg" hidden
-                         [disabled]="!isEditable() || uploadingImage()" (change)="onPonsLaunchImage($event)" />
+                         [disabled]="!isEditable() || uploadingImage() || imgLocked" (change)="onPonsLaunchImage($event)" />
                   @if (getEditParam('logo')) {
                     <img class="pl-imgbox__img" [src]="getEditParam('logo')" alt="token image"
                          (error)="$any($event.target).style.display='none'" />
                   } @else {
                     <span class="pl-imgbox__icon"><lucide-icon name="image" [size]="18" /></span>
                   }
-                  <span class="pl-imgbox__label">{{ uploadingImage() ? ('Uploading…' | t) : (getEditParam('logo') ? ('Change image' | t) : ('Choose image' | t)) }}</span>
+                  <span class="pl-imgbox__label">{{ uploadingImage() ? ('Uploading…' | t) : (imgLocked ? ('Confirm public upload first' | t) : (getEditParam('logo') ? ('Change image' | t) : ('Choose image' | t))) }}</span>
                 </label>
                 @if (imageUploadError()) { <div class="uni-lp__err">{{ imageUploadError() }}</div> }
               </div>
@@ -1449,15 +1471,17 @@
                 </div>
               </div>
 
-              <!-- Paired asset (ETH — the only native pair) -->
-              <div class="pl-field">
-                <label class="pl-flabel"><span>{{ 'Paired asset' | t }}</span></label>
-                <div class="pl-paired">
-                  <img src="assets/coins/eth.svg" class="pl-paired__icon" alt="" />
-                  <span class="pl-paired__sym">ETH</span>
+              <!-- Paired asset — V2 only (V1 pairs to a Uniswap V3 pool at graduation) -->
+              @if (ver === 'v2') {
+                <div class="pl-field">
+                  <label class="pl-flabel"><span>{{ 'Paired asset' | t }}</span></label>
+                  <div class="pl-paired">
+                    <img src="assets/coins/eth.svg" class="pl-paired__icon" alt="" />
+                    <span class="pl-paired__sym">ETH</span>
+                  </div>
+                  <span class="pl-imgsub">{{ 'Graduates once the curve raises 4.2 ETH.' | t }}</span>
                 </div>
-                <span class="pl-imgsub">{{ 'Graduates once the curve raises 4.2 ETH.' | t }}</span>
-              </div>
+              }
 
               <!-- Developer buy — bundle a first buy right after the launch. -->
               <div class="pl-field">
@@ -1473,7 +1497,7 @@
                     </div>
                   </div>
                   <div class="pl-devbuy-foot">
-                    <span>@if (poolsAvailEth() != null) { {{ poolsAvailEth() | number:'1.0-3' }} {{ 'available, bought right after launch' | t }} }</span>
+                    <span>@if (poolsAvailEth() != null) { {{ poolsAvailEth() | number:'1.0-3' }} {{ (ver === 'v1' ? 'available · up to 5% of supply' : 'available, bought right after launch') | t }} }</span>
                     @if (isEditable() && poolsAvailEth()) {
                       <button type="button" class="pl-buychip" (click)="setPonsDevBuyMax()">{{ 'Max' | t }}</button>
                     }
@@ -1481,21 +1505,23 @@
                 </div>
               </div>
 
-              <!-- Creator fee → creatorTaxBps 1% -->
-              <div class="pl-card pl-togcard">
-                <div class="pl-togtext">
-                  <span class="pl-togtitle">{{ 'Creator fee' | t }}</span>
-                  <span class="pl-togsub">{{ 'Earn 1% of every trade, paid in ETH.' | t }}</span>
+              <!-- Creator fee (V2) → creatorTaxBps 1%. V1 fee split is fixed. -->
+              @if (ver === 'v2') {
+                <div class="pl-card pl-togcard">
+                  <div class="pl-togtext">
+                    <span class="pl-togtitle">{{ 'Creator fee' | t }}</span>
+                    <span class="pl-togsub">{{ 'Earn 1% of every trade, paid in ETH.' | t }}</span>
+                  </div>
+                  <button type="button" class="pl-switch" [class.pl-switch--on]="getEditParam('creatorFee') === 'true'"
+                          [disabled]="!isEditable()"
+                          (click)="setEditParam('creatorFee', getEditParam('creatorFee') === 'true' ? 'false' : 'true')">
+                    <span class="pl-switch__knob"></span>
+                  </button>
                 </div>
-                <button type="button" class="pl-switch" [class.pl-switch--on]="getEditParam('creatorFee') === 'true'"
-                        [disabled]="!isEditable()"
-                        (click)="setEditParam('creatorFee', getEditParam('creatorFee') === 'true' ? 'false' : 'true')">
-                  <span class="pl-switch__knob"></span>
-                </button>
-              </div>
+              }
             </div>
 
-            <!-- "Your token" — live summary of the fixed launch economics -->
+            <!-- "Your token" — live summary; rows differ V1 vs V2 -->
             <aside class="pl-yourtoken">
               <span class="pl-yt__img">
                 @if (getEditParam('logo')) {
@@ -1508,13 +1534,18 @@
               <div class="pl-yt__ticker">{{ getEditParam('symbol') || 'ticker' }}</div>
               <div class="pl-yt__rows">
                 <div class="pl-yt__row"><span>{{ 'Launch fee' | t }}</span><span>0.0005 ETH</span></div>
-                <div class="pl-yt__row"><span>{{ 'Paired with' | t }}</span><span>ETH</span></div>
-                <div class="pl-yt__row"><span>{{ 'Trade fee' | t }}</span><span>{{ getEditParam('creatorFee') === 'true' ? '2.00%' : '1.00%' }}</span></div>
-                <div class="pl-yt__row"><span>{{ 'Launch window' | t }}</span><span>{{ '99% snipe tax, 3s' | t }}</span></div>
+                @if (ver === 'v2') {
+                  <div class="pl-yt__row"><span>{{ 'Paired with' | t }}</span><span>ETH</span></div>
+                  <div class="pl-yt__row"><span>{{ 'Trade fee' | t }}</span><span>{{ getEditParam('creatorFee') === 'true' ? '2.00%' : '1.00%' }}</span></div>
+                  <div class="pl-yt__row"><span>{{ 'Launch window' | t }}</span><span>{{ '99% snipe tax, 3s' | t }}</span></div>
+                } @else {
+                  <div class="pl-yt__row"><span>{{ 'Trading fees' | t }}</span><span>{{ '70% creator / 30% protocol' | t }}</span></div>
+                }
                 <div class="pl-yt__row"><span>{{ 'Graduation' | t }}</span><span>4.2 ETH</span></div>
                 <div class="pl-yt__row"><span>{{ 'Liquidity' | t }}</span><span>{{ 'Locked' | t }}</span></div>
               </div>
             </aside>
+            </div>
           </div>
 
         } @else if (action.type === 'limit_order') {

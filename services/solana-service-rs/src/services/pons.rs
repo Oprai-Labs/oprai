@@ -523,8 +523,11 @@ pub async fn build_pons_sell(http: &reqwest::Client, body: &Value) -> Result<Val
     }))
 }
 
-// ── Launch: ABI-encode PonsV2LaunchFactory.launchToken(TokenParams, uint256, address) ──
-const SEL_LAUNCH_TOKEN: &str = "f35abbcf"; // launchToken(params, launchConfigId, pairToken) payable
+// ── Launch: ABI-encode the factory launchToken calls ──
+// V2 (bonding curve): launchToken(TokenParams, launchConfigId, pairToken) payable
+const SEL_LAUNCH_TOKEN: &str = "f35abbcf";
+// V1 (CREATE2 + Uniswap V3): launchToken(TokenParams_v1, launchConfigId, dexId, salt) payable
+const SEL_LAUNCH_TOKEN_V1: &str = "686399cb";
 const SEL_LAUNCH_FEE: &str = "0xcf3cf573"; // launchFee()
 const PONS_LAUNCH_FEE_FALLBACK: u128 = 500_000_000_000_000; // 0.0005 ETH
 
@@ -604,51 +607,100 @@ fn enc_token_params(
     head
 }
 
-/// Build a Pons V2 token-launch tx. Body: {walletAddress, name, symbol, logo?,
-/// description?, twitter?/telegram?/discord?/website?/farcaster?, creatorTaxBps?,
-/// buyback?, pairToken?}. Native-pair launch; value = launchFee.
+/// V1 TokenParams: (name, symbol, logo, description, socials, feeWallet). 6 head
+/// words (4 dynamic strings + socials offset + feeWallet address).
+fn enc_token_params_v1(
+    name: &str,
+    symbol: &str,
+    logo: &str,
+    description: &str,
+    socials: Vec<u8>,
+    fee_wallet: &str,
+) -> Vec<u8> {
+    let dyn_fields = [
+        enc_string(name),
+        enc_string(symbol),
+        enc_string(logo),
+        enc_string(description),
+        socials,
+    ];
+    let mut offset = 6 * 32;
+    let mut head = Vec::new();
+    for f in &dyn_fields {
+        head.extend(w_u(offset as u128));
+        offset += f.len();
+    }
+    head.extend(w_addr_bytes(fee_wallet)); // feeWallet (creator fee recipient)
+    for f in dyn_fields {
+        head.extend(f);
+    }
+    head
+}
+
+/// Build a Pons token-launch tx. `version`="v1" (CREATE2 + Uniswap V3) or "v2"
+/// (bonding curve → Uniswap V4, default). Body: {version?, walletAddress, name,
+/// symbol, logo?, description?, twitter?/telegram?, creatorTaxBps?, buyback?,
+/// pairToken?}. Native-pair; value = launchFee (0.0005 ETH on both).
 pub async fn build_pons_launch(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
     let rpc = rpc().ok_or_else(|| AppError::Internal("no Robinhood RPC".into()))?;
     let s = |k: &str| body.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let is_v1 = s("version").eq_ignore_ascii_case("v1");
     let name = s("name");
     let symbol = s("symbol");
     if name.is_empty() || symbol.is_empty() {
         return Err(AppError::InvalidParams("pons: token name and symbol are required".into()));
     }
-    if name.len() > 64 {
-        return Err(AppError::InvalidParams("pons: name must be ≤ 64 characters".into()));
+    // V1: name ≤32 / ticker ≤10; V2: name ≤64 / ticker ≤16.
+    let (name_max, sym_max) = if is_v1 { (32, 10) } else { (64, 16) };
+    if name.chars().count() > name_max {
+        return Err(AppError::InvalidParams(format!("pons: name must be ≤ {name_max} characters")));
     }
-    if symbol.len() > 16 {
-        return Err(AppError::InvalidParams("pons: ticker must be ≤ 16 characters".into()));
+    if symbol.chars().count() > sym_max {
+        return Err(AppError::InvalidParams(format!("pons: ticker must be ≤ {sym_max} characters")));
     }
     let mut logo = s("logo");
     if logo.len() > 512 {
         logo.truncate(512);
     }
     let mut description = s("description");
-    if description.len() > 2048 {
-        description.truncate(2048);
+    let desc_max = if is_v1 { 256 } else { 2048 };
+    if description.chars().count() > desc_max {
+        description = description.chars().take(desc_max).collect();
     }
     let socials = enc_tuple_strings(&[&s("twitter"), &s("telegram"), &s("discord"), &s("website"), &s("farcaster")]);
-    let tax_bps = body.get("creatorTaxBps").and_then(|v| v.as_str()).and_then(|x| x.parse::<u128>().ok()).unwrap_or(0).min(1000);
-    let buyback = body.get("buyback").and_then(|v| v.as_str()).map(|x| x == "true").unwrap_or(false);
-    let pair_token = body.get("pairToken").and_then(|v| v.as_str()).filter(|s| s.starts_with("0x")).unwrap_or(NATIVE);
+    let wallet = s("walletAddress");
 
-    // Unique CREATE2 salt (namespaced per account) — a uuid keeps launches from
-    // colliding on the same terms.
+    // Unique CREATE2 salt (namespaced per account) — a uuid avoids collisions.
     let mut salt = [0u8; 32];
     salt[16..32].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
 
-    let params_bytes = enc_token_params(&name, &symbol, &logo, &description, socials, NATIVE, tax_bps, buyback, salt);
+    let (factory, data) = if is_v1 {
+        // launchToken(TokenParams_v1, launchConfigId=0, dexId=0, salt)
+        let fee_wallet = if wallet.starts_with("0x") { wallet.as_str() } else { NATIVE };
+        let params_bytes = enc_token_params_v1(&name, &symbol, &logo, &description, socials, fee_wallet);
+        let mut d = hex::decode(SEL_LAUNCH_TOKEN_V1).unwrap_or_default();
+        d.extend(w_u(0x80)); // offset to params (4 args × 32)
+        d.extend(w_u(0)); // launchConfigId = 0
+        d.extend(w_u(0)); // dexId = 0 (Uniswap V3)
+        d.extend(salt.to_vec()); // salt
+        d.extend(params_bytes);
+        (PONS_V1_FACTORY, d)
+    } else {
+        // launchToken(TokenParams, launchConfigId=0, pairToken) payable
+        let tax_bps = body.get("creatorTaxBps").and_then(|v| v.as_str()).and_then(|x| x.parse::<u128>().ok()).unwrap_or(0).min(1000);
+        let buyback = body.get("buyback").and_then(|v| v.as_str()).map(|x| x == "true").unwrap_or(false);
+        let pair_token = body.get("pairToken").and_then(|v| v.as_str()).filter(|s| s.starts_with("0x")).unwrap_or(NATIVE);
+        let params_bytes = enc_token_params(&name, &symbol, &logo, &description, socials, NATIVE, tax_bps, buyback, salt);
+        let mut d = hex::decode(SEL_LAUNCH_TOKEN).unwrap_or_default();
+        d.extend(w_u(0x60)); // offset to params (3 args × 32)
+        d.extend(w_u(0)); // launchConfigId = 0
+        d.extend(w_addr_bytes(pair_token)); // pairToken (native)
+        d.extend(params_bytes);
+        (PONS_V2_FACTORY, d)
+    };
 
-    let mut data = hex::decode(SEL_LAUNCH_TOKEN).unwrap_or_default();
-    data.extend(w_u(0x60)); // offset to params (3 args × 32)
-    data.extend(w_u(0)); // launchConfigId = 0 (only config)
-    data.extend(w_addr_bytes(pair_token)); // pairToken (native)
-    data.extend(params_bytes);
-
-    // launchFee (read live; fall back to the known 0.0005 ETH).
-    let fee = match eth_call(http, &rpc, PONS_V2_FACTORY, SEL_LAUNCH_FEE).await {
+    // launchFee (read live from the chosen factory; fall back to 0.0005 ETH).
+    let fee = match eth_call(http, &rpc, factory, SEL_LAUNCH_FEE).await {
         Ok(h) => {
             let v = to_u128(&h);
             if v > 0 { v } else { PONS_LAUNCH_FEE_FALLBACK }
@@ -658,12 +710,13 @@ pub async fn build_pons_launch(http: &reqwest::Client, body: &Value) -> Result<V
 
     Ok(json!({
         "transactions": [{
-            "to": PONS_V2_FACTORY,
+            "to": factory,
             "data": format!("0x{}", hex::encode(data)),
             "value": fee.to_string(),
             "chainId": ROBINHOOD_CHAIN,
         }],
         "launchFeeWei": fee.to_string(),
+        "version": if is_v1 { "v1" } else { "v2" },
     }))
 }
 

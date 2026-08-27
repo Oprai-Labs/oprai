@@ -2766,6 +2766,7 @@ export class SolanaActionService {
       if (!name || !symbol) throw new Error('Pons: a token name and symbol are required to launch.');
       reqBody = {
         walletAddress: account,
+        version: String(p['version'] ?? 'v2'),
         name,
         symbol,
         ...(p['logo'] ? { logo: String(p['logo']) } : {}),
@@ -2848,24 +2849,40 @@ export class SolanaActionService {
     // launch itself.
     if (isPonsLaunch && Number(p['devBuyEth']) > 0 && lastHash) {
       try {
-        const wei = this.ethToWeiStr(String(p['devBuyEth']));
+        const isV1 = String(p['version'] ?? 'v2') === 'v1';
         const rc: any = await withTimeout(ethereum.request({ method: 'eth_getTransactionReceipt', params: [lastHash] }), 30_000, 'receipt');
-        const TL = '0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607'; // TokenLaunched
-        const factory = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
-        const log = (rc?.logs ?? []).find((l: any) => (l.topics?.[0] ?? '').toLowerCase() === TL && (l.address ?? '').toLowerCase() === factory);
-        const curve = log?.topics?.[2] ? '0x' + String(log.topics[2]).slice(26) : '';
-        if (curve && wei !== '0') {
-          const buyPrep = await firstValueFrom(this.api.post<any>('/actions/pons/buy', {
-            curve, walletAddress: account, amountWei: wei, slippagePct: 20,
-          }));
-          for (const tx of (buyPrep?.transactions ?? [])) {
-            if (!tx?.to) continue;
-            const gh = toHexQty(tx.gas ?? tx.gasLimit);
-            const h = await withTimeout(ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gh ? { gas: gh } : {}) }],
-            }), 120_000, 'developer buy') as string;
-            await this.watchEvmReceipt(ethereum, h);
+        if (isV1) {
+          // V1 token → normal Uniswap V3 pool; buy it via our uniswap swap.
+          const TL_V1 = '0xdb51ea9ad51ab453a65a4cb7e60c3cb378c9501bb002609f8f97778fb6c4235a';
+          const f1 = '0xa5aab3f0c6eeadf30ef1d3eb997108e976351feb';
+          const log = (rc?.logs ?? []).find((l: any) => (l.topics?.[0] ?? '').toLowerCase() === TL_V1 && (l.address ?? '').toLowerCase() === f1);
+          const newToken = log?.topics?.[1] ? '0x' + String(log.topics[1]).slice(26) : '';
+          if (newToken) {
+            await this.executeUniswapSwap({ type: 'uniswap_swap', params: {
+              originChainId: '4663', destinationChainId: '4663', originCurrency: 'ETH',
+              destinationCurrency: newToken, amount: String(p['devBuyEth']), tradeType: 'EXACT_INPUT',
+            }, raw: '' } as ParsedAction, {});
+          }
+        } else {
+          // V2 token → bonding curve; buy on the curve.
+          const wei = this.ethToWeiStr(String(p['devBuyEth']));
+          const TL = '0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607';
+          const factory = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
+          const log = (rc?.logs ?? []).find((l: any) => (l.topics?.[0] ?? '').toLowerCase() === TL && (l.address ?? '').toLowerCase() === factory);
+          const curve = log?.topics?.[2] ? '0x' + String(log.topics[2]).slice(26) : '';
+          if (curve && wei !== '0') {
+            const buyPrep = await firstValueFrom(this.api.post<any>('/actions/pons/buy', {
+              curve, walletAddress: account, amountWei: wei, slippagePct: 20,
+            }));
+            for (const tx of (buyPrep?.transactions ?? [])) {
+              if (!tx?.to) continue;
+              const gh = toHexQty(tx.gas ?? tx.gasLimit);
+              const h = await withTimeout(ethereum.request({
+                method: 'eth_sendTransaction',
+                params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gh ? { gas: gh } : {}) }],
+              }), 120_000, 'developer buy') as string;
+              await this.watchEvmReceipt(ethereum, h);
+            }
           }
         }
       } catch { /* launch already succeeded; the optional dev buy failed — ignore */ }
