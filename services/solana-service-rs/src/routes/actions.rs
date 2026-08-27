@@ -279,11 +279,9 @@ pub async fn get_chain_tokens(
 /// so the Solana session pubkey is irrelevant (an EVM-native session's 0x wallet
 /// must not fail the build).
 fn is_evm_build_action(action_type: &str) -> bool {
-    matches!(
-        action_type,
-        "relay_bridge" | "cross_chain_swap" | "bridge" | "relay_get_quote"
-            | "uniswap_swap" | "uniswap_add_liquidity" | "uniswap_pools" | "uniswap_launches"
-    )
+    action_type.starts_with("relay")        // relay_bridge, relay_get_quote/chains/currencies/requests…
+        || action_type.starts_with("uniswap") // uniswap_swap/pools/launches/add_liquidity
+        || matches!(action_type, "cross_chain_swap" | "bridge")
 }
 
 fn is_ts_delegated_action(action_type: &str) -> bool {
