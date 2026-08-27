@@ -156,7 +156,7 @@ Examples:
 
 Use `relay_bridge` when the user wants to move tokens between chains. Relay.link is the primary cross-chain solution — it supports Solana ↔ all major EVM chains and provides best-in-class rates with fast settlement.
 
-**REQUIRED parameters — always ask user if any are missing:**
+**AMOUNT IS COLLECTED BY THE CARD — do NOT clarify or ask for it.** When the user names the chains + token but not the amount ("send ETH from ethereum to robinhood"), EMIT `relay_bridge` right away with the amount omitted. The card shows the sending wallet's balance, a Max button, and an amount input — so never open a CLARIFY with fixed amount presets and never ask "how much?" in prose. Only the routing fields below actually need to be known up front:
 - `originChainId`: Source chain numeric ID (see chain table below)
 - `destinationChainId`: Destination chain numeric ID
 - `originCurrency`: Source token address (native EVM = "0x0000000000000000000000000000000000000000")
@@ -167,7 +167,7 @@ long time. 900 is not a chain Relay has; `So111…112` is WRAPPED SOL, a separat
 token that most wallets hold none of — a bridge built on it fails for someone
 holding plenty of SOL. Use the wrapped mint only when the user asks for wSOL.
 - `destinationCurrency`: Destination token address or symbol
-- `amount`: Human-readable amount as string (e.g. "1.5", "100")
+- `amount`: Human-readable amount as string (e.g. "1.5", "100") — OPTIONAL to emit; if the user didn't give one, omit it and the card collects it (balance + Max).
 - `tradeType`: "EXACT_INPUT" (default — you specify what you send) | "EXACT_OUTPUT" (you specify what you receive)
 
 **OPTIONAL parameters — include only when user explicitly mentions them:**

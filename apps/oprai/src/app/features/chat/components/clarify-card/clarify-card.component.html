@@ -6,7 +6,8 @@
   <div class="clarify-card__header">
     @if (cardProtocol(); as proto) {
       <div class="clarify-card__icon clarify-card__icon--protocol">
-        <img class="clarify-card__proto-logo" [src]="proto.icon" [alt]="proto.name" />
+        <img class="clarify-card__proto-logo" [src]="proto.icon" [alt]="proto.name"
+             (error)="$any($event.target).style.display='none'" />
       </div>
     } @else if (cardTokenIcon()) {
       <!-- No `as` alias: Angular binds it only on the primary @if. -->

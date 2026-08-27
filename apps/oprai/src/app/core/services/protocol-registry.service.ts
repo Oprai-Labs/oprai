@@ -179,8 +179,9 @@ export class ProtocolRegistryService {
     {
       id: 'relay',
       name: 'Relay',
+      // (icon path fixed below — relay ships as .png, not .webp)
       category: 'bridge',
-      icon: 'assets/icons/protocols/relay.webp',
+      icon: 'assets/icons/protocols/relay.png',
       accent: '#8B5CF6',
       accentBg: 'rgba(139,92,246,0.08)',
       actions: ['cross_chain_swap', 'bridge'],
