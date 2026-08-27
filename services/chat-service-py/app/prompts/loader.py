@@ -46,6 +46,9 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     "relay":        ["solana_action_crosschain.txt"],
     "debridge":     ["solana_action_crosschain.txt"],
     "uniswap":      ["solana_action_crosschain.txt"],
+    # pools.trade + Pons launchpads live in the crosschain fragment (Robinhood).
+    "poolstrade":   ["solana_action_crosschain.txt"],
+    "pons":         ["solana_action_crosschain.txt"],
     # Token streaming / vesting
     "streamflow":   ["solana_action_streamflow.txt"],
     # Market data / analytics — open-ended wallet/token/NFT analysis intents

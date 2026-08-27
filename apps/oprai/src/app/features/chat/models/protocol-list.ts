@@ -15,6 +15,8 @@ export const PROTOCOLS: Protocol[] = [
   // mark; point at the same file the cards use so the chip and the cards agree.
   { id: 'meteora',      label: 'Meteora',      category: 'dex',       logo: 'assets/icons/protocols/meteora.webp', description: 'DLMM + DAMM liquidity pools' },
   { id: 'uniswap',      label: 'Uniswap',      category: 'dex',       logo: 'assets/protocols/uniswap.jpg',      description: 'EVM token swaps (all chains)' },
+  { id: 'poolstrade',   label: 'pools.trade',  category: 'dex',       logo: 'assets/protocols/poolstrade.svg',   description: 'Robinhood launchpad — buy, sell & launch' },
+  { id: 'pons',         label: 'Pons',         category: 'dex',       logo: 'assets/protocols/pons.png',         description: 'Robinhood launchpad (ponsfamily)' },
   // Staking
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
   // Lending
