@@ -99,10 +99,12 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "bsc", "bnb chain", "avalanche",
     ),
     "debridge":  ("debridge",),
-    # Uniswap — same-chain EVM swap venue AND the pools.trade launchpad. The
-    # launchpad names/aliases map here so "launch a token on pools.trade / the
-    # uniswap launchpad" loads the pools_* tools (buy/sell/launch).
-    "uniswap":   ("uniswap", "uni swap", "pools.trade", "pools trade", "poolstrade", "launchpad", "pons", "ponsfamily"),
+    # Uniswap = same-chain EVM swap venue. The two Robinhood LAUNCHPADS are
+    # separate protocols so their own tools (pools_* vs pons_*) surface — a
+    # generic "launchpad"/"uniswap launchpad" defaults to pools.trade.
+    "uniswap":   ("uniswap", "uni swap"),
+    "poolstrade": ("pools.trade", "pools trade", "poolstrade", "uniswap launchpad", "launchpad"),
+    "pons":      ("pons", "ponsfamily"),
 }
 
 
