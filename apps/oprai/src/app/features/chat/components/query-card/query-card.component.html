@@ -3172,6 +3172,70 @@
         }
       }
 
+      <!-- Lighter Perp Positions results (Robinhood Chain, zero-fee) -->
+      @if (query.type === 'lighter_positions') {
+        @if (lighterPositions.length === 0) {
+          <div class="empty-state">
+            <lucide-icon name="trending-up" [size]="20" />
+            <span>{{ 'No open positions on Lighter' | t }}</span>
+          </div>
+        } @else {
+          <div class="perp-pos-list">
+            @for (pos of lighterPositions; track pos.market + pos.side) {
+              @let pnlUp = pos.unrealizedPnl >= 0;
+              <div class="perp-pos-row" [class.perp-pos-row--closed]="pos.closed">
+                <div class="perp-pos-row__head">
+                  <span class="perp-pos-row__logo perp-pos-row__logo--fallback">{{ pos.market.charAt(0) }}</span>
+                  <div class="perp-pos-row__title">
+                    <span class="perp-pos-row__market">{{ pos.market }}-PERP</span>
+                    <span class="perp-pos-row__badges">
+                      <span class="perp-side-badge"
+                            [class.perp-side-badge--long]="pos.side === 'long'"
+                            [class.perp-side-badge--short]="pos.side === 'short'">{{ pos.side }}</span>
+                      <span class="perp-pos-row__lev mono">{{ pos.leverage.toFixed(1) }}x</span>
+                    </span>
+                  </div>
+                  <div class="perp-pos-row__pnl">
+                    <span class="perp-pos-row__pnl-num mono" [class.change-up]="pnlUp" [class.change-down]="!pnlUp">
+                      {{ pnlUp ? '+' : '' }}{{ formatUsd(pos.unrealizedPnl) }}
+                    </span>
+                    <span class="perp-pos-row__pnl-label">{{ 'PnL' | t }}</span>
+                  </div>
+                  @if (pos.closed) {
+                    <span class="perp-pos-row__closed-chip">
+                      <lucide-icon name="check" [size]="12" />
+                      {{ 'Closed' | t }}
+                    </span>
+                  } @else {
+                    <button class="perp-pos-row__close" (click)="onCloseLighterPosition(pos.market, pos.side, pos.baseAmount)" [attr.title]="'Close position' | t">
+                      <lucide-icon name="x" [size]="14" />
+                    </button>
+                  }
+                </div>
+                <div class="perp-pos-row__stats">
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">{{ 'Size' | t }}</span>
+                    <span class="perp-stat__val mono">{{ formatUsd(pos.sizeUsd) }}</span>
+                  </div>
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">{{ 'Entry' | t }}</span>
+                    <span class="perp-stat__val mono">{{ formatPrice(pos.entryPrice) }}</span>
+                  </div>
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">{{ 'Current' | t }}</span>
+                    <span class="perp-stat__val mono">{{ formatPrice(pos.currentPrice) }}</span>
+                  </div>
+                  <div class="perp-stat">
+                    <span class="perp-stat__label">{{ 'Liq. Price' | t }}</span>
+                    <span class="perp-stat__val perp-stat__val--liq mono">{{ formatPrice(pos.liquidationPrice) }}</span>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+
       <!-- Jupiter Lend Positions results -->
       @if (query.type === 'lend_positions') {
         @if (lendEarnPositions.length === 0 && lendBorrowPositions.length === 0) {

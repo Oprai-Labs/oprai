@@ -1542,6 +1542,19 @@ export class SolanaActionService {
         || action.type === 'pons_buy' || action.type === 'pons_sell' || action.type === 'pons_launch') {
       return this.executePoolsTrade(action, callbacks);
     }
+    // Lighter perps (Robinhood Chain Lighter domain). Onboarding is a single EVM
+    // personal_sign; the trades themselves are gas-free (backend signs with the
+    // delegated agent key), so there is NO Solana wallet and NO per-trade EVM tx.
+    // Route them all out before the Solana-wallet guard.
+    if (action.type === 'lighter_onboard') {
+      return this.executeLighterOnboard(action, callbacks);
+    }
+    if (action.type === 'lighter_deposit') {
+      return this.executeLighterDeposit(action, callbacks);
+    }
+    if (action.type === 'lighter_open' || action.type === 'lighter_close' || action.type === 'lighter_leverage') {
+      return this.executeLighterPerp(action, callbacks);
+    }
 
     const wallet = this.walletService.publicKey();
     // A cross-chain bridge FROM an EVM chain (e.g. Ethereum → Robinhood) is
@@ -2709,6 +2722,179 @@ export class SolanaActionService {
     }).subscribe({ error: () => { /* best-effort; server is authoritative */ } });
     callbacks.onConfirm?.(txHash);
     return txHash;
+  }
+
+  // ── Lighter perps (Robinhood Chain Lighter domain) ──────────────────────────
+  /** Resolve the connected EVM account (prompts a connect if needed). */
+  private async lighterEvmAccount(): Promise<string> {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) {
+      throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade Lighter perps.');
+    }
+    const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available. Unlock your wallet and try again.');
+    return account;
+  }
+
+  /**
+   * Lighter onboarding — one-time, non-custodial. The user's EVM wallet does a
+   * single personal_sign of a server-provided message that authorises OPRAI's
+   * delegated agent key on the Lighter account. After this, every trade is
+   * gas-free and signed by the agent key server-side (no wallet popup per trade).
+   * The L1 private key never leaves the wallet, and the agent key cannot
+   * withdraw to an arbitrary address.
+   */
+  private async executeLighterOnboard(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const ethereum = (window as any).ethereum;
+    const account = await this.lighterEvmAccount();
+
+    callbacks.onQuote?.();
+    // 1. Server mints an agent keypair (held encrypted server-side) and returns
+    //    the exact change-pubkey message the wallet must personal_sign.
+    const build = await firstValueFrom(this.api.post<any>('/actions/lighter/onboard/build', {
+      wallet: account,
+    }));
+    const message: string = build?.message_to_sign ?? build?.messageToSign;
+    const sessionId: string = build?.session_id ?? build?.sessionId;
+    if (!message) throw new Error('Lighter: onboarding message was not returned.');
+
+    callbacks.onSign?.();
+    // 2. Wallet personal_sign (EIP-191). Params order is [message, address].
+    const signature: string = await ethereum.request({
+      method: 'personal_sign',
+      params: [message, account],
+    });
+    if (!signature) throw new Error('Lighter: the authorisation was not signed.');
+
+    callbacks.onProgress?.();
+    // 3. Server injects the L1 signature and broadcasts the change-pubkey tx,
+    //    registering the agent key on the account.
+    const submit = await firstValueFrom(this.api.post<any>('/actions/lighter/onboard/submit', {
+      wallet: account,
+      session_id: sessionId,
+      signature,
+    }));
+    if (submit && submit.ok === false) {
+      throw new Error(submit.error || 'Lighter onboarding failed.');
+    }
+    callbacks.onConfirm?.();
+    return '';
+  }
+
+  /**
+   * USDC collateral deposit into Lighter. This is the one on-chain step (the
+   * trades are gas-free). The backend builds the ordered EVM transaction(s);
+   * we switch the wallet to the deposit chain and send each in sequence.
+   */
+  private async executeLighterDeposit(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const ethereum = (window as any).ethereum;
+    const account = await this.lighterEvmAccount();
+    const p = action.params;
+
+    callbacks.onQuote?.();
+    const build = await firstValueFrom(this.api.post<any>('/actions/lighter/deposit/build', {
+      wallet: account,
+      amount: p['amount'],
+      token: p['token'] ?? 'USDC',
+      ...(p['chainId'] ? { chainId: Number(p['chainId']) } : {}),
+    }));
+    // Deposit not available / needs manual action — surface the backend message.
+    if (build && build.ok === false) {
+      throw new Error(build.error || 'Lighter deposit is unavailable right now.');
+    }
+    // Backend-managed deposit (no EVM tx to sign) — treat as done.
+    if (build && Array.isArray(build.transactions) === false && build.ok !== false) {
+      callbacks.onConfirm?.();
+      return '';
+    }
+    const txs: Array<{ to: string; data?: string; value?: string; chainId?: number }> = build?.transactions ?? [];
+    if (!txs.length) throw new Error('Lighter: no deposit transaction was returned.');
+
+    const chainId = Number(txs[0].chainId ?? build?.chainId ?? p['chainId'] ?? 0);
+    if (chainId) {
+      const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+      if (onChain !== chainId) {
+        try {
+          await ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: `0x${chainId.toString(16)}` }],
+          });
+        } catch {
+          throw new Error('Your wallet is on a different network than this deposit. Switch it and try again — nothing was signed.');
+        }
+      }
+    }
+    const toHexQty = (v: unknown): string => {
+      const s = String(v ?? '').trim();
+      if (!s) return '0x0';
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return '0x0'; }
+    };
+
+    callbacks.onSign?.();
+    let lastHash = '';
+    for (const tx of txs) {
+      lastHash = await ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) }],
+      });
+      callbacks.onSubmit?.(lastHash);
+      const ok = await this.watchEvmReceipt(ethereum, lastHash);
+      if (ok === false) {
+        callbacks.onFail?.('The deposit reverted on-chain — nothing was deposited. Your funds are safe minus the network fee.', lastHash);
+        return lastHash;
+      }
+      callbacks.onProgress?.();
+    }
+    callbacks.onConfirm?.(lastHash);
+    return lastHash;
+  }
+
+  /**
+   * Lighter open / close / set-leverage — gas-free. The delegated agent key
+   * signs server-side, so there is NO wallet popup and NO on-chain tx hash. We
+   * only need the connected EVM address to identify the Lighter account. If the
+   * account has not been onboarded, the backend rejects with a clear error and
+   * the card surfaces it (the user runs "Enable Lighter trading" first).
+   */
+  private async executeLighterPerp(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const account = await this.lighterEvmAccount();
+    const p = action.params;
+    const symbol = String(p['symbol'] ?? p['market'] ?? '').toUpperCase();
+
+    callbacks.onQuote?.();
+    let path: string;
+    let body: Record<string, unknown>;
+    if (action.type === 'lighter_open') {
+      path = '/actions/lighter/open';
+      body = {
+        wallet: account,
+        symbol,
+        side: (String(p['side'] ?? 'long').toLowerCase() === 'short') ? 'short' : 'long',
+        collateralUsd: Number(p['collateralUsd'] ?? p['collateralAmount'] ?? p['sizeUsd'] ?? 0),
+        leverage: Number(p['leverage'] ?? 1),
+      };
+    } else if (action.type === 'lighter_close') {
+      path = '/actions/lighter/close';
+      body = {
+        wallet: account,
+        symbol,
+        side: String(p['side'] ?? 'long').toLowerCase(),
+        baseAmount: Number(p['baseAmount'] ?? p['amount'] ?? 0),
+      };
+    } else {
+      path = '/actions/lighter/leverage';
+      body = { wallet: account, symbol, leverage: Number(p['leverage'] ?? 1) };
+    }
+
+    callbacks.onSign?.();
+    const resp = await firstValueFrom(this.api.post<any>(path, body));
+    if (resp && (resp.ok === false || resp.error)) {
+      throw new Error(resp.error || 'Lighter: the trade was rejected.');
+    }
+    callbacks.onConfirm?.();
+    return '';
   }
 
   /**

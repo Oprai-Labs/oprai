@@ -76,6 +76,12 @@ class ActionType(str, Enum):
     PERP_CLOSE = "perp_close"
     JLP_ADD = "jlp_add"
     JLP_REMOVE = "jlp_remove"
+    # Lighter perps (Robinhood Chain domain) — zero-fee CLOB perps on EVM
+    LIGHTER_ONBOARD = "lighter_onboard"
+    LIGHTER_DEPOSIT = "lighter_deposit"
+    LIGHTER_OPEN = "lighter_open"
+    LIGHTER_CLOSE = "lighter_close"
+    LIGHTER_LEVERAGE = "lighter_leverage"
     # Jupiter — data queries
     JUP_DCA_ORDERS = "jup_dca_orders"
     JUP_LIMIT_ORDERS = "jup_limit_orders"
@@ -827,6 +833,9 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "marinade_stake", "marinade_unstake", "marinade_delayed_unstake", "marinade_claim_ticket",
     # Jupiter Perpetuals (open/close leveraged positions)
     "perp_open", "perp_close", "jlp_add", "jlp_remove",
+    # Lighter perps (deposit collateral / open / close move funds; onboard +
+    # leverage-change do not, so they are deliberately excluded here)
+    "lighter_deposit", "lighter_open", "lighter_close",
     # Protocol-specific lending/borrowing (direct fund movement)
     "kamino_deposit", "kamino_withdraw", "kamino_borrow", "kamino_repay",
     "kamino_multiply_open", "kamino_multiply_add", "kamino_multiply_withdraw", "kamino_multiply_close",
@@ -1091,6 +1100,9 @@ def validate_action_params(
         "pons_buy":         ("tokenAddress",),
         "pons_sell":        ("tokenAddress",),
         "pons_launch":      ("name", "symbol"),
+        "lighter_open":     ("symbol", "side"),
+        "lighter_close":    ("symbol", "side"),
+        "lighter_leverage": ("symbol", "leverage"),
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]

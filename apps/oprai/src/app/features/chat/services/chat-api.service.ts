@@ -35,6 +35,20 @@ export interface StoredActionResult {
     chainName?: string;
     rate?: string;
   };
+  /** Frozen Lighter perp receipt captured at confirm. A Lighter trade is
+   *  gas-free (backend-signed with the agent key) and produces no on-chain tx
+   *  hash to re-fetch, so a completed open/close/onboard card re-hydrates its
+   *  final state entirely from this snapshot — mirrors uniswapReceipt. */
+  lighterReceipt?: {
+    kind?: 'open' | 'close' | 'onboard' | 'deposit' | 'leverage';
+    symbol?: string;
+    side?: string;
+    collateralUsd?: string;
+    leverage?: string;
+    sizeUsd?: string;
+    baseAmount?: string;
+    accountIndex?: string;
+  };
 }
 
 export interface QuerySnapshot {

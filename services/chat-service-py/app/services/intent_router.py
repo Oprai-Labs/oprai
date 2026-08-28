@@ -55,7 +55,7 @@ VALID_PROTOCOLS: frozenset[str] = frozenset({
     "kamino", "solend",
     "tensor", "magic_eden", "pumpfun",
     "relay", "debridge", "uniswap",
-    "streamflow",
+    "streamflow", "lighter",
 })
 
 
@@ -105,6 +105,11 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "uniswap":   ("uniswap", "uni swap"),
     "poolstrade": ("pools.trade", "pools trade", "poolstrade", "uniswap launchpad", "launchpad"),
     "pons":      ("pons", "ponsfamily"),
+    # Lighter = zero-fee CLOB perps (Robinhood Chain domain). Multi-word / suffix
+    # forms only — the bare word "lighter" is a common English adjective, so the
+    # classifier handles that case semantically (see _SYSTEM). These are
+    # single-meaning product references.
+    "lighter":   ("lighter.xyz", "lighter perp", "lighter perps", "on lighter", "lighter exchange"),
 }
 
 
@@ -329,6 +334,9 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   relay        — Relay.link cross-chain bridge.
   debridge     — deBridge cross-chain.
   streamflow   — Streamflow token streaming / vesting.
+  lighter      — Lighter zero-fee order-book PERPS on Robinhood Chain. Both
+                 crypto perps (BTC/ETH/SOL…) AND stock perps (NVDA, TSLA, AAPL,
+                 MSFT…). Emit for "Lighter", or a perp on a STOCK ticker.
 
 Detection rules:
 - The user often names a venue or product without naming the protocol — map
@@ -345,6 +353,11 @@ Detection rules:
   Kamino / Multiply / long-short loop. Do this even if an earlier turn showed a
   Kamino card — a bare leverage/short/long/perp question is Jupiter, not a
   continuation of Kamino.
+- BUT a perp is "lighter" (NOT jupiter) when the user names "Lighter" / "on
+  Lighter" / Robinhood Chain, OR trades a perp on a STOCK ticker (NVDA, TSLA,
+  AAPL, MSFT, AMZN, GOOG, META, …) — those equities exist only on Lighter.
+  "long NVDA", "short TSLA 5x", "open a perp on Apple" → "lighter". A bare
+  crypto perp with no venue named stays "jupiter".
 - An in-flight flow keeps its protocol. When earlier turns established one —
   the user asked for it, or you offered options belonging to it — the next
   message continues that flow unless the user names a DIFFERENT protocol. A

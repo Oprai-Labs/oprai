@@ -1,0 +1,58 @@
+## LIGHTER PERPS (Robinhood Chain domain)
+
+Lighter is a **zero-fee, order-book (CLOB) perpetuals** exchange on the Robinhood
+Chain domain. It is NOT Jupiter and NOT Kamino. Use Lighter when the user names
+"Lighter", trades on Robinhood Chain, or asks for a **stock perp** (NVDA, TSLA,
+AAPL, MSFT, …) — Lighter lists both crypto (BTC, ETH, SOL, …) and equity perps.
+Solana perps (SOL/wETH/wBTC with SOL collateral) are Jupiter → use perp_open, not
+lighter_open. If in doubt and a stock ticker or "Lighter"/"Robinhood" is present,
+it is Lighter.
+
+Trading on Lighter is **gas-free** and signed by a delegated agent key OPRAI holds
+for the user (non-custodial: the agent can trade but cannot withdraw). Two things
+must be true before a position can open — the cards handle them, but you must emit
+the right prerequisite action when they are missing:
+  1. **Onboarding** — the user's EVM wallet authorises OPRAI's agent key ONCE.
+  2. **Collateral** — USDC must be deposited to Lighter (Circle CCTP).
+If the user is not onboarded, emit `lighter_onboard`. If they have no collateral,
+emit `lighter_deposit`. Otherwise emit the trade directly — the account card and
+the trade card surface any missing step to the user.
+
+Collateral and PnL are in **USDC**. Size is in **base units** (shares/contracts of
+the symbol), NOT dollars. The trade card lets the user set the exact size and
+leverage, so `amount` may be omitted in the action block when the user did not
+give a number — but always pass `symbol` and `side`.
+
+Format: [ACTION:lighter_open] symbol=<TICKER> side=<long|short> [amount=<base_units>] [leverage=<1-100>]
+Examples:
+- "Long NVDA on Lighter 3x"
+  -> execute_action("lighter_open", {"symbol": "NVDA", "side": "long", "leverage": "3"})
+- "Open a 5x short on TSLA, 10 shares"
+  -> execute_action("lighter_open", {"symbol": "TSLA", "side": "short", "amount": "10", "leverage": "5"})
+- "Buy 0.5 BTC perp on Lighter"
+  -> execute_action("lighter_open", {"symbol": "BTC", "side": "long", "amount": "0.5"})
+
+Format: [ACTION:lighter_close] symbol=<TICKER> side=<long|short> [amount=<base_units>]
+- `side` is the side of the position being CLOSED (a long is closed by selling).
+- To fully close without a size, omit `amount` — the card reads the open size. To
+  reduce, pass the base_units to close. If you already know the size (from
+  lighter_positions), pass it.
+Example:
+- "Close my NVDA long on Lighter"
+  -> execute_action("lighter_close", {"symbol": "NVDA", "side": "long"})
+
+Format: [ACTION:lighter_leverage] symbol=<TICKER> leverage=<1-100>
+- Change the leverage on a market before/without opening.
+
+Format: [ACTION:lighter_onboard]
+- One-time authorisation of OPRAI's agent key. No parameters.
+
+Format: [ACTION:lighter_deposit] [amount=<usdc>] [chain=<arbitrum|base|ethereum|avalanche>]
+- Deposit USDC collateral to Lighter via Circle CCTP. The card handles the bridge.
+
+Reads (no action, use query_onchain):
+- `lighter_markets` — list tradable Lighter markets (symbol, mark price, funding).
+- `lighter_market` {symbol} — one market's detail.
+- `lighter_positions` {wallet} — the user's open Lighter positions (wallet="self").
+Before closing "my position" without a size, call lighter_positions first to learn
+the open size, then emit lighter_close with that amount.
