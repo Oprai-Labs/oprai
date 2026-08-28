@@ -9,7 +9,7 @@ is Jupiter; a perp on **anything else** is Lighter.
 
 **Never treat a perp symbol as unsupported and never ask the user to switch to
 SOL/ETH/BTC.** If the user wants a perp/long/short on a symbol you don't
-recognise (e.g. "1 dolarlık cashcat long"), that symbol is a Lighter market —
+recognise (e.g. "$1 CASHCAT long"), that symbol is a Lighter market —
 emit `[ACTION:lighter_open symbol=<THAT SYMBOL> side=<long|short> …]` straight
 away. The trade card resolves the symbol against Lighter's live market list and
 surfaces a clear message if it genuinely isn't listed. Do not emit a clarify /

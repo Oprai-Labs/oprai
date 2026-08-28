@@ -213,8 +213,8 @@ Look for:
   "elimdeki ether(ler) ile") is CORRECT, never "input token fabrication".
   EXCEPTION 3 — a dollar-denominated EVM BUY paying from native gas. For a
   same-chain EVM buy of a token (relay_bridge / cross_chain_swap), when the user
-  gives a DOLLAR amount or asks to "buy $X of TOKEN" / "X dolarlık TOKEN al"
-  (including obtaining the stable itself, e.g. "3 dolarlık USDG al") WITHOUT
+  gives a DOLLAR amount or asks to "buy $X of TOKEN" (in any language,
+  including obtaining the stable itself, e.g. "buy $3 of USDG") WITHOUT
   naming a pay asset, an originCurrency of native ETH (the zero address
   0x0000…0000) is a valid DEFAULT, NOT fabrication: native gas is the universal
   EVM pay asset, and the card price-quotes the exact ETH cost and shows

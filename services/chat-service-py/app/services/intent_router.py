@@ -357,7 +357,7 @@ Detection rules:
   "lighter" (NOT jupiter) whenever the symbol is anything other than SOL/ETH/BTC —
   a stock (NVDA, TSLA, AAPL, MSFT, HOOD, COIN, PLTR…) OR a memecoin/altcoin
   (CASHCAT, DOGE, WIF, PEPE, …), or when the user names "Lighter"/"on Lighter"/
-  Robinhood Chain. "long NVDA", "short TSLA 5x", "1 dolarlık cashcat long",
+  Robinhood Chain. "long NVDA", "short TSLA 5x", "$1 CASHCAT long",
   "open a perp on Apple" → "lighter". Only a bare SOL/ETH/BTC perp with no venue
   named stays "jupiter". An unfamiliar token in a perp/long/short request is a
   Lighter market, never "unsupported".
