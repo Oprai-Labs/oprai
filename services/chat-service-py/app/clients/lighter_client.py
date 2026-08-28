@@ -68,8 +68,15 @@ async def _get(path: str, params: dict | None = None) -> Any:
 
 async def account_index_for(l1_address: str) -> int | None:
     """Lighter account index for an EVM address, or None if the wallet has no
-    Lighter account yet (must be created before trading)."""
-    data = await _get("/api/v1/account", {"by": "l1_address", "value": l1_address})
+    Lighter account yet (must be created before trading). The API returns 400/404
+    for an address with no account — that is the common not-yet-onboarded case,
+    so treat it as None rather than an error."""
+    try:
+        data = await _get("/api/v1/account", {"by": "l1_address", "value": l1_address})
+    except httpx.HTTPStatusError as e:
+        if e.response is not None and e.response.status_code in (400, 404):
+            return None
+        raise
     accts = data.get("accounts") or []
     if not accts:
         return None

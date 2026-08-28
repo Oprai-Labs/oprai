@@ -2631,8 +2631,16 @@ async def lighter_positions(wallet: str) -> dict:
     """A wallet's Robinhood Lighter perp account + open positions, by EVM (L1) address —
     available balance, collateral, total value, maintenance margin and each open
     position. Read-only; no signing."""
-    data = await _get(f"{LIGHTER_RH_BASE}/api/v1/account",
-                      params={"by": "l1_address", "value": wallet})
+    try:
+        data = await _get(f"{LIGHTER_RH_BASE}/api/v1/account",
+                          params={"by": "l1_address", "value": wallet})
+    except httpx.HTTPStatusError as e:
+        # The API returns 400/404 for an address with no Lighter account — that
+        # is the common not-yet-onboarded case, not an error.
+        if e.response is not None and e.response.status_code in (400, 404):
+            return {"venue": "lighter-robinhood", "wallet": wallet, "found": False,
+                    "note": "No Lighter account for this address yet."}
+        raise
     accts = data.get("accounts") or []
     if not accts:
         return {"venue": "lighter-robinhood", "wallet": wallet, "found": False,
