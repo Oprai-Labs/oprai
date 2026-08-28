@@ -353,11 +353,14 @@ Detection rules:
   Kamino / Multiply / long-short loop. Do this even if an earlier turn showed a
   Kamino card — a bare leverage/short/long/perp question is Jupiter, not a
   continuation of Kamino.
-- BUT a perp is "lighter" (NOT jupiter) when the user names "Lighter" / "on
-  Lighter" / Robinhood Chain, OR trades a perp on a STOCK ticker (NVDA, TSLA,
-  AAPL, MSFT, AMZN, GOOG, META, …) — those equities exist only on Lighter.
-  "long NVDA", "short TSLA 5x", "open a perp on Apple" → "lighter". A bare
-  crypto perp with no venue named stays "jupiter".
+- Jupiter Perps lists ONLY three symbols: SOL, wETH, wBTC. So a perp is
+  "lighter" (NOT jupiter) whenever the symbol is anything other than SOL/ETH/BTC —
+  a stock (NVDA, TSLA, AAPL, MSFT, HOOD, COIN, PLTR…) OR a memecoin/altcoin
+  (CASHCAT, DOGE, WIF, PEPE, …), or when the user names "Lighter"/"on Lighter"/
+  Robinhood Chain. "long NVDA", "short TSLA 5x", "1 dolarlık cashcat long",
+  "open a perp on Apple" → "lighter". Only a bare SOL/ETH/BTC perp with no venue
+  named stays "jupiter". An unfamiliar token in a perp/long/short request is a
+  Lighter market, never "unsupported".
 - An in-flight flow keeps its protocol. When earlier turns established one —
   the user asked for it, or you offered options belonging to it — the next
   message continues that flow unless the user names a DIFFERENT protocol. A

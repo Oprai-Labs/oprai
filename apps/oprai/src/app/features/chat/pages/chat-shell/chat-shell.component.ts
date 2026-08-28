@@ -310,7 +310,11 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       return updated;
     });
     this._evictMessageMiniApps(droppedIds);
-    this.onSendMessage(content);
+    // Re-send with the SAME protocol tags the failed turn carried — a retry the
+    // user didn't re-tag must keep the venue (e.g. @Lighter), or the classifier
+    // loses the scope and misroutes.
+    const protocols = this._lastSentProtocols;
+    this.onSendMessage(protocols.length ? { content, protocols } : content);
   }
 
   /**
@@ -336,8 +340,10 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     });
     this._evictMessageMiniApps(droppedIds);
     // Defer to next tick so the message-list rerender finishes before the
-    // composer takes focus — otherwise the focus jumps around.
-    queueMicrotask(() => this.composer?.setText(content));
+    // composer takes focus — otherwise the focus jumps around. Restore the
+    // protocol chips the failed turn had so an edit-and-resend keeps the venue.
+    const protocols = this._lastSentProtocols;
+    queueMicrotask(() => this.composer?.setText(content, protocols));
   }
 
   /** Drop ActionCard / QueryCard / ClarifyCard entries owned by the given
@@ -547,12 +553,17 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       // creates a new persisted turn.
       const all = this.messages();
       const editIdx = all.findIndex(m => m.id === payload.messageId);
+      // Keep the protocol tags the message carried (temp/local turns store them
+      // in metadata just like persisted ones); fall back to the last-sent set.
+      const protocols = editIdx !== -1
+        ? ((all[editIdx].metadata?.protocols ?? []) as string[])
+        : this._lastSentProtocols;
       if (editIdx !== -1) {
         const droppedIds = all.slice(editIdx).map(m => m.id);
         this.messages.set(all.slice(0, editIdx));
         this._evictMessageMiniApps(droppedIds);
       }
-      this.onSendMessage(trimmed);
+      this.onSendMessage(protocols.length ? { content: trimmed, protocols } : trimmed);
       return;
     }
 
