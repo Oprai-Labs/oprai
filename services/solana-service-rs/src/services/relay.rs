@@ -1160,9 +1160,17 @@ pub async fn get_cross_chain_quote(
         params.destination_chain_id,
         user_address,
     )?;
+    // The build path passes Pubkey::default() ("111…111") for EVM-session users,
+    // so honour params.sender the same way get_relay_quote_full does — otherwise
+    // an EVM-origin quote goes out with a Solana address and Relay refuses it.
+    let sender = resolve_bridge_sender(
+        params.sender.as_deref(),
+        params.origin_chain_id,
+        user_address,
+    )?;
 
     let mut quote_body = serde_json::json!({
-        "user": user_address,
+        "user": sender,
         "originChainId": canonical_chain_id(params.origin_chain_id),
         "destinationChainId": canonical_chain_id(params.destination_chain_id),
         "originCurrency": params.origin_currency,

@@ -281,6 +281,8 @@ pub async fn get_chain_tokens(
 fn is_evm_build_action(action_type: &str) -> bool {
     action_type.starts_with("relay")        // relay_bridge, relay_get_quote/chains/currencies/requests…
         || action_type.starts_with("uniswap") // uniswap_swap/pools/launches/add_liquidity
+        || action_type.starts_with("pons")   // pons_buy/sell/launch (EVM Robinhood launchpad)
+        || action_type.starts_with("pools")  // pools_buy/sell/launch (pools.trade launchpad)
         || matches!(action_type, "cross_chain_swap" | "bridge")
 }
 

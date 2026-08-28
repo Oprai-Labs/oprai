@@ -1510,9 +1510,14 @@ export class SolanaActionService {
    *  Solana wallet needed). Origin is EVM when it isn't one of Relay's Solana
    *  chain ids. Accepts a chain NAME too (the LLM may pass "ethereum"). */
   private bridgeOriginIsEvm(p: Record<string, string>): boolean {
-    const raw = String(p['originChainId'] ?? '').toLowerCase().trim();
+    // A generic `bridge` action carries the origin as a chain NAME in fromChain
+    // (it's remapped to a numeric originChainId only later, AFTER this guard runs),
+    // so fall back to it — otherwise every EVM-origin `bridge` looked Solana and
+    // an EVM-only session was wrongly told to "connect a Solana wallet".
+    const raw = String(p['originChainId'] ?? p['fromChain'] ?? '').toLowerCase().trim();
     if (!raw) return false;
-    const solana = new Set(['792703809', '900', 'solana', '11111111111111111111111111111111']);
+    // 7565164 is the Squid/deBridge Solana chain id; 'sol' the shorthand name.
+    const solana = new Set(['792703809', '900', '7565164', 'solana', 'sol', '11111111111111111111111111111111']);
     if (solana.has(raw)) return false;
     const n = Number(raw);
     // A numeric non-Solana chain id, or a non-Solana chain name → EVM origin.
@@ -1544,7 +1549,8 @@ export class SolanaActionService {
     // must not hit the Solana-wallet guard. Only a Solana-ORIGIN bridge needs a
     // Solana wallet.
     const isEvmOriginBridge =
-      (action.type === 'relay_bridge' || action.type === 'cross_chain_swap' || action.type === 'bridge')
+      (action.type === 'relay_bridge' || action.type === 'cross_chain_swap' || action.type === 'bridge'
+        || action.type === 'squid_bridge' || action.type === 'debridge')
       && this.bridgeOriginIsEvm(action.params);
     if (!wallet && !isEvmOriginBridge) {
       // The user may be signed in through an EVM (SIWE) session with no Solana
@@ -1662,8 +1668,12 @@ export class SolanaActionService {
             originToken:        action.params['originToken'] ?? action.params['fromToken'] ?? token,
             destinationToken:   action.params['destinationToken'] ?? action.params['toToken'] ?? token,
             amount:             action.params['amount'] ?? '0',
-            fromAddress:        action.params['fromAddress'] ?? squidFromAddress,
+            // squidFromAddress is the SOLANA pubkey (empty for an EVM-only session);
+            // an EVM-origin squid bridge sends from the EVM wallet, so prefer an
+            // explicit fromAddress/sender and only fall back to the Solana one.
+            fromAddress:        action.params['fromAddress'] ?? action.params['sender'] ?? squidFromAddress,
             // Carry through all optional Squid params if provided
+            ...(action.params['sender']                  && { sender: action.params['sender'] }),
             ...(action.params['recipient']               && { recipient: action.params['recipient'] }),
             ...(action.params['slippage'] != null        && { slippage: action.params['slippage'] }),
             ...(action.params['enableExpress'] != null   && { enableExpress: action.params['enableExpress'] }),
@@ -1703,6 +1713,14 @@ export class SolanaActionService {
             amount: action.params['amount'] ?? '0',
             provider: providerMap[provider] ?? 'relay',
             slippageBps: action.params['slippageBps'] ?? '50',
+            // A fresh params object drops everything not listed — so carry through
+            // the EVM sender/recipient the same way the direct relay_bridge path
+            // does, or an EVM-origin bridge 400s with "needs an EVM wallet to send
+            // from" (the sender never reached the build).
+            ...(action.params['sender']     && { sender: action.params['sender'] }),
+            ...(action.params['recipient']  && { recipient: action.params['recipient'] }),
+            ...(action.params['refundTo']   && { refundTo: action.params['refundTo'] }),
+            ...(action.params['refundType'] && { refundType: action.params['refundType'] }),
           },
         };
       }
@@ -4625,6 +4643,11 @@ export class SolanaActionService {
           originToken: p['originToken'] ?? p['fromToken'] ?? p['token'],
           destinationToken: p['destinationToken'] ?? p['toToken'],
           amount: p['amount'],
+          // EVM-origin squid bridges send from the EVM wallet — forward it the
+          // same way cross_chain_swap/relay_bridge do, else the build defaults to
+          // the (empty) Solana sender.
+          ...(p['fromAddress'] ? { fromAddress: p['fromAddress'] } : {}),
+          ...(p['sender'] ? { sender: p['sender'] } : {}),
           ...(p['recipient'] ? { recipient: p['recipient'] } : {}),
           ...(p['slippage'] ? { slippage: parseFloat(p['slippage']) } : {}),
           ...(p['enableExpress'] !== undefined ? { enableExpress: parseBoolParam(p['enableExpress']) } : {}),
