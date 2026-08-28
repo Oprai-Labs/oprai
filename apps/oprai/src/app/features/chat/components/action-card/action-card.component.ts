@@ -14,6 +14,7 @@ import { UploadService } from '@core/services/upload.service';
 import { JupiterLendService, LEND_SUPPORTED_ASSETS, LendActionInfo, LendBorrowInfo } from '@core/services/market/jupiter-lend.service';
 import { WalletService } from '@core/services/wallet.service';
 import { TokenRegistryService } from '@core/services/market/token-registry.service';
+import { LighterPerpService, LighterMarket, LighterAccount } from '@core/services/market/lighter-perp.service';
 import { KaminoService, KaminoReserve, KaminoObligation, KaminoVaultMetrics, KaminoVaultPosition, KAMINO_MAIN_MARKET } from '@core/services/market/kamino.service';
 import { TransactionPreviewService, TransactionPreview, BalanceChange } from '../../services/transaction-preview.service';
 import { JargonTooltipComponent } from '@shared/components/jargon-tooltip/jargon-tooltip.component';
@@ -1178,6 +1179,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly apiService = inject(ApiService);
   private readonly appVersion = inject(AppVersionService);
   private readonly orcaService = inject(OrcaService);
+  private readonly lighterPerp = inject(LighterPerpService);
 
   /** Cache so a Meteora pool address is fetched once per card lifecycle even
    *  if `editParams.poolId` thrashes (e.g. on draft restore). */
@@ -6107,7 +6109,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!this.lighterSymbol()) return 'Pick a market';
       const usd = this.lighterCollateralUsd();
       if (usd === null || usd <= 0) return 'Enter collateral';
-      if (usd < this.LIGHTER_MIN_COLLATERAL_USD) return `Minimum $${this.LIGHTER_MIN_COLLATERAL_USD} collateral`;
+      if (this.lighterOrderType() === 'limit' && !(parseFloat(this.getEditParam('limitPrice')) > 0)) {
+        return 'Enter a limit price';
+      }
+      // Guide to a valid order: block anything below the market's minimum value.
+      if (this.lighterBelowMin()) {
+        return `Min order $${this.lighterMinNotional().toFixed(0)} — use ≥ $${this.lighterMinCollateralNeeded().toFixed(2)} at ${this.lighterLeverage()}x`;
+      }
     }
     if (this.action?.type === 'lighter_close') {
       if (!this.lighterSymbol()) return 'Pick a market';
@@ -6365,6 +6373,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         else this.poolsCountdown.set(n);
       }), 1000);
     }
+    // Lighter perps: load the live market catalogue + account snapshot and,
+    // for an open ticket, start the 3s live-price refresh.
+    if (this.isLighterAction()) this.startLighterCard();
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
@@ -9548,15 +9559,251 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   // non-custodial personal_sign; trades afterwards are gas-free (agent-key signed
   // server-side). Mirrors the Jupiter perp helpers so the card body can be a
   // faithful clone with the venue swapped.
-  readonly LIGHTER_SYMBOLS = ['NVDA', 'TSLA', 'PLTR', 'COIN', 'AAPL', 'HOOD', 'BTC', 'ETH', 'SOL'];
+  /** Quick-pick chips shown above the searchable list (the rest are searchable). */
+  readonly LIGHTER_QUICK_SYMBOLS = ['NVDA', 'TSLA', 'PLTR', 'COIN', 'AAPL', 'HOOD', 'BTC', 'ETH', 'SOL'];
   readonly LIGHTER_MIN_LEV = 1;
+  /** Absolute leverage ceiling; the real cap is per-market (lighterMaxLev()). */
   readonly LIGHTER_MAX_LEV = 50;
-  /** Slider tick labels shown under the leverage rail. */
-  readonly LIGHTER_LEV_TICKS = [1, 10, 20, 30, 40, 50];
-  /** Lighter requires ≥ $10 collateral to open a position. */
-  readonly LIGHTER_MIN_COLLATERAL_USD = 10;
+
+  /** Order types. Market + Limit are live; the rest render disabled ("soon") so
+   *  the ticket matches Lighter's UI without pretending to support them. */
+  readonly LIGHTER_ORDER_TYPES: ReadonlyArray<{ id: string; label: string; enabled: boolean }> = [
+    { id: 'market', label: 'Market', enabled: true },
+    { id: 'limit', label: 'Limit', enabled: true },
+    { id: 'conditional', label: 'Conditional', enabled: false },
+    { id: 'twap', label: 'TWAP', enabled: false },
+    { id: 'scale', label: 'Scale', enabled: false },
+    { id: 'chase', label: 'Chase Limit', enabled: false },
+  ];
+
+  /** Live market catalogue (symbol, price, per-market limits) — polled every 3s. */
+  readonly lighterMarkets = signal<LighterMarket[]>([]);
+  /** The user's Lighter account snapshot (balance + open positions). */
+  readonly lighterAcct = signal<LighterAccount | null>(null);
+  /** Market-picker UI state. */
+  readonly lighterPickerOpen = signal(false);
+  readonly lighterSearch = signal('');
+  /** Order-type dropdown UI state. */
+  readonly lighterTypeMenuOpen = signal(false);
+  /** Seconds until the next live-price refresh (drives a subtle countdown). */
+  readonly lighterPriceCountdown = signal(3);
+  private _lighterPoll: ReturnType<typeof setInterval> | null = null;
 
   readonly isLighterAction = computed(() => (this.action?.type ?? '').startsWith('lighter_'));
+
+  /** All tradable symbols from the live catalogue (fallback to quick chips). */
+  lighterAllSymbols(): string[] {
+    const ms = this.lighterMarkets();
+    return ms.length ? ms.map(m => m.symbol) : this.LIGHTER_QUICK_SYMBOLS;
+  }
+
+  /** The selected market's live record, or null until the catalogue loads. */
+  lighterMarket(): LighterMarket | null {
+    const sym = this.lighterSymbol();
+    if (!sym) return null;
+    return this.lighterMarkets().find(m => m.symbol === sym) ?? null;
+  }
+
+  /** Markets filtered by the picker search box (symbol prefix/contains). */
+  lighterFilteredMarkets(): LighterMarket[] {
+    const q = this.lighterSearch().trim().toUpperCase();
+    const ms = this.lighterMarkets();
+    if (!q) return ms;
+    return ms.filter(m => m.symbol.includes(q));
+  }
+
+  /** Live mark price for the selected market (USD). */
+  lighterPrice(): number | null {
+    const m = this.lighterMarket();
+    return m && m.markPrice > 0 ? m.markPrice : null;
+  }
+
+  /** Daily change % for the selected market. */
+  lighterDailyChange(): number | null {
+    const m = this.lighterMarket();
+    return m ? m.dailyChangePct : null;
+  }
+
+  /** Per-market leverage ceiling (CASHCAT 3, NVDA 20, BTC 50…); default 50. */
+  lighterMaxLev(): number {
+    return this.lighterMarket()?.maxLeverage ?? this.LIGHTER_MAX_LEV;
+  }
+
+  /** Even leverage tick marks up to the market cap. */
+  lighterLevTicks(): number[] {
+    const max = this.lighterMaxLev();
+    if (max <= 1) return [1];
+    const step = max / 5;
+    const ticks = [1];
+    for (let i = 1; i <= 5; i++) ticks.push(Math.round(step * i));
+    return Array.from(new Set(ticks)).filter(t => t <= max);
+  }
+
+  /** Minimum order VALUE for the selected market (USD, ~$10). */
+  lighterMinNotional(): number {
+    return this.lighterMarket()?.minQuoteAmount ?? 10;
+  }
+
+  /** Order value (USD notional) = collateral × leverage. */
+  lighterOrderValue(): number | null {
+    const coll = this.lighterCollateralUsd();
+    if (coll === null) return null;
+    return coll * this.lighterLeverage();
+  }
+
+  /** The price used for sizing — limit price for a limit order, else mark. */
+  lighterExecPrice(): number | null {
+    if (this.lighterOrderType() === 'limit') {
+      const lp = parseFloat(this.getEditParam('limitPrice'));
+      if (Number.isFinite(lp) && lp > 0) return lp;
+    }
+    return this.lighterPrice();
+  }
+
+  /** Order size in base units = order value / price, rounded to size decimals. */
+  lighterOrderSizeBase(): number | null {
+    const val = this.lighterOrderValue();
+    const px = this.lighterExecPrice();
+    if (val === null || !px) return null;
+    const m = this.lighterMarket();
+    const dec = m ? m.sizeDecimals : 4;
+    return +(val / px).toFixed(dec);
+  }
+
+  /** Estimated liquidation price for the pending position. */
+  lighterEstLiqPrice(): number | null {
+    const px = this.lighterExecPrice();
+    const m = this.lighterMarket();
+    const lev = this.lighterLeverage();
+    if (!px || !m || lev <= 0) return null;
+    const mmf = m.maintenanceMarginFraction || 0;
+    const liq = this.lighterSide() === 'long'
+      ? px * (1 - 1 / lev + mmf)
+      : px * (1 + 1 / lev - mmf);
+    return liq > 0 ? liq : null;
+  }
+
+  /** Available USDC to trade (from the account snapshot). */
+  lighterAvailableBalance(): number | null {
+    const a = this.lighterAcct();
+    return a && a.found ? a.availableBalance : null;
+  }
+
+  /** The user's existing open position in the selected market, if any. */
+  lighterCurrentPosition(): LighterAccount['positions'][number] | null {
+    const a = this.lighterAcct();
+    const sym = this.lighterSymbol();
+    if (!a || !sym) return null;
+    return a.positions.find(p => p.market === sym) ?? null;
+  }
+
+  /** Order type: 'market' | 'limit' (default market). */
+  lighterOrderType(): string {
+    const t = (this.getEditParam('orderType') || 'market').toLowerCase();
+    return t === 'limit' ? 'limit' : 'market';
+  }
+  lighterOrderTypeLabel(): string {
+    return this.LIGHTER_ORDER_TYPES.find(o => o.id === this.lighterOrderType())?.label ?? 'Market';
+  }
+  setLighterOrderType(id: string): void {
+    if (!this.isEditable()) return;
+    const opt = this.LIGHTER_ORDER_TYPES.find(o => o.id === id);
+    if (!opt || !opt.enabled) return;
+    this.setEditParam('orderType', opt.id);
+    // Seed the limit price with the live mark the first time Limit is chosen.
+    if (opt.id === 'limit' && !this.getEditParam('limitPrice')) {
+      const px = this.lighterPrice();
+      if (px) this.setEditParam('limitPrice', String(px));
+    }
+    this.lighterTypeMenuOpen.set(false);
+  }
+  toggleLighterTypeMenu(): void { if (this.isEditable()) this.lighterTypeMenuOpen.update(v => !v); }
+
+  /** Copy the live mark into the limit-price field (the "Mark" shortcut). */
+  useMarkAsLimit(): void {
+    const px = this.lighterPrice();
+    if (px && this.isEditable()) this.setEditParam('limitPrice', String(px));
+  }
+  lighterLimitPrice(): string { return this.getEditParam('limitPrice'); }
+  setLighterLimitPrice(v: string): void {
+    if (!this.isEditable()) return;
+    const n = parseFloat(v);
+    this.setEditParam('limitPrice', Number.isFinite(n) && n >= 0 ? String(n) : '');
+  }
+
+  lighterReduceOnly(): boolean { return this.getEditParam('reduceOnly') === 'true'; }
+  toggleLighterReduceOnly(): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('reduceOnly', this.lighterReduceOnly() ? '' : 'true');
+  }
+
+  lighterTpSlEnabled(): boolean { return this.getEditParam('tpSlEnabled') === 'true'; }
+  toggleLighterTpSl(): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('tpSlEnabled', this.lighterTpSlEnabled() ? '' : 'true');
+  }
+
+  /** Market picker open/close + selection. */
+  toggleLighterPicker(): void { if (this.isEditable()) this.lighterPickerOpen.update(v => !v); }
+  chooseLighterMarket(sym: string): void {
+    this.setLighterSymbol(sym);
+    this.lighterPickerOpen.set(false);
+    this.lighterSearch.set('');
+    // Re-clamp leverage to the new market's ceiling + reseed a limit price.
+    this.setLighterLeverage(this.lighterLeverage());
+    if (this.lighterOrderType() === 'limit') {
+      const px = this.lighterPrice();
+      if (px) this.setEditParam('limitPrice', String(px));
+    }
+  }
+  onLighterSearch(v: string): void { this.lighterSearch.set(v); }
+
+  /** True when the pending order is below Lighter's minimums (value or size). */
+  lighterBelowMin(): boolean {
+    const val = this.lighterOrderValue();
+    if (val === null) return false; // nothing entered yet — not an error state
+    if (val < this.lighterMinNotional()) return true;
+    const size = this.lighterOrderSizeBase();
+    const m = this.lighterMarket();
+    if (m && m.minBaseAmount && size !== null && size < m.minBaseAmount) return true;
+    return false;
+  }
+
+  /** Collateral needed to clear the min notional at the current leverage. */
+  lighterMinCollateralNeeded(): number {
+    return this.lighterMinNotional() / Math.max(1, this.lighterLeverage());
+  }
+
+  /** Load the market catalogue + account, and start the 3s live-price poll. */
+  private startLighterCard(): void {
+    void this.refreshLighterMarkets();
+    void this.refreshLighterAccount();
+    if (this.action?.type === 'lighter_open') {
+      this.lighterPriceCountdown.set(3);
+      this._lighterPoll = setInterval(() => this.zone.run(() => {
+        if (!this.isEditable()) return; // freeze once submitted
+        const n = (this.lighterPriceCountdown() ?? 3) - 1;
+        if (n <= 0) { this.lighterPriceCountdown.set(3); void this.refreshLighterMarkets(); }
+        else this.lighterPriceCountdown.set(n);
+      }), 1000);
+    }
+  }
+  private stopLighterPoll(): void {
+    if (this._lighterPoll) { clearInterval(this._lighterPoll); this._lighterPoll = null; }
+  }
+  private async refreshLighterMarkets(): Promise<void> {
+    const ms = await this.lighterPerp.markets();
+    if (ms.length) {
+      this.lighterMarkets.set(ms);
+      // If no market chosen yet and the LLM didn't name a valid one, don't force
+      // a pick — but if a symbol was named that isn't tradable, leave it so the
+      // picker shows empty selection and the user chooses.
+    }
+  }
+  private async refreshLighterAccount(): Promise<void> {
+    try { this.lighterAcct.set(await this.lighterPerp.getAccount()); }
+    catch { /* best-effort; card still works for sizing */ }
+  }
 
   /** The chosen market symbol (uppercased). Accepts `symbol` or legacy `market`. */
   lighterSymbol(): string {
@@ -9582,35 +9829,29 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam('collateralUsd', String(n));
   }
 
-  /** Current leverage, clamped to [1, 50]. Default 2×. */
+  /** Current leverage, clamped to [1, per-market max]. Default 2×. */
   lighterLeverage(): number {
+    const max = this.lighterMaxLev();
     const v = parseFloat(this.getEditParam('leverage'));
-    if (!Number.isFinite(v)) return 2;
-    return Math.min(this.LIGHTER_MAX_LEV, Math.max(this.LIGHTER_MIN_LEV, v));
+    if (!Number.isFinite(v)) return Math.min(2, max);
+    return Math.min(max, Math.max(this.LIGHTER_MIN_LEV, v));
   }
   setLighterLeverage(v: string | number): void {
     const n = typeof v === 'number' ? v : parseFloat(v);
     if (!Number.isFinite(n)) return;
-    const clamped = Math.min(this.LIGHTER_MAX_LEV, Math.max(this.LIGHTER_MIN_LEV, n));
+    const clamped = Math.min(this.lighterMaxLev(), Math.max(this.LIGHTER_MIN_LEV, n));
     this.setEditParam('leverage', String(+clamped.toFixed(1)));
   }
   nudgeLighterLeverage(delta: number): void { this.setLighterLeverage(this.lighterLeverage() + delta); }
   /** Slider fill / handle position, 0–100%. */
   lighterLevPercent(): number {
-    return ((this.lighterLeverage() - this.LIGHTER_MIN_LEV) / (this.LIGHTER_MAX_LEV - this.LIGHTER_MIN_LEV)) * 100;
+    const max = this.lighterMaxLev();
+    const span = Math.max(1, max - this.LIGHTER_MIN_LEV);
+    return ((this.lighterLeverage() - this.LIGHTER_MIN_LEV) / span) * 100;
   }
 
-  /** Position size in USD = collateral (USD) × leverage. */
-  lighterSizeUsd(): number | null {
-    const coll = this.lighterCollateralUsd();
-    if (coll === null) return null;
-    return coll * this.lighterLeverage();
-  }
-  /** True when the entered collateral is below Lighter's $10 minimum. */
-  lighterBelowMinCollateral(): boolean {
-    const usd = this.lighterCollateralUsd();
-    return usd !== null && usd < this.LIGHTER_MIN_COLLATERAL_USD;
-  }
+  /** Position size in USD = collateral (USD) × leverage. (Receipt/back-compat.) */
+  lighterSizeUsd(): number | null { return this.lighterOrderValue(); }
 
   /**
    * Catalog-driven minimum amount hint for amount-style inputs that live
@@ -10697,6 +10938,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this._poolsQuoteTimer) clearTimeout(this._poolsQuoteTimer);
     if (this._poolsPoll) { clearInterval(this._poolsPoll); this._poolsPoll = null; }
     if (this.poolsFocusHandler) { window.removeEventListener('focus', this.poolsFocusHandler); this.poolsFocusHandler = null; }
+    this.stopLighterPoll();
   }
 
   /** Start counting how long the tx has been waiting for confirmation, and

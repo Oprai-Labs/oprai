@@ -7076,3 +7076,162 @@
 .pl-cca-ended lucide-icon { flex: none; margin-top: 1px; }
 .pl-flabel-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pl-count { font-size: .68rem; font-weight: 500; color: var(--op-text-tertiary, var(--op-text-secondary)); font-variant-numeric: tabular-nums; }
+
+// ─────── Lighter perp ticket — dynamic market picker, live price, toggles ───────
+.pump-panel__bal {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+}
+
+.lighter-soon {
+  margin-left: 5px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+  background: color-mix(in srgb, var(--op-text-secondary) 14%, transparent);
+  padding: 1px 5px;
+  border-radius: 5px;
+  vertical-align: middle;
+}
+
+.lighter-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lighter-selected {
+  margin-top: 8px;
+  gap: 10px;
+
+  .lighter-chg {
+    font-size: 0.75rem;
+    font-weight: 700;
+    &.up { color: var(--op-success, #16c784); }
+    &.down { color: var(--op-danger, #ea3943); }
+  }
+  .lighter-live {
+    margin-left: auto;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--op-success, #16c784);
+  }
+}
+
+.lighter-picker {
+  margin-top: 8px;
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 14px;
+  background: var(--op-bg-surface-2);
+  overflow: hidden;
+
+  &__search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 11px 14px;
+    border: none;
+    border-bottom: 1px solid var(--op-border-subtle);
+    background: transparent;
+    color: var(--op-text-primary);
+    font-size: 0.875rem;
+    outline: none;
+    &::placeholder { color: var(--op-text-tertiary, var(--op-text-secondary)); }
+  }
+
+  &__list {
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--op-text-primary);
+    border-bottom: 1px solid color-mix(in srgb, var(--op-border-subtle) 55%, transparent);
+    transition: background 0.12s ease;
+    &:last-child { border-bottom: none; }
+    &:hover { background: var(--op-bg-surface-3, rgba(255,255,255,0.05)); }
+    &.is-active { background: color-mix(in srgb, var(--op-brand) 14%, transparent); }
+  }
+  &__sym { font-size: 0.875rem; font-weight: 700; letter-spacing: 0.01em; }
+  &__meta { display: inline-flex; align-items: center; gap: 12px; }
+  &__px {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--op-text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  &__chg {
+    font-size: 0.75rem;
+    font-weight: 700;
+    min-width: 52px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    &.up { color: var(--op-success, #16c784); }
+    &.down { color: var(--op-danger, #ea3943); }
+  }
+  &__lev {
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: var(--op-text-tertiary, var(--op-text-secondary));
+    background: color-mix(in srgb, var(--op-text-secondary) 12%, transparent);
+    padding: 2px 6px;
+    border-radius: 6px;
+    min-width: 34px;
+    text-align: center;
+  }
+  &__empty {
+    padding: 16px 14px;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--op-text-tertiary, var(--op-text-secondary));
+  }
+}
+
+.lighter-mark-btn {
+  border: 1px solid var(--op-border-subtle);
+  background: var(--op-bg-surface-3, rgba(255,255,255,0.05));
+  color: var(--op-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  &:hover { color: var(--op-text-primary); }
+}
+
+.lighter-maxlev {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--op-text-tertiary, var(--op-text-secondary));
+}
+
+.lighter-toggles {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 2px 2px;
+}
+.lighter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--op-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  input { accent-color: var(--op-brand); width: 15px; height: 15px; cursor: pointer; }
+  &.is-disabled { opacity: 0.6; cursor: default; }
+}

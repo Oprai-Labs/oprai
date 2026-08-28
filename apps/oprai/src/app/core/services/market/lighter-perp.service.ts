@@ -40,6 +40,22 @@ export interface LighterAccount {
   positions: LighterPosition[];
 }
 
+export interface LighterMarket {
+  symbol: string;                    // "NVDA", "CASHCAT", "BTC"…
+  marketId: number | null;
+  markPrice: number;                 // live mark price (USD)
+  lastPrice: number;
+  sizeDecimals: number;              // rounding for the base size
+  priceDecimals: number;
+  minBaseAmount: number;             // min order size in base units
+  minQuoteAmount: number;            // min order VALUE in USD (~$10)
+  maxLeverage: number;               // per-market cap (CASHCAT 3, NVDA 20, BTC 50)
+  maintenanceMarginFraction: number; // fraction, e.g. 0.012 — for liq price
+  takerFee: number;
+  makerFee: number;
+  dailyChangePct: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LighterPerpService {
   private readonly api = inject(ApiService);
@@ -59,6 +75,36 @@ export class LighterPerpService {
       const me = await firstValueFrom(this.account.getMe());
       return (me.identities || []).find((i) => i.type === 'evm_wallet')?.identifier || '';
     } catch { return ''; }
+  }
+
+  /**
+   * All active Lighter markets with live prices + trading limits. PUBLIC — no
+   * wallet needed, so the trade card can populate its picker and poll the price
+   * (every 3s) before the user has even connected. Always fetches fresh so the
+   * poll gets a current mark price.
+   */
+  async markets(): Promise<LighterMarket[]> {
+    try {
+      const d = await firstValueFrom(this.api.get<any>('/market/lighter/markets'));
+      const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0; };
+      return (d?.markets ?? []).map((m: any) => ({
+        symbol: String(m.symbol ?? '').toUpperCase(),
+        marketId: m.market_id ?? m.marketId ?? null,
+        markPrice: num(m.mark_price ?? m.markPrice),
+        lastPrice: num(m.last_price ?? m.lastPrice),
+        sizeDecimals: Math.trunc(num(m.size_decimals ?? m.sizeDecimals)),
+        priceDecimals: Math.trunc(num(m.price_decimals ?? m.priceDecimals)),
+        minBaseAmount: num(m.min_base_amount ?? m.minBaseAmount),
+        minQuoteAmount: num(m.min_quote_amount ?? m.minQuoteAmount) || 10,
+        maxLeverage: Math.max(1, Math.trunc(num(m.max_leverage ?? m.maxLeverage)) || 1),
+        maintenanceMarginFraction: num(m.maintenance_margin_fraction ?? m.maintenanceMarginFraction),
+        takerFee: num(m.taker_fee ?? m.takerFee),
+        makerFee: num(m.maker_fee ?? m.makerFee),
+        dailyChangePct: num(m.daily_change_pct ?? m.dailyChangePct),
+      })) as LighterMarket[];
+    } catch {
+      return [];
+    }
   }
 
   /** Full Lighter account snapshot (balance, agent status, open positions). */

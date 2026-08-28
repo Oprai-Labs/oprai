@@ -3281,8 +3281,14 @@
             </div>
           </div>
         } @else if (action.type === 'lighter_open') {
-          <!-- ─────── Lighter perp open: Long/Short, market, collateral (USD), leverage ─────── -->
-          @let ltSz = lighterSizeUsd();
+          <!-- ─────── Lighter perp open — full trade ticket (dynamic markets, live price) ─────── -->
+          @let ltPx = lighterPrice();
+          @let ltVal = lighterOrderValue();
+          @let ltSize = lighterOrderSizeBase();
+          @let ltLiq = lighterEstLiqPrice();
+          @let ltAvail = lighterAvailableBalance();
+          @let ltPos = lighterCurrentPosition();
+          @let ltBelow = lighterBelowMin();
           <div class="perp" [class.proto-fields--shake]="shake()">
 
             <!-- Long / Short toggle -->
@@ -3295,17 +3301,88 @@
                       [disabled]="!isEditable()" (click)="setLighterSide('short')">{{ 'Short' | t }}</button>
             </div>
 
-            <!-- Market picker (symbol chips) -->
+            <!-- Order type -->
+            <div class="perp-field">
+              <label class="perp-label">{{ 'Order type' | t }}</label>
+              @if (isEditable()) {
+                <div class="perp-lev__ticks" style="flex-wrap:wrap;">
+                  @for (o of LIGHTER_ORDER_TYPES; track o.id) {
+                    <button type="button" class="perp-lev__tick"
+                            [class.is-active]="lighterOrderType() === o.id"
+                            [disabled]="!o.enabled"
+                            [attr.title]="o.enabled ? null : ('Coming soon' | t)"
+                            (click)="setLighterOrderType(o.id)">
+                      {{ o.label }}@if (!o.enabled) { <span class="lighter-soon">{{ 'soon' | t }}</span> }
+                    </button>
+                  }
+                </div>
+              } @else {
+                <div class="perp-market-display">
+                  <span class="perp-market-display__sym">{{ lighterOrderTypeLabel() }}</span>
+                </div>
+              }
+            </div>
+
+            <!-- Market picker: quick chips + searchable dropdown (all 44 markets) -->
             <div class="perp-field">
               <label class="perp-label">{{ 'Market' | t }}</label>
               @if (isEditable()) {
                 <div class="perp-lev__ticks" style="flex-wrap:wrap;">
-                  @for (s of LIGHTER_SYMBOLS; track s) {
+                  @for (s of LIGHTER_QUICK_SYMBOLS; track s) {
                     <button type="button" class="perp-lev__tick"
                             [class.is-active]="lighterSymbol() === s"
-                            (click)="setLighterSymbol(s)">{{ s }}</button>
+                            (click)="chooseLighterMarket(s)">{{ s }}</button>
+                  }
+                  <button type="button" class="perp-lev__tick lighter-more"
+                          (click)="toggleLighterPicker()">
+                    {{ (lighterPickerOpen() ? 'Close' : 'Search all') | t }}
+                    <lucide-icon [name]="lighterPickerOpen() ? 'chevron-up' : 'chevron-down'" [size]="12" />
+                  </button>
+                </div>
+
+                <!-- selected market + live price -->
+                <div class="perp-market-display lighter-selected">
+                  <span class="perp-market-display__sym">{{ lighterSymbol() || ('Select a market' | t) }}</span>
+                  @if (ltPx) {
+                    <span class="perp-market-display__tag">${{ ltPx | number:'1.2-6' }}</span>
+                  }
+                  @if (lighterDailyChange() !== null) {
+                    <span class="lighter-chg" [class.up]="(lighterDailyChange() ?? 0) >= 0" [class.down]="(lighterDailyChange() ?? 0) < 0">
+                      {{ (lighterDailyChange() ?? 0) >= 0 ? '+' : '' }}{{ lighterDailyChange() | number:'1.2-2' }}%
+                    </span>
+                  }
+                  @if (lighterMarkets().length && lighterPriceCountdown() !== null) {
+                    <span class="lighter-live" [attr.title]="'Live price · refreshes every 3s' | t">● {{ 'live' | t }}</span>
                   }
                 </div>
+
+                @if (lighterPickerOpen()) {
+                  <div class="lighter-picker">
+                    <input type="text" class="lighter-picker__search" [value]="lighterSearch()"
+                           (input)="onLighterSearch($any($event.target).value)"
+                           [attr.placeholder]="'Search markets (e.g. CASHCAT)…' | t" />
+                    <div class="lighter-picker__list">
+                      @for (m of lighterFilteredMarkets(); track m.symbol) {
+                        <button type="button" class="lighter-picker__row"
+                                [class.is-active]="lighterSymbol() === m.symbol"
+                                (click)="chooseLighterMarket(m.symbol)">
+                          <span class="lighter-picker__sym">{{ m.symbol }}</span>
+                          <span class="lighter-picker__meta">
+                            <span class="lighter-picker__px">${{ m.markPrice | number:'1.2-6' }}</span>
+                            <span class="lighter-picker__chg" [class.up]="m.dailyChangePct >= 0" [class.down]="m.dailyChangePct < 0">
+                              {{ m.dailyChangePct >= 0 ? '+' : '' }}{{ m.dailyChangePct | number:'1.1-1' }}%
+                            </span>
+                            <span class="lighter-picker__lev">{{ m.maxLeverage }}x</span>
+                          </span>
+                        </button>
+                      } @empty {
+                        <div class="lighter-picker__empty">
+                          {{ lighterMarkets().length ? ('No markets match your search.' | t) : ('Loading markets…' | t) }}
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
               } @else {
                 <div class="perp-market-display">
                   <span class="perp-market-display__sym">{{ lighterSymbol() || '—' }}</span>
@@ -3314,10 +3391,37 @@
               }
             </div>
 
+            <!-- Limit price (limit orders only) -->
+            @if (lighterOrderType() === 'limit') {
+              <div class="pump-panel">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">{{ 'Limit price' | t }}</span>
+                  @if (ltPx && isEditable()) {
+                    <button type="button" class="lighter-mark-btn" (click)="useMarkAsLimit()">
+                      {{ 'Mark' | t }} ${{ ltPx | number:'1.2-6' }}
+                    </button>
+                  }
+                </div>
+                <div class="pump-panel__row">
+                  <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                         [value]="lighterLimitPrice()"
+                         (input)="setLighterLimitPrice($any($event.target).value)"
+                         [disabled]="!isEditable()" />
+                  <span class="pump-token">
+                    <span class="pump-token__icon pump-token__icon--ph">$</span>
+                    <span class="pump-token__sym">USD</span>
+                  </span>
+                </div>
+              </div>
+            }
+
             <!-- Collateral panel (USD) -->
             <div class="pump-panel">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'Collateral' | t }}</span>
+                @if (ltAvail !== null) {
+                  <span class="pump-panel__bal">{{ 'Available' | t }} ${{ ltAvail | number:'1.2-2' }}</span>
+                }
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
@@ -3331,16 +3435,16 @@
               </div>
             </div>
 
-            <!-- Leverage slider (1x → 50x) -->
+            <!-- Leverage slider (per-market max) -->
             <div class="perp-lev">
               <div class="perp-lev__top">
                 <span class="perp-label">{{ 'Leverage' | t }}</span>
-                <span class="perp-lev__value">{{ lighterLeverage() | number:'1.0-1' }}x</span>
+                <span class="perp-lev__value">{{ lighterLeverage() | number:'1.0-1' }}x <span class="lighter-maxlev">/ {{ lighterMaxLev() }}x max</span></span>
               </div>
               <div class="perp-lev__control">
                 <button type="button" class="perp-lev__btn" [disabled]="!isEditable()"
                         (click)="nudgeLighterLeverage(-1)" [attr.aria-label]="'Decrease leverage' | t">−</button>
-                <input type="range" class="perp-lev__range" min="1" max="50" step="1"
+                <input type="range" class="perp-lev__range" min="1" [attr.max]="lighterMaxLev()" step="1"
                        [value]="lighterLeverage()"
                        [style.background]="'linear-gradient(to right, var(--op-brand) 0%, var(--op-brand) ' + lighterLevPercent() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) ' + lighterLevPercent() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) 100%)'"
                        (input)="setLighterLeverage($any($event.target).value)"
@@ -3349,7 +3453,7 @@
                         (click)="nudgeLighterLeverage(1)" [attr.aria-label]="'Increase leverage' | t">+</button>
               </div>
               <div class="perp-lev__ticks">
-                @for (t of LIGHTER_LEV_TICKS; track t) {
+                @for (t of lighterLevTicks(); track t) {
                   <button type="button" class="perp-lev__tick"
                           [class.is-active]="lighterLeverage() >= t"
                           [disabled]="!isEditable()" (click)="setLighterLeverage(t)">{{ t }}x</button>
@@ -3357,32 +3461,77 @@
               </div>
             </div>
 
-            <!-- Position size / collateral summary -->
+            <!-- Values panel (the full Lighter ticket read-out) -->
             <div class="perp-summary">
               <div class="perp-summary__row">
-                <span class="perp-summary__k">{{ 'Position size' | t }}</span>
-                <span class="perp-summary__v">{{ ltSz !== null ? '$' + (ltSz | number:'1.2-2') : '—' }}</span>
+                <span class="perp-summary__k">{{ 'Available to Trade' | t }}</span>
+                <span class="perp-summary__v">{{ ltAvail !== null ? '$' + (ltAvail | number:'1.2-2') : '—' }}</span>
               </div>
               <div class="perp-summary__row">
-                <span class="perp-summary__k">{{ 'Collateral' | t }}</span>
+                <span class="perp-summary__k">{{ 'Position' | t }}</span>
                 <span class="perp-summary__v">
-                  {{ lighterCollateralUsd() !== null ? ('$' + (lighterCollateralUsd() | number:'1.2-2')) : '—' }}
+                  @if (ltPos) { {{ ltPos.side | titlecase }} {{ ltPos.baseAmount | number:'1.0-4' }} {{ lighterSymbol() }} }
+                  @else { — }
                 </span>
               </div>
               <div class="perp-summary__row">
-                <span class="perp-summary__k">{{ 'Trading fee' | t }}</span>
-                <span class="perp-summary__v">{{ 'Zero' | t }}</span>
+                <span class="perp-summary__k">{{ 'Order Value' | t }}</span>
+                <span class="perp-summary__v">{{ ltVal !== null ? '$' + (ltVal | number:'1.2-2') : '—' }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">{{ 'Order Size' | t }}</span>
+                <span class="perp-summary__v">{{ ltSize !== null ? (ltSize | number:'1.0-6') + ' ' + lighterSymbol() : '—' }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">{{ 'Est. Price' | t }}</span>
+                <span class="perp-summary__v">{{ ltPx ? '$' + (ltPx | number:'1.2-6') : '—' }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">{{ 'Est. Liq. Price' | t }}</span>
+                <span class="perp-summary__v">{{ ltLiq !== null ? '$' + (ltLiq | number:'1.2-6') : '—' }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">{{ 'Position Margin' | t }}</span>
+                <span class="perp-summary__v">{{ lighterCollateralUsd() !== null ? '$' + (lighterCollateralUsd() | number:'1.2-2') : '—' }}</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">{{ 'Slippage' | t }}</span>
+                <span class="perp-summary__v">{{ 'Est' | t }} 0% · {{ 'Max' | t }} 1%</span>
+              </div>
+              <div class="perp-summary__row">
+                <span class="perp-summary__k">{{ 'Fees' | t }}</span>
+                <span class="perp-summary__v">{{ 'Taker' | t }} 0% · {{ 'Maker' | t }} 0%</span>
               </div>
             </div>
 
-            <!-- $10 minimum collateral, surfaced upfront -->
-            <div class="limit-size" [class.limit-size--warn]="lighterBelowMinCollateral()">
-              @if (lighterBelowMinCollateral()) { <lucide-icon name="triangle-alert" [size]="13" /> }
-              <span>
-                {{ 'Minimum ${n} collateral' | t:{ n: LIGHTER_MIN_COLLATERAL_USD } }}
-                @if (lighterBelowMinCollateral()) { — add more collateral to open the position }
-              </span>
+            <!-- Min-order guidance (guide to a valid order) -->
+            <div class="limit-size" [class.limit-size--warn]="ltBelow">
+              @if (ltBelow) {
+                <lucide-icon name="triangle-alert" [size]="13" />
+                <span>{{ 'Minimum order is ${m} — use ≥ ${c} collateral at ${x}x, or raise leverage.' | t:{ m: (lighterMinNotional() | number:'1.0-0'), c: (lighterMinCollateralNeeded() | number:'1.2-2'), x: lighterLeverage() } }}</span>
+              } @else {
+                <span>{{ 'Zero fees · minimum order ${m}' | t:{ m: (lighterMinNotional() | number:'1.0-0') } }}</span>
+              }
             </div>
+
+            <!-- TP/SL + Reduce Only -->
+            <div class="lighter-toggles">
+              <label class="lighter-toggle" [class.is-disabled]="!isEditable()">
+                <input type="checkbox" [checked]="lighterTpSlEnabled()" [disabled]="!isEditable()" (change)="toggleLighterTpSl()" />
+                <span>{{ 'TP / SL' | t }}</span>
+                <span class="lighter-soon">{{ 'soon' | t }}</span>
+              </label>
+              <label class="lighter-toggle" [class.is-disabled]="!isEditable()">
+                <input type="checkbox" [checked]="lighterReduceOnly()" [disabled]="!isEditable()" (change)="toggleLighterReduceOnly()" />
+                <span>{{ 'Reduce Only' | t }}</span>
+              </label>
+            </div>
+            @if (lighterTpSlEnabled()) {
+              <div class="limit-size">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'Take-profit / stop-loss orders attach after the position fills — coming soon.' | t }}</span>
+              </div>
+            }
           </div>
         } @else if (action.type === 'lighter_close') {
           <!-- ─────── Lighter perp close ─────── -->
@@ -3403,7 +3552,7 @@
               <label class="perp-label">{{ 'Market' | t }}</label>
               @if (isEditable()) {
                 <div class="perp-lev__ticks" style="flex-wrap:wrap;">
-                  @for (s of LIGHTER_SYMBOLS; track s) {
+                  @for (s of lighterAllSymbols(); track s) {
                     <button type="button" class="perp-lev__tick"
                             [class.is-active]="lighterSymbol() === s"
                             (click)="setLighterSymbol(s)">{{ s }}</button>
@@ -3449,7 +3598,7 @@
               <label class="perp-label">{{ 'Market' | t }}</label>
               @if (isEditable()) {
                 <div class="perp-lev__ticks" style="flex-wrap:wrap;">
-                  @for (s of LIGHTER_SYMBOLS; track s) {
+                  @for (s of lighterAllSymbols(); track s) {
                     <button type="button" class="perp-lev__tick"
                             [class.is-active]="lighterSymbol() === s"
                             (click)="setLighterSymbol(s)">{{ s }}</button>
@@ -3471,7 +3620,7 @@
               <div class="perp-lev__control">
                 <button type="button" class="perp-lev__btn" [disabled]="!isEditable()"
                         (click)="nudgeLighterLeverage(-1)" [attr.aria-label]="'Decrease leverage' | t">−</button>
-                <input type="range" class="perp-lev__range" min="1" max="50" step="1"
+                <input type="range" class="perp-lev__range" min="1" [attr.max]="lighterMaxLev()" step="1"
                        [value]="lighterLeverage()"
                        [style.background]="'linear-gradient(to right, var(--op-brand) 0%, var(--op-brand) ' + lighterLevPercent() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) ' + lighterLevPercent() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) 100%)'"
                        (input)="setLighterLeverage($any($event.target).value)"
@@ -3480,7 +3629,7 @@
                         (click)="nudgeLighterLeverage(1)" [attr.aria-label]="'Increase leverage' | t">+</button>
               </div>
               <div class="perp-lev__ticks">
-                @for (t of LIGHTER_LEV_TICKS; track t) {
+                @for (t of lighterLevTicks(); track t) {
                   <button type="button" class="perp-lev__tick"
                           [class.is-active]="lighterLeverage() >= t"
                           [disabled]="!isEditable()" (click)="setLighterLeverage(t)">{{ t }}x</button>

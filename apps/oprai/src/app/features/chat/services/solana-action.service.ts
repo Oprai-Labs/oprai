@@ -2868,12 +2868,16 @@ export class SolanaActionService {
     let body: Record<string, unknown>;
     if (action.type === 'lighter_open') {
       path = '/actions/lighter/open';
+      const orderType = String(p['orderType'] ?? 'market').toLowerCase() === 'limit' ? 'limit' : 'market';
       body = {
         wallet: account,
         symbol,
         side: (String(p['side'] ?? 'long').toLowerCase() === 'short') ? 'short' : 'long',
         collateralUsd: Number(p['collateralUsd'] ?? p['collateralAmount'] ?? p['sizeUsd'] ?? 0),
         leverage: Number(p['leverage'] ?? 1),
+        orderType,
+        ...(orderType === 'limit' && Number(p['limitPrice']) > 0 ? { limitPrice: Number(p['limitPrice']) } : {}),
+        ...(String(p['reduceOnly']) === 'true' ? { reduceOnly: true } : {}),
       };
     } else if (action.type === 'lighter_close') {
       path = '/actions/lighter/close';
