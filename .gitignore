@@ -174,3 +174,6 @@ CREDENTIALS.local.*
 
 # Unreferenced source art (raw generator exports kept locally, not shipped)
 packages/media/ChatGPT Image*
+
+# pnpm lockfile — kept local, not published (package.json is enough to install)
+pnpm-lock.yaml
