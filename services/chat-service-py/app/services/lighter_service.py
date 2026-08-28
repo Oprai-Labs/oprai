@@ -155,7 +155,8 @@ async def _active_agent(session: AsyncSession, l1_address: str) -> tuple[Lighter
 async def open_position(
     session: AsyncSession, *, l1_address: str, symbol: str, side: str,
     collateral_usd: float | None = None, base_amount: float | None = None,
-    leverage: int | None = None,
+    leverage: int | None = None, order_type: str = "market",
+    limit_price: float | None = None, reduce_only: bool = False,
 ) -> dict:
     row, err = await _active_agent(session, l1_address)
     if err:
@@ -164,7 +165,9 @@ async def open_position(
     return await lighter_client.open_position(
         account_index=row.lighter_account_index, agent_private_key=agent_priv,
         symbol=symbol, side=side, collateral_usd=collateral_usd,
-        base_amount=base_amount, leverage=leverage, api_key_index=row.api_key_index,
+        base_amount=base_amount, leverage=leverage, order_type=order_type,
+        limit_price=limit_price, reduce_only=reduce_only,
+        api_key_index=row.api_key_index,
     )
 
 

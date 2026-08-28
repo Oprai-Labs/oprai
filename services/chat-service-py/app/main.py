@@ -1003,6 +1003,9 @@ class LighterOpenIn(BaseModel):
     side: str = Field(..., max_length=8)           # long | short
     collateralUsd: float = Field(..., gt=0)
     leverage: int = Field(1, ge=1, le=100)
+    orderType: str = Field("market", max_length=12)  # market | limit
+    limitPrice: float | None = Field(None, gt=0)
+    reduceOnly: bool = False
 
 
 class LighterCloseIn(BaseModel):
@@ -1076,7 +1079,9 @@ async def lighter_open(
     l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
     return await lighter_service.open_position(
         session, l1_address=l1, symbol=body.symbol, side=body.side,
-        collateral_usd=body.collateralUsd, leverage=body.leverage)
+        collateral_usd=body.collateralUsd, leverage=body.leverage,
+        order_type=body.orderType, limit_price=body.limitPrice,
+        reduce_only=body.reduceOnly)
 
 
 @app.post("/actions/lighter/close")

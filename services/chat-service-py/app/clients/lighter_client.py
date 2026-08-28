@@ -102,7 +102,9 @@ async def markets() -> list[dict]:
             "mark_price": _f(o.get("mark_price")) or _f(o.get("last_trade_price")) or _f(o.get("index_price")),
             "last_price": _f(o.get("last_trade_price")),
             "size_decimals": int(o.get("size_decimals", o.get("supported_size_decimals", 0)) or 0),
+            "price_decimals": int(o.get("price_decimals", o.get("supported_price_decimals", 2)) or 2),
             "min_base_amount": _f(o.get("min_base_amount")),
+            "min_quote_amount": _f(o.get("min_quote_amount")),   # min USD notional (~$10)
             "max_leverage": max_lev,
             "maintenance_margin_fraction": (mmf / 10000) if mmf else None,
             "taker_fee": _f(o.get("taker_fee")),
@@ -249,51 +251,72 @@ def _mark_price(detail: dict) -> float | None:
 async def open_position(*, account_index: int, agent_private_key: str, symbol: str,
                         side: str, collateral_usd: float | None = None,
                         base_amount: float | None = None, leverage: int | None = None,
+                        order_type: str = "market", limit_price: float | None = None,
+                        reduce_only: bool = False,
                         api_key_index: int = AGENT_API_KEY_INDEX) -> dict:
-    """Open (or add to) a perp — a market order. side: 'long' (buy) | 'short' (sell).
+    """Open (or add to) a perp. side: 'long' (buy) | 'short' (sell).
 
     Sizing: pass EITHER ``collateral_usd`` (+ ``leverage``) — position notional is
-    collateral × leverage, converted to base units at the mark price — OR an
-    explicit ``base_amount`` in base units.
+    collateral × leverage, converted to base units — OR an explicit ``base_amount``.
+    order_type: 'market' (fills now) | 'limit' (rests at ``limit_price``). Limit
+    sizing uses limit_price; market uses the mark price.
     """
     market_id, detail = await market_index_for(symbol)
     if market_id is None:
         return {"error": f"unknown Lighter market: {symbol}"}
+    is_limit = str(order_type).lower() == "limit"
+    if is_limit and (not limit_price or limit_price <= 0):
+        return {"error": "limit_price is required for a limit order"}
     lev = int(leverage or 1)
+    mark = _mark_price(detail)
+    ref_price = float(limit_price) if is_limit else mark
+    if not ref_price:
+        return {"error": f"could not resolve a price for {symbol}"}
     if base_amount is None:
         if not collateral_usd or collateral_usd <= 0:
             return {"error": "collateral_usd or base_amount is required"}
-        mark = _mark_price(detail)
-        if not mark:
-            return {"error": f"could not resolve mark price for {symbol}"}
-        base_amount = (float(collateral_usd) * lev) / mark
+        base_amount = (float(collateral_usd) * lev) / ref_price
+    notional = base_amount * ref_price
+    # Enforce the market minimums so a doomed order fails early with a number the
+    # user can act on, not an opaque exchange reject.
+    min_base = _f(detail.get("min_base_amount"))
+    min_quote = _f(detail.get("min_quote_amount"))
+    if min_quote and notional < min_quote:
+        need_coll = min_quote / max(1, lev)
+        return {"error": f"below Lighter's ${min_quote:.0f} minimum order value for "
+                         f"{symbol} (this order ≈ ${notional:.2f}). "
+                         f"Use ≥ ${need_coll:.2f} collateral at {lev}x, or raise leverage."}
+    if min_base and base_amount < min_base:
+        return {"error": f"below Lighter's minimum size for {symbol}: min {min_base} "
+                         f"{symbol} (~${(min_base * ref_price):.2f}). Increase collateral."}
     signer = _signer(account_index, agent_private_key, api_key_index)
     if lev > 1:
         await _set_leverage_inner(signer, market_id, lev)
     size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
-    # Enforce the market's minimum order size — a sub-min order is rejected by the
-    # exchange, so fail early with a number the user can act on.
-    min_base = _f(detail.get("min_base_amount"))
-    if min_base and base_amount < min_base:
-        mark = _mark_price(detail)
-        need = f" (~${min_base * mark:.2f} notional)" if mark else ""
-        return {"error": f"below Lighter's minimum order size for {symbol}: "
-                         f"min {min_base} {symbol}{need}. Increase collateral or leverage."}
+    price_dec = int(detail.get("price_decimals", detail.get("supported_price_decimals", 2)))
     base = _scale(base_amount, size_dec)
     if base <= 0:
         return {"error": "position size rounds to zero — increase collateral"}
     is_ask = side.lower() in ("short", "sell", "ask")
+    if is_limit:
+        price_i = _scale(limit_price, price_dec)
+        order_ty, tif = ORDER_TYPE_LIMIT, TIF_GOOD_TILL_TIME
+        expiry = int(time.time() * 1000) + 30 * 24 * 60 * 60 * 1000  # 30 days
+    else:
+        price_i, order_ty, tif, expiry = 0, ORDER_TYPE_MARKET, TIF_IMMEDIATE_OR_CANCEL, -1
     _order, resp, err = await signer.create_order(
         market_index=market_id,
         client_order_index=int(time.time() * 1000) % 2_000_000_000,
-        base_amount=base, price=0, is_ask=is_ask,
-        order_type=ORDER_TYPE_MARKET, time_in_force=TIF_IMMEDIATE_OR_CANCEL,
-        reduce_only=False, api_key_index=api_key_index,
+        base_amount=base, price=price_i, is_ask=is_ask,
+        order_type=order_ty, time_in_force=tif,
+        reduce_only=reduce_only, order_expiry=expiry, api_key_index=api_key_index,
     )
     if err:
         return {"error": err}
     return {"ok": True, "market": symbol, "side": side, "base_amount": base_amount,
-            "leverage": lev, "response": _jsonable(resp)}
+            "leverage": lev, "order_type": "limit" if is_limit else "market",
+            "limit_price": limit_price if is_limit else None,
+            "notional": notional, "response": _jsonable(resp)}
 
 
 async def close_position(*, account_index: int, agent_private_key: str, symbol: str,
