@@ -1,0 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana Datasource Provisioning - Loki
+# ─────────────────────────────────────────────────────────────────────────────
+# Container logs shipped by Promtail. Query with LogQL, e.g.
+#   {service="chat-service-py"} |= "ERROR"
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      maxLines: 2000

@@ -20,6 +20,11 @@ ingester:
   chunk_idle_period: 5m
   chunk_retain_period: 30s
   max_transfer_retries: 0
+  # Default is /wal — not writable by the non-root loki user. Keep it on the
+  # persistent volume so an unclean restart replays instead of losing data.
+  wal:
+    enabled: true
+    dir: /loki/wal
 
 schema_config:
   configs:
@@ -40,10 +45,16 @@ storage_config:
   filesystem:
     directory: /loki/chunks
 
+# Retention is compactor-driven (the old table_manager path is a no-op with
+# boltdb-shipper). The compactor scans the index and deletes chunks older than
+# limits_config.retention_period.
 compactor:
   working_directory: /loki/compactor
   shared_store: filesystem
   compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
 
 limits_config:
   enforce_metric_name: false
@@ -53,10 +64,3 @@ limits_config:
   max_query_lookback: 720h
   ingestion_rate_mb: 16
   ingestion_burst_size_mb: 32
-
-chunk_store_config:
-  max_look_back_period: 720h
-
-table_manager:
-  retention_deletes_enabled: true
-  retention_period: 720h
