@@ -6079,6 +6079,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!(Number(this.getEditParam('amountTokens')) > 0)) return 'Enter an amount';
     }
     if (this.action?.type === 'pons_launch') {
+      // The logo URL is written on-chain (token.logo()) and is immutable, so an
+      // imageless launch is permanently imageless — require it like pools.trade
+      // does. onPonsLaunchImage sets `logo` only on a successful upload.
+      if (!this.getEditParam('logo').trim()) return 'Add a token image';
       if (!this.getEditParam('name').trim()) return 'Enter a token name';
       if (!this.getEditParam('symbol').trim()) return 'Enter a ticker';
     }
