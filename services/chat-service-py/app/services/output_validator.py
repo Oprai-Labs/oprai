@@ -211,6 +211,15 @@ Look for:
   is legitimately the ZERO ADDRESS (0x0000…0000) on EVM chains — an
   originCurrency of the zero address when the user said "with my ETH" (TR
   "elimdeki ether(ler) ile") is CORRECT, never "input token fabrication".
+  EXCEPTION 3 — a dollar-denominated EVM BUY paying from native gas. For a
+  same-chain EVM buy of a token (relay_bridge / cross_chain_swap), when the user
+  gives a DOLLAR amount or asks to "buy $X of TOKEN" / "X dolarlık TOKEN al"
+  (including obtaining the stable itself, e.g. "3 dolarlık USDG al") WITHOUT
+  naming a pay asset, an originCurrency of native ETH (the zero address
+  0x0000…0000) is a valid DEFAULT, NOT fabrication: native gas is the universal
+  EVM pay asset, and the card price-quotes the exact ETH cost and shows
+  "You send N ETH" for the user to confirm before anything is signed — so there
+  is no silent wrong-asset spend. Do NOT block this.
 - **Trade direction reversal** — the money-critical one. When the user's verb
   unambiguously says SELL and the action is a buy (`*_buy`), or says BUY and
   the action is a sell (`*_sell`), that is a BLOCK. Read the verb in whatever
