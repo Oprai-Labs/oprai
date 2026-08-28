@@ -395,6 +395,11 @@ services:
       # EVM claims stay disabled ("not enabled yet"), never a crash. The secret
       # lives only in infra/.env, never in this file or the repo.
       EVM_CASHBACK_TREASURY_KEY: ${EVM_CASHBACK_TREASURY_KEY:-}
+      # Lighter agent-key encryption (Fernet). Unset -> derived from JWT secret
+      # (works, but a dedicated key is preferred). MUST stay stable once any user
+      # has onboarded, or stored agent keys become undecryptable. Secret lives
+      # only in infra/.env, never in this file or the repo.
+      OPRAI_LIGHTER_ENC_KEY: ${OPRAI_LIGHTER_ENC_KEY:-}
     # `python -m app.main` loads main.py as __main__, then uvicorn re-imports it
     # as app.main, double-registering Prometheus Counters. `python -m uvicorn`
     # only loads app.main once.
