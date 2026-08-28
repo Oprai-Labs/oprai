@@ -115,13 +115,33 @@ async def markets() -> list[dict]:
     return out
 
 
+async def account_summary(account_index: int) -> dict:
+    """Balance + open positions for a Lighter account in one read — backs the
+    card's 'Available to Trade' and the positions list."""
+    data = await _get("/api/v1/account", {"by": "index", "value": str(account_index)})
+    accts = data.get("accounts") or []
+    if not accts:
+        return {"available_balance": None, "collateral": None,
+                "total_asset_value": None, "positions": []}
+    a = accts[0]
+    return {
+        "available_balance": _f(a.get("available_balance")),
+        "collateral": _f(a.get("collateral")),
+        "total_asset_value": _f(a.get("total_asset_value")),
+        "positions": _norm_positions(a.get("positions") or []),
+    }
+
+
 async def positions(account_index: int) -> list[dict]:
     """Open positions for a Lighter account index, normalised for the UI card."""
     data = await _get("/api/v1/account", {"by": "index", "value": str(account_index)})
     accts = data.get("accounts") or []
     if not accts:
         return []
-    raw = accts[0].get("positions") or []
+    return _norm_positions(accts[0].get("positions") or [])
+
+
+def _norm_positions(raw: list) -> list[dict]:
     out: list[dict] = []
     for p in raw:
         try:

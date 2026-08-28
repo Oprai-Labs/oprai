@@ -244,10 +244,14 @@ async def account_state(session: AsyncSession, l1_address: str) -> dict:
         "has_account": account_index is not None,
         "account_index": account_index,
     }
+    out["positions"] = []
     if account_index is not None:
         try:
-            out["positions"] = await lighter_client.positions(account_index)
+            summ = await lighter_client.account_summary(account_index)
+            out["available_balance"] = summ.get("available_balance")
+            out["collateral"] = summ.get("collateral")
+            out["total_asset_value"] = summ.get("total_asset_value")
+            out["positions"] = summ.get("positions") or []
         except Exception as e:  # pragma: no cover - read best-effort
-            log.warning("lighter positions read failed: %s", e)
-            out["positions"] = []
+            log.warning("lighter account summary read failed: %s", e)
     return out
