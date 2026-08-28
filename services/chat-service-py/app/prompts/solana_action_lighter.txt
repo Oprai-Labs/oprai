@@ -20,12 +20,12 @@ for the user (non-custodial: the agent can trade but cannot withdraw). Two thing
 must be true before a position can open — the cards handle them, but you must emit
 the right prerequisite action when they are missing:
   1. **Onboarding** — the user's EVM wallet authorises OPRAI's agent key ONCE.
-  2. **Collateral** — USDC must be deposited to Lighter (Circle CCTP).
+  2. **Collateral** — USDG (the Robinhood-Chain quote asset) must be deposited to Lighter.
 If the user is not onboarded, emit `lighter_onboard`. If they have no collateral,
 emit `lighter_deposit`. Otherwise emit the trade directly — the account card and
 the trade card surface any missing step to the user.
 
-Collateral and PnL are in **USDC**. Size is in **base units** (shares/contracts of
+Collateral and PnL are in **USDG** (Robinhood-Chain quote asset). Size is in **base units** (shares/contracts of
 the symbol), NOT dollars. The trade card lets the user set the exact size and
 leverage, so `amount` may be omitted in the action block when the user did not
 give a number — but always pass `symbol` and `side`.
@@ -55,7 +55,7 @@ Format: [ACTION:lighter_onboard]
 - One-time authorisation of OPRAI's agent key. No parameters.
 
 Format: [ACTION:lighter_deposit] [amount=<usdc>] [chain=<arbitrum|base|ethereum|avalanche>]
-- Deposit USDC collateral to Lighter via Circle CCTP. The card handles the bridge.
+- Deposit USDG collateral to Lighter (Robinhood-Chain quote asset). The card handles it.
 
 Reads (no action, use query_onchain):
 - `lighter_markets` — list tradable Lighter markets (symbol, mark price, funding).

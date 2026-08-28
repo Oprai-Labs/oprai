@@ -100,7 +100,7 @@ async def onboard_build(
     if account_index is None:
         # No Lighter account yet → must deposit collateral first (that creates it).
         return {"needs_deposit": True,
-                "message": "Deposit USDC to Lighter first — that creates your account."}
+                "message": "Deposit USDG to Lighter first — that creates your account."}
     built = lighter_client.onboard_build(account_index)
     row = await _upsert_agent(
         session, l1_address=l1_address, wallet_address=wallet_address,
@@ -217,7 +217,7 @@ async def deposit_build(
         "manual": True,
         "l1_address": _norm(l1_address),
         "error": (
-            "Automated Lighter deposits aren't live yet. Deposit USDC collateral "
+            "Automated Lighter deposits aren't live yet. Deposit USDG collateral "
             "to Lighter from the official Lighter/Robinhood app, then come back — "
             "your positions and trading will work here immediately."
         ),

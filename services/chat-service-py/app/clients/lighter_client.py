@@ -12,8 +12,8 @@ Model B (server-side agent key), fully non-custodial:
   (withdrawals are gated to the L1 owner), so funds cannot be stolen with it.
 
 Trading is off-chain/gas-free (create_order → send_tx). Collateral deposit is a
-separate on-chain step (USDC via Circle CCTP from Arbitrum/Base/Avalanche, or
-native Ethereum/Arbitrum) — handled in the deposit flow, not here.
+separate on-chain step (USDG — the Robinhood-Chain quote asset — deposited from
+the Robinhood Wallet) — handled in the deposit flow, not here.
 
 Same SDK, base-URL only: this points at the Robinhood domain by default; the
 zkLighter L2 would just be a different LIGHTER_BASE.
