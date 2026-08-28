@@ -221,6 +221,8 @@ chain>" is a SAME-chain relay swap paid from a stable you hold there: originChai
 stable), destinationCurrency = the token name, amount = X.
 Shape (fill from the CURRENT message — never copy these placeholders literally):
   → execute_action("relay_bridge", {"originChainId":"<EVM_CHAIN_ID>","destinationChainId":"<EVM_CHAIN_ID>","originCurrency":"USDG","destinationCurrency":"<TOKEN NAME FROM THE USER>","amount":"<DOLLAR AMOUNT>","tradeType":"EXACT_INPUT"})
+**SPECIAL CASE — the token being bought IS the stable itself (USDG).** "3 dolarlık USDG al", "buy $5 of USDG on robinhood", "acquire 10 USDG" — the user wants to OBTAIN USDG (e.g. to fund Lighter), not pay with it. Pay from native ETH and set the OUTPUT to the USDG amount (USDG ≈ $1, so "$X of USDG" ≈ X USDG): originCurrency = "0x0000000000000000000000000000000000000000" (native ETH), destinationCurrency = "USDG", amount = X, tradeType = "EXACT_OUTPUT". NEVER set amount as an ETH input for this (that would send X whole ETH — a $/unit mix-up). The card price-quotes how much ETH the X USDG costs.
+  → execute_action("relay_bridge", {"originChainId":"<EVM_CHAIN_ID>","destinationChainId":"<EVM_CHAIN_ID>","originCurrency":"0x0000000000000000000000000000000000000000","destinationCurrency":"USDG","amount":"<USDG AMOUNT ≈ DOLLARS>","tradeType":"EXACT_OUTPUT"})
 Reply in the SAME LANGUAGE the user wrote in — the shape above is a template, not
 a phrase to echo.
 Only if the backend returns "not found on <chain>" do you tell the user it isn't listed there.

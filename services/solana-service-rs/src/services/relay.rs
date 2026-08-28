@@ -1221,9 +1221,12 @@ pub async fn get_cross_chain_quote(
 /// Resolve a currency field that may be a NAME/symbol (e.g. "seriouscat", "USDG")
 /// to a concrete address on `chain_id`. Real addresses and the native token pass
 /// through; Solana is left to its own resolver. For EVM, searches Relay's currency
-/// list INCLUDING unverified (memecoins are unverified) and returns the best match
-/// (exact-symbol first). Clear "not found on <chain>" if nothing matches — so the
-/// model can just pass a token name and never has to know the contract.
+/// list (incl. unverified, since memecoins are unverified) and prefers a VERIFIED
+/// exact-symbol match — so a well-known symbol like USDG resolves to the real
+/// verified Global Dollar, not one of the same-named scam memecoins — then falls
+/// back to any exact match / verified / first, so a genuinely-named memecoin still
+/// resolves. Clear "not found on <chain>" if nothing matches — so the model can
+/// just pass a token name and never has to know the contract.
 pub async fn resolve_evm_currency(
     http: &reqwest::Client,
     chain_id: u64,
@@ -1243,9 +1246,20 @@ pub async fn resolve_evm_currency(
         ..Default::default() // NOTE: no `verified` filter → memecoins included
     };
     let tokens = get_relay_currencies(http, &q).await.unwrap_or_default();
+    let is_verified = |t: &RelayTokenInfo| t.metadata.as_ref().and_then(|m| m.verified).unwrap_or(false);
+    let exact = |t: &RelayTokenInfo| t.symbol.eq_ignore_ascii_case(v);
+    // Prefer a VERIFIED exact-symbol match so a well-known symbol never resolves
+    // to a same-named memecoin. On Robinhood Chain "USDG" matches dozens of scam
+    // memecoins ("Useless Stupid Degen Gamblers", …) as well as the real
+    // verified Global Dollar; without this a "buy USDG" could route funds to a
+    // worthless token (or fail with "not live on a pool"). Fall back to any
+    // exact match, then verified-anything, then the first result — so genuine
+    // memecoins (which carry no verified flag) still resolve when named.
     let pick = tokens
         .iter()
-        .find(|t| t.symbol.eq_ignore_ascii_case(v))
+        .find(|&t| exact(t) && is_verified(t))
+        .or_else(|| tokens.iter().find(|&t| exact(t)))
+        .or_else(|| tokens.iter().find(|&t| is_verified(t)))
         .or_else(|| tokens.first());
     match pick {
         Some(t) => Ok(t.address.clone()),
