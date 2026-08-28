@@ -117,6 +117,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   uniswap:   { name: 'Uniswap',    icon: 'assets/protocols/uniswap.jpg',          accent: '#F50DB4', accentBg: 'rgba(245,13,180,0.12)' },
   poolstrade:{ name: 'pools.trade', icon: 'assets/protocols/poolstrade.svg',      accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   pons:      { name: 'Pons',       icon: 'assets/protocols/pons.png',             accent: '#1a2740', accentBg: 'rgba(26,39,64,0.12)' },
+  lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -154,6 +155,9 @@ function getProtocolKey(action: ParsedAction): string {
   if (t === 'swap' || t === 'limit_order' || t === 'dca') return 'jupiter';
   if (t === 'cancel_dca' || t === 'cancel_limit_order' || t === 'cancel_all_limit_orders') return 'jupiter';
   if (t === 'perp_open' || t === 'perp_close' || t === 'jlp_add' || t === 'jlp_remove') return 'jupiter';
+  // Lighter perps (Robinhood Chain Lighter domain) — onboarding, deposit, open/close/leverage.
+  if (t === 'lighter_onboard' || t === 'lighter_deposit' || t === 'lighter_open'
+      || t === 'lighter_close' || t === 'lighter_leverage') return 'lighter';
   if (t === 'stake') return p || 'jito';
   if (t === 'unstake') return p || 'jito';
   if (t.startsWith('native_stake')) return 'default';
@@ -196,6 +200,10 @@ function getActionLabel(action: ParsedAction): string {
     dca: 'DCA', cancel_dca: 'Cancel DCA',
     perp_open: 'Open Perp', perp_close: 'Close Perp',
     jlp_add: 'Add to JLP', jlp_remove: 'Remove from JLP',
+    // Lighter perps (Robinhood Chain Lighter domain, zero-fee stock/crypto perps)
+    lighter_onboard: 'Enable Lighter Trading', lighter_deposit: 'Deposit to Lighter',
+    lighter_open: 'Open Perp (Lighter)', lighter_close: 'Close Perp (Lighter)',
+    lighter_leverage: 'Set Leverage (Lighter)',
     jupsol_stake: 'Stake for jupSOL', jupsol_unstake: 'Unstake jupSOL',
     burn: 'Burn Tokens', close_accounts: 'Close Empty Accounts',
     sns_register: 'Register .sol Domain', sns_transfer: 'Transfer Domain',
@@ -6092,6 +6100,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (!amt) return 'Enter an amount';
       if (!/^all$/i.test(amt) && !(Number(amt) > 0)) return 'Enter an amount';
     }
+    // Lighter perps. Onboarding just needs a connected EVM wallet (checked at
+    // execute). Open requires a symbol + a collateral above the $10 minimum;
+    // close requires an amount; leverage/deposit require their own field.
+    if (this.action?.type === 'lighter_open') {
+      if (!this.lighterSymbol()) return 'Pick a market';
+      const usd = this.lighterCollateralUsd();
+      if (usd === null || usd <= 0) return 'Enter collateral';
+      if (usd < this.LIGHTER_MIN_COLLATERAL_USD) return `Minimum $${this.LIGHTER_MIN_COLLATERAL_USD} collateral`;
+    }
+    if (this.action?.type === 'lighter_close') {
+      if (!this.lighterSymbol()) return 'Pick a market';
+      const amt = Number(this.getEditParam('baseAmount') || this.getEditParam('amount'));
+      if (!(amt > 0)) return 'Enter an amount';
+    }
+    if (this.action?.type === 'lighter_deposit') {
+      if (!(Number(this.getEditParam('amount')) > 0)) return 'Enter an amount';
+    }
+    if (this.action?.type === 'lighter_leverage') {
+      if (!this.lighterSymbol()) return 'Pick a market';
+    }
     return null;
   });
 
@@ -7595,6 +7623,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** Frozen Uniswap swap receipt captured at submit (see StoredActionResult.uniswapReceipt). */
   private lastUniswapReceipt: StoredActionResult['uniswapReceipt'] | null = null;
 
+  /** Frozen Lighter perp receipt captured at confirm (see StoredActionResult.lighterReceipt).
+   *  A gas-free Lighter trade has no on-chain tx hash to re-fetch, so the completed
+   *  card re-hydrates its final state entirely from this snapshot. */
+  private lastLighterReceipt: StoredActionResult['lighterReceipt'] | null = null;
+
   /** Re-arms the execute() stall timeout; set per-run, called on each progress event. */
   private resetStallTimeout: () => void = () => {};
   /** Set once a bridge's deposit is away: from then on there is nothing to
@@ -8045,6 +8078,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         this.uniEditSide.set('pay');
         this.uniTypedAmount.set(r.payAmount ?? '');
       }
+      // Restore the frozen Lighter receipt so a completed gas-free perp card
+      // re-hydrates its final state (symbol/side/collateral/leverage/size) from
+      // the snapshot — there is no on-chain tx to re-fetch.
+      if (this.cachedResult.lighterReceipt) {
+        this.lastLighterReceipt = this.cachedResult.lighterReceipt;
+      }
       // Restored "submitted" — start the elapsed ticker + auto re-check once,
       // so a page refresh after a network blip surfaces a recovery path.
       if (this.cachedResult.status === 'submitted' && this.cachedResult.txSignature) {
@@ -8334,6 +8373,27 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       };
     }
 
+    // Lighter perp: freeze the receipt (symbol/side/collateral/leverage/size)
+    // from the current form. The trade is gas-free with no re-fetchable tx on
+    // reload, so the completed card renders entirely from this snapshot.
+    if (this.isLighterAction()) {
+      const t = this.action?.type ?? '';
+      const kind = t === 'lighter_open' ? 'open'
+        : t === 'lighter_close' ? 'close'
+        : t === 'lighter_onboard' ? 'onboard'
+        : t === 'lighter_deposit' ? 'deposit' : 'leverage';
+      const size = this.lighterSizeUsd();
+      this.lastLighterReceipt = {
+        kind,
+        symbol: this.lighterSymbol(),
+        side: this.lighterSide(),
+        collateralUsd: this.getEditParam('collateralUsd') || String(this.lighterCollateralUsd() ?? ''),
+        leverage: String(this.lighterLeverage()),
+        sizeUsd: size !== null ? String(+size.toFixed(2)) : '',
+        baseAmount: this.getEditParam('baseAmount') || this.getEditParam('amount') || '',
+      };
+    }
+
     this.status.set('quoting');
     const mergedParams: Record<string, string> = Object.fromEntries(
       Object.entries(this.editParams()).filter(([, v]) => v !== undefined),
@@ -8487,7 +8547,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         this.txSignature.set(sig);
         this.status.set('submitted');
         this.startSubmittedTick();
-        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined, uniswapReceipt: this.lastUniswapReceipt ?? undefined });
+        this.persistResult({ status: 'submitted', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined, uniswapReceipt: this.lastUniswapReceipt ?? undefined, lighterReceipt: this.lastLighterReceipt ?? undefined });
       },
       onConfirm: (result?: string) => {
         this.stopSubmittedTick();
@@ -8496,7 +8556,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           this.dataResult.set(result);
         }
         const sig = this.txSignature() ?? result ?? '';
-        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined, uniswapReceipt: this.lastUniswapReceipt ?? undefined };
+        const stored: StoredActionResult = { status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: mergedParams, swapView: this.lastSwapView ?? undefined, uniswapReceipt: this.lastUniswapReceipt ?? undefined, lighterReceipt: this.lastLighterReceipt ?? undefined };
         this.storeResult(mergedAction, sig);
         this.persistResult(stored);
         this.clearDraft();
@@ -8523,6 +8583,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
           executedParams: mergedParams,
           swapView: this.lastSwapView ?? undefined,
           uniswapReceipt: this.lastUniswapReceipt ?? undefined,
+          lighterReceipt: this.lastLighterReceipt ?? undefined,
         });
       },
     };
@@ -9479,6 +9540,76 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   perpSetHalfCollateral(): void {
     const b = this.inputBalance();
     if (b !== null && b > 0) this.setEditParam('collateralAmount', String(+(b / 2).toFixed(9)));
+  }
+
+  // ── Lighter perps (Robinhood Chain Lighter domain) ──────────────────────────
+  // Symbol-based (stock + crypto perps), collateral quoted directly in USD (the
+  // account settles in USDG/USDC), zero trading fees. Onboarding is a one-time
+  // non-custodial personal_sign; trades afterwards are gas-free (agent-key signed
+  // server-side). Mirrors the Jupiter perp helpers so the card body can be a
+  // faithful clone with the venue swapped.
+  readonly LIGHTER_SYMBOLS = ['NVDA', 'TSLA', 'PLTR', 'COIN', 'AAPL', 'HOOD', 'BTC', 'ETH', 'SOL'];
+  readonly LIGHTER_MIN_LEV = 1;
+  readonly LIGHTER_MAX_LEV = 50;
+  /** Slider tick labels shown under the leverage rail. */
+  readonly LIGHTER_LEV_TICKS = [1, 10, 20, 30, 40, 50];
+  /** Lighter requires ≥ $10 collateral to open a position. */
+  readonly LIGHTER_MIN_COLLATERAL_USD = 10;
+
+  readonly isLighterAction = computed(() => (this.action?.type ?? '').startsWith('lighter_'));
+
+  /** The chosen market symbol (uppercased). Accepts `symbol` or legacy `market`. */
+  lighterSymbol(): string {
+    const raw = (this.getEditParam('symbol') || this.getEditParam('market') || '').toUpperCase().trim();
+    return raw;
+  }
+  setLighterSymbol(s: string): void { if (this.isEditable()) this.setEditParam('symbol', s.toUpperCase()); }
+
+  lighterSide(): 'long' | 'short' {
+    return this.getEditParam('side').toLowerCase() === 'short' ? 'short' : 'long';
+  }
+  setLighterSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }
+
+  /** Collateral value in USD (entered directly — no token price needed). */
+  lighterCollateralUsd(): number | null {
+    const v = parseFloat(this.getEditParam('collateralUsd') || this.getEditParam('collateralAmount') || this.getEditParam('sizeUsd'));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+  setLighterCollateralUsd(v: string | number): void {
+    if (!this.isEditable()) return;
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    if (!Number.isFinite(n) || n < 0) return;
+    this.setEditParam('collateralUsd', String(n));
+  }
+
+  /** Current leverage, clamped to [1, 50]. Default 2×. */
+  lighterLeverage(): number {
+    const v = parseFloat(this.getEditParam('leverage'));
+    if (!Number.isFinite(v)) return 2;
+    return Math.min(this.LIGHTER_MAX_LEV, Math.max(this.LIGHTER_MIN_LEV, v));
+  }
+  setLighterLeverage(v: string | number): void {
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.min(this.LIGHTER_MAX_LEV, Math.max(this.LIGHTER_MIN_LEV, n));
+    this.setEditParam('leverage', String(+clamped.toFixed(1)));
+  }
+  nudgeLighterLeverage(delta: number): void { this.setLighterLeverage(this.lighterLeverage() + delta); }
+  /** Slider fill / handle position, 0–100%. */
+  lighterLevPercent(): number {
+    return ((this.lighterLeverage() - this.LIGHTER_MIN_LEV) / (this.LIGHTER_MAX_LEV - this.LIGHTER_MIN_LEV)) * 100;
+  }
+
+  /** Position size in USD = collateral (USD) × leverage. */
+  lighterSizeUsd(): number | null {
+    const coll = this.lighterCollateralUsd();
+    if (coll === null) return null;
+    return coll * this.lighterLeverage();
+  }
+  /** True when the entered collateral is below Lighter's $10 minimum. */
+  lighterBelowMinCollateral(): boolean {
+    const usd = this.lighterCollateralUsd();
+    return usd !== null && usd < this.LIGHTER_MIN_COLLATERAL_USD;
   }
 
   /**

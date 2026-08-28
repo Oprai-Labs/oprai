@@ -85,6 +85,8 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'jupsol_stake', 'jupsol_unstake',
   'lend', 'withdraw_lend', 'borrow', 'repay',
   'perp_open', 'perp_close', 'jlp_add', 'jlp_remove',
+  // Lighter perps (Robinhood Chain domain — stock perps in USDG)
+  'lighter_onboard', 'lighter_deposit', 'lighter_open', 'lighter_close', 'lighter_leverage',
   // pump.fun — bonding curve transactions
   'pumpfun_buy', 'pumpfun_sell', 'pumpfun_launch',
   // pump.fun — data queries
@@ -255,6 +257,7 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'token_info', 'trending', 'network', 'risk', 'yield',
   'analytics', 'nft_collection', 'airdrops', 'gas',
   'wallet_info', 'tax_report', 'limit_orders', 'dca', 'lend_positions', 'perp_positions',
+  'lighter_positions', 'lighter_markets', 'lighter_market',
   // Kamino Multiply pool list (self-fetching query-card)
   'kamino_multiply_markets',
   // Simulation & tracking
@@ -592,6 +595,16 @@ export class IntentParserService {
         return `Open ${action.params['side'] ?? 'long'} ${action.params['market'] ?? 'SOL'} position ($${action.params['sizeUsd'] ?? ''})`;
       case 'perp_close':
         return `Close ${action.params['side'] ?? 'long'} ${action.params['market'] ?? 'SOL'} position`;
+      case 'lighter_onboard':
+        return `Enable Lighter perps trading`;
+      case 'lighter_deposit':
+        return `Deposit ${action.params['amount'] ?? ''} USDC to Lighter`;
+      case 'lighter_open':
+        return `Open ${action.params['side'] ?? 'long'} ${action.params['symbol'] ?? action.params['market'] ?? ''} on Lighter ($${action.params['collateralUsd'] ?? action.params['sizeUsd'] ?? ''})`;
+      case 'lighter_close':
+        return `Close ${action.params['side'] ?? ''} ${action.params['symbol'] ?? action.params['market'] ?? ''} on Lighter`;
+      case 'lighter_leverage':
+        return `Set ${action.params['symbol'] ?? ''} leverage to ${action.params['leverage'] ?? ''}x on Lighter`;
       case 'jlp_add':
         return `Add ${action.params['amount'] ?? ''} ${action.params['token'] ?? 'SOL'} to JLP pool`;
       case 'jlp_remove':
@@ -967,6 +980,11 @@ export class IntentParserService {
       case 'repay': return 'coins';
       case 'perp_open': return 'trending-up';
       case 'perp_close': return 'trending-down';
+      case 'lighter_open': return 'trending-up';
+      case 'lighter_close': return 'trending-down';
+      case 'lighter_onboard': return 'shield-check';
+      case 'lighter_deposit': return 'wallet';
+      case 'lighter_leverage': return 'settings';
       case 'jlp_add': return 'droplets';
       case 'jlp_remove': return 'droplets';
       case 'nft_buy': return 'image';
@@ -1163,6 +1181,7 @@ export class IntentParserService {
       case 'limit_orders': return 'clipboard-list';
       case 'lend_positions': return 'landmark';
       case 'perp_positions': return 'trending-up';
+      case 'lighter_positions': return 'trending-up';
       case 'alerts': return 'bell-ring';
       // Solend (data-only)
       case 'solend_user_info': return 'user';
@@ -1293,6 +1312,8 @@ export class IntentParserService {
         return 'Jupiter Lend Positions';
       case 'perp_positions':
         return 'Jupiter Perp Positions';
+      case 'lighter_positions':
+        return 'Lighter Positions';
       case 'transactions':
         return `Recent Transactions`;
       case 'token_info':

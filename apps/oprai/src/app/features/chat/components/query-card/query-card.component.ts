@@ -15,6 +15,7 @@ import { SolanaRpcService } from '@features/portfolio/services/solana-rpc.servic
 import { BirdeyeService } from '@features/portfolio/services/birdeye.service';
 import { JupiterLendService, LendPosition, BorrowPosition } from '@core/services/market/jupiter-lend.service';
 import { JupiterPerpService, PerpPosition } from '@core/services/market/jupiter-perp.service';
+import { LighterPerpService, LighterPosition } from '@core/services/market/lighter-perp.service';
 import { MeteoraService, DlmmPair, DammV2Pool, DammV1Pool } from '@core/services/market/meteora.service';
 import { OrcaService, OrcaPoolRow, OrcaUserPosition } from '@core/services/market/orca.service';
 import {
@@ -477,6 +478,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private readonly solanaRpc = inject(SolanaRpcService);
   private readonly jupiterLend = inject(JupiterLendService);
   private readonly jupiterPerp = inject(JupiterPerpService);
+  private readonly lighterPerp = inject(LighterPerpService);
   private readonly meteora = inject(MeteoraService);
   private readonly orca = inject(OrcaService);
   private readonly magicEden = inject(MagicEdenService);
@@ -756,6 +758,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   lendEarnPositions: LendPosition[] = [];
   lendBorrowPositions: BorrowPosition[] = [];
   perpPositions: PerpPosition[] = [];
+  lighterPositions: LighterPosition[] = [];
 
   get queryIcon(): string {
     return this.intentParser.getQueryIcon(this.query.type);
@@ -804,6 +807,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'marinade_exchange_rate':
       case 'marinade_list_tickets':
         return 'assets/icons/protocols/marinade.webp';
+      case 'lighter_positions':
+        return 'assets/protocols/lighter.png';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:
@@ -908,6 +913,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // not silently vanish. Reconcile the restored list against live state.
       if (this.query.type === 'perp_positions') {
         void this.reconcilePerpPositions();
+      }
+      if (this.query.type === 'lighter_positions') {
+        void this.reconcileLighterPositions();
       }
       // Raydium positions are LIVE state, not a receipt: a snapshot restored
       // from an older chat turn can show closed positions, stale amounts, or
@@ -1014,6 +1022,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['networkResult'])     this.networkResult     = d['networkResult']     as NetworkResult;
     if (d['yieldResults'])      this.yieldResults      = d['yieldResults']      as YieldResult[];
     if (d['perpPositions'])     this.perpPositions     = d['perpPositions']     as PerpPosition[];
+    if (d['lighterPositions'])  this.lighterPositions  = d['lighterPositions']  as LighterPosition[];
     if (d['analyticsResult'])   this.analyticsResult   = d['analyticsResult']   as AnalyticsResult;
     if (d['airdropResults'])    this.airdropResults    = d['airdropResults']    as AirdropResult[];
     if (d['gasResult'])         this.gasResult         = d['gasResult']         as GasResult;
@@ -1118,6 +1127,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.networkResult)             d['networkResult']      = this.networkResult;
     if (this.yieldResults.length)       d['yieldResults']       = this.yieldResults;
     if (this.perpPositions.length)      d['perpPositions']      = this.perpPositions;
+    if (this.lighterPositions.length)   d['lighterPositions']   = this.lighterPositions;
     if (this.analyticsResult)           d['analyticsResult']    = this.analyticsResult;
     if (this.airdropResults.length)     d['airdropResults']     = this.airdropResults;
     if (this.gasResult)                 d['gasResult']          = this.gasResult;
@@ -1545,6 +1555,41 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       this.persistSnapshot();
     } catch {
       this.error.set('Failed to load perp positions');
+      this.loading.set(false);
+    }
+  }
+
+  /** Reconcile a restored Lighter snapshot against live state — a position
+   *  closed since the snapshot stays shown, flagged "closed", never vanishes.
+   *  Only reconciles on a CONFIRMED live result (transient failures never flip
+   *  an open position to closed). */
+  private async reconcileLighterPositions(): Promise<void> {
+    if (this.lighterPositions.length === 0) return;
+    const { ok, positions: live } = await this.lighterPerp.getPositionsResult();
+    if (!ok) return;
+    const liveByKey = new Map(live.map(p => [`${p.market}:${p.side}`, p]));
+    this.lighterPositions = this.lighterPositions.map(p => {
+      const l = liveByKey.get(`${p.market}:${p.side}`);
+      return l ? { ...l, closed: false } : { ...p, closed: true };
+    });
+    this.persistSnapshot();
+  }
+
+  private async fetchLighterPositions(): Promise<void> {
+    // Lighter is EVM (Robinhood Chain) — the account is keyed by the user's
+    // linked EVM address, resolved inside the service. If there is none, say so.
+    const evm = await this.lighterPerp.resolveEvmAddress();
+    if (!evm) {
+      this.error.set('Connect an EVM wallet to see Lighter positions');
+      this.loading.set(false);
+      return;
+    }
+    try {
+      this.lighterPositions = await this.lighterPerp.getPositions(evm);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Lighter positions');
       this.loading.set(false);
     }
   }
@@ -4403,6 +4448,20 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Start a Lighter close flow (opens a lighter_close action card to confirm).
+   *  Passes the base amount so the card pre-fills the full position size. Not
+   *  marked closed here — reconcileLighterPositions() flips it once a live fetch
+   *  confirms the close actually landed. */
+  onCloseLighterPosition(market: string, side: string, baseAmount: number): void {
+    const params: Record<string, string> = { symbol: market, side };
+    if (baseAmount > 0) params['baseAmount'] = String(baseAmount);
+    this.cancelAction.emit({
+      type: 'lighter_close',
+      params,
+      raw: `[ACTION:lighter_close] symbol=${market} side=${side}${baseAmount > 0 ? ' baseAmount=' + baseAmount : ''}`,
+    });
+  }
+
   onCancelLimitOrder(orderId: string): void {
     this.cancelAction.emit({
       type: 'cancel_limit_order',
@@ -4439,6 +4498,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'perp_positions':
         await this.fetchPerpPositions();
+        return;
+      case 'lighter_positions':
+        await this.fetchLighterPositions();
         return;
       case 'balance':
       case 'portfolio':
