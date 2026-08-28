@@ -30,6 +30,8 @@ def upgrade() -> None:
             agent_public_key      text NOT NULL,
             agent_private_key_enc text NOT NULL,
             status                text NOT NULL DEFAULT 'pending',
+            pending_tx_type       integer,
+            pending_tx_info       text,
             created_at            timestamptz NOT NULL DEFAULT now(),
             updated_at            timestamptz NOT NULL DEFAULT now()
         )

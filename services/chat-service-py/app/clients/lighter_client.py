@@ -201,18 +201,42 @@ def _scale(amount: float, decimals: int) -> int:
     return int(round(float(amount) * (10 ** int(decimals))))
 
 
+def _mark_price(detail: dict) -> float | None:
+    for k in ("mark_price", "last_trade_price", "index_price", "oracle_price", "price"):
+        v = _f(detail.get(k))
+        if v:
+            return v
+    return None
+
+
 async def open_position(*, account_index: int, agent_private_key: str, symbol: str,
-                        side: str, base_amount: float, leverage: int | None = None,
+                        side: str, collateral_usd: float | None = None,
+                        base_amount: float | None = None, leverage: int | None = None,
                         api_key_index: int = AGENT_API_KEY_INDEX) -> dict:
-    """Open (or add to) a perp — a market order. side: 'long' (buy) | 'short' (sell)."""
+    """Open (or add to) a perp — a market order. side: 'long' (buy) | 'short' (sell).
+
+    Sizing: pass EITHER ``collateral_usd`` (+ ``leverage``) — position notional is
+    collateral × leverage, converted to base units at the mark price — OR an
+    explicit ``base_amount`` in base units.
+    """
     market_id, detail = await market_index_for(symbol)
     if market_id is None:
         return {"error": f"unknown Lighter market: {symbol}"}
+    lev = int(leverage or 1)
+    if base_amount is None:
+        if not collateral_usd or collateral_usd <= 0:
+            return {"error": "collateral_usd or base_amount is required"}
+        mark = _mark_price(detail)
+        if not mark:
+            return {"error": f"could not resolve mark price for {symbol}"}
+        base_amount = (float(collateral_usd) * lev) / mark
     signer = _signer(account_index, agent_private_key, api_key_index)
-    if leverage:
-        await _set_leverage_inner(signer, market_id, leverage)
+    if lev > 1:
+        await _set_leverage_inner(signer, market_id, lev)
     size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
     base = _scale(base_amount, size_dec)
+    if base <= 0:
+        return {"error": "position size rounds to zero — increase collateral"}
     is_ask = side.lower() in ("short", "sell", "ask")
     _order, resp, err = await signer.create_order(
         market_index=market_id,
@@ -224,7 +248,7 @@ async def open_position(*, account_index: int, agent_private_key: str, symbol: s
     if err:
         return {"error": err}
     return {"ok": True, "market": symbol, "side": side, "base_amount": base_amount,
-            "response": _jsonable(resp)}
+            "leverage": lev, "response": _jsonable(resp)}
 
 
 async def close_position(*, account_index: int, agent_private_key: str, symbol: str,

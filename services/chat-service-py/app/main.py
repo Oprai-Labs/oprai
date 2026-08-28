@@ -984,36 +984,45 @@ async def _lighter_l1(session, wallet: str, account_id: str | None, provided: st
     raise HTTPException(status_code=400, detail="No EVM wallet linked for Lighter")
 
 
+# Frontend contract: the connected EVM address is passed as `wallet`; sizing is
+# by USD collateral × leverage; onboarding is session-based (opaque session_id +
+# a personal_sign `signature`). Field names mirror the client verbatim.
 class LighterOnboardBuildIn(BaseModel):
-    l1_address: str | None = None
+    wallet: str | None = None
 
 
 class LighterOnboardSubmitIn(BaseModel):
-    l1_address: str | None = None
-    tx_type: int
-    tx_info: str
-    l1_signature: str
+    wallet: str | None = None
+    session_id: str | None = None
+    signature: str
 
 
 class LighterOpenIn(BaseModel):
-    l1_address: str | None = None
+    wallet: str | None = None
     symbol: str = Field(..., max_length=32)
     side: str = Field(..., max_length=8)           # long | short
-    base_amount: float = Field(..., gt=0)
-    leverage: int | None = Field(None, ge=1, le=100)
+    collateralUsd: float = Field(..., gt=0)
+    leverage: int = Field(1, ge=1, le=100)
 
 
 class LighterCloseIn(BaseModel):
-    l1_address: str | None = None
+    wallet: str | None = None
     symbol: str = Field(..., max_length=32)
-    position_side: str = Field(..., max_length=8)  # side of the position being closed
-    base_amount: float = Field(..., gt=0)
+    side: str = Field(..., max_length=8)           # side of the position being closed
+    baseAmount: float = Field(..., gt=0)
 
 
 class LighterLeverageIn(BaseModel):
-    l1_address: str | None = None
+    wallet: str | None = None
     symbol: str = Field(..., max_length=32)
     leverage: int = Field(..., ge=1, le=100)
+
+
+class LighterDepositBuildIn(BaseModel):
+    wallet: str | None = None
+    amount: float | None = None
+    token: str = "USDC"
+    chainId: int | None = None
 
 
 @app.post("/actions/lighter/onboard/build")
@@ -1024,7 +1033,7 @@ async def lighter_onboard_build(
     session: AsyncSession = Depends(get_session),
 ):
     account_id = await _resolve_account_id(session, wallet, x_user_account)
-    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
     return await lighter_service.onboard_build(
         session, wallet_address=wallet, account_id=account_id, l1_address=l1)
 
@@ -1037,10 +1046,23 @@ async def lighter_onboard_submit(
     session: AsyncSession = Depends(get_session),
 ):
     account_id = await _resolve_account_id(session, wallet, x_user_account)
-    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
     return await lighter_service.onboard_submit(
-        session, l1_address=l1, tx_type=body.tx_type, tx_info=body.tx_info,
-        l1_signature=body.l1_signature)
+        session, l1_address=l1, l1_signature=body.signature)
+
+
+@app.post("/actions/lighter/deposit/build")
+async def lighter_deposit_build(
+    body: LighterDepositBuildIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
+    return await lighter_service.deposit_build(
+        session, l1_address=l1, amount=body.amount, token=body.token,
+        chain_id=body.chainId)
 
 
 @app.post("/actions/lighter/open")
@@ -1051,10 +1073,10 @@ async def lighter_open(
     session: AsyncSession = Depends(get_session),
 ):
     account_id = await _resolve_account_id(session, wallet, x_user_account)
-    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
     return await lighter_service.open_position(
         session, l1_address=l1, symbol=body.symbol, side=body.side,
-        base_amount=body.base_amount, leverage=body.leverage)
+        collateral_usd=body.collateralUsd, leverage=body.leverage)
 
 
 @app.post("/actions/lighter/close")
@@ -1065,10 +1087,10 @@ async def lighter_close(
     session: AsyncSession = Depends(get_session),
 ):
     account_id = await _resolve_account_id(session, wallet, x_user_account)
-    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
     return await lighter_service.close_position(
         session, l1_address=l1, symbol=body.symbol,
-        position_side=body.position_side, base_amount=body.base_amount)
+        position_side=body.side, base_amount=body.baseAmount)
 
 
 @app.post("/actions/lighter/leverage")
@@ -1079,20 +1101,20 @@ async def lighter_leverage(
     session: AsyncSession = Depends(get_session),
 ):
     account_id = await _resolve_account_id(session, wallet, x_user_account)
-    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
     return await lighter_service.set_leverage(
         session, l1_address=l1, symbol=body.symbol, leverage=body.leverage)
 
 
 @app.get("/market/lighter/account")
 async def lighter_account(
-    l1_address: str | None = Query(None),
-    wallet: str = Depends(require_auth),
+    wallet: str | None = Query(None),
+    auth_wallet: str = Depends(require_auth),
     x_user_account: str | None = Header(None, alias="X-User-Account"),
     session: AsyncSession = Depends(get_session),
 ):
-    account_id = await _resolve_account_id(session, wallet, x_user_account)
-    l1 = await _lighter_l1(session, wallet, account_id, l1_address)
+    account_id = await _resolve_account_id(session, auth_wallet, x_user_account)
+    l1 = await _lighter_l1(session, auth_wallet, account_id, wallet)
     return await lighter_service.account_state(session, l1)
 
 

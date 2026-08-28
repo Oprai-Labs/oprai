@@ -102,37 +102,42 @@ async def onboard_build(
         return {"needs_deposit": True,
                 "message": "Deposit USDC to Lighter first — that creates your account."}
     built = lighter_client.onboard_build(account_index)
-    await _upsert_agent(
+    row = await _upsert_agent(
         session, l1_address=l1_address, wallet_address=wallet_address,
         account_id=account_id, lighter_account_index=account_index,
         api_key_index=built["api_key_index"], agent_public_key=built["agent_public_key"],
         agent_private_key=built["agent_private_key"], status="pending",
     )
+    # Hold the change-pubkey envelope server-side; the client gets only an opaque
+    # session id + the message to sign, never tx_info.
+    row.pending_tx_type = built["tx_type"]
+    row.pending_tx_info = built["tx_info"]
+    await session.flush()
     return {
         "account_index": account_index,
         "message_to_sign": built["message_to_sign"],
-        "tx_type": built["tx_type"],
-        "tx_info": built["tx_info"],
+        "session_id": _norm(l1_address),
         "l1_address": _norm(l1_address),
     }
 
 
 async def onboard_submit(
-    session: AsyncSession, *, l1_address: str, tx_type: int, tx_info: str,
-    l1_signature: str,
+    session: AsyncSession, *, l1_address: str, l1_signature: str,
 ) -> dict:
-    """Step 2: inject the wallet's signature, broadcast the change-pubkey tx, and
-    flip the stored agent to active."""
+    """Step 2: inject the wallet's signature into the stored change-pubkey
+    envelope, broadcast it, and flip the agent to active."""
     row = await get_agent(session, l1_address)
-    if row is None:
-        return {"error": "No pending Lighter onboarding for this wallet"}
+    if row is None or row.pending_tx_info is None or row.pending_tx_type is None:
+        return {"ok": False, "error": "No pending Lighter onboarding for this wallet"}
     agent_priv = _decrypt(row.agent_private_key_enc)
     res = await lighter_client.onboard_submit(
-        row.lighter_account_index, tx_type, tx_info, l1_signature,
+        row.lighter_account_index, row.pending_tx_type, row.pending_tx_info, l1_signature,
         api_key_index=row.api_key_index, agent_private_key=agent_priv,
     )
     if res.get("ok"):
         row.status = "active"
+        row.pending_tx_type = None
+        row.pending_tx_info = None
         await session.flush()
     return res
 
@@ -149,7 +154,8 @@ async def _active_agent(session: AsyncSession, l1_address: str) -> tuple[Lighter
 
 async def open_position(
     session: AsyncSession, *, l1_address: str, symbol: str, side: str,
-    base_amount: float, leverage: int | None = None,
+    collateral_usd: float | None = None, base_amount: float | None = None,
+    leverage: int | None = None,
 ) -> dict:
     row, err = await _active_agent(session, l1_address)
     if err:
@@ -157,8 +163,8 @@ async def open_position(
     agent_priv = _decrypt(row.agent_private_key_enc)
     return await lighter_client.open_position(
         account_index=row.lighter_account_index, agent_private_key=agent_priv,
-        symbol=symbol, side=side, base_amount=base_amount, leverage=leverage,
-        api_key_index=row.api_key_index,
+        symbol=symbol, side=side, collateral_usd=collateral_usd,
+        base_amount=base_amount, leverage=leverage, api_key_index=row.api_key_index,
     )
 
 
@@ -188,6 +194,31 @@ async def set_leverage(
         account_index=row.lighter_account_index, agent_private_key=agent_priv,
         symbol=symbol, leverage=leverage, api_key_index=row.api_key_index,
     )
+
+
+# ── deposit (collateral) ─────────────────────────────────────────────────────
+async def deposit_build(
+    session: AsyncSession, *, l1_address: str, amount: float | None,
+    token: str = "USDC", chain_id: int | None = None,
+) -> dict:
+    """Build the collateral-deposit step.
+
+    Depositing is the one on-chain action (trades are gas-free). The exact
+    Lighter/Robinhood-domain deposit contract + Circle CCTP route are NOT yet
+    verified end-to-end, and this moves real funds — so rather than emit an
+    unverified transaction, we return an honest, actionable guidance response.
+    The card renders `error` when ok is false; nothing is signed.
+    """
+    return {
+        "ok": False,
+        "manual": True,
+        "l1_address": _norm(l1_address),
+        "error": (
+            "Automated Lighter deposits aren't live yet. Deposit USDC collateral "
+            "to Lighter from the official Lighter/Robinhood app, then come back — "
+            "your positions and trading will work here immediately."
+        ),
+    }
 
 
 # ── read (account state, no key needed) ──────────────────────────────────────

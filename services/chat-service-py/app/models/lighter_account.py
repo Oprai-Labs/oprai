@@ -48,6 +48,12 @@ class LighterAgentKey(Base):
     # 'active'   → agent authorised, ready to trade
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
 
+    # Transient change-pubkey envelope, held between onboard/build and
+    # onboard/submit so the client only ever handles an opaque session id + the
+    # wallet signature (it never sees tx_info). Cleared once the agent is active.
+    pending_tx_type: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pending_tx_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
