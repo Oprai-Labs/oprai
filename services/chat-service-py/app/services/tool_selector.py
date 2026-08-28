@@ -40,6 +40,14 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "jlp_remove":               _A({"dex", "jupiter"}),
     "perp_open":                _A({"perp", "jupiter"}),
     "perp_close":               _A({"perp", "jupiter"}),
+    # Lighter perps (Robinhood Chain). Without these tags the action_type enum
+    # the LLM sees omits lighter_open, so it falls back to action_type="swap"
+    # and the call is dropped on validation.
+    "lighter_open":             _A({"perp", "lighter"}),
+    "lighter_close":            _A({"perp", "lighter"}),
+    "lighter_leverage":         _A({"perp", "lighter"}),
+    "lighter_onboard":          _A({"perp", "lighter"}),
+    "lighter_deposit":          _A({"perp", "lighter"}),
     "jupsol_stake":             _A({"staking", "jupiter"}),
     "jupsol_unstake":           _A({"staking", "jupiter"}),
     # Jupiter data-query action types
@@ -590,6 +598,9 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     "debridge":    _A({"debridge"}),
     "streamflow":  _A({"streamflow"}),
     "native_stake":_A({"native_stake", "staking"}),
+    # Lighter perps — its own tag so lighter_open/close/leverage surface when
+    # Lighter is active, without pulling in Jupiter's perp_open (tagged jupiter).
+    "lighter":     _A({"lighter"}),
 }
 
 # The protocol-identity tags (the values above, flattened). A query tool that
