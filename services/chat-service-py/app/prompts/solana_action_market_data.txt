@@ -25,6 +25,9 @@ This section governs all read-only data queries: prices, charts, holders, wallet
 | Real-time trade flow (B/S ratio, unique traders) | `birdeye_token_trade_data` | `address` |
 | Top traders for a token | `birdeye_token_top_traders` | `address` |
 | Smart-money token flow | `birdeye_smart_money` | — |
+| **Lighter perps (Robinhood Chain) — all markets** ("Lighter markets", "what perps can I trade", zero-fee stock perps NVDA/TSLA/PLTR/COIN settled in USDG) | `lighter_markets` | — |
+| **Lighter one perp market** ("NVDA perp price", "TSLA funding on Lighter", open interest / 24h volume / leverage for a symbol) | `lighter_market` | `symbol` (e.g. NVDA, TSLA, COIN) |
+| **Lighter perp positions** ("my Lighter positions", a wallet's Robinhood Lighter perp account) | `lighter_positions` | `wallet` |
 | Wallet portfolio (current holdings) | `birdeye_wallet_portfolio` | `wallet` |
 | Wallet PnL aggregate only | `birdeye_wallet_pnl` | `wallet` |
 | Wallet PnL with per-token breakdown (winners, losers) | `birdeye_wallet_pnl_details` | `wallet` |

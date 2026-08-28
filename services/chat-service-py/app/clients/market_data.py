@@ -2568,6 +2568,88 @@ async def sns_subdomains(domain: str) -> dict:
 # Derived from the @query_tool registry — single source for these tools' params
 # + tags. REGISTRY_TAGS is consumed by tool_selector; _REGISTRY_DISPATCH is
 # spread into _DISPATCH below.
+# ── Lighter (Robinhood Chain Domain) — zero-fee stock perps settled in USDG ──
+# Lighter runs an identical API on its own zk-L2 and on Robinhood Chain; switching
+# is base-URL only. Project scope is the Robinhood domain (NVDA/TSLA/PLTR/COIN…).
+# Phase 1 is read-only: markets, one-market detail, and a wallet's positions.
+LIGHTER_RH_BASE = "https://api.rh.lighter.xyz"
+
+
+def _lighter_row(o: dict) -> dict:
+    return {
+        "symbol": o.get("symbol"),
+        "market_id": o.get("market_id"),
+        "mark_price": o.get("mark_price"),
+        "index_price": o.get("index_price"),
+        "last_price": o.get("last_trade_price"),
+        "daily_change_pct": o.get("daily_price_change"),
+        "daily_volume_usd": o.get("daily_quote_token_volume"),
+        "open_interest": o.get("open_interest"),
+        "taker_fee": o.get("taker_fee"),
+        "maker_fee": o.get("maker_fee"),
+        "status": o.get("status"),
+    }
+
+
+async def lighter_markets() -> dict:
+    """Robinhood-Chain Lighter perp markets — zero-fee stock perps (NVDA, TSLA, PLTR,
+    COIN…) settled in USDG. Returns symbol, mark/index price, 24h change/volume,
+    open interest and fees for every active market."""
+    data = await _get(f"{LIGHTER_RH_BASE}/api/v1/orderBookDetails")
+    obs = [o for o in (data.get("order_book_details") or []) if o.get("status") == "active"]
+    return {"venue": "lighter-robinhood", "count": len(obs),
+            "markets": [_lighter_row(o) for o in obs]}
+
+
+async def lighter_market(symbol: str) -> dict:
+    """One Robinhood Lighter perp market in detail — price, open interest, 24h volume,
+    funding parameters and margin/leverage. `symbol` e.g. NVDA, TSLA, COIN."""
+    data = await _get(f"{LIGHTER_RH_BASE}/api/v1/orderBookDetails")
+    obs = data.get("order_book_details") or []
+    s = (symbol or "").upper().strip()
+    m = next((o for o in obs if (o.get("symbol") or "").upper() == s
+              or (o.get("symbol") or "").upper().split("/")[0] == s), None)
+    if not m:
+        return {"error": f"Lighter market not found: {symbol}",
+                "available": [o.get("symbol") for o in obs][:50]}
+    row = _lighter_row(m)
+    row.update({
+        "venue": "lighter-robinhood",
+        "market_type": m.get("market_type"),
+        "daily_high": m.get("daily_price_high"),
+        "daily_low": m.get("daily_price_low"),
+        "daily_trades": m.get("daily_trades_count"),
+        "min_initial_margin_fraction": m.get("min_initial_margin_fraction"),
+        "maintenance_margin_fraction": m.get("maintenance_margin_fraction"),
+        "funding_premium_multiplier": m.get("funding_premium_multiplier"),
+        "base_interest_rate": m.get("base_interest_rate"),
+    })
+    return row
+
+
+async def lighter_positions(wallet: str) -> dict:
+    """A wallet's Robinhood Lighter perp account + open positions, by EVM (L1) address —
+    available balance, collateral, total value, maintenance margin and each open
+    position. Read-only; no signing."""
+    data = await _get(f"{LIGHTER_RH_BASE}/api/v1/account",
+                      params={"by": "l1_address", "value": wallet})
+    accts = data.get("accounts") or []
+    if not accts:
+        return {"venue": "lighter-robinhood", "wallet": wallet, "found": False,
+                "note": "No Lighter account for this address yet."}
+    a = accts[0]
+    return {
+        "venue": "lighter-robinhood", "wallet": wallet, "found": True,
+        "account_index": a.get("account_index"),
+        "available_balance": a.get("available_balance"),
+        "collateral": a.get("collateral"),
+        "total_asset_value": a.get("total_asset_value"),
+        "maintenance_margin_requirement": a.get("cross_maintenance_margin_requirement"),
+        "agent_enabled": a.get("agent_enabled"),
+        "positions": a.get("positions") or [],
+    }
+
+
 _REGISTRY_DISPATCH: dict[str, tuple] = {
     name: (fn, req, opt) for name, (fn, req, opt, _tags) in _QUERY_TOOL_REGISTRY.items()
 }
@@ -2578,6 +2660,9 @@ REGISTRY_TAGS: dict[str, frozenset] = {
 
 _DISPATCH: dict[str, tuple] = {
     **_REGISTRY_DISPATCH,
+    "lighter_markets":        (lighter_markets,        [],           []),
+    "lighter_market":         (lighter_market,         ["symbol"],   []),
+    "lighter_positions":      (lighter_positions,      ["wallet"],   []),
     "birdeye_price":          (birdeye_price,          ["address"],     ["check_liquidity"]),
     "birdeye_multi_price":    (birdeye_multi_price,    ["list_address"], ["chain"]),
     "birdeye_token_overview": (birdeye_token_overview, ["address"],     ["chain"]),
