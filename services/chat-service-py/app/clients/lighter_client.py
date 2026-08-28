@@ -83,6 +83,36 @@ async def account_index_for(l1_address: str) -> int | None:
     return accts[0].get("account_index")
 
 
+async def markets() -> list[dict]:
+    """All active Lighter markets with everything the trade card needs: live mark
+    price, size decimals, minimum order size, per-market max leverage (derived
+    from the initial-margin fraction), maintenance-margin fraction (for liq price)
+    and fees. Prices are live — safe to poll for the card's 3s refresh."""
+    data = await _get("/api/v1/orderBookDetails")
+    out: list[dict] = []
+    for o in data.get("order_book_details") or []:
+        if o.get("status") != "active":
+            continue
+        imf = _f(o.get("min_initial_margin_fraction"))   # bps-like int, e.g. 500 = 5%
+        mmf = _f(o.get("maintenance_margin_fraction"))
+        max_lev = int(round(10000 / imf)) if imf else 50
+        out.append({
+            "symbol": (o.get("symbol") or "").upper(),
+            "market_id": o.get("market_id"),
+            "mark_price": _f(o.get("mark_price")) or _f(o.get("last_trade_price")) or _f(o.get("index_price")),
+            "last_price": _f(o.get("last_trade_price")),
+            "size_decimals": int(o.get("size_decimals", o.get("supported_size_decimals", 0)) or 0),
+            "min_base_amount": _f(o.get("min_base_amount")),
+            "max_leverage": max_lev,
+            "maintenance_margin_fraction": (mmf / 10000) if mmf else None,
+            "taker_fee": _f(o.get("taker_fee")),
+            "maker_fee": _f(o.get("maker_fee")),
+            "daily_change_pct": _f(o.get("daily_price_change")),
+        })
+    out.sort(key=lambda m: m["symbol"])
+    return out
+
+
 async def positions(account_index: int) -> list[dict]:
     """Open positions for a Lighter account index, normalised for the UI card."""
     data = await _get("/api/v1/account", {"by": "index", "value": str(account_index)})
@@ -241,6 +271,14 @@ async def open_position(*, account_index: int, agent_private_key: str, symbol: s
     if lev > 1:
         await _set_leverage_inner(signer, market_id, lev)
     size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
+    # Enforce the market's minimum order size — a sub-min order is rejected by the
+    # exchange, so fail early with a number the user can act on.
+    min_base = _f(detail.get("min_base_amount"))
+    if min_base and base_amount < min_base:
+        mark = _mark_price(detail)
+        need = f" (~${min_base * mark:.2f} notional)" if mark else ""
+        return {"error": f"below Lighter's minimum order size for {symbol}: "
+                         f"min {min_base} {symbol}{need}. Increase collateral or leverage."}
     base = _scale(base_amount, size_dec)
     if base <= 0:
         return {"error": "position size rounds to zero — increase collateral"}

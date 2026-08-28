@@ -221,7 +221,14 @@ async def deposit_build(
     }
 
 
-# ── read (account state, no key needed) ──────────────────────────────────────
+# ── read (market list / account state, no key needed) ────────────────────────
+async def markets() -> list[dict]:
+    """All active Lighter markets for the trade card (live prices, size decimals,
+    min order size, per-market max leverage, maintenance margin, fees)."""
+    return await lighter_client.markets()
+
+
+# ── account state ────────────────────────────────────────────────────────────
 async def account_state(session: AsyncSession, l1_address: str) -> dict:
     """Onboarding status + live account/positions for the account card."""
     row = await get_agent(session, l1_address)

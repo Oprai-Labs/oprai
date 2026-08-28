@@ -344,6 +344,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// no upstream call, no key, nothing to exhaust — and what /help is built
 	// from, so it must be reachable without a wallet.
 	r.With(defaultTimeout).Get("/market/evm/chains", marketProxy.GetEvmChains)
+	// Lighter markets — public market data (symbol list + live prices), served by
+	// chat-service. No wallet: the trade card fetches it for the picker + 3s price
+	// poll before the user has even connected.
+	r.With(defaultTimeout).Get("/market/lighter/markets", chatProxy.LighterProxy)
 	// Lighter account/positions — served by chat-service (Python SDK), not the
 	// market proxy. Wallet-gated: reads the caller's own linked EVM account.
 	r.With(defaultTimeout, middleware.RequireWallet).Get("/market/lighter/account", chatProxy.LighterProxy)

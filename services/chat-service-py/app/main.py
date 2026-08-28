@@ -1106,6 +1106,19 @@ async def lighter_leverage(
         session, l1_address=l1, symbol=body.symbol, leverage=body.leverage)
 
 
+@app.get("/market/lighter/markets")
+async def lighter_markets_list():
+    """All active Lighter markets (symbol, live mark price, size decimals, min
+    order size, per-market max leverage, maintenance-margin fraction, fees).
+    Public market data — the trade card fetches this for the symbol picker and
+    polls it for the live 3s price refresh."""
+    try:
+        return {"markets": await lighter_service.markets()}
+    except Exception as e:
+        logger.warning("lighter markets fetch failed: %s", e)
+        return {"markets": [], "error": "Lighter markets are temporarily unavailable"}
+
+
 @app.get("/market/lighter/account")
 async def lighter_account(
     wallet: str | None = Query(None),
