@@ -32,7 +32,18 @@ RUN printf 'server {\n\
   gzip_proxied any;\n\
   gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript image/svg+xml;\n\
 \n\
-  # Cache static assets aggressively\n\
+  # Static /assets/ files (logos, icons) keep STABLE names — unlike the\n\
+  # content-hashed JS/CSS chunks — so they must NOT be immutable, or a logo\n\
+  # swap never reaches browsers that cached the old one (the "wrong Lighter\n\
+  # icon" problem). Short cache + revalidate so updates propagate on their own.\n\
+  # `^~` beats the regex block below for these paths.\n\
+  location ^~ /assets/ {\n\
+    expires 5m;\n\
+    add_header Cache-Control "public, max-age=300, must-revalidate";\n\
+    try_files $uri =404;\n\
+  }\n\
+\n\
+  # Cache content-hashed bundles aggressively (their name changes on deploy)\n\
   location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {\n\
     expires 1y;\n\
     add_header Cache-Control "public, immutable";\n\

@@ -17,7 +17,7 @@ export const PROTOCOLS: Protocol[] = [
   { id: 'uniswap',      label: 'Uniswap',      category: 'dex',       logo: 'assets/protocols/uniswap.jpg',      description: 'EVM token swaps (all chains)' },
   { id: 'poolstrade',   label: 'pools.trade',  category: 'dex',       logo: 'assets/protocols/poolstrade.svg',   description: 'Robinhood launchpad — buy, sell & launch' },
   { id: 'pons',         label: 'Pons',         category: 'dex',       logo: 'assets/protocols/pons.png',         description: 'Robinhood launchpad (ponsfamily)' },
-  { id: 'lighter',      label: 'Lighter',      category: 'dex',       logo: 'assets/protocols/lighter.png',      description: 'Zero-fee perps — crypto & stocks (Robinhood Chain)' },
+  { id: 'lighter',      label: 'Lighter',      category: 'dex',       logo: 'assets/protocols/lighter.png?v=2',  description: 'Zero-fee perps — crypto & stocks (Robinhood Chain)' },
   // Staking
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
   // Lending

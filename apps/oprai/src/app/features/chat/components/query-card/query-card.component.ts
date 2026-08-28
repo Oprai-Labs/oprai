@@ -808,7 +808,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'marinade_list_tickets':
         return 'assets/icons/protocols/marinade.webp';
       case 'lighter_positions':
-        return 'assets/protocols/lighter.png';
+        return 'assets/protocols/lighter.png?v=2';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:

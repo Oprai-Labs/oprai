@@ -117,7 +117,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   uniswap:   { name: 'Uniswap',    icon: 'assets/protocols/uniswap.jpg',          accent: '#F50DB4', accentBg: 'rgba(245,13,180,0.12)' },
   poolstrade:{ name: 'pools.trade', icon: 'assets/protocols/poolstrade.svg',      accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   pons:      { name: 'Pons',       icon: 'assets/protocols/pons.png',             accent: '#1a2740', accentBg: 'rgba(26,39,64,0.12)' },
-  lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
+  lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png?v=2',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
