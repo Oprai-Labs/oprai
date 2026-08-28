@@ -88,6 +88,14 @@ func (p *ChatProxy) ListSessions(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// LighterProxy forwards Lighter perp routes (/actions/lighter/*,
+// /market/lighter/*) to chat-service unchanged. Lighter lives there, not in
+// solana-service (Rust): chat-service drives the Lighter Python SDK's native
+// signer and owns the encrypted agent-key store. Path is preserved as-is.
+func (p *ChatProxy) LighterProxy(w http.ResponseWriter, r *http.Request) {
+	p.proxy.ServeHTTP(w, r)
+}
+
 // GetYields proxies GET /yields — live DeFi yield aggregator (LST + lending)
 // so the frontend yield card renders real numbers instead of mock data.
 // Query params (category, limit) ride along in r.URL.RawQuery untouched.

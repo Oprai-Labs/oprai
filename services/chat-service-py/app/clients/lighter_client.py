@@ -76,6 +76,43 @@ async def account_index_for(l1_address: str) -> int | None:
     return accts[0].get("account_index")
 
 
+async def positions(account_index: int) -> list[dict]:
+    """Open positions for a Lighter account index, normalised for the UI card."""
+    data = await _get("/api/v1/account", {"by": "index", "value": str(account_index)})
+    accts = data.get("accounts") or []
+    if not accts:
+        return []
+    raw = accts[0].get("positions") or []
+    out: list[dict] = []
+    for p in raw:
+        try:
+            size = float(p.get("position") or p.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0.0
+        if size == 0:
+            continue
+        out.append({
+            "symbol": p.get("symbol") or p.get("market") or "",
+            "market_id": p.get("market_id"),
+            "side": "long" if (p.get("sign", 1) >= 0 and size > 0) else "short",
+            "size": abs(size),
+            "entry_price": _f(p.get("avg_entry_price") or p.get("entry_price")),
+            "mark_price": _f(p.get("mark_price")),
+            "liquidation_price": _f(p.get("liquidation_price")),
+            "unrealized_pnl": _f(p.get("unrealized_pnl")),
+            "leverage": _f(p.get("leverage")),
+            "margin": _f(p.get("margin") or p.get("allocated_margin")),
+        })
+    return out
+
+
+def _f(x: Any) -> float | None:
+    try:
+        return float(x) if x is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 async def market_index_for(symbol: str) -> tuple[int | None, dict]:
     """Resolve a symbol (NVDA, TSLA, BTC…) to its Lighter market_id + the market
     detail (decimals, mark price) needed to size an order correctly."""

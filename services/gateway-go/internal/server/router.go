@@ -279,6 +279,14 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/pons/buy", solanaProxy.PostPonsBuy)
 		r.Post("/pons/sell", solanaProxy.PostPonsSell)
 		r.Post("/pons/launch", solanaProxy.PostPonsLaunch)
+		// Lighter perps (Robinhood Chain domain) — proxied to chat-service
+		// (Python SDK + agent-key store), NOT solana-service. Wallet auth
+		// already applied by the block-level RequireWallet above.
+		r.Post("/lighter/onboard/build", chatProxy.LighterProxy)
+		r.Post("/lighter/onboard/submit", chatProxy.LighterProxy)
+		r.Post("/lighter/open", chatProxy.LighterProxy)
+		r.Post("/lighter/close", chatProxy.LighterProxy)
+		r.Post("/lighter/leverage", chatProxy.LighterProxy)
 	})
 	r.Route("/protocols", func(r chi.Router) {
 		r.Use(defaultTimeout)
@@ -336,6 +344,9 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	// no upstream call, no key, nothing to exhaust — and what /help is built
 	// from, so it must be reachable without a wallet.
 	r.With(defaultTimeout).Get("/market/evm/chains", marketProxy.GetEvmChains)
+	// Lighter account/positions — served by chat-service (Python SDK), not the
+	// market proxy. Wallet-gated: reads the caller's own linked EVM account.
+	r.With(defaultTimeout, middleware.RequireWallet).Get("/market/lighter/account", chatProxy.LighterProxy)
 	r.Route("/market", func(r chi.Router) {
 		r.Use(defaultTimeout)
 		r.Use(middleware.RequireWallet)

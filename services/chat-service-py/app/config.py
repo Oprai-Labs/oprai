@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     # Magic Eden NFT marketplace API
     MAGIC_EDEN_API_KEY: str = ""
 
+    # Lighter perps (Robinhood Chain domain). The agent-key store is encrypted
+    # at rest with this key (urlsafe-base64, 32 bytes). If unset, a key is
+    # derived deterministically from OPRAI_JWT_SECRET so the feature works
+    # without extra config — but a dedicated key is strongly preferred in prod.
+    OPRAI_LIGHTER_ENC_KEY: str = ""
+
     # CORS: comma-separated list of allowed origins.
     # Empty string = allow localhost:3000 and localhost:4200 only.
     CORS_ALLOWED_ORIGINS: str = ""

@@ -51,6 +51,11 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     "pons":         ["solana_action_crosschain.txt"],
     # Token streaming / vesting
     "streamflow":   ["solana_action_streamflow.txt"],
+
+    # Lighter — zero-fee CLOB perps on Robinhood Chain (crypto + stock perps).
+    # market_data.txt loads too so mark-price / funding reads render.
+    "lighter":      ["solana_action_lighter.txt", "solana_action_market_data.txt"],
+    "lighter_perps": ["solana_action_lighter.txt", "solana_action_market_data.txt"],
     # Market data / analytics — open-ended wallet/token/NFT analysis intents
     "market_data":     ["solana_action_market_data.txt"],
     "birdeye":         ["solana_action_market_data.txt"],
@@ -106,6 +111,7 @@ class PromptLoader:
         "solana_action_pumpfun.txt",
         "solana_action_crosschain.txt",
         "solana_action_streamflow.txt",
+        "solana_action_lighter.txt",
         "solana_action_market_data.txt",
         "solana_action_knowledge.txt",
         "solana_action_strategy.txt",

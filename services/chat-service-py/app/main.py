@@ -46,6 +46,7 @@ from app.grpc_server import start_grpc_server
 from app.middleware.auth import require_auth, require_internal
 from app.middleware.request_audit import RequestAuditMiddleware
 from app.services import issue_report as issue_svc
+from app.services import lighter_service
 from app.services import message as message_svc
 from app.services import session as session_svc
 from app.services import share as share_svc
@@ -949,6 +950,150 @@ async def portfolio_refresh(
     _refresh_debounce[wallet] = now
     summary = await sync_wallet_costbasis(session, wallet)
     return {"status": "ok", "summary": summary}
+
+
+# ---------------------------------------------------------------------------
+# Lighter perps (Robinhood Chain domain) — non-custodial agent-key trading
+# ---------------------------------------------------------------------------
+# These live in chat-service (not solana-service) because they drive the Lighter
+# Python SDK's native signer. The gateway proxies /actions/lighter/* and
+# /market/lighter/* here. Security: a user may only onboard/trade from an EVM
+# wallet linked to their account, and onboarding itself requires that wallet's
+# personal_sign — the agent key alone cannot withdraw funds.
+
+
+async def _lighter_l1(session, wallet: str, account_id: str | None, provided: str | None) -> str:
+    """Resolve + authorise the L1 (EVM) address for a Lighter call. A client may
+    only act on an EVM wallet it is signed in as, or one linked to its account."""
+    provided = (provided or "").strip().lower()
+    # Signed in directly with this EVM wallet → it is trivially owned.
+    if wallet and wallet.lower() == provided and provided.startswith("0x"):
+        return provided
+    # Otherwise it must be linked to the caller's account.
+    if provided and account_id:
+        row = (await session.execute(sa_text(
+            "SELECT 1 FROM admin_schema.v_wallet_account "
+            "WHERE account_id=:a AND lower(wallet)=:w LIMIT 1"),
+            {"a": account_id, "w": provided})).first()
+        if row:
+            return provided
+    # No/invalid provided address → fall back to the account's linked EVM wallet.
+    derived = await _resolve_evm_recipient(session, wallet, account_id)
+    if derived:
+        return derived.lower()
+    raise HTTPException(status_code=400, detail="No EVM wallet linked for Lighter")
+
+
+class LighterOnboardBuildIn(BaseModel):
+    l1_address: str | None = None
+
+
+class LighterOnboardSubmitIn(BaseModel):
+    l1_address: str | None = None
+    tx_type: int
+    tx_info: str
+    l1_signature: str
+
+
+class LighterOpenIn(BaseModel):
+    l1_address: str | None = None
+    symbol: str = Field(..., max_length=32)
+    side: str = Field(..., max_length=8)           # long | short
+    base_amount: float = Field(..., gt=0)
+    leverage: int | None = Field(None, ge=1, le=100)
+
+
+class LighterCloseIn(BaseModel):
+    l1_address: str | None = None
+    symbol: str = Field(..., max_length=32)
+    position_side: str = Field(..., max_length=8)  # side of the position being closed
+    base_amount: float = Field(..., gt=0)
+
+
+class LighterLeverageIn(BaseModel):
+    l1_address: str | None = None
+    symbol: str = Field(..., max_length=32)
+    leverage: int = Field(..., ge=1, le=100)
+
+
+@app.post("/actions/lighter/onboard/build")
+async def lighter_onboard_build(
+    body: LighterOnboardBuildIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    return await lighter_service.onboard_build(
+        session, wallet_address=wallet, account_id=account_id, l1_address=l1)
+
+
+@app.post("/actions/lighter/onboard/submit")
+async def lighter_onboard_submit(
+    body: LighterOnboardSubmitIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    return await lighter_service.onboard_submit(
+        session, l1_address=l1, tx_type=body.tx_type, tx_info=body.tx_info,
+        l1_signature=body.l1_signature)
+
+
+@app.post("/actions/lighter/open")
+async def lighter_open(
+    body: LighterOpenIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    return await lighter_service.open_position(
+        session, l1_address=l1, symbol=body.symbol, side=body.side,
+        base_amount=body.base_amount, leverage=body.leverage)
+
+
+@app.post("/actions/lighter/close")
+async def lighter_close(
+    body: LighterCloseIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    return await lighter_service.close_position(
+        session, l1_address=l1, symbol=body.symbol,
+        position_side=body.position_side, base_amount=body.base_amount)
+
+
+@app.post("/actions/lighter/leverage")
+async def lighter_leverage(
+    body: LighterLeverageIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.l1_address)
+    return await lighter_service.set_leverage(
+        session, l1_address=l1, symbol=body.symbol, leverage=body.leverage)
+
+
+@app.get("/market/lighter/account")
+async def lighter_account(
+    l1_address: str | None = Query(None),
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, l1_address)
+    return await lighter_service.account_state(session, l1)
 
 
 # ---------------------------------------------------------------------------
