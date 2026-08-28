@@ -7235,3 +7235,13 @@
   input { accent-color: var(--op-brand); width: 15px; height: 15px; cursor: pointer; }
   &.is-disabled { opacity: 0.6; cursor: default; }
 }
+
+/* Token logo inside a pump-token chip (e.g. USDG collateral on the Lighter card) */
+.pump-token__logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}

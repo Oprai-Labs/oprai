@@ -3352,7 +3352,7 @@
                     </span>
                   }
                   @if (lighterMarkets().length && lighterPriceCountdown() !== null) {
-                    <span class="lighter-live" [attr.title]="'Live price · refreshes every 3s' | t">● {{ 'live' | t }}</span>
+                    <span class="lighter-live" [attr.title]="'Live price — refreshes every 3s' | t">● {{ 'live' | t }} · {{ lighterPriceCountdown() }}s</span>
                   }
                 </div>
 
@@ -3408,7 +3408,7 @@
                          (input)="setLighterLimitPrice($any($event.target).value)"
                          [disabled]="!isEditable()" />
                   <span class="pump-token">
-                    <span class="pump-token__icon pump-token__icon--ph">$</span>
+                    <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
                     <span class="pump-token__sym">USDG</span>
                   </span>
                 </div>
@@ -3429,7 +3429,7 @@
                        (input)="setLighterCollateralUsd($any($event.target).value)"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">$</span>
+                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
                   <span class="pump-token__sym">USDG</span>
                 </span>
               </div>
