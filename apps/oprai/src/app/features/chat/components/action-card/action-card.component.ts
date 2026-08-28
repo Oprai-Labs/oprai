@@ -2884,7 +2884,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     );
     if (fromQuote) {
       return {
-        symbol: fromQuote.symbol, name: fromQuote.name, logoURI: fromQuote.logo,
+        symbol: fromQuote.symbol, name: fromQuote.name,
+        // Relay omits some logos (USDC/USDT) — fall back to the registry by symbol.
+        logoURI: fromQuote.logo ?? (fromQuote.symbol ? this.resolveTokenDisplay(fromQuote.symbol).logoURI ?? null : null),
         decimals: cached?.decimals,
       };
     }
@@ -4369,8 +4371,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         receiveSymbol: q.outputSymbol,
         payAmount: q.inputAmountDisplay ?? String(p['amount'] ?? ''),
         receiveAmount: q.outputAmountDisplay,
-        payLogo: q.inputLogo,
-        receiveLogo: q.outputLogo,
+        // Relay's token list doesn't carry a logo for every token (USDC/USDT
+        // came back blank) — fall back to the registry's by-symbol logo.
+        payLogo: q.inputLogo ?? (q.inputSymbol ? this.resolveTokenDisplay(q.inputSymbol).logoURI ?? null : null),
+        receiveLogo: q.outputLogo ?? (q.outputSymbol ? this.resolveTokenDisplay(q.outputSymbol).logoURI ?? null : null),
         chainLogo: q.chainLogo,
         rate: q.rate,
         chainName: q.chainName,

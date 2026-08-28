@@ -1506,6 +1506,19 @@ export class SolanaActionService {
    * Frontend actions (Angular services, no Rust backend involved):
    *   lend, withdraw_lend, borrow, repay
    */
+  /** A bridge whose ORIGIN is an EVM chain (signed with window.ethereum, no
+   *  Solana wallet needed). Origin is EVM when it isn't one of Relay's Solana
+   *  chain ids. Accepts a chain NAME too (the LLM may pass "ethereum"). */
+  private bridgeOriginIsEvm(p: Record<string, string>): boolean {
+    const raw = String(p['originChainId'] ?? '').toLowerCase().trim();
+    if (!raw) return false;
+    const solana = new Set(['792703809', '900', 'solana', '11111111111111111111111111111111']);
+    if (solana.has(raw)) return false;
+    const n = Number(raw);
+    // A numeric non-Solana chain id, or a non-Solana chain name → EVM origin.
+    return Number.isFinite(n) ? n !== 0 : raw.length > 0;
+  }
+
   async execute(
     action: ParsedAction,
     callbacks: ActionCallbacks = {}
@@ -1526,13 +1539,20 @@ export class SolanaActionService {
     }
 
     const wallet = this.walletService.publicKey();
-    if (!wallet) {
+    // A cross-chain bridge FROM an EVM chain (e.g. Ethereum → Robinhood) is
+    // signed with the connected EVM wallet (window.ethereum), not Solana — so it
+    // must not hit the Solana-wallet guard. Only a Solana-ORIGIN bridge needs a
+    // Solana wallet.
+    const isEvmOriginBridge =
+      (action.type === 'relay_bridge' || action.type === 'cross_chain_swap' || action.type === 'bridge')
+      && this.bridgeOriginIsEvm(action.params);
+    if (!wallet && !isEvmOriginBridge) {
       // The user may be signed in through an EVM (SIWE) session with no Solana
       // wallet connected — chat history and rewards work account-wide, but every
-      // action OPRAI executes settles on Solana and needs a Solana wallet to
-      // sign. Without this, the builder was still called with the 0x address and
-      // came back with a raw "Invalid wallet address" 400; say plainly what to
-      // do instead. (String is a translation key — see i18n/translations.ts.)
+      // Solana action OPRAI executes settles on Solana and needs a Solana wallet
+      // to sign. Without this, the builder was still called with the 0x address
+      // and came back with a raw "Invalid wallet address" 400; say plainly what
+      // to do instead. (String is a translation key — see i18n/translations.ts.)
       throw new Error('This action runs on Solana. Connect a Solana wallet to continue.');
     }
 
@@ -2136,7 +2156,7 @@ export class SolanaActionService {
 
     // Get the wallet's SOL balance and the exact tx fee side-by-side
     const [solBalance, feeResponse] = await Promise.all([
-      connection.getBalance(new web3.PublicKey(wallet)),
+      connection.getBalance(new web3.PublicKey(wallet!)),
       isVersioned
         ? connection.getFeeForMessage((deserializedTx as VersionedTransaction).message).catch(() => ({ value: null }))
         : connection.getFeeForMessage(
