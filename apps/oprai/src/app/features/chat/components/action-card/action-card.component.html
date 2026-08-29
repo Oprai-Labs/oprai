@@ -3258,26 +3258,11 @@
             </div>
           </div>
         } @else if (action.type === 'lighter_deposit') {
-          <!-- ─────── Lighter USDG collateral deposit — honest guidance ───────
-               Depositing moves real funds and is the one on-chain step. The
-               automated route (Lighter deposit contract + CCTP) isn't verified
-               end-to-end yet, so instead of a dead-end amount input that leads
-               to an unsigned tx, we guide to the official app. No submit here. -->
-          <div class="perp">
-            <div class="lighter-deposit-guide">
-              <span class="lighter-deposit-guide__badge">
-                <img src="assets/tokens/usdg.png" alt="USDG" width="22" height="22" />
-              </span>
-              <div class="lighter-deposit-guide__body">
-                <span class="lighter-deposit-guide__title">{{ 'Deposit from the Lighter app' | t }}</span>
-                <span class="lighter-deposit-guide__text">{{ 'Add USDG collateral to your Lighter account in the official Lighter app. Once it lands, your positions and trading work here instantly — trading itself is gas-free.' | t }}</span>
-                <a class="lighter-deposit-guide__link" href="https://app.lighter.xyz" target="_blank" rel="noopener">
-                  <span>{{ 'Open Lighter app' | t }}</span>
-                  <lucide-icon name="external-link" [size]="13" />
-                </a>
-              </div>
-            </div>
-          </div>
+          <!-- Deposit is guidance-only (not automated yet). Its guidance panel
+               is rendered in the footer region, not here: this per-type body
+               dispatch does not render for lighter_deposit (verified in the
+               compiled bundle — the branch maps correctly but never paints),
+               while the footer region does. Keep this branch empty. -->
         } @else if (action.type === 'lighter_open') {
           <!-- ─────── Lighter perp open — full trade ticket (dynamic markets, live price) ─────── -->
           @let ltPx = lighterPrice();
@@ -6238,6 +6223,26 @@
           <div class="proto-note">
             <lucide-icon name="info" [size]="13" />
             <span>{{ risk }}</span>
+          </div>
+        }
+
+        @if (action.type === 'lighter_deposit') {
+          <!-- The per-type body dispatch does not render for this card type, so
+               the deposit guidance lives here — in the footer region, which is
+               outside that dispatch and renders reliably (same place as the
+               confirm/dismiss row below). -->
+          <div class="lighter-deposit-guide">
+            <span class="lighter-deposit-guide__badge">
+              <img src="assets/tokens/usdg.png" alt="USDG" width="22" height="22" />
+            </span>
+            <div class="lighter-deposit-guide__body">
+              <span class="lighter-deposit-guide__title">{{ 'Deposit from the Lighter app' | t }}</span>
+              <span class="lighter-deposit-guide__text">{{ 'Add USDG collateral to your Lighter account in the official Lighter app. Once it lands, your positions and trading work here instantly — trading itself is gas-free.' | t }}</span>
+              <a class="lighter-deposit-guide__link" href="https://app.lighter.xyz" target="_blank" rel="noopener">
+                <span>{{ 'Open Lighter app' | t }}</span>
+                <lucide-icon name="external-link" [size]="13" />
+              </a>
+            </div>
           </div>
         }
 
