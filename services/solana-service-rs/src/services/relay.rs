@@ -1157,13 +1157,18 @@ pub async fn get_cross_chain_quote(
     // used eighteen for everything, native or not, with a comment saying so —
     // which is a billion-fold error on SOL and a million-fold one on USDC, in
     // the direction of sending far more than the user typed.
-    let amount_in_wei = to_base_units(
-        http,
-        params.origin_chain_id,
-        &params.origin_currency,
-        &params.amount,
-    )
-    .await?;
+    // `amount` is denominated in the side the tradeType fixes: the ORIGIN token
+    // for EXACT_INPUT (what you send), the DESTINATION token for EXACT_OUTPUT
+    // (what you receive). Scaling by the wrong side's decimals makes the figure
+    // off by 10^(decimal gap) — e.g. "buy 10 USDG" (EXACT_OUTPUT) scaled by
+    // native-ETH 18 became 10e18 and Relay found no route.
+    let is_exact_output = params.trade_type.eq_ignore_ascii_case("EXACT_OUTPUT");
+    let (scale_chain, scale_currency) = if is_exact_output {
+        (params.destination_chain_id, params.destination_currency.as_str())
+    } else {
+        (params.origin_chain_id, params.origin_currency.as_str())
+    };
+    let amount_in_wei = to_base_units(http, scale_chain, scale_currency, &params.amount).await?;
     let recipient = resolve_bridge_recipient(
         params.recipient.as_deref(),
         params.destination_chain_id,
@@ -1709,14 +1714,15 @@ pub async fn get_relay_quote_full(
             .await?;
     let params = &params;
 
-    // Relay takes base units and rejects anything with a decimal point.
-    let scaled_amount = to_base_units(
-        http,
-        params.origin_chain_id,
-        &params.origin_currency,
-        &params.amount,
-    )
-    .await?;
+    // Relay takes base units and rejects anything with a decimal point. Scale by
+    // the side the tradeType fixes: origin for EXACT_INPUT, destination for
+    // EXACT_OUTPUT (see get_cross_chain_quote for why the wrong side breaks it).
+    let (scale_chain, scale_currency) = if params.trade_type.eq_ignore_ascii_case("EXACT_OUTPUT") {
+        (params.destination_chain_id, params.destination_currency.as_str())
+    } else {
+        (params.origin_chain_id, params.origin_currency.as_str())
+    };
+    let scaled_amount = to_base_units(http, scale_chain, scale_currency, &params.amount).await?;
 
     let sender = resolve_bridge_sender(
         params.sender.as_deref(),
