@@ -6028,9 +6028,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     };
     const name = String(p['chain'] ?? p['chainName'] ?? '').toLowerCase().trim();
     if (byName[name]) return byName[name];
-    // Robinhood-only launchpads (pools.trade / Pons) — always chain 4663.
+    // Robinhood-only surfaces — always chain 4663. pools.trade / Pons
+    // launchpads, and Lighter (its one on-chain tx, the USDG deposit, settles
+    // on Robinhood Mainnet). The LLM's params carry no chainId for these, so
+    // the tx link would otherwise fall through to Solscan.
     const t = this.action?.type ?? '';
-    if (t.startsWith('pons_') || t.startsWith('pools_')) return 4663;
+    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_')) return 4663;
     return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
