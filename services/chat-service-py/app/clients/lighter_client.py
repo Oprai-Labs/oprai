@@ -57,6 +57,11 @@ TIF_GOOD_TILL_TIME = 1
 CROSS_MARGIN_MODE = 0
 ISOLATED_MARGIN_MODE = 1
 USDC_SCALE = 1_000_000               # collateral is quoted in 1e6 units
+# Max slippage for market orders (fraction). The IOC is priced at the live
+# best × (1 ± this); the actual fill is at the book's best inward, so this is a
+# ceiling, not the expected slippage. 2% fills small orders even on thinner
+# memecoin books while still bounding a bad fill.
+MARKET_SLIPPAGE = 0.02
 
 _TIMEOUT = 20.0
 
@@ -380,14 +385,17 @@ async def open_position(*, account_index: int, agent_private_key: str, symbol: s
                 api_key_index=api_key_index,
             )
         else:
-            # A market order is NOT create_order(price=0) — Lighter rejects a
-            # zero price ("OrderPrice should not be less than 1"). It takes an
-            # avg_execution_price (the reference the fill + slippage bound are
-            # measured against); use the live mark.
-            _order, resp, err = await signer.create_market_order(
+            # A market order must be priced AGGRESSIVELY or an IOC never crosses
+            # the book and silently no-fills (create_order price=0 is rejected;
+            # price=mark leaves a buy below the ask → cancels unfilled → a false
+            # "success" with no position). create_market_order_if_slippage reads
+            # the live book, prices at best × (1 ± max_slippage) so it fills, and
+            # returns an error instead of a no-fill when the book can't fill
+            # within the cap.
+            _order, resp, err = await signer.create_market_order_if_slippage(
                 market_index=market_id, client_order_index=coi,
-                base_amount=base, avg_execution_price=_scale(mark, price_dec),
-                is_ask=is_ask, reduce_only=reduce_only, api_key_index=api_key_index,
+                base_amount=base, max_slippage=MARKET_SLIPPAGE, is_ask=is_ask,
+                reduce_only=reduce_only, api_key_index=api_key_index,
             )
     except Exception as e:  # SDK/native-signer raised before returning a tuple
         log.warning("lighter open_position raised: symbol=%s side=%s lev=%s base=%s: %r",
@@ -418,19 +426,19 @@ async def close_position(*, account_index: int, agent_private_key: str, symbol: 
     if market_id is None:
         return {"error": f"unknown Lighter market: {symbol}"}
     size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
-    price_dec = int(detail.get("price_decimals", detail.get("supported_price_decimals", 2)))
     base = _scale(base_amount, size_dec)
     # close a long by selling (is_ask=True); close a short by buying.
     is_ask = position_side.lower() in ("long", "buy")
     signer = _signer(account_index, agent_private_key, api_key_index)
     try:
-        # Market close via create_market_order (not create_order price=0, which
-        # Lighter rejects with "OrderPrice should not be less than 1").
-        _order, resp, err = await signer.create_market_order(
+        # Market close, priced aggressively off the live book so the IOC fills
+        # (not create_order price=0, which Lighter rejects; not price=mark, which
+        # no-fills). reduce_only so it can only shrink/close the position.
+        _order, resp, err = await signer.create_market_order_if_slippage(
             market_index=market_id,
             client_order_index=int(time.time() * 1000) % 2_000_000_000,
-            base_amount=base, avg_execution_price=_scale(_mark_price(detail), price_dec),
-            is_ask=is_ask, reduce_only=True, api_key_index=api_key_index,
+            base_amount=base, max_slippage=MARKET_SLIPPAGE, is_ask=is_ask,
+            reduce_only=True, api_key_index=api_key_index,
         )
     except Exception as e:
         log.warning("lighter close_position raised: symbol=%s side=%s base=%s: %r",
