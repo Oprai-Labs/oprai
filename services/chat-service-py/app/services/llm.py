@@ -741,22 +741,41 @@ def _anthropic_thinking_kwargs(model: str) -> dict:
 def _anthropic_split_system(messages: list[dict[str, str]]) -> tuple[list[dict], list[dict]]:
     """Split into Anthropic system blocks and a non-system message list.
 
-    The system text is wrapped in a single text block with `cache_control`
-    set so prompt caching kicks in (10% of input price on cache hits, 1.25x
-    on the first write). The system prompt + tool definitions are the largest
-    repeated input — caching them turns a 15K-token prefix from a bottleneck
-    into a near-zero-cost prefix on every subsequent turn within 5 minutes.
+    Prompt caching only pays off if the CACHED prefix is byte-identical across
+    turns. Previously the whole system text was one cached block, so any per-turn
+    change in it (wallet balances, the LANGUAGE LOCK that embeds the user message,
+    RAG) invalidated the entire prefix every turn → the cache never hit.
+
+    Now the system content is split by a `cache: "stable"` marker: the large,
+    stable prompt fragments (+ the tool defs) form ONE cached prefix, and every
+    per-turn-varying block is emitted as a second, UN-cached block AFTER it — so a
+    changed balance no longer busts the ~40K prefix. Repeat turns in the same
+    protocol scope now hit the cache (~10% of input price). Callers that pass no
+    marker keep the old single-block behaviour.
     """
-    system_text = "\n\n".join(
-        m["content"] for m in messages if m.get("role") == "system" and m.get("content")
-    )
+    stable = [m["content"] for m in messages
+              if m.get("role") == "system" and m.get("content") and m.get("cache") == "stable"]
+    volatile = [m["content"] for m in messages
+                if m.get("role") == "system" and m.get("content") and m.get("cache") != "stable"]
     system_blocks: list[dict] = []
-    if system_text:
+    if not stable:
+        # No explicit split — cache the whole system text (previous behaviour).
+        joined = "\n\n".join(volatile)
+        if joined:
+            system_blocks.append({
+                "type": "text", "text": joined,
+                "cache_control": {"type": "ephemeral"},
+            })
+    else:
         system_blocks.append({
-            "type": "text",
-            "text": system_text,
-            "cache_control": {"type": "ephemeral"},
+            "type": "text", "text": "\n\n".join(stable),
+            "cache_control": {"type": "ephemeral"},  # the cache boundary
         })
+        joined_v = "\n\n".join(volatile)
+        if joined_v:
+            # No cache_control: per-turn-varying content, kept outside the cached
+            # prefix so it can change every turn without a re-write.
+            system_blocks.append({"type": "text", "text": joined_v})
 
     non_system: list[dict] = []
     for m in messages:

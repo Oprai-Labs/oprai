@@ -684,8 +684,13 @@ async def build_llm_context(
         is_chitchat=is_chitchat,
     )
 
+    # The prompt fragments are the large, STABLE prefix — byte-identical across
+    # turns for the same protocol scope. Mark it so the Anthropic path caches it
+    # (and the tool schema) as one prefix, while every per-turn-varying block
+    # appended after (balances, RAG, LANGUAGE LOCK, facts) stays OUTSIDE the cache
+    # boundary and no longer invalidates the whole prefix each turn.
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": system_prompt, "cache": "stable"},
     ]
 
     # Inject wallet context (address + live SOL balance + SPL token balances).
