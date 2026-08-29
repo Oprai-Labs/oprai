@@ -202,17 +202,32 @@ def _norm_positions(raw: list) -> list[dict]:
             size = 0.0
         if size == 0:
             continue
+        # The API gives position_value (USD notional) + initial_margin_fraction
+        # (a PERCENT, e.g. "12.50" → 8x). It does NOT give size_usd, a usable
+        # margin (allocated_margin is 0 under cross margin), leverage, or a
+        # per-position mark — derive them, or the card/portfolio show $0.
+        pos_value = _f(p.get("position_value"))
+        imf = _f(p.get("initial_margin_fraction"))  # percent
+        leverage = (100.0 / imf) if imf > 0 else _f(p.get("leverage"))
+        # Initial margin (the equity backing this position) = notional × IMF.
+        collateral = (pos_value * imf / 100.0) if (pos_value and imf) else \
+            _f(p.get("margin") or p.get("allocated_margin"))
+        mark = _f(p.get("mark_price"))
+        if not mark and pos_value and size:
+            mark = pos_value / abs(size)
         out.append({
             "symbol": p.get("symbol") or p.get("market") or "",
             "market_id": p.get("market_id"),
             "side": "long" if (p.get("sign", 1) >= 0 and size > 0) else "short",
             "size": abs(size),
+            "size_usd": pos_value,
             "entry_price": _f(p.get("avg_entry_price") or p.get("entry_price")),
-            "mark_price": _f(p.get("mark_price")),
+            "mark_price": mark,
             "liquidation_price": _f(p.get("liquidation_price")),
             "unrealized_pnl": _f(p.get("unrealized_pnl")),
-            "leverage": _f(p.get("leverage")),
-            "margin": _f(p.get("margin") or p.get("allocated_margin")),
+            "leverage": leverage,
+            "collateral": collateral,
+            "margin": collateral,
         })
     return out
 
