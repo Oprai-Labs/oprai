@@ -1039,11 +1039,12 @@ pub(crate) async fn to_base_units(
     if amount.is_empty() {
         return Err(AppError::InvalidParams("Enter an amount".into()));
     }
-    // Already integral: nothing to scale, and scaling it would silently
-    // multiply an amount someone had already converted.
-    if !amount.contains('.') && !amount.contains(',') {
-        return Ok(amount.to_string());
-    }
+    // Every caller passes a HUMAN amount from the card (relay quote + build,
+    // uniswap swap) — never a pre-scaled one — so always scale by the token's
+    // decimals, integers included. The old "skip integers" shortcut sent a bare
+    // "50" as 50 base units (0.00005 USDC), which Relay rejects as dust — it
+    // silently broke every whole-number amount ("50 USDC", "10 USDG", "3 ETH").
+    // The scaling below already handles a missing fractional part correctly.
     let normalised = amount.replace(',', ".");
 
     let chain_id = canonical_chain_id(chain_id);
