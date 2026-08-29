@@ -143,7 +143,10 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
           <div class="wl-connect-grid">
             <!-- Solana — only when the account has no Solana wallet yet -->
             @if (!hasSolana()) {
-              <button class="wl-connect" (click)="startLink()" [disabled]="busy() || linkActive() || !wallet.connected()">
+              <!-- A Solana wallet already connected (Solana-primary account) uses
+                   the switch-account link flow; otherwise (EVM-primary, nothing
+                   connected) open a picker to connect + link one. -->
+              <button class="wl-connect" (click)="wallet.connected() ? startLink() : openSolanaModal()" [disabled]="busy() || linkActive()">
                 <div class="wl-tile" [style.background]="TYPE_META['solana_wallet'].tint"><app-brand-icon type="solana_wallet" [size]="22" /></div>
                 <div class="wl-connect-text">
                   <span class="wl-connect-title">Solana wallet</span>
@@ -320,6 +323,67 @@ const INSTALLABLE_EVM: { name: string; url: string; icon: string }[] = [
           </div>
         </div>
       }
+
+      <!-- Solana wallet picker — connect + link a Solana wallet. Used for
+           EVM-primary accounts (no Solana wallet connected, so the switch-
+           account flow can't start). -->
+      @if (solanaModalOpen()) {
+        <div class="wallet-modal-overlay" (click)="onSolanaBackdrop($event)">
+          <div class="wallet-modal">
+            <div class="wallet-modal-header">
+              <div class="wallet-modal-header-text">
+                <span class="wallet-modal-title">Link a Solana wallet</span>
+                <span class="wallet-modal-subtitle">Choose a wallet to add. You'll sign a message to prove you own it — it's then permanently linked to your OPRAI account.</span>
+              </div>
+              <button class="wallet-modal-close" (click)="closeSolanaModal()" aria-label="Close">
+                <lucide-icon name="x" [size]="16" />
+              </button>
+            </div>
+
+            <div class="wallet-modal-body">
+              @if (solanaDetected().length > 0) {
+                <div class="wallet-section-label">Installed</div>
+                <div class="wallet-list">
+                  @for (w of solanaDetected(); track w.name) {
+                    <button class="wallet-row" (click)="linkSolanaWallet(w.name)" [disabled]="busy()">
+                      <span class="wallet-row-icon" style="display:grid;place-items:center">
+                        @if (w.icon && !iconFailed().has(w.name)) {
+                          <img [src]="w.icon" [alt]="w.name" width="32" height="32" style="border-radius:8px" (error)="onIconError(w.name)" />
+                        } @else {
+                          <app-brand-icon type="solana_wallet" [size]="22" />
+                        }
+                      </span>
+                      <span class="wallet-row-name">{{ w.name }}</span>
+                      <span class="wallet-row-badge"><span class="wallet-row-dot"></span>Installed</span>
+                    </button>
+                  }
+                </div>
+              }
+              @if (solanaInstallable().length > 0) {
+                <div class="wallet-section-label">{{ solanaDetected().length > 0 ? 'More wallets' : 'Popular wallets' }}</div>
+                <div class="wallet-list">
+                  @for (w of solanaInstallable(); track w.name) {
+                    <button class="wallet-row wallet-row--install" (click)="openInstallUrl(w.url)" [attr.title]="'Install ' + w.name">
+                      <span class="wallet-row-icon" style="display:grid;place-items:center">
+                        @if (w.icon && !iconFailed().has(w.name)) {
+                          <img [src]="w.icon" [alt]="w.name" width="30" height="30" style="border-radius:8px" (error)="onIconError(w.name)" />
+                        } @else {
+                          <app-brand-icon type="solana_wallet" [size]="22" />
+                        }
+                      </span>
+                      <span class="wallet-row-name">{{ w.name }}</span>
+                      <span class="wallet-row-install">Install</span>
+                    </button>
+                  }
+                </div>
+              }
+              @if (busy()) {
+                <div class="wallet-modal-footer-text" style="padding:10px 2px 2px">Approve the connection and signature in your wallet…</div>
+              }
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: [`
@@ -438,6 +502,12 @@ export class WalletsComponent implements OnInit, OnDestroy {
   detectedEvm = signal<EvmWallet[]>([]);
   linkConsent = signal<EvmWallet | null>(null);
   iconFailed = signal<Set<string>>(new Set());
+  // Solana wallet picker (for linking Solana to an EVM-primary account, where
+  // no Solana wallet is connected so the switch-account flow can't start).
+  solanaModalOpen = signal(false);
+  solanaWallets = signal<{ name: string; icon: string; detected: boolean; url: string }[]>([]);
+  readonly solanaDetected = computed(() => this.solanaWallets().filter((w) => w.detected));
+  readonly solanaInstallable = computed(() => this.solanaWallets().filter((w) => !w.detected));
 
   askConsent(w: EvmWallet): void { this.linkConsent.set(w); }
   cancelConsent(): void { this.linkConsent.set(null); }
@@ -710,6 +780,56 @@ export class WalletsComponent implements OnInit, OnDestroy {
       const rejected = (e as { code?: number })?.code === 4001;
       this.flash(rejected ? 'Signature request was rejected.' : 'Could not link that Ethereum wallet.', false);
     } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // ── Solana wallet picker (link to an EVM-primary account) ────────────────
+  /** Open the Solana wallet picker. Used when NO Solana wallet is connected
+   *  (e.g. the account signed in with EVM), so the switch-account link flow
+   *  can't run — here the user picks a Solana wallet to connect and link. */
+  openSolanaModal(): void {
+    if (this.busy()) return;
+    this.msg.set(null);
+    this.solanaWallets.set(this.wallet.getWallets(true).map((w) => ({
+      name: w.name, icon: w.icon, detected: w.detected, url: w.url,
+    })));
+    this.solanaModalOpen.set(true);
+  }
+  closeSolanaModal(): void { this.solanaModalOpen.set(false); }
+  onSolanaBackdrop(ev: MouseEvent): void {
+    if ((ev.target as HTMLElement).classList.contains('wallet-modal-overlay')) this.closeSolanaModal();
+  }
+
+  /** Connect the chosen Solana wallet and link it to the account. Safe for an
+   *  EVM-primary session: the account is already authenticated, so the auto
+   *  sign-in effect stays dormant (it returns early while authed), and linking
+   *  mode suppresses the account-switch teardown — the EVM session is untouched. */
+  async linkSolanaWallet(name: string): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.msg.set(null);
+    this.wallet.setLinkingMode(true);
+    try {
+      await this.wallet.connect(name);
+      const address = this.wallet.publicKey();
+      if (!address) throw new Error('no solana account');
+      if (this.identities().some((i) => i.identifier === address)) {
+        this.solanaModalOpen.set(false);
+        this.flash('That wallet is already on your account.', true);
+        return;
+      }
+      const nz = await firstValueFrom(this.account.linkNonce());
+      const sigBytes = await this.wallet.signMessage(new TextEncoder().encode(`OPRAI link wallet: ${nz.nonce}`));
+      const signature = bs58.encode(sigBytes);
+      const res = await firstValueFrom(this.account.linkVerify(address, signature, nz.nonceId));
+      this.identities.set(res.identities || []);
+      this.solanaModalOpen.set(false);
+      this.flash(res.alreadyLinked ? 'That wallet is already on your account.' : 'Solana wallet linked to your account.', true);
+    } catch {
+      this.flash('Could not link that Solana wallet. Approve the connection and the signature, then try again.', false);
+    } finally {
+      this.wallet.setLinkingMode(false);
       this.busy.set(false);
     }
   }
