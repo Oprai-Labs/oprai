@@ -3185,7 +3185,11 @@
               @let pnlUp = pos.unrealizedPnl >= 0;
               <div class="perp-pos-row" [class.perp-pos-row--closed]="pos.closed">
                 <div class="perp-pos-row__head">
-                  <span class="perp-pos-row__logo perp-pos-row__logo--fallback">{{ pos.market.charAt(0) }}</span>
+                  @if (perpMarketLogo(pos.market); as logo) {
+                    <img class="perp-pos-row__logo" [src]="logo" [alt]="pos.market" loading="lazy" />
+                  } @else {
+                    <span class="perp-pos-row__logo perp-pos-row__logo--fallback">{{ pos.market.charAt(0) }}</span>
+                  }
                   <div class="perp-pos-row__title">
                     <span class="perp-pos-row__market">{{ pos.market }}-PERP</span>
                     <span class="perp-pos-row__badges">

@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, Input, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, from } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx, EvmNft } from '../../services/evm-portfolio.service';
+import { LighterPerpService, LighterPosition } from '../../../../core/services/market/lighter-perp.service';
 import { AllocationChartComponent, ChartSegment } from '../allocation-chart/allocation-chart.component';
 import { DefiPositionsComponent } from '../defi-positions/defi-positions.component';
 import { ClaimableRewardsComponent } from '../claimable-rewards/claimable-rewards.component';
@@ -273,6 +274,7 @@ export class EvmHoldingsComponent implements OnInit {
   private account = inject(AccountService);
   private evm = inject(EvmPortfolioService);
   private api = inject(ApiService);
+  private lighterPerp = inject(LighterPerpService);
 
   loading = signal(true);
   walletCount = signal(0);
@@ -389,10 +391,14 @@ export class EvmHoldingsComponent implements OnInit {
           // Moralis doesn't cover them, so pull from Uniswap's own feed. Loaded
           // together with the wallet so positions never pop in after the wallet.
           uniswap: this.uniswapPositions$(),
+          // Lighter perps live on Robinhood Chain but aren't in Moralis/Alchemy
+          // (they're L2 sequencer positions), so pull them from Lighter's own
+          // API and fold them into the same positions pipeline.
+          lighter: this.lighterPositions$(evmWallets[0]),
         })
-          .pipe(map(({ perWallet, uniswap }) => ({
+          .pipe(map(({ perWallet, uniswap, lighter }) => ({
             tokens: perWallet.flatMap((r) => r.portfolio.tokens || []).sort((a, b) => b.valueUsd - a.valueUsd),
-            positions: [...uniswap, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
+            positions: [...uniswap, ...lighter, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
             txs: perWallet.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
             nfts: perWallet.flatMap((r) => r.nfts.nfts || []),
           })))
@@ -410,6 +416,27 @@ export class EvmHoldingsComponent implements OnInit {
 
   /** Uniswap LP positions (V2/V3/V4, all chains) mapped to EvmPosition. Emits
    *  [] on any error so it never blocks the combined wallet+positions load. */
+  /** Lighter perp positions (Robinhood Chain, chain 4663) mapped into the EVM
+   *  positions pipeline so they render under the Robinhood tab like Uniswap.
+   *  Value = collateral + unrealised PnL (the position's live equity, not the
+   *  leveraged notional). */
+  private lighterPositions$(addr: string | undefined) {
+    if (!addr) return of([] as EvmPosition[]);
+    return from(this.lighterPerp.getPositions(addr)).pipe(
+      catchError(() => of([] as LighterPosition[])),
+      map((positions): EvmPosition[] => (positions || []).filter((p) => !p.closed).map((p) => ({
+        chain: 'robinhood',
+        protocol: 'Lighter',
+        protocolId: 'lighter',
+        logo: 'assets/protocols/lighter.png',
+        label: `${p.market}-PERP ${p.side}${p.leverage ? ' · ' + p.leverage.toFixed(0) + 'x' : ''}`,
+        balanceUsd: (Number(p.collateral) || 0) + (Number(p.unrealizedPnl) || 0),
+        unclaimedUsd: 0,
+        tokens: [{ symbol: p.market, type: p.side, amount: Number(p.baseAmount) || 0, logo: undefined }],
+      }))),
+    );
+  }
+
   private uniswapPositions$() {
     return this.api.post<{ positions: any[] }>('/actions/uniswap/lp/positions', {}).pipe(
       catchError(() => of({ positions: [] })),
