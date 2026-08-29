@@ -28,6 +28,7 @@ interface EvmWallet {
   uuid: string;
   name: string;
   icon: string;
+  rdns?: string;
   provider: EthProvider;
   detected: boolean;
   url?: string;
@@ -716,12 +717,12 @@ export class WalletsComponent implements OnInit, OnDestroy {
     const found = new Map<string, EvmWallet>();
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as
-        | { info?: { uuid: string; name: string; icon: string }; provider?: EthProvider }
+        | { info?: { uuid: string; name: string; icon: string; rdns?: string }; provider?: EthProvider }
         | undefined;
       if (detail?.info && detail.provider) {
         found.set(detail.info.uuid, {
           uuid: detail.info.uuid, name: detail.info.name, icon: detail.info.icon,
-          provider: detail.provider, detected: true,
+          rdns: detail.info.rdns, provider: detail.provider, detected: true,
         });
         this.zone.run(() => this.detectedEvm.set([...found.values()]));
       }
@@ -773,6 +774,9 @@ export class WalletsComponent implements OnInit, OnDestroy {
       const signature = (await provider.request({ method: 'personal_sign', params: [message, address] })) as string;
       const res = await firstValueFrom(this.account.linkEVMVerify(address, signature, nz.nonceId));
       this.identities.set(res.identities || []);
+      // Remember this wallet's identity so its bridges/swaps sign with IT, not
+      // whatever owns window.ethereum (MetaMask usually wins that).
+      this.wallet.rememberEvmWallet(entry.rdns);
       this.evmModalOpen.set(false);
       this.linkConsent.set(null);
       this.flash(res.alreadyLinked ? `That ${entry.name} wallet is already on your account.` : `${entry.name} permanently linked to your account.`, true);

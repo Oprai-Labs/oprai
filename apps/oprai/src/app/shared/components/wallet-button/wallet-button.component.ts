@@ -147,7 +147,7 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
 
   // EVM wallets discovered via EIP-6963 — lets the user sign in with Ethereum
   // (SIWE) as an alternative to a Solana wallet. Populated when the modal opens.
-  readonly evmWallets = signal<Array<{ uuid: string; name: string; icon: string; provider: EvmProvider }>>([]);
+  readonly evmWallets = signal<Array<{ uuid: string; name: string; icon: string; rdns: string; provider: EvmProvider }>>([]);
 
   openModal(): void {
     this.error.set(null);
@@ -160,13 +160,13 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
 
   private discoverEvmWallets(): void {
     this.evmWallets.set([]);
-    const found = new Map<string, { uuid: string; name: string; icon: string; provider: EvmProvider }>();
+    const found = new Map<string, { uuid: string; name: string; icon: string; rdns: string; provider: EvmProvider }>();
     const handler = (e: Event) => {
       const d = (e as CustomEvent).detail as
-        | { info?: { uuid: string; name: string; icon: string }; provider?: EvmProvider }
+        | { info?: { uuid: string; name: string; icon: string; rdns?: string }; provider?: EvmProvider }
         | undefined;
       if (d?.info && d.provider) {
-        found.set(d.info.uuid, { uuid: d.info.uuid, name: d.info.name, icon: d.info.icon, provider: d.provider });
+        found.set(d.info.uuid, { uuid: d.info.uuid, name: d.info.name, icon: d.info.icon, rdns: d.info.rdns ?? '', provider: d.provider });
         this.evmWallets.set([...found.values()]);
       }
     };
@@ -206,13 +206,16 @@ export class WalletButtonComponent implements AfterViewChecked, OnDestroy {
       );
   }
 
-  async connectEvm(w: { name: string; provider: EvmProvider }): Promise<void> {
+  async connectEvm(w: { name: string; rdns?: string; provider: EvmProvider }): Promise<void> {
     this.error.set(null);
     try {
       const accounts = (await w.provider.request({ method: 'eth_requestAccounts' })) as string[];
       const address = accounts?.[0];
       if (!address) throw new Error('No account selected');
       this.closeModal();
+      // Remember WHICH EVM wallet this is (by its stable rdns) so later
+      // transactions sign with this wallet, not whatever owns window.ethereum.
+      this.walletService.rememberEvmWallet(w.rdns);
       await this.authService.authenticateEvm(w.provider, address);
     } catch (err: unknown) {
       const rejected = (err as { code?: number })?.code === 4001;

@@ -2000,7 +2000,7 @@ export class SolanaActionService {
       if (!txData?.to) {
         throw new Error(`Cross-chain (${provider}): no transaction data returned from backend`);
       }
-      const ethereum = (window as any).ethereum;
+      const ethereum = await this.walletService.resolveEvmProvider();
       if (!ethereum) {
         throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to execute cross-chain swaps.');
       }
@@ -2598,7 +2598,7 @@ export class SolanaActionService {
     const chainId = Number(p['originChainId'] ?? p['chainId'] ?? 0);
     if (!chainId) throw new Error('Uniswap: no chain specified for this swap.');
 
-    const ethereum = (window as any).ethereum;
+    const ethereum = await this.walletService.resolveEvmProvider();
     if (!ethereum) {
       throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to swap on Uniswap.');
     }
@@ -2727,7 +2727,7 @@ export class SolanaActionService {
   // ── Lighter perps (Robinhood Chain Lighter domain) ──────────────────────────
   /** Resolve the connected EVM account (prompts a connect if needed). */
   private async lighterEvmAccount(): Promise<string> {
-    const ethereum = (window as any).ethereum;
+    const ethereum = await this.walletService.resolveEvmProvider();
     if (!ethereum) {
       throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade Lighter perps.');
     }
@@ -2746,7 +2746,7 @@ export class SolanaActionService {
    * withdraw to an arbitrary address.
    */
   private async executeLighterOnboard(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
-    const ethereum = (window as any).ethereum;
+    const ethereum = await this.walletService.resolveEvmProvider();
     const account = await this.lighterEvmAccount();
 
     callbacks.onQuote?.();
@@ -2788,7 +2788,7 @@ export class SolanaActionService {
    * we switch the wallet to the deposit chain and send each in sequence.
    */
   private async executeLighterDeposit(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
-    const ethereum = (window as any).ethereum;
+    const ethereum = await this.walletService.resolveEvmProvider();
     const account = await this.lighterEvmAccount();
     const p = action.params;
 
@@ -2952,7 +2952,7 @@ export class SolanaActionService {
     const token = String(p['tokenAddress'] ?? '');
     if (!isLaunch && !isPonsLaunch && !token && !p['curve']) throw new Error('no token specified.');
 
-    const ethereum = (window as any).ethereum;
+    const ethereum = await this.walletService.resolveEvmProvider();
     if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on pools.trade.');
     const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
       Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`pools.trade: ${label} timed out`)), ms))]);
@@ -3172,7 +3172,7 @@ export class SolanaActionService {
       || this.evmChainIdFromName(p['chain']);
     if (!chainId) throw new Error('Uniswap: no chain specified for this pool.');
 
-    const ethereum = (window as any).ethereum;
+    const ethereum = await this.walletService.resolveEvmProvider();
     if (!ethereum) {
       throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to add liquidity on Uniswap.');
     }

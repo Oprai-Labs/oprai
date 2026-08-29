@@ -63,6 +63,14 @@ function catalogFor(name: string): WalletCatalogEntry | undefined {
   );
 }
 
+/** Minimal EIP-1193 EVM provider (MetaMask/Phantom/etc.), as returned by
+ *  EIP-6963 discovery — enough to send transactions and sign. */
+export interface EthProvider {
+  // Generic default keeps the ergonomics of the old `(window as any).ethereum`
+  // (callers assign string[]/string without casting) while staying typed.
+  request<T = any>(args: { method: string; params?: unknown[] }): Promise<T>;
+}
+
 // ──────────────────────────────────────────────────────────────
 // Wallet Standard types (MetaMask v13.5+ registers via this spec)
 // ──────────────────────────────────────────────────────────────
@@ -390,6 +398,52 @@ export class WalletService {
       // User hasn't trusted this site yet — silent fail is expected
     }
     return false;
+  }
+
+  // ── EVM provider identity ────────────────────────────────────────────────
+  // Which EVM wallet the account is using, by its stable EIP-6963 rdns
+  // (e.g. "app.phantom", "io.metamask"). Persisted so it survives reload.
+  private static readonly EVM_RDNS_KEY = 'oprai-evm-rdns';
+
+  /** Remember the EVM wallet the user authenticated / linked with, so its
+   *  transactions are later signed by THAT wallet — not whatever injected
+   *  `window.ethereum` (MetaMask usually wins that when several are installed,
+   *  so a Phantom-EVM login would otherwise sign with MetaMask). */
+  rememberEvmWallet(rdns: string | null | undefined): void {
+    try {
+      if (rdns) localStorage.setItem(WalletService.EVM_RDNS_KEY, rdns);
+    } catch { /* storage disabled — resolveEvmProvider falls back */ }
+  }
+
+  private storedEvmRdns(): string | null {
+    try { return localStorage.getItem(WalletService.EVM_RDNS_KEY); } catch { return null; }
+  }
+
+  /** The EVM provider the account signed in with, matched by its EIP-6963 rdns
+   *  via a fresh announce round. Falls back to `window.ethereum` when nothing
+   *  was remembered or the wallet isn't announcing (locked/uninstalled) — the
+   *  caller's sender-address guard is the backstop against a wrong wallet. */
+  async resolveEvmProvider(): Promise<EthProvider> {
+    const fallback = (window as unknown as { ethereum?: EthProvider }).ethereum ?? null;
+    const rdns = this.storedEvmRdns();
+    if (!rdns) {
+      if (fallback) return fallback;
+      throw new Error('No EVM wallet detected. Install or connect one, then try again.');
+    }
+    const match = await new Promise<EthProvider | null>((resolve) => {
+      let hit: EthProvider | null = null;
+      const handler = (e: Event) => {
+        const d = (e as CustomEvent).detail as
+          | { info?: { rdns?: string }; provider?: EthProvider } | undefined;
+        if (!hit && d?.info?.rdns === rdns && d.provider) hit = d.provider;
+      };
+      window.addEventListener('eip6963:announceProvider', handler);
+      window.dispatchEvent(new Event('eip6963:requestProvider'));
+      setTimeout(() => { window.removeEventListener('eip6963:announceProvider', handler); resolve(hit); }, 350);
+    });
+    if (match) return match;
+    if (fallback) return fallback;
+    throw new Error('Your connected wallet is not available. Unlock or install it, then try again.');
   }
 
   /**
