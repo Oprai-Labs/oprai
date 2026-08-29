@@ -13,38 +13,82 @@ from .ch import addr, USDG
 
 
 async def token_report(token: str) -> dict:
+    """Comprehensive token X-ray: overview, holder distribution + concentration,
+    snipers (with still-holding vs dumped status), coordination/bundle, flow
+    (accumulators vs distributors), holder growth, dev identity + rug history,
+    smart-money participation, and a composite risk score. Every number is real."""
     t = addr(token)
     base = f"FROM rh.token_transfers WHERE token='{t}' AND kind='erc20'"
 
     overview = await ch.one(f"""
         SELECT uniqExact(to_addr) AS holders, count() AS transfers,
                min(block_number) AS first_block, min(timestamp) AS first_ts,
-               max(timestamp) AS last_ts, uniqExact(tx_hash) AS txs {base}""")
+               max(timestamp) AS last_ts, uniqExact(tx_hash) AS txs,
+               dateDiff('day', min(timestamp), max(timestamp)) AS age_days {base}""")
 
-    top_holders = await ch.q(f"""
-        SELECT holder, sum(net)/1e18 AS balance FROM (
+    # full net-balance holder set (one pass), reused for concentration + whales
+    holders = await ch.q(f"""
+        SELECT holder, sum(net) AS bal FROM (
+          SELECT to_addr AS holder, toFloat64(value) AS net {base}
+          UNION ALL SELECT from_addr, -toFloat64(value) {base}
+        ) WHERE holder NOT IN ('0x','0x0000000000000000000000000000000000000000',
+                               '0x000000000000000000000000000000000000dead')
+        GROUP BY holder HAVING bal > 0 ORDER BY bal DESC LIMIT 500""")
+    supply = sum(float(h["bal"]) for h in holders) or 1.0
+    def pct_of(n):  # concentration of top-n holders
+        return round(100.0 * sum(float(h["bal"]) for h in holders[:n]) / supply, 1)
+    top10_pct, top20_pct, top50_pct = pct_of(10), pct_of(20), pct_of(50)
+    whales = sum(1 for h in holders if float(h["bal"]) / supply > 0.01)  # >1% holders
+    top_holders = [{"holder": h["holder"], "balance": float(h["bal"]) / 1e18,
+                    "pct": round(100 * float(h["bal"]) / supply, 2)} for h in holders[:20]]
+
+    # snipers: earliest buyers + whether they STILL hold (dumped = paperhand/exit).
+    # ClickHouse has no correlated subqueries → LEFT JOIN buys vs sells.
+    snipers = await ch.q(f"""
+        WITH buys AS (
+          SELECT to_addr AS wallet, min(block_number) AS b, min(timestamp) AS ts,
+                 sum(toFloat64(value)) AS bought {base}
+          AND from_addr='0x0000000000000000000000000000000000000000'
+          GROUP BY to_addr ORDER BY b, ts LIMIT 30),
+        sold AS (
+          SELECT from_addr AS wallet, sum(toFloat64(value)) AS out {base}
+          GROUP BY from_addr)
+        SELECT b.wallet AS wallet, b.b AS block, b.ts AS time, b.bought AS bought,
+               b.bought - coalesce(s.out, 0) AS still_holding
+        FROM buys b LEFT JOIN sold s ON b.wallet = s.wallet
+        ORDER BY b.b, b.ts""")
+    dumped = sum(1 for s in snipers if float(s.get("still_holding", 0)) <= 0)
+    sniper_dump_rate = round(100 * dumped / len(snipers), 1) if snipers else 0.0
+
+    # coordination: same-block buyer clusters (bundles) across the early window
+    clusters = await ch.q(f"""
+        SELECT block_number, uniqExact(to_addr) AS buyers {base}
+        AND from_addr='0x0000000000000000000000000000000000000000'
+        GROUP BY block_number HAVING buyers >= 3 ORDER BY block_number LIMIT 200""")
+    bundle_blocks = len(clusters)
+    bundle_first = int(clusters[0]["buyers"]) if clusters and clusters[0]["block_number"] == overview.get("first_block") else \
+                   (max((int(c["buyers"]) for c in clusters), default=0))
+
+    # flow: biggest net accumulators vs distributors (sell pressure read)
+    flow = await ch.q(f"""
+        SELECT holder, sum(net)/1e18 AS net FROM (
           SELECT to_addr AS holder, toFloat64(value) AS net {base}
           UNION ALL SELECT from_addr, -toFloat64(value) {base}
         ) WHERE holder NOT IN ('0x','0x0000000000000000000000000000000000000000')
-        GROUP BY holder HAVING balance > 0 ORDER BY balance DESC LIMIT 20""")
+        GROUP BY holder ORDER BY abs(net) DESC LIMIT 20""")
 
-    snipers = await ch.q(f"""
-        SELECT to_addr AS wallet, block_number, timestamp {base}
-        AND from_addr='0x0000000000000000000000000000000000000000'
-        ORDER BY block_number, log_index LIMIT 20""")
-
-    first_blocks = await ch.q(f"""
-        SELECT block_number, uniqExact(to_addr) AS buyers {base}
-        GROUP BY block_number ORDER BY block_number LIMIT 5""")
-
+    # daily transfers + cumulative holder growth
     daily = await ch.q(f"""
         SELECT toDate(timestamp) AS day, count() AS transfers, uniqExact(to_addr) AS buyers
         {base} GROUP BY day ORDER BY day""")
 
-    # holder concentration (top10 vs rest)
-    total_supply = sum(float(h["balance"]) for h in top_holders) or 1.0
-    top10 = sum(float(h["balance"]) for h in top_holders[:10])
-    top10_pct = 100.0 * top10 / total_supply if total_supply else 0.0
+    # dev identity + rug history (once contracts table exists)
+    dev, dev_tokens, dev_rugs = "", 0, 0
+    if await ch.table_exists("contracts"):
+        c = await ch.one(f"SELECT deployer FROM rh.contracts FINAL WHERE address='{t}'")
+        dev = c.get("deployer", "")
+        if dev:
+            dev_tokens = await ch.scalar(f"SELECT count() FROM rh.contracts FINAL WHERE deployer='{dev}' AND is_token=1") or 0
 
     # smart-money participation (once smart_wallets exists)
     smart_holders = 0
@@ -54,39 +98,58 @@ async def token_report(token: str) -> dict:
             INNER JOIN rh.smart_wallets sw ON tt.to_addr=sw.wallet
             WHERE tt.token='{t}' AND tt.kind='erc20'""") or 0
 
-    bundle_first = int(first_blocks[0]["buyers"]) if first_blocks else 0
+    # composite risk score (0-100, higher = riskier) from available signals
+    risk = 0
+    risk += min(40, top10_pct * 0.4)                    # concentration
+    risk += min(25, bundle_blocks * 3)                  # coordination
+    risk += min(20, sniper_dump_rate * 0.2)             # sniper dump
+    risk += 15 if (dev_rugs and dev_rugs > 0) else 0    # dev rug history
+    risk = round(min(100, risk))
+    risk_label = "HIGH" if risk >= 60 else "MEDIUM" if risk >= 30 else "LOW"
 
     return {
         "subject": {"type": "token", "address": t},
         "status": "ok",
         "kpis": [
             {"label": "Holders", "value": overview.get("holders")},
-            {"label": "Transfers", "value": overview.get("transfers")},
-            {"label": "Top-10 concentration", "value": round(top10_pct, 1), "fmt": "%"},
-            {"label": "First-block buyers (bundle?)", "value": bundle_first},
+            {"label": "Age (days)", "value": overview.get("age_days")},
+            {"label": "Top-10 concentration", "value": top10_pct, "fmt": "%"},
+            {"label": "Whales (>1%)", "value": whales},
+            {"label": "Bundle blocks", "value": bundle_blocks},
+            {"label": "Sniper dump rate", "value": sniper_dump_rate, "fmt": "%"},
             {"label": "Smart-money holders", "value": smart_holders},
+            {"label": "Risk score", "value": risk, "fmt": "/100", "flag": risk_label},
         ],
         "charts": [
-            {"type": "bar", "title": "Top holders", "items":
-                [{"label": h["holder"][:10] + "…", "value": round(float(h["balance"]), 2)} for h in top_holders[:12]]},
+            {"type": "bar", "title": "Top holders (%)", "items":
+                [{"label": h["holder"][:8] + "…", "value": h["pct"]} for h in top_holders[:12]]},
             {"type": "line", "title": "Daily transfers", "x": [d["day"] for d in daily],
              "series": [{"name": "transfers", "data": [d["transfers"] for d in daily]},
                         {"name": "unique buyers", "data": [d["buyers"] for d in daily]}]},
             {"type": "donut", "title": "Concentration",
-             "items": [{"label": "Top 10", "value": round(top10_pct, 1)},
-                       {"label": "Rest", "value": round(100 - top10_pct, 1)}]},
+             "items": [{"label": "Top 10", "value": top10_pct},
+                       {"label": "11-50", "value": round(top50_pct - top10_pct, 1)},
+                       {"label": "Rest", "value": round(100 - top50_pct, 1)}]},
         ],
         "tables": [
-            {"title": "Top holders", "columns": ["wallet", "balance"],
-             "rows": [[h["holder"], round(float(h["balance"]), 2)] for h in top_holders]},
-            {"title": "Snipers (first buyers)", "columns": ["wallet", "block", "time"],
-             "rows": [[s["wallet"], s["block_number"], s["timestamp"]] for s in snipers]},
+            {"title": "Top holders", "columns": ["wallet", "balance", "%"],
+             "rows": [[h["holder"], round(h["balance"], 2), h["pct"]] for h in top_holders]},
+            {"title": "Snipers (still holding vs dumped)", "columns": ["wallet", "block", "time", "still_holding"],
+             "rows": [[s["wallet"], s["block"], s["time"],
+                       "yes" if float(s.get("still_holding", 0)) > 0 else "DUMPED"] for s in snipers[:20]]},
+            {"title": "Biggest movers (net)", "columns": ["wallet", "net"],
+             "rows": [[f["holder"], round(float(f["net"]), 2)] for f in flow]},
         ],
         "facts": {
             "holders": overview.get("holders"), "transfers": overview.get("transfers"),
-            "first_seen": overview.get("first_ts"), "top10_pct": round(top10_pct, 1),
-            "first_block_buyers": bundle_first, "smart_money_holders": smart_holders,
-            "bundle_signal": bundle_first >= 3,
+            "age_days": overview.get("age_days"), "first_seen": overview.get("first_ts"),
+            "top10_pct": top10_pct, "top20_pct": top20_pct, "top50_pct": top50_pct,
+            "whales_over_1pct": whales, "bundle_blocks": bundle_blocks,
+            "bundle_signal": bundle_blocks > 0, "max_same_block_buyers": bundle_first,
+            "sniper_count": len(snipers), "sniper_dump_rate": sniper_dump_rate,
+            "developer": dev, "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
+            "smart_money_holders": smart_holders,
+            "risk_score": risk, "risk_label": risk_label,
         },
     }
 
