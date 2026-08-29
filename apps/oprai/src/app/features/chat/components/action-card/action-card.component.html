@@ -3258,7 +3258,7 @@
             </div>
           </div>
         } @else if (action.type === 'lighter_deposit') {
-          <!-- ─────── Lighter USDC collateral deposit ─────── -->
+          <!-- ─────── Lighter USDG collateral deposit ─────── -->
           <div class="perp" [class.proto-fields--shake]="shake()">
             <div class="pump-panel">
               <div class="pump-panel__top">
@@ -3270,8 +3270,8 @@
                        (input)="setEditParam('amount', $any($event.target).value)"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">$</span>
-                  <span class="pump-token__sym">{{ getEditParam('token') || 'USDC' }}</span>
+                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
+                  <span class="pump-token__sym">{{ getEditParam('token') || 'USDG' }}</span>
                 </span>
               </div>
             </div>

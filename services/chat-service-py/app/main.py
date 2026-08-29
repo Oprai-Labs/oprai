@@ -1024,7 +1024,7 @@ class LighterLeverageIn(BaseModel):
 class LighterDepositBuildIn(BaseModel):
     wallet: str | None = None
     amount: float | None = None
-    token: str = "USDC"
+    token: str = "USDG"
     chainId: int | None = None
 
 

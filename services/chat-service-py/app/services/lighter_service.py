@@ -202,7 +202,7 @@ async def set_leverage(
 # ── deposit (collateral) ─────────────────────────────────────────────────────
 async def deposit_build(
     session: AsyncSession, *, l1_address: str, amount: float | None,
-    token: str = "USDC", chain_id: int | None = None,
+    token: str = "USDG", chain_id: int | None = None,
 ) -> dict:
     """Build the collateral-deposit step.
 

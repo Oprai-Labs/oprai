@@ -1378,6 +1378,21 @@ async def stream_chat_response(
     # separately after streaming completes (step 8).
     await db.commit()
 
+    # Name the chat from its first message NOW — before the LLM turn runs — so a
+    # chat is never left as "New chat" when the first turn errors (dropped action,
+    # cap hit, client disconnect). Fast model, yielded early and persisted so the
+    # sidebar updates immediately; independent of the turn's outcome. The former
+    # end-of-turn title step is removed to avoid a duplicate call.
+    if is_first_message and (user_content or "").strip():
+        try:
+            _title = await generate_title(user_content)
+            await session_svc.update_title(db, wallet, session_id, _title)
+            await db.commit()
+            yield f"data: {json.dumps({'title': _title})}\n\n"
+        except Exception:
+            _log.warning("early title generation failed", exc_info=True)
+            await db.rollback()
+
     # ── 4+5. Summarise + classify intent + pre-fetch knowledge in parallel ──
     # All three are independent: summarize previous block, classify intent,
     # and pre-fetch RAG knowledge all fire concurrently. This cuts ~200-400ms
@@ -3771,13 +3786,8 @@ async def stream_chat_response(
 
         yield f"data: {json.dumps({'messageId': str(assistant_msg.id)})}\n\n"
 
-        if is_first_message:
-            try:
-                title = await generate_title(user_content)
-                await session_svc.update_title(db, wallet, session_id, title)
-                yield f"data: {json.dumps({'title': title})}\n\n"
-            except Exception:
-                _log.warning("Title generation failed in stream", exc_info=True)
+        # (Title is generated early, right after the first user message is saved,
+        # so it survives a turn that errors out — see the block near the top.)
 
         yield "data: [DONE]\n\n"
 
