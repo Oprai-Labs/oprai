@@ -245,8 +245,13 @@ async def deposit_build(
     if amt <= 0:
         return {"ok": False, "error": "Enter a USDG amount to deposit."}
 
+    base = int(round(amt * (10 ** USDG_DECIMALS)))
+    # Lighter's createIntentAddress validates `amount` as an integer in the
+    # token's base units — a decimal string ("5.0") is rejected as "invalid
+    # amount". The address is deterministic per (from_addr, chain) regardless,
+    # so pass the base-unit integer we're about to transfer.
     intent = await lighter_client.create_deposit_intent(
-        chain_id=str(chain), from_addr=wallet, amount=str(amount),
+        chain_id=str(chain), from_addr=wallet, amount=str(base),
     )
     if not intent:
         return {
@@ -254,7 +259,6 @@ async def deposit_build(
             "error": "Couldn't get your Lighter deposit address just now — try again in a moment.",
         }
 
-    base = int(round(amt * (10 ** USDG_DECIMALS)))
     data = _erc20_transfer_calldata(intent, base)
     return {
         "ok": True,
