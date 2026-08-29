@@ -9656,12 +9656,45 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return this.lighterMarkets().find(m => m.symbol === sym) ?? null;
   }
 
-  /** Markets filtered by the picker search box (symbol prefix/contains). */
+  // Lighter (Robinhood domain) lists stock, ETF, commodity and pre-IPO equity
+  // perps alongside crypto — the API tags them all `market_type: "perp"`, so
+  // there is no server flag to filter on. OPRAI is crypto-focused, so the picker
+  // hides the traditional-finance markets. A DENYLIST (not an allowlist) so any
+  // new crypto / memecoin listing stays visible automatically; a new *stock*
+  // Robinhood adds would need appending here.
+  private readonly LIGHTER_STOCK_SYMBOLS = new Set<string>([
+    'AAPL', 'AMD', 'AMZN', 'BABA', 'BE', 'COIN', 'CRCL', 'CRWV', 'GOOGL', 'INTC',
+    'META', 'MSFT', 'MU', 'NVDA', 'ORCL', 'PLTR', 'QQQ', 'SGOV', 'SHEIN', 'SKHY',
+    'SLV', 'SNDK', 'SOXL', 'SPCX', 'SPY', 'TSLA', 'USAR', 'USO', 'XAU', 'XAG',
+    'ANTHROPIC', 'OPENAI',
+  ]);
+
+  /** Crypto-only markets, filtered by the picker search box (symbol contains). */
   lighterFilteredMarkets(): LighterMarket[] {
     const q = this.lighterSearch().trim().toUpperCase();
-    const ms = this.lighterMarkets();
+    const ms = this.lighterMarkets().filter(m => !this.LIGHTER_STOCK_SYMBOLS.has(m.symbol));
     if (!q) return ms;
     return ms.filter(m => m.symbol.includes(q));
+  }
+
+  /** Leverage the user/LLM asked for, before per-market clamping (to warn when
+   *  the market's cap is lower — e.g. "cashcat 10x" but CASHCAT tops out at 3x). */
+  lighterRequestedLev(): number | null {
+    const v = parseFloat(this.getEditParam('leverage'));
+    return Number.isFinite(v) ? v : null;
+  }
+  /** True when the requested leverage exceeds the selected market's ceiling. */
+  lighterLevCapped(): boolean {
+    const req = this.lighterRequestedLev();
+    return req !== null && req > this.lighterMaxLev();
+  }
+
+  /** Fill collateral with the full available Lighter balance (2dp, never over). */
+  setLighterCollateralMax(): void {
+    const a = this.lighterAvailableBalance();
+    if (a != null && a > 0 && this.isEditable()) {
+      this.setLighterCollateralUsd(String(Math.floor(a * 100) / 100));
+    }
   }
 
   /** Live mark price for the selected market (USD). */

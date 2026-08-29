@@ -3431,7 +3431,11 @@
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'Collateral' | t }}</span>
                 @if (ltAvail !== null) {
-                  <span class="pump-panel__bal">{{ 'Available' | t }} ${{ ltAvail | number:'1.2-2' }}</span>
+                  <span class="pump-panel__bal">{{ 'Available' | t }} ${{ ltAvail | number:'1.2-2' }}
+                    @if (isEditable() && ltAvail > 0) {
+                      <button class="pump-panel__max" type="button" (click)="setLighterCollateralMax()">{{ 'Max' | t }}</button>
+                    }
+                  </span>
                 }
               </div>
               <div class="pump-panel__row">
@@ -3470,6 +3474,12 @@
                           [disabled]="!isEditable()" (click)="setLighterLeverage(t)">{{ t }}x</button>
                 }
               </div>
+              @if (lighterLevCapped()) {
+                <div class="limit-size limit-size--warn">
+                  <lucide-icon name="triangle-alert" [size]="13" />
+                  <span>{{ '{sym} supports up to {max}x — capped from the {req}x you asked for.' | t:{ sym: lighterSymbol(), max: lighterMaxLev(), req: (lighterRequestedLev() | number:'1.0-0') } }}</span>
+                </div>
+              }
             </div>
 
             <!-- Values panel (the full Lighter ticket read-out) -->
