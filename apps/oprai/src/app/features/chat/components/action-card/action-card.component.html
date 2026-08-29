@@ -435,7 +435,8 @@
          computed the next time it catches someone. -->
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
-         || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()) {
+         || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()
+         || action.type === 'lighter_deposit') {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -3258,11 +3259,38 @@
             </div>
           </div>
         } @else if (action.type === 'lighter_deposit') {
-          <!-- Deposit is guidance-only (not automated yet). Its guidance panel
-               is rendered in the footer region, not here: this per-type body
-               dispatch does not render for lighter_deposit (verified in the
-               compiled bundle — the branch maps correctly but never paints),
-               while the footer region does. Keep this branch empty. -->
+          <!-- ─────── Lighter USDG collateral deposit — real on-chain ticket ───
+               A same-chain USDG transfer to the wallet's Lighter intent address
+               (chain 4663); the user's own wallet signs. Renders here now that
+               lighter_deposit is included in the .proto-body @if above. -->
+          <div class="perp" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'Deposit' | t }}</span>
+                @if (lighterDepositBal() != null) {
+                  <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ lighterDepositBal() | number:'1.0-4' }} USDG
+                    @if (isEditable() && lighterDepositBal()! > 0) {
+                      <button class="pump-panel__max" type="button" (click)="setLighterDepositMax()">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="(+getEditParam('amount') > 0) ? getEditParam('amount') : ''"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
+                  <span class="pump-token__sym">USDG</span>
+                </span>
+              </div>
+            </div>
+            <div class="limit-size">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ 'Sends USDG to your Lighter deposit address on-chain — you sign once with your own wallet. Trading itself is then gas-free.' | t }}</span>
+            </div>
+          </div>
         } @else if (action.type === 'lighter_open') {
           <!-- ─────── Lighter perp open — full trade ticket (dynamic markets, live price) ─────── -->
           @let ltPx = lighterPrice();
@@ -6223,34 +6251,6 @@
           <div class="proto-note">
             <lucide-icon name="info" [size]="13" />
             <span>{{ risk }}</span>
-          </div>
-        }
-
-        @if (action.type === 'lighter_deposit') {
-          <!-- Deposit ticket lives in the footer region, not the per-type body
-               dispatch: that dispatch does not paint for lighter_deposit
-               (verified in the compiled bundle), while this region renders
-               reliably (same place as the confirm/dismiss row below). -->
-          <div class="lighter-deposit-ticket">
-            <div class="pump-panel">
-              <div class="pump-panel__top">
-                <span class="pump-panel__label">{{ 'Deposit' | t }}</span>
-              </div>
-              <div class="pump-panel__row">
-                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
-                       [value]="(+getEditParam('amount') > 0) ? getEditParam('amount') : ''"
-                       (input)="setEditParam('amount', $any($event.target).value)"
-                       [disabled]="!isEditable()" />
-                <span class="pump-token">
-                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
-                  <span class="pump-token__sym">USDG</span>
-                </span>
-              </div>
-            </div>
-            <div class="limit-size">
-              <lucide-icon name="info" [size]="13" />
-              <span>{{ 'Sends USDG to your Lighter deposit address on-chain — you sign once with your own wallet. Trading itself is then gas-free.' | t }}</span>
-            </div>
           </div>
         }
 

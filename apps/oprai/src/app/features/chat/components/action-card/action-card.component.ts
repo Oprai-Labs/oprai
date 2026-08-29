@@ -9827,6 +9827,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private startLighterCard(): void {
     void this.refreshLighterMarkets();
     void this.refreshLighterAccount();
+    if (this.action?.type === 'lighter_deposit') void this.refreshLighterDepositBalance();
     if (this.action?.type === 'lighter_open') {
       this.lighterPriceCountdown.set(3);
       this._lighterPoll = setInterval(() => this.zone.run(() => {
@@ -9852,6 +9853,34 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private async refreshLighterAccount(): Promise<void> {
     try { this.lighterAcct.set(await this.lighterPerp.getAccount()); }
     catch { /* best-effort; card still works for sizing */ }
+  }
+
+  // USDG (Global Dollar) on Robinhood Mainnet 4663 — the deposit token. Read
+  // via the backend so it's the right chain no matter what the wallet is on.
+  private readonly LIGHTER_USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168';
+  /** The connected wallet's spendable USDG balance — powers "Balance:" + Max. */
+  readonly lighterDepositBal = signal<number | null>(null);
+
+  private async refreshLighterDepositBalance(): Promise<void> {
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    try {
+      const r = await firstValueFrom(
+        this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token: this.LIGHTER_USDG }),
+      );
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      if (Number.isFinite(bal)) this.lighterDepositBal.set(bal);
+    } catch { /* leave unknown — Max just won't show */ }
+  }
+
+  /** Set the deposit amount to the full USDG balance. */
+  setLighterDepositMax(): void {
+    const b = this.lighterDepositBal();
+    if (b != null && b > 0 && this.isEditable()) {
+      // Trim to the token's 6 decimals so the amount can't exceed the balance
+      // by a rounding hair (the transfer would then revert on-chain).
+      this.setEditParam('amount', String(Math.floor(b * 1e6) / 1e6));
+    }
   }
 
   /** The chosen market symbol (uppercased). Accepts `symbol` or legacy `market`. */

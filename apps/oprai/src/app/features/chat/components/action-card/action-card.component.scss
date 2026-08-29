@@ -7084,16 +7084,6 @@
   color: var(--op-text-tertiary, var(--op-text-secondary));
 }
 
-// Deposit ticket (amount input + USDG chip + note) — rendered in the footer
-// region because the per-type body dispatch does not paint for lighter_deposit.
-// Reuses .pump-panel / .limit-size styling; only needs spacing from the footer.
-.lighter-deposit-ticket {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
 .lighter-soon {
   margin-left: 5px;
   font-size: 0.5625rem;
