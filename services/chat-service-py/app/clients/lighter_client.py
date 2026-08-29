@@ -46,6 +46,9 @@ AGENT_API_KEY_INDEX = 250            # OPRAI's delegated agent slot (2..254 are 
 # ── SDK constants (mirrored from signer_client.py so callers stay readable) ──
 ORDER_TYPE_LIMIT = 0
 ORDER_TYPE_MARKET = 1
+ORDER_TYPE_STOP_LOSS = 2
+ORDER_TYPE_TAKE_PROFIT = 4
+ORDER_TYPE_TWAP = 6
 TIF_IMMEDIATE_OR_CANCEL = 0          # market orders clear now or cancel
 TIF_GOOD_TILL_TIME = 1
 CROSS_MARGIN_MODE = 0
@@ -362,6 +365,48 @@ async def close_position(*, account_index: int, agent_private_key: str, symbol: 
         return {"error": err}
     return {"ok": True, "market": symbol, "closed_side": position_side,
             "base_amount": base_amount, "response": _jsonable(resp)}
+
+
+async def attach_tpsl(*, account_index: int, agent_private_key: str, symbol: str,
+                      position_side: str, base_amount: float,
+                      take_profit: float | None = None, stop_loss: float | None = None,
+                      api_key_index: int = AGENT_API_KEY_INDEX) -> dict:
+    """Attach reduce-only take-profit and/or stop-loss trigger orders to a position.
+
+    Both close the position on the opposite side when the mark price crosses the
+    trigger. For a LONG (closed by selling): TP triggers above entry, SL below.
+    For a SHORT (closed by buying): TP below, SL above. Prices are the human mark
+    price; scaled by the market's price decimals. Market-on-trigger.
+    """
+    market_id, detail = await market_index_for(symbol)
+    if market_id is None:
+        return {"error": f"unknown Lighter market: {symbol}"}
+    if take_profit is None and stop_loss is None:
+        return {"error": "give a take-profit and/or stop-loss price"}
+    signer = _signer(account_index, agent_private_key, api_key_index)
+    size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
+    price_dec = int(detail.get("price_decimals", detail.get("supported_price_decimals", 2)))
+    base = _scale(base_amount, size_dec)
+    # close a long by selling (is_ask=True); close a short by buying.
+    is_ask = position_side.lower() in ("long", "buy")
+    placed: list[str] = []
+    base_coid = int(time.time() * 1000) % 2_000_000_000
+    for i, (kind, trig, maker) in enumerate((
+            ("take_profit", take_profit, signer.create_tp_order),
+            ("stop_loss", stop_loss, signer.create_sl_order))):
+        if trig is None:
+            continue
+        _o, _r, err = await maker(
+            market_index=market_id,
+            client_order_index=(base_coid + i) % 2_000_000_000,  # distinct per order
+            base_amount=base, trigger_price=_scale(trig, price_dec), price=0,
+            is_ask=is_ask, reduce_only=True, api_key_index=api_key_index,
+        )
+        if err:
+            return {"error": f"{kind}: {err}", "placed": placed}
+        placed.append(kind)
+    return {"ok": True, "market": symbol, "position_side": position_side,
+            "take_profit": take_profit, "stop_loss": stop_loss, "placed": placed}
 
 
 async def _set_leverage_inner(signer, market_id: int, leverage: int) -> None:
