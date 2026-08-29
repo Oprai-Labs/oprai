@@ -52,10 +52,10 @@ IntentClass = Literal["action", "query", "advice", "ambiguous"]
 VALID_PROTOCOLS: frozenset[str] = frozenset({
     "jupiter", "raydium", "orca", "meteora",
     "marinade", "jito", "native_stake",
-    "kamino", "solend",
+    "kamino",
     "tensor", "magic_eden", "pumpfun",
-    "relay", "debridge", "uniswap",
-    "streamflow", "lighter",
+    "relay", "uniswap",
+    "lighter",
 })
 
 
@@ -87,7 +87,6 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "pumpfun":   ("pumpfun", "pump.fun", "pumpswap", "mayhem"),
     "magic_eden":("magiceden", "magic eden", "mmm pool"),
     "tensor":    ("tensor", "tensorians"),
-    "streamflow":("streamflow",),
     # Relay providers + EVM chain NAMES. Chain names are a deterministic net so an
     # explicit "robinhood/base/arbitrum… ağından X al" always loads the cross-chain
     # path and never falls into the Solana pump.fun memecoin flow (which happened
@@ -98,7 +97,6 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "robinhood", "ethereum", "base", "arbitrum", "optimism", "polygon",
         "bsc", "bnb chain", "avalanche",
     ),
-    "debridge":  ("debridge",),
     # Uniswap = same-chain EVM swap venue. The two Robinhood LAUNCHPADS are
     # separate protocols so their own tools (pools_* vs pons_*) surface — a
     # generic "launchpad"/"uniswap launchpad" defaults to pools.trade.
@@ -327,13 +325,10 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   jito         — Jito staking, jitoSOL, MEV tips, Jito bundles.
   native_stake — Generic Solana validator stake (no LST), stake account ops.
   kamino       — Kamino K-Lend, K-Vault, K-Swap, Multiply, Long/Short, kpool.
-  solend       — Solend (read-only; transactions deprecated).
   tensor       — Tensor NFT marketplace.
   magic_eden   — Magic Eden, ME, MMM pools.
   pumpfun      — pump.fun token launches, PumpSwap, mayhem.
   relay        — Relay.link cross-chain bridge.
-  debridge     — deBridge cross-chain.
-  streamflow   — Streamflow token streaming / vesting.
   lighter      — Lighter zero-fee order-book PERPS on Robinhood Chain. Both
                  crypto perps (BTC/ETH/SOL…) AND stock perps (NVDA, TSLA, AAPL,
                  MSFT…). Emit for "Lighter", or a perp on a STOCK ticker.
@@ -384,11 +379,10 @@ Detection rules:
   language the user wrote it, implies cross-chain →
   emit "relay" in protocols. No chain named in the current message ⇒ never
   "relay", even if an earlier turn was cross-chain. A memecoin/token name together with an EVM chain
-  ("robinhood ağından seriouscat al", "buy PEPE on Base") is a RELAY trade on
+  ("buy seriouscat on robinhood", "buy PEPE on Base") is a RELAY trade on
   that chain — NEVER the Solana pump.fun/memecoin buy flow. If the token isn't
-  on that chain, the answer is "not found on <chain>", not Solana results. Relay.link is the default cross-chain
-  provider; only emit "debridge" when the user names it
-  explicitly. Wormhole and Mayan have no canonical id — when the user
+  on that chain, the answer is "not found on <chain>", not Solana results.
+  Relay.link is the default cross-chain provider. Wormhole and Mayan have no canonical id — when the user
   names them, still emit "relay" so the cross-chain prompt section loads
   (they route through `cross_chain_swap` inside that section).
   This also covers a SAME-chain swap on an EVM chain: "swap USDC to WETH

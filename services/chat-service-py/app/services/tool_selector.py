@@ -308,15 +308,6 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
 
 
     # ── Solend ────────────────────────────────────────────────────────────────
-    "solend_deposit":            _A({"lending", "solend"}),
-    "solend_withdraw":           _A({"lending", "solend"}),
-    "solend_borrow":             _A({"lending", "solend"}),
-    "solend_repay":              _A({"lending", "solend"}),
-    "solend_add_collateral":     _A({"lending", "solend"}),
-    "solend_withdraw_collateral":_A({"lending", "solend"}),
-    "solend_user_info":          _A({"lending", "solend", "portfolio"}),
-    "solend_reserves":           _A({"lending", "solend", "analysis"}),
-    "solend_market":             _A({"lending", "solend", "analysis"}),
 
     # ── NFT / PumpFun ─────────────────────────────────────────────────────────
     # pump.fun is NOT an NFT protocol — activates via the "pumpfun" tag, not "nft".
@@ -384,18 +375,8 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "relay_claim_app_fees":          _A({"bridge", "relay"}),
     "relay_fast_fill":               _A({"bridge", "relay"}),
     "relay_execute":                 _A({"bridge", "relay"}),
-    "debridge":                      _A({"bridge", "debridge"}),
 
     # ── Streamflow ────────────────────────────────────────────────────────────
-    "streamflow_create":          _A({"streaming", "streamflow"}),
-    "streamflow_create_multiple": _A({"streaming", "streamflow"}),
-    "streamflow_cancel":          _A({"streaming", "streamflow"}),
-    "streamflow_withdraw":        _A({"streaming", "streamflow"}),
-    "streamflow_transfer":        _A({"streaming", "streamflow"}),
-    "streamflow_topup":           _A({"streaming", "streamflow"}),
-    "streamflow_update":          _A({"streaming", "streamflow"}),
-    "streamflow_get_one":         _A({"streaming", "streamflow"}),
-    "streamflow_list":            _A({"streaming", "streamflow"}),
 
     # ── SNS ───────────────────────────────────────────────────────────────────
     "sns_resolve":           _A({"sns"}),
@@ -586,7 +567,6 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     "marinade":    _A({"marinade"}),
     "jito":        _A({"jito"}),
     "kamino":      _A({"kamino"}),
-    "solend":      _A({"solend"}),
     "tensor":      _A({"tensor"}),
     "magic_eden":  _A({"magic_eden"}),
     "pumpfun":     _A({"pumpfun", "token_launch"}),
@@ -595,8 +575,6 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     "poolstrade":  _A({"poolstrade"}),
     "pons":        _A({"pons"}),
     "relay":       _A({"relay"}),
-    "debridge":    _A({"debridge"}),
-    "streamflow":  _A({"streamflow"}),
     "native_stake":_A({"native_stake", "staking"}),
     # Lighter perps — its own tag so lighter_open/close/leverage surface when
     # Lighter is active, without pulling in Jupiter's perp_open (tagged jupiter).

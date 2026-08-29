@@ -32,7 +32,6 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     # Lending / Borrowing
     # queries.txt is no longer named here: it loads for every protocol turn.
     "kamino":       ["solana_action_lending.txt"],
-    "solend":       ["solana_action_lending.txt"],
     # NFT marketplaces — Magic Eden read + trading; Tensor trading-routing.
     # market_data.txt carries the NFT composite (deep-dive) analysis.
     "tensor":       ["solana_action_nft.txt", "solana_action_market_data.txt"],
@@ -44,13 +43,10 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     # Cross-chain bridges + Uniswap (same-chain EVM swap; guidance lives in the
     # same crosschain fragment).
     "relay":        ["solana_action_crosschain.txt"],
-    "debridge":     ["solana_action_crosschain.txt"],
     "uniswap":      ["solana_action_crosschain.txt"],
     # pools.trade + Pons launchpads live in the crosschain fragment (Robinhood).
     "poolstrade":   ["solana_action_crosschain.txt"],
     "pons":         ["solana_action_crosschain.txt"],
-    # Token streaming / vesting
-    "streamflow":   ["solana_action_streamflow.txt"],
 
     # Lighter — zero-fee CLOB perps on Robinhood Chain (crypto + stock perps).
     # market_data.txt loads too so mark-price / funding reads render.
@@ -110,7 +106,6 @@ class PromptLoader:
         "solana_action_nft.txt",
         "solana_action_pumpfun.txt",
         "solana_action_crosschain.txt",
-        "solana_action_streamflow.txt",
         "solana_action_lighter.txt",
         "solana_action_market_data.txt",
         "solana_action_knowledge.txt",

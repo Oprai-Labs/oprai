@@ -704,11 +704,11 @@ Examples:
 
 ### CROSS_CHAIN_SWAP — Legacy cross-chain action (kept for backwards compatibility)
 
-Use when user specifies a non-Relay provider explicitly (wormhole, debridge, mayan). For all other cross-chain requests, prefer `relay_bridge`.
+Use when user specifies a non-Relay provider explicitly (wormhole, mayan). For all other cross-chain requests, prefer `relay_bridge`.
 
 Format: execute_action("cross_chain_swap", {fromToken, toToken, amount, fromChain, toChain, provider})
 
-- provider: "wormhole" | "debridge" | "mayan" (do NOT use "relay" here — use relay_bridge instead)
+- provider: "wormhole" | "mayan" (do NOT use "relay" here — use relay_bridge instead)
 
 Examples:
 - "Bridge via Wormhole" → execute_action("cross_chain_swap", {"fromToken": "SOL", "toToken": "ETH", "amount": "1", "fromChain": "792703809", "toChain": "1", "provider": "wormhole"})
@@ -749,7 +749,6 @@ it cannot reach.
 | List available DEX swap sources for routing | `relay_get_swap_sources` |
 | User says "Squid" | `relay_bridge` — Squid is unavailable |
 | User says "Wormhole" | `cross_chain_swap` provider=wormhole |
-| User says "DeBridge" | `cross_chain_swap` provider=debridge |
 | User says "Mayan" | `cross_chain_swap` provider=mayan |
 
 ---

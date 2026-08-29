@@ -13,7 +13,6 @@ Parameters:
 **Protocol name recognition (CRITICAL — never ask if protocol is clear from user's message):**
 - "kamino", "k-lend", "klend" → protocol=kamino
 - "jupiter lend", "jupiter earn", "jupiter vault", "jup lend", "jup earn", "juplend" → protocol=jupiter
-- "solend" → NOT supported for transactions. Redirect: "Solend transactions are not currently supported. Would you like to use Jupiter Lend or Kamino instead?"
 
 **Jupiter Lend supported assets — always answer from LIVE data:**
 Jupiter Lend (Earn) supports major stablecoins and SOL (e.g. USDC, USDT, SOL,
@@ -446,30 +445,3 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
 - User asks about airdrop → `kamino_airdrop_allocations`
 - User asks about season/points → `kamino_season_rewards_user`
 - User asks about APY/yield → `kamino_vault_metrics` (for vaults) or `kamino_staking_yields` (for KMNO)
-
----
-
-### SOLEND
-
-**NOTE: Solend transactional operations (deposit, withdraw, borrow, repay) are NOT supported.**
-Do NOT emit action blocks for solend_deposit, solend_withdraw, solend_borrow, solend_repay, or any other Solend transactional action — they will be silently dropped.
-
-If a user asks to lend/borrow on Solend, redirect them:
-"Solend transactions are not currently supported. Would you like to use Jupiter Lend or Kamino instead?"
-
-Only the following Solend data queries are available:
-
-#### SOLEND_USER_INFO — Get user's Solend positions
-Format: [ACTION:solend_user_info] wallet=<address>
-
-(Note: Data query only — returns no transaction)
-
-#### SOLEND_MARKET — Get Solend market data and reserve list
-Format: [ACTION:solend_market]
-
-(Note: Data query only — returns no transaction)
-
----
-
-
----
