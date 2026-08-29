@@ -9724,9 +9724,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return Array.from(new Set(ticks)).filter(t => t <= max);
   }
 
-  /** Minimum order VALUE for the selected market (USD, ~$10). */
+  /** The REAL minimum order VALUE (USD) — the larger of the market's min
+   *  quote (~$10) and its min BASE size priced at mark. For BTC the binding
+   *  floor is the 0.0002 BTC min size (~$16), NOT $10 — showing $10 there made
+   *  a $11.92 order look valid while the backend rejected it on min size. */
   lighterMinNotional(): number {
-    return this.lighterMarket()?.minQuoteAmount ?? 10;
+    const m = this.lighterMarket();
+    const quoteMin = m?.minQuoteAmount ?? 10;
+    const px = this.lighterExecPrice();
+    const baseMinValue = m && m.minBaseAmount && px ? m.minBaseAmount * px : 0;
+    return Math.max(quoteMin, baseMinValue);
   }
 
   /** Order value (USD notional) = collateral × leverage. */
