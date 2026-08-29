@@ -666,8 +666,18 @@ validate_tool_registry()
 # Schema builder
 # ---------------------------------------------------------------------------
 
-_ALL_ACTION_VALUES = [e.value for e in ActionType if e.value not in _md.SOLANA_ACTION_DATA_TYPES]
-_ALL_QUERY_VALUES  = [e.value for e in QueryType]
+# Protocols that exist in the enums but are NOT integrated (no live backend) —
+# excluded from every offered tool set, including the no-protocol full set, so
+# the model can never emit them. Re-add the protocol here and in the routing maps
+# when its backend ships. (Enum members are left in place to avoid churn.)
+_REMOVED_PREFIXES = ("solend", "streamflow")
+
+def _is_removed(v: str) -> bool:
+    return any(v == p or v.startswith(p + "_") for p in _REMOVED_PREFIXES)
+
+_ALL_ACTION_VALUES = [e.value for e in ActionType
+                      if e.value not in _md.SOLANA_ACTION_DATA_TYPES and not _is_removed(e.value)]
+_ALL_QUERY_VALUES  = [e.value for e in QueryType if not _is_removed(e.value)]
 
 # Coverage guard: log any query tool still lacking a real description (map,
 # docstring, or prompt). After tool_descriptions was populated this should be 0.
