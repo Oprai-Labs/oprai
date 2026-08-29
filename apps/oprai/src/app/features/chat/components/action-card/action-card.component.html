@@ -4758,7 +4758,7 @@
                          placeholder="0"
                          [value]="getEditParam('amount')"
                          [disabled]="!isEditable()"
-                         (input)="setEditParam('amount', $any($event.target).value); relayMaybeQuote()" />
+                         (input)="setEditParam('amount', $any($event.target).value); relayPayUsd.set(null); relayMaybeQuote()" />
                   <button type="button" class="relay-side" [disabled]="!isEditable()"
                           (click)="openRelayPicker('originCurrency')">
                     @if (relayTokenDisplay('originCurrency'); as t) {
@@ -4780,8 +4780,10 @@
                     <lucide-icon name="chevron-right" [size]="14" class="relay-side__caret" />
                   </button>
                 </div>
-                @if (relayQuote()?.inUsd; as usd) {
-                  <div class="relay-quote__usd">{{ usd }}</div>
+                @if (relayPayUsd(); as payUsd) {
+                  <div class="relay-quote__usd">{{ 'You spend' | t }} ≈${{ payUsd | number:'1.2-2' }}</div>
+                } @else if (relayQuote()?.inUsd) {
+                  <div class="relay-quote__usd">{{ relayQuote()?.inUsd }}</div>
                 }
               </div>
 

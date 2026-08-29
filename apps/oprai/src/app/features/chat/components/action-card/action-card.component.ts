@@ -2770,6 +2770,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   } | null>(null);
   readonly relayQuoting = signal(false);
   readonly relayQuoteError = signal<string | null>(null);
+  // When a dollar amount drove the pay side (amountUnit=usd, or the legacy
+  // stablecoin heuristic), the USD figure the user asked to spend — so the send
+  // panel shows "≈$3 (0.0009 ETH)" and a $-amount never reads as a whole-ETH one.
+  readonly relayPayUsd = signal<number | null>(null);
   private relayQuoteKey = '';
   private relayQuoteTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -3359,10 +3363,47 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const dest = this.relayCanonicalChain(this.getEditParam('destinationChainId'));
     if (!origin || origin !== dest) return; // same-chain only
     const NATIVE = '0x0000000000000000000000000000000000000000';
-    const rawCur = (this.getEditParam('originCurrency') || '').trim();
-    if (!rawCur || /^0x0{40}$/.test(rawCur)) return; // already native
+    const unit = (this.getEditParam('amountUnit') || '').trim().toLowerCase();
+
+    // `amountUnit` is the explicit, DETERMINISTIC contract (the backend tags it,
+    // the model no longer folds $-vs-token into one scalar):
+    //   native → `amount` is native ETH units; pay from native ETH as-is.
+    //   usd    → `amount` is a dollar figure; pay from native ETH, convert $→ETH
+    //            at the live price. Works for ANY destination token (stable or
+    //            not) — it is just "spend $N of ETH". No stablecoin guessing.
+    // A tagged unit skips the heuristic entirely so "$3" can never become 3 ETH.
+    if (unit === 'native') {
+      this.relayPayUsd.set(null);
+      if (!/^0x0{40}$/.test((this.getEditParam('originCurrency') || '').trim())) {
+        this.setEditParam('originCurrency', NATIVE);
+        this.relayEvmBalanceKey = '';
+        this.relayQuoteKey = '';
+        this.relayMaybeQuote();
+      }
+      return;
+    }
+    if (unit === 'usd') {
+      const usdAmount = Number(this.getEditParam('amount')) || 0;
+      if (usdAmount <= 0) return;
+      const dst = this.getEditParam('destinationCurrency').trim();
+      if (!/^0x[0-9a-fA-F]{40}$/.test(dst)) return; // destination not resolved yet
+      const ethUsd = await this.relayNativeUsdPrice(Number(origin), dst);
+      if (!ethUsd || ethUsd <= 0) return; // no price → leave the build alone
+      const ethAmount = usdAmount / ethUsd;
+      this.relayPayUsd.set(usdAmount);
+      this.setEditParam('originCurrency', NATIVE);
+      this.setEditParam('amount', String(Number(ethAmount.toPrecision(6))));
+      this.relayEvmBalanceKey = '';
+      this.relayQuoteKey = '';
+      this.relayMaybeQuote();
+      return;
+    }
+
+    // ── Fallback (no amountUnit tag): the legacy stablecoin heuristic ──
     // Only reinterpret when the pay-token is a stablecoin — that is the case
     // where the amount is a dollar figure rather than a token quantity.
+    const rawCur = (this.getEditParam('originCurrency') || '').trim();
+    if (!rawCur || /^0x0{40}$/.test(rawCur)) return; // already native
     const STABLES = new Set(['USDG', 'USDC', 'USDT', 'DAI', 'USDC.E', 'USDBC', 'USDB', 'FDUSD', 'PYUSD']);
     const sym = (this.relayTokenDisplay('originCurrency')?.symbol ?? '').toUpperCase();
     if (!STABLES.has(sym) && !STABLES.has(rawCur.toUpperCase())) return;
@@ -3373,6 +3414,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const ethUsd = await this.relayNativeUsdPrice(Number(origin), dst);
     if (!ethUsd || ethUsd <= 0) return; // no price → leave the model's build alone
     const ethAmount = usdAmount / ethUsd;
+    this.relayPayUsd.set(usdAmount);
     this.setEditParam('originCurrency', NATIVE);
     this.setEditParam('amount', String(Number(ethAmount.toPrecision(6))));
     // The pay token changed under it, so both caches must re-fire.
