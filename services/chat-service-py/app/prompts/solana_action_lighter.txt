@@ -61,5 +61,10 @@ Reads (no action, use query_onchain):
 - `lighter_markets` — list tradable Lighter markets (symbol, mark price, funding).
 - `lighter_market` {symbol} — one market's detail.
 - `lighter_positions` {wallet} — the user's open Lighter positions (wallet="self").
-Before closing "my position" without a size, call lighter_positions first to learn
-the open size, then emit lighter_close with that amount.
+When the user asks to SEE / LIST / SHOW their Lighter positions ("my lighter
+positions", or "positions" in a Lighter thread),
+emit `lighter_positions` — that renders the positions card (live size, PnL, liq
+price, close button). This IS the answer: do NOT also summarise the positions in
+prose, and do NOT reach for the generic `positions` query (that one is Solana
+staking, not Lighter). Before closing "my position" without a size, emit
+`lighter_positions` first to learn the open size, then emit lighter_close.

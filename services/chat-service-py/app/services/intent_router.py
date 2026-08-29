@@ -88,7 +88,7 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "magic_eden":("magiceden", "magic eden", "mmm pool"),
     "tensor":    ("tensor", "tensorians"),
     # Relay providers + EVM chain NAMES. Chain names are a deterministic net so an
-    # explicit "robinhood/base/arbitrum… ağından X al" always loads the cross-chain
+    # explicit "buy X from the robinhood/base/arbitrum… network" always loads the cross-chain
     # path and never falls into the Solana pump.fun memecoin flow (which happened
     # when a memecoin name pulled the classifier to Solana despite the named EVM
     # chain). Word-boundary matched, so "base" won't collide with database/based.
@@ -107,7 +107,7 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     # forms only — the bare word "lighter" is a common English adjective, so the
     # classifier handles that case semantically (see _SYSTEM). These are
     # single-meaning product references.
-    "lighter":   ("lighter.xyz", "lighter perp", "lighter perps", "on lighter", "lighter exchange"),
+    "lighter":   ("lighter.xyz", "lighter perp", "lighter perps", "on lighter", "lighter exchange", "lighter position", "lighter positions"),
 }
 
 
@@ -295,11 +295,11 @@ Intents (use exactly these strings):
   • Opinion / recommendation: "should I?", "is it wise?", "which is better?"
   • Comparison of two concepts or strategies without needing live numbers
   • Risk/benefit discussion, strategy analysis, DeFi education
-  • Fixed protocol limits / constants: "max leverage?", "kaç x açabilirim en
-    fazla?", "how many x can I open?", "minimum collateral?", "what's the max
-    LTV?" — these are KNOWN CONSTANTS (e.g. Jupiter Perps = 100x, $10 min), not a
-    live fetch. Classify as "advice", NOT "query". The verb "open/aç" here asks
-    about a LIMIT, it is not an execute command.
+  • Fixed protocol limits / constants: "max leverage?", "how many x can I
+    open?", "minimum collateral?", "what's the max LTV?" — these are KNOWN
+    CONSTANTS (e.g. Jupiter Perps = 100x, $10 min), not a live fetch. Classify
+    as "advice", NOT "query". The verb "open" here asks about a LIMIT, it is not
+    an execute command.
   Key rule: if the answer comes from knowledge rather than a live data fetch,
   classify as "advice". Do NOT classify conceptual questions as "query" just
   because they mention a metric name (MVRV, UTXO, impermanent loss, AMM) —
@@ -342,7 +342,7 @@ Detection rules:
   mSOL"). They do not override an in-flight flow — see the next rule.
 - Leverage / perp / short / long → "jupiter" by DEFAULT, never Kamino. A
   leveraged long/short on SOL/ETH/BTC, "open a perp", "2x short SOL", and any
-  "kaç x / max leverage / how much can I open" question maps to "jupiter"
+  "max leverage / how much can I open" question maps to "jupiter"
   (Jupiter Perps) — that is OPRAI's canonical perp venue and Kamino has no
   perpetuals. Emit "kamino" for these ONLY when the user EXPLICITLY writes
   Kamino / Multiply / long-short loop. Do this even if an earlier turn showed a
