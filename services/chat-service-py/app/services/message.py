@@ -336,6 +336,11 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "risk",
     "lend_positions",
     "perp_positions",
+    # Lighter perp positions — self-fetching card (LighterPerpService) with live
+    # size/PnL/liq price and a per-row Close. Without this entry the model calls
+    # query_onchain("lighter_positions") for data and narrates it as prose; the
+    # card (already implemented in query-card.component) never mounts.
+    "lighter_positions",
     "limit_orders",
     "dca",
     "nft_collection",
