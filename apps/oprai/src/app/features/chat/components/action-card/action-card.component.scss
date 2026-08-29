@@ -7084,57 +7084,14 @@
   color: var(--op-text-tertiary, var(--op-text-secondary));
 }
 
-// Deposit guidance card — honest "do it in the official app" state, no submit.
-.lighter-deposit-guide {
+// Deposit ticket (amount input + USDG chip + note) — rendered in the footer
+// region because the per-type body dispatch does not paint for lighter_deposit.
+// Reuses .pump-panel / .limit-size styling; only needs spacing from the footer.
+.lighter-deposit-ticket {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 10px;
-  padding: 14px;
-  border: 1px solid var(--op-border-subtle, var(--op-border, rgba(128,128,128,0.18)));
-  border-radius: 12px;
-  background: var(--op-bg-surface-2, color-mix(in srgb, var(--op-text-secondary) 5%, transparent));
-
-  &__badge {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--op-brand, #5b5fc7) 12%, transparent);
-
-    img { border-radius: 50%; display: block; }
-  }
-
-  &__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-
-  &__title {
-    font-size: 0.875rem;
-    font-weight: 650;
-    color: var(--op-text-primary);
-  }
-
-  &__text {
-    font-size: 0.8125rem;
-    line-height: 1.45;
-    color: var(--op-text-secondary);
-  }
-
-  &__link {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    margin-top: 2px;
-    align-self: flex-start;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--op-brand, #5b5fc7);
-    text-decoration: none;
-
-    &:hover { text-decoration: underline; }
-  }
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .lighter-soon {

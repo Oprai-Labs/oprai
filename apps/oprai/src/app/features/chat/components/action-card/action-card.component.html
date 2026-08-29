@@ -6227,31 +6227,34 @@
         }
 
         @if (action.type === 'lighter_deposit') {
-          <!-- The per-type body dispatch does not render for this card type, so
-               the deposit guidance lives here — in the footer region, which is
-               outside that dispatch and renders reliably (same place as the
-               confirm/dismiss row below). -->
-          <div class="lighter-deposit-guide">
-            <span class="lighter-deposit-guide__badge">
-              <img src="assets/tokens/usdg.png" alt="USDG" width="22" height="22" />
-            </span>
-            <div class="lighter-deposit-guide__body">
-              <span class="lighter-deposit-guide__title">{{ 'Deposit from the Lighter app' | t }}</span>
-              <span class="lighter-deposit-guide__text">{{ 'Add USDG collateral to your Lighter account in the official Lighter app. Once it lands, your positions and trading work here instantly — trading itself is gas-free.' | t }}</span>
-              <a class="lighter-deposit-guide__link" href="https://app.lighter.xyz" target="_blank" rel="noopener">
-                <span>{{ 'Open Lighter app' | t }}</span>
-                <lucide-icon name="external-link" [size]="13" />
-              </a>
+          <!-- Deposit ticket lives in the footer region, not the per-type body
+               dispatch: that dispatch does not paint for lighter_deposit
+               (verified in the compiled bundle), while this region renders
+               reliably (same place as the confirm/dismiss row below). -->
+          <div class="lighter-deposit-ticket">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'Deposit' | t }}</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="(+getEditParam('amount') > 0) ? getEditParam('amount') : ''"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
+                  <span class="pump-token__sym">USDG</span>
+                </span>
+              </div>
+            </div>
+            <div class="limit-size">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ 'Sends USDG to your Lighter deposit address on-chain — you sign once with your own wallet. Trading itself is then gas-free.' | t }}</span>
             </div>
           </div>
         }
 
         <div class="proto-footer">
-          @if (action.type === 'lighter_deposit') {
-            <!-- Deposit is guidance-only until the on-chain route is verified;
-                 there is nothing to sign, so the footer offers only a dismiss. -->
-            <button class="proto-btn-cancel" style="flex:1" (click)="reject()">{{ 'Got it' | t }}</button>
-          } @else {
           <button class="proto-btn-confirm"
                   [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
@@ -6303,7 +6306,6 @@
             }
           </button>
           <button class="proto-btn-cancel" (click)="reject()">{{ 'Cancel' | t }}</button>
-          }
         </div>
       }
 

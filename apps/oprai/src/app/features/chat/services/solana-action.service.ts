@@ -2796,7 +2796,7 @@ export class SolanaActionService {
     const build = await firstValueFrom(this.api.post<any>('/actions/lighter/deposit/build', {
       wallet: account,
       amount: p['amount'],
-      token: p['token'] ?? 'USDC',
+      token: p['token'] ?? 'USDG',
       ...(p['chainId'] ? { chainId: Number(p['chainId']) } : {}),
     }));
     // Deposit not available / needs manual action — surface the backend message.

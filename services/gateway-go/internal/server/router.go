@@ -284,6 +284,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		// already applied by the block-level RequireWallet above.
 		r.Post("/lighter/onboard/build", chatProxy.LighterProxy)
 		r.Post("/lighter/onboard/submit", chatProxy.LighterProxy)
+		r.Post("/lighter/deposit/build", chatProxy.LighterProxy)
 		r.Post("/lighter/open", chatProxy.LighterProxy)
 		r.Post("/lighter/close", chatProxy.LighterProxy)
 		r.Post("/lighter/leverage", chatProxy.LighterProxy)

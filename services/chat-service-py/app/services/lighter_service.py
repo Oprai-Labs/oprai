@@ -200,27 +200,73 @@ async def set_leverage(
 
 
 # ── deposit (collateral) ─────────────────────────────────────────────────────
+# Lighter's L1 deposit chain (BridgeApi.deposit_networks → the only entry) is
+# Robinhood Mainnet, chain 4663 — the SAME chain USDG lives on, so a deposit is
+# a same-chain token transfer, not a bridge/CCTP hop.
+DEPOSIT_CHAIN_ID = 4663
+# Global Dollar (USDG) collateral on chain 4663. Verified on-chain: symbol
+# "USDG", decimals 6, chainId 0x1237. Hardcoded on purpose — a dynamic
+# symbol→address resolver can pick a scam "USDG" (we hit exactly that before),
+# and the deposit token is a single fixed, verified contract.
+USDG_ADDRESS = "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
+USDG_DECIMALS = 6
+_ERC20_TRANSFER_SELECTOR = "a9059cbb"  # transfer(address,uint256)
+
+
+def _erc20_transfer_calldata(to_addr: str, base_amount: int) -> str:
+    """ABI-encode transfer(to, amount): selector + 32-byte addr + 32-byte uint."""
+    addr = to_addr.lower().replace("0x", "").rjust(64, "0")
+    amt = format(int(base_amount), "064x")
+    return "0x" + _ERC20_TRANSFER_SELECTOR + addr + amt
+
+
 async def deposit_build(
     session: AsyncSession, *, l1_address: str, amount: float | None,
     token: str = "USDG", chain_id: int | None = None,
 ) -> dict:
-    """Build the collateral-deposit step.
+    """Build the USDG collateral deposit — a same-chain token transfer to the
+    wallet's Lighter intent address (returned by the official SDK). The user's
+    own EVM wallet signs it (non-custodial); the agent key never can. Trades
+    themselves are gas-free — this is the one on-chain step.
 
-    Depositing is the one on-chain action (trades are gas-free). The exact
-    Lighter/Robinhood-domain deposit contract + Circle CCTP route are NOT yet
-    verified end-to-end, and this moves real funds — so rather than emit an
-    unverified transaction, we return an honest, actionable guidance response.
-    The card renders `error` when ok is false; nothing is signed.
+    Flow: create_intent_address(from_addr) → an intent address → return an
+    ERC-20 transfer of `amount` USDG to it on chain 4663. Lighter's bridge
+    sweeps the transfer and credits the account bound to the wallet.
+
+    Returns {ok:false, error} for a bad amount / unavailable address so the
+    card surfaces an honest message and nothing is signed.
     """
+    wallet = _norm(l1_address)
+    chain = int(chain_id or DEPOSIT_CHAIN_ID)
+    try:
+        amt = float(str(amount).strip())
+    except (TypeError, ValueError):
+        amt = 0.0
+    if amt <= 0:
+        return {"ok": False, "error": "Enter a USDG amount to deposit."}
+
+    intent = await lighter_client.create_deposit_intent(
+        chain_id=str(chain), from_addr=wallet, amount=str(amount),
+    )
+    if not intent:
+        return {
+            "ok": False,
+            "error": "Couldn't get your Lighter deposit address just now — try again in a moment.",
+        }
+
+    base = int(round(amt * (10 ** USDG_DECIMALS)))
+    data = _erc20_transfer_calldata(intent, base)
     return {
-        "ok": False,
-        "manual": True,
-        "l1_address": _norm(l1_address),
-        "error": (
-            "Automated Lighter deposits aren't live yet. Deposit USDG collateral "
-            "to Lighter from the official Lighter/Robinhood app, then come back — "
-            "your positions and trading will work here immediately."
-        ),
+        "ok": True,
+        "l1_address": wallet,
+        "intent_address": _norm(intent),
+        "chainId": chain,
+        "token": "USDG",
+        "token_address": USDG_ADDRESS,
+        "amount": str(amount),
+        "transactions": [
+            {"to": USDG_ADDRESS, "data": data, "value": "0", "chainId": chain},
+        ],
     }
 
 

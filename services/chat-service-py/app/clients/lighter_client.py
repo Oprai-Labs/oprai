@@ -86,6 +86,47 @@ async def account_index_for(l1_address: str) -> int | None:
     return accts[0].get("account_index")
 
 
+async def create_deposit_intent(chain_id: str, from_addr: str, amount: str) -> str | None:
+    """Per-wallet Lighter deposit (intent) address on the L1 deposit chain.
+
+    Collateral reaches a Lighter account by an ordinary token transfer to this
+    address — Lighter's bridge sweeps it and credits the account bound to
+    ``from_addr``. The address is deterministic per (from_addr, chain); the
+    ``amount`` is informational (the credited balance is whatever actually
+    lands). Generating it moves nothing — it is a read.
+
+    Uses the SDK's BridgeApi so the request is serialised exactly as Lighter
+    expects. Returns None if the SDK/endpoint is unavailable so the caller can
+    surface an honest error rather than a wrong address.
+    """
+    try:
+        from lighter import ApiClient, Configuration  # type: ignore
+        from lighter.api import BridgeApi  # type: ignore
+    except Exception:  # pragma: no cover - native lib absent
+        return None
+    api = ApiClient(Configuration(host=LIGHTER_BASE))
+    try:
+        resp = await BridgeApi(api).create_intent_address(
+            chain_id=str(chain_id),
+            from_addr=from_addr,
+            amount=str(amount),
+            is_external_deposit=True,
+        )
+        addr = getattr(resp, "intent_address", None)
+        return addr or None
+    finally:
+        await api.close()
+
+
+async def deposit_latest(l1_address: str) -> dict:
+    """Latest deposit record for an EVM address (for post-deposit verification).
+    Empty dict when there is none / the endpoint declines."""
+    try:
+        return await _get("/api/v1/deposit", {"l1_address": l1_address}) or {}
+    except httpx.HTTPStatusError:
+        return {}
+
+
 async def markets() -> list[dict]:
     """All active Lighter markets with everything the trade card needs: live mark
     price, size decimals, minimum order size, per-market max leverage (derived
