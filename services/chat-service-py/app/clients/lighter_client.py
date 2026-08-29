@@ -362,25 +362,33 @@ async def open_position(*, account_index: int, agent_private_key: str, symbol: s
     if base <= 0:
         return {"error": "position size rounds to zero — increase collateral"}
     is_ask = side.lower() in ("short", "sell", "ask")
-    if is_limit:
-        price_i = _scale(limit_price, price_dec)
-        order_ty, tif = ORDER_TYPE_LIMIT, TIF_GOOD_TILL_TIME
-        expiry = int(time.time() * 1000) + 30 * 24 * 60 * 60 * 1000  # 30 days
-    else:
-        price_i, order_ty, tif, expiry = 0, ORDER_TYPE_MARKET, TIF_IMMEDIATE_OR_CANCEL, -1
+    coi = int(time.time() * 1000) % 2_000_000_000
     # The SignerClient opens an aiohttp session that must be closed, or every
     # trade leaks a connection ("Unclosed client session").
     signer = _signer(account_index, agent_private_key, api_key_index)
     try:
         if lev > 1:
             await _set_leverage_inner(signer, market_id, lev)
-        _order, resp, err = await signer.create_order(
-            market_index=market_id,
-            client_order_index=int(time.time() * 1000) % 2_000_000_000,
-            base_amount=base, price=price_i, is_ask=is_ask,
-            order_type=order_ty, time_in_force=tif,
-            reduce_only=reduce_only, order_expiry=expiry, api_key_index=api_key_index,
-        )
+        if is_limit:
+            price_i = _scale(limit_price, price_dec)
+            _order, resp, err = await signer.create_order(
+                market_index=market_id, client_order_index=coi,
+                base_amount=base, price=price_i, is_ask=is_ask,
+                order_type=ORDER_TYPE_LIMIT, time_in_force=TIF_GOOD_TILL_TIME,
+                reduce_only=reduce_only,
+                order_expiry=int(time.time() * 1000) + 30 * 24 * 60 * 60 * 1000,  # 30 days
+                api_key_index=api_key_index,
+            )
+        else:
+            # A market order is NOT create_order(price=0) — Lighter rejects a
+            # zero price ("OrderPrice should not be less than 1"). It takes an
+            # avg_execution_price (the reference the fill + slippage bound are
+            # measured against); use the live mark.
+            _order, resp, err = await signer.create_market_order(
+                market_index=market_id, client_order_index=coi,
+                base_amount=base, avg_execution_price=_scale(mark, price_dec),
+                is_ask=is_ask, reduce_only=reduce_only, api_key_index=api_key_index,
+            )
     except Exception as e:  # SDK/native-signer raised before returning a tuple
         log.warning("lighter open_position raised: symbol=%s side=%s lev=%s base=%s: %r",
                     symbol, side, lev, base, e)
@@ -409,19 +417,33 @@ async def close_position(*, account_index: int, agent_private_key: str, symbol: 
     market_id, detail = await market_index_for(symbol)
     if market_id is None:
         return {"error": f"unknown Lighter market: {symbol}"}
-    signer = _signer(account_index, agent_private_key, api_key_index)
     size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
+    price_dec = int(detail.get("price_decimals", detail.get("supported_price_decimals", 2)))
     base = _scale(base_amount, size_dec)
     # close a long by selling (is_ask=True); close a short by buying.
     is_ask = position_side.lower() in ("long", "buy")
-    _order, resp, err = await signer.create_order(
-        market_index=market_id,
-        client_order_index=int(time.time() * 1000) % 2_000_000_000,
-        base_amount=base, price=0, is_ask=is_ask,
-        order_type=ORDER_TYPE_MARKET, time_in_force=TIF_IMMEDIATE_OR_CANCEL,
-        reduce_only=True, api_key_index=api_key_index,
-    )
+    signer = _signer(account_index, agent_private_key, api_key_index)
+    try:
+        # Market close via create_market_order (not create_order price=0, which
+        # Lighter rejects with "OrderPrice should not be less than 1").
+        _order, resp, err = await signer.create_market_order(
+            market_index=market_id,
+            client_order_index=int(time.time() * 1000) % 2_000_000_000,
+            base_amount=base, avg_execution_price=_scale(_mark_price(detail), price_dec),
+            is_ask=is_ask, reduce_only=True, api_key_index=api_key_index,
+        )
+    except Exception as e:
+        log.warning("lighter close_position raised: symbol=%s side=%s base=%s: %r",
+                    symbol, position_side, base, e)
+        return {"error": f"Lighter rejected the close: {e}"}
+    finally:
+        try:
+            await signer.close()
+        except Exception:  # pragma: no cover - best-effort cleanup
+            pass
     if err:
+        log.warning("lighter close_position rejected: symbol=%s side=%s base=%s err=%s",
+                    symbol, position_side, base, err)
         return {"error": err}
     return {"ok": True, "market": symbol, "closed_side": position_side,
             "base_amount": base_amount, "response": _jsonable(resp)}
