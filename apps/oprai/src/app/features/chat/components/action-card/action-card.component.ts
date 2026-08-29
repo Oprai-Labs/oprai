@@ -9774,6 +9774,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return a && a.found ? a.availableBalance : null;
   }
 
+  /** True once the account is loaded but OPRAI's agent key isn't authorised yet
+   *  — the first trade will run the one-time onboarding signature inline. Null
+   *  account (still loading) shows nothing, to avoid a flash. */
+  lighterNeedsOnboard(): boolean {
+    const a = this.lighterAcct();
+    return !!a && !a.agentEnabled;
+  }
+
   /** The user's existing open position in the selected market, if any. */
   lighterCurrentPosition(): LighterAccount['positions'][number] | null {
     const a = this.lighterAcct();

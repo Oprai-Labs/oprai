@@ -3402,6 +3402,17 @@
               }
             </div>
 
+            <!-- One-time onboarding notice: the first trade authorises OPRAI's
+                 delegated agent key with a single wallet signature (no on-chain
+                 tx, gas-free after). It runs inline on submit — this just
+                 prepares the user for the popup. -->
+            @if (lighterNeedsOnboard()) {
+              <div class="limit-size">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'First trade enables Lighter with a one-time signature (gas-free after) — your wallet keys never leave your wallet.' | t }}</span>
+              </div>
+            }
+
             <!-- Limit price (limit orders only) -->
             @if (lighterOrderType() === 'limit') {
               <div class="pump-panel">

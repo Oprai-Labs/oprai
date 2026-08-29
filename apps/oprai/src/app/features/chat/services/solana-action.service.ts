@@ -2893,7 +2893,22 @@ export class SolanaActionService {
     }
 
     callbacks.onSign?.();
-    const resp = await firstValueFrom(this.api.post<any>(path, body));
+    let resp = await firstValueFrom(this.api.post<any>(path, body));
+    // First trade on a fresh account: the delegated agent key isn't authorised
+    // yet, so the backend rejects with an onboarding message. Rather than send
+    // the user away to "Enable Lighter trading" and back, run the one-time
+    // authorisation inline (a wallet signature, no on-chain tx) and retry the
+    // trade — so "long CASHCAT" just works even before onboarding.
+    const needsOnboard = resp && (resp.ok === false || resp.error)
+      && /onboard|connect lighter|authoris/i.test(String(resp.error ?? ''));
+    if (needsOnboard) {
+      await this.executeLighterOnboard(
+        { type: 'lighter_onboard', params: {}, raw: '' } as ParsedAction,
+        { onSign: callbacks.onSign, onProgress: callbacks.onProgress },
+      );
+      callbacks.onProgress?.();
+      resp = await firstValueFrom(this.api.post<any>(path, body));
+    }
     if (resp && (resp.ok === false || resp.error)) {
       throw new Error(resp.error || 'Lighter: the trade was rejected.');
     }
