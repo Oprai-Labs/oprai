@@ -1037,7 +1037,18 @@ _SNAKE_TO_CAMEL: dict[str, str] = {
     "mint_b":      "mintB",
     "slippage_bps": "slippageBps",
     "chain_from_previous": "chainFromPrevious",
+    "amount_unit": "amountUnit",
 }
+
+# The UNIT that `amount` is expressed in — the model TAGS this (a small, reliable
+# slot-fill), and deterministic code downstream turns it into the right sizing
+# (tradeType / side / price conversion). Keeps the $-vs-token distinction as data
+# instead of a scalar the LLM has to fold into one side. See docs: chat redesign.
+#   usd    → `amount` is a dollar value (e.g. "$3", "3 dolarlık")
+#   token  → `amount` is a quantity of the DESTINATION/base token (default)
+#   native → `amount` is a quantity of the chain's native gas token (ETH/SOL…)
+#   pct    → `amount` is a percentage of the balance (also expressible as "N%")
+_AMOUNT_UNITS: frozenset[str] = frozenset({"usd", "token", "native", "pct"})
 
 
 def _is_solana_address(v: str) -> bool:
@@ -1074,6 +1085,15 @@ def validate_action_params(
 
     # Normalize snake_case keys to camelCase before validation (LLM sometimes uses either)
     params = {_SNAKE_TO_CAMEL.get(k, k): v for k, v in params.items()}
+
+    # Clamp amountUnit to the known enum; anything unrecognised means the model
+    # didn't tag a unit, so drop it and let downstream default to a token amount.
+    if "amountUnit" in params:
+        _u = str(params.get("amountUnit") or "").strip().lower()
+        if _u in _AMOUNT_UNITS:
+            params["amountUnit"] = _u
+        else:
+            params.pop("amountUnit", None)
 
     # Enforce minimum required params per action so the LLM can't emit
     # `execute_action({"action_type":"swap"})` with no params and produce

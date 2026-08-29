@@ -217,23 +217,22 @@ contract", do NOT pre-search).** The backend resolves a token NAME/symbol to its
 address on that chain automatically, memecoins included — so put the token's NAME
 straight into `originCurrency`/`destinationCurrency`.
 
-**FIRST decide what the DESTINATION token is, because it changes tradeType:**
-
-CASE A — the user is BUYING the stable itself (USDG is the token they want to
-OBTAIN, e.g. to fund Lighter): "buy $5 of USDG on robinhood", "acquire 10 USDG",
-"get some USDG". USDG ≈ $1, so "$X of USDG" ≈ X USDG. You MUST pay from native ETH and set the desired USDG OUTPUT — NEVER put
-the number on the ETH input side (amount=3 EXACT_INPUT would send 3 WHOLE ETH,
-a ~$9000 mistake for what the user meant as $3). Use:
-  originCurrency = "0x0000000000000000000000000000000000000000" (native ETH),
-  destinationCurrency = "USDG", amount = X, tradeType = "EXACT_OUTPUT".
-  → execute_action("relay_bridge", {"originChainId":"<EVM_CHAIN_ID>","destinationChainId":"<EVM_CHAIN_ID>","originCurrency":"0x0000000000000000000000000000000000000000","destinationCurrency":"USDG","amount":"<X — the USDG amount ≈ dollars>","tradeType":"EXACT_OUTPUT"})
-  Example: "buy $3 of USDG on robinhood" → amount="3", tradeType="EXACT_OUTPUT" (receive 3 USDG, pay the small ETH the card quotes). NOT amount="3" EXACT_INPUT ETH.
-
-CASE B — buying some OTHER token with $X (USDG is the PAY asset, not the target):
-"buy $X of <TOKEN> on <evm chain>" — SAME-chain relay swap paid from USDG you
-hold: originChainId == destinationChainId == that chain, originCurrency = "USDG",
-destinationCurrency = the token name, amount = X, tradeType = "EXACT_INPUT".
-  → execute_action("relay_bridge", {"originChainId":"<EVM_CHAIN_ID>","destinationChainId":"<EVM_CHAIN_ID>","originCurrency":"USDG","destinationCurrency":"<TOKEN NAME FROM THE USER>","amount":"<DOLLAR AMOUNT>","tradeType":"EXACT_INPUT"})
+**Amounts: TAG the unit, don't do the math.** Put the number in `amount` and add
+`amountUnit`. The card then computes the ETH cost, the side, and tradeType
+deterministically — so you NEVER decide EXACT_INPUT vs EXACT_OUTPUT for a money
+amount, and a "$3" can never become "3 ETH":
+  • a DOLLAR figure — "$3", "3 dollars", "3 usd" (in any language) → `amountUnit`="usd"
+  • a quantity of the token being BOUGHT — "3 USDG", "10 PEPE" → `amountUnit`="token"
+  • a quantity of native gas to spend — "spend 0.1 ETH" → `amountUnit`="native"
+For a same-chain EVM buy: originChainId == destinationChainId == that chain,
+`originCurrency`="ETH" (the card pays from native ETH and price-quotes the cost to
+confirm), `destinationCurrency` = the token the user wants. Just tag the unit; do
+NOT put a dollar number on the ETH side yourself.
+  → execute_action("relay_bridge", {"originChainId":"<EVM_CHAIN_ID>","destinationChainId":"<EVM_CHAIN_ID>","originCurrency":"ETH","destinationCurrency":"<TOKEN THE USER WANTS>","amount":"<N>","amountUnit":"usd|token|native"})
+  Examples:
+   - "buy $3 of USDG on robinhood" → {…,"destinationCurrency":"USDG","amount":"3","amountUnit":"usd"}
+   - "buy 10 USDG on robinhood"    → {…,"destinationCurrency":"USDG","amount":"10","amountUnit":"token"}
+   - "buy $5 of PEPE on base"      → {…,"destinationCurrency":"PEPE","amount":"5","amountUnit":"usd"}
 Reply in the SAME LANGUAGE the user wrote in — the shape above is a template, not
 a phrase to echo.
 Only if the backend returns "not found on <chain>" do you tell the user it isn't listed there.

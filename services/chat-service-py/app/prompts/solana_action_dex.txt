@@ -135,7 +135,7 @@ Jupiter Perps uses a keeper model — the user submits a PositionRequest tx, the
 
 **CRITICAL — param name rules:**
 - Use `collateralAmount` (not `collateral`, not `size`)
-- Set `collateralToken` WHENEVER the user names the collateral currency ("with 100 USDC", "10 USDC ile", "0.5 SOL collateral"). A currency named next to the amount is the collateralToken, never a base-token amount. Omit it only when the user gives a bare number with no currency — then it defaults (long→base, short→USDC).
+- Set `collateralToken` WHENEVER the user names the collateral currency ("with 100 USDC", "using 10 USDC", "0.5 SOL collateral"). A currency named next to the amount is the collateralToken, never a base-token amount. Omit it only when the user gives a bare number with no currency — then it defaults (long→base, short→USDC).
 - Use `leverage` for multiplier
 - `sizeUsd` is optional — if provided, overrides `collateralAmount × leverage`
 

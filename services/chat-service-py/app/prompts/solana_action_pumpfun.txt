@@ -134,9 +134,9 @@ Parameters (all optional to EMIT — the form enforces what's truly required):
   - `initialBuyAmount` (SOL): use when the user gives a SOL amount ("buy 1 SOL",
     "0.5 SOL initial buy").
   - `initialBuyAmountUsd` (USD): use when the user gives a DOLLAR amount ("$10
-    initial buy", "10 dolar initial buy", "10 usd"). The app converts it to the
-    live SOL equivalent — do NOT convert to SOL yourself and do NOT put a dollar
-    figure in `initialBuyAmount`. "10 dolar" is $10 (≈ 0.13 SOL), never 10 SOL.
+    initial buy", "10 usd", a dollar figure in any language). The app converts it
+    to the live SOL equivalent — do NOT convert to SOL yourself and do NOT put a
+    dollar figure in `initialBuyAmount`. A "$10" amount is $10 (≈ 0.13 SOL), never 10 SOL.
   - Set exactly one of the two. Default "0" (no initial buy) when unstated.
 - `cashback`: `"true"` ONLY if the user explicitly asks for cashback / "cash back".
 - `cashback` maps 1:1 to the form's switch — set it so the card

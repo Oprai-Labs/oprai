@@ -325,6 +325,24 @@ async def validate_tool_call(
     else:
         args = tool_args
 
+    # Deterministic fast-path — a native-gas-funded EVM buy/swap that carries an
+    # explicit `amountUnit` is card-confirmed (WYSIWYS) and unambiguous: native
+    # ETH is the universal EVM pay asset, not a fabricated input. Allow it in code
+    # so the LLM validator neither false-blocks it (the old "input token
+    # fabrication" bug that turned "buy $3 of USDG" into a dropped action) nor
+    # adds a ~3s round-trip. The only semantic risk on a plain origin→dest swap
+    # is token substitution, already covered by the upstream address/verified
+    # checks; there is no buy/sell reversal to catch on a swap.
+    if tool_name == "execute_action" and isinstance(args, dict):
+        _p = args.get("params") or {}
+        if isinstance(_p, dict):
+            _at = str(args.get("action_type") or args.get("type") or "")
+            _oc = str(_p.get("originCurrency") or _p.get("origin_currency") or "").strip().lower()
+            _unit = _p.get("amountUnit") or _p.get("amount_unit")
+            _native = _oc in ("", "eth", "0x0000000000000000000000000000000000000000")
+            if _at in ("relay_bridge", "cross_chain_swap", "uniswap_swap") and _unit and _native:
+                return ValidatorVerdict(True)
+
     # Normalize mint addresses → symbols BEFORE the validator sees them.
     # Without this the LLM has to know "EPjFWdd5… == USDC" and routinely
     # gets it wrong, blocking legitimate actions. After this step the
