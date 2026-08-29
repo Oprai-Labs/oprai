@@ -1047,13 +1047,21 @@ pub(crate) async fn to_base_units(
     let normalised = amount.replace(',', ".");
 
     let chain_id = canonical_chain_id(chain_id);
-    let decimals = relay_token_decimals(http, chain_id, currency)
-        .await
-        .ok_or_else(|| {
-            AppError::InvalidParams(format!(
-            "Relay does not list {currency} on chain {chain_id}, so its amount cannot be scaled"
-        ))
-        })?;
+    // The native gas token is always 18 decimals on EVM chains and is not always
+    // listed by its zero-address in Relay's currency list — resolving it there
+    // fails, which silently breaks native-ETH sizing (e.g. the USD→ETH pay path).
+    // Handle it deterministically instead of depending on the list.
+    let decimals = if chain_is_evm(chain_id) && currency.eq_ignore_ascii_case(NATIVE_TOKEN_ADDRESS) {
+        18u8
+    } else {
+        relay_token_decimals(http, chain_id, currency)
+            .await
+            .ok_or_else(|| {
+                AppError::InvalidParams(format!(
+                "Relay does not list {currency} on chain {chain_id}, so its amount cannot be scaled"
+            ))
+            })?
+    };
 
     // Scaled as text, not through f64: 0.1 is not representable in binary
     // floating point, and this figure is money.
