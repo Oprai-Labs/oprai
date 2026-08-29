@@ -21,10 +21,13 @@ zkLighter L2 would just be a different LIGHTER_BASE.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 # The SDK bundles a native signer (linux/amd64 .so) used for order + change-pubkey
 # signatures. Imported lazily so the module loads even where the SDK is absent
@@ -353,9 +356,6 @@ async def open_position(*, account_index: int, agent_private_key: str, symbol: s
     if min_base and base_amount < min_base:
         return {"error": f"below Lighter's minimum size for {symbol}: min {min_base} "
                          f"{symbol} (~${(min_base * ref_price):.2f}). Increase collateral."}
-    signer = _signer(account_index, agent_private_key, api_key_index)
-    if lev > 1:
-        await _set_leverage_inner(signer, market_id, lev)
     size_dec = int(detail.get("size_decimals", detail.get("supported_size_decimals", 0)))
     price_dec = int(detail.get("price_decimals", detail.get("supported_price_decimals", 2)))
     base = _scale(base_amount, size_dec)
@@ -368,14 +368,33 @@ async def open_position(*, account_index: int, agent_private_key: str, symbol: s
         expiry = int(time.time() * 1000) + 30 * 24 * 60 * 60 * 1000  # 30 days
     else:
         price_i, order_ty, tif, expiry = 0, ORDER_TYPE_MARKET, TIF_IMMEDIATE_OR_CANCEL, -1
-    _order, resp, err = await signer.create_order(
-        market_index=market_id,
-        client_order_index=int(time.time() * 1000) % 2_000_000_000,
-        base_amount=base, price=price_i, is_ask=is_ask,
-        order_type=order_ty, time_in_force=tif,
-        reduce_only=reduce_only, order_expiry=expiry, api_key_index=api_key_index,
-    )
+    # The SignerClient opens an aiohttp session that must be closed, or every
+    # trade leaks a connection ("Unclosed client session").
+    signer = _signer(account_index, agent_private_key, api_key_index)
+    try:
+        if lev > 1:
+            await _set_leverage_inner(signer, market_id, lev)
+        _order, resp, err = await signer.create_order(
+            market_index=market_id,
+            client_order_index=int(time.time() * 1000) % 2_000_000_000,
+            base_amount=base, price=price_i, is_ask=is_ask,
+            order_type=order_ty, time_in_force=tif,
+            reduce_only=reduce_only, order_expiry=expiry, api_key_index=api_key_index,
+        )
+    except Exception as e:  # SDK/native-signer raised before returning a tuple
+        log.warning("lighter open_position raised: symbol=%s side=%s lev=%s base=%s: %r",
+                    symbol, side, lev, base, e)
+        return {"error": f"Lighter rejected the order: {e}"}
+    finally:
+        try:
+            await signer.close()
+        except Exception:  # pragma: no cover - best-effort cleanup
+            pass
     if err:
+        # Surfaces the real reason (e.g. agent key not yet active after onboarding,
+        # or an exchange reject) so we can diagnose instead of a blank 'try again'.
+        log.warning("lighter open_position rejected: symbol=%s side=%s lev=%s base=%s err=%s",
+                    symbol, side, lev, base, err)
         return {"error": err}
     return {"ok": True, "market": symbol, "side": side, "base_amount": base_amount,
             "leverage": lev, "order_type": "limit" if is_limit else "market",
