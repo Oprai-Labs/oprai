@@ -3376,6 +3376,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.relayPayUsd.set(null);
       if (!/^0x0{40}$/.test((this.getEditParam('originCurrency') || '').trim())) {
         this.setEditParam('originCurrency', NATIVE);
+        // We now spend a fixed native amount → the trade is EXACT_INPUT, whatever
+        // the model tagged (a stale EXACT_OUTPUT would scale by the wrong side).
+        this.setEditParam('tradeType', 'EXACT_INPUT');
         this.relayEvmBalanceKey = '';
         this.relayQuoteKey = '';
         this.relayMaybeQuote();
@@ -3393,6 +3396,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       this.relayPayUsd.set(usdAmount);
       this.setEditParam('originCurrency', NATIVE);
       this.setEditParam('amount', String(Number(ethAmount.toPrecision(6))));
+      // The amount is now a native-ETH INPUT ($N of ETH), so force EXACT_INPUT —
+      // the model's EXACT_OUTPUT would make the backend scale this ETH figure by
+      // the destination token's decimals and reject it.
+      this.setEditParam('tradeType', 'EXACT_INPUT');
       this.relayEvmBalanceKey = '';
       this.relayQuoteKey = '';
       this.relayMaybeQuote();
