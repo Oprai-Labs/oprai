@@ -155,34 +155,88 @@ async def token_report(token: str) -> dict:
 
 
 async def wallet_report(wallet: str) -> dict:
+    """Comprehensive wallet profile: activity, trading behavior, archetype hints
+    (bot/paperhand/diamond from raw patterns), current holdings, per-token history
+    with hold time, activity timeline, top counterparties — plus P&L / win-rate /
+    smart-score once the derived tables are built."""
     w = addr(wallet)
 
     act = await ch.one(f"""
         SELECT count() AS txs, uniqExact(to_addr) AS distinct_dests,
-               min(timestamp) AS first_seen, max(timestamp) AS last_seen
+               min(timestamp) AS first_seen, max(timestamp) AS last_seen,
+               uniqExact(toDate(timestamp)) AS active_days,
+               uniqExact(method_id) AS distinct_methods
         FROM rh.transactions WHERE from_addr='{w}'""")
 
+    # per-token: received/sent, net holding, first-in→last-out hold window
     tokens = await ch.q(f"""
         SELECT token, countIf(to_addr='{w}') AS received, countIf(from_addr='{w}') AS sent,
-               (sum(if(to_addr='{w}', toFloat64(value), 0)) -
-                sum(if(from_addr='{w}', toFloat64(value), 0)))/1e18 AS net
+               (sumIf(toFloat64(value), to_addr='{w}') - sumIf(toFloat64(value), from_addr='{w}'))/1e18 AS net,
+               minIf(timestamp, to_addr='{w}') AS first_in,
+               maxIf(timestamp, from_addr='{w}') AS last_out
         FROM rh.token_transfers WHERE (to_addr='{w}' OR from_addr='{w}') AND kind='erc20'
-        GROUP BY token ORDER BY (received+sent) DESC LIMIT 25""")
+        GROUP BY token ORDER BY (received+sent) DESC LIMIT 40""")
+
+    # current holdings (still holds a positive net) — the portfolio
+    holdings = [tk for tk in tokens if float(tk["net"]) > 0]
+
+    # behavior signals from raw data (archetype hints without prices)
+    n_buys = sum(int(tk["received"]) for tk in tokens)
+    n_sells = sum(int(tk["sent"]) for tk in tokens)
+    txs = int(act.get("txs") or 0)
+    active_days = int(act.get("active_days") or 1)
+    txs_per_active_day = round(txs / max(1, active_days), 1)
+    # median hold time across positions that were both bought and sold
+    holds = [(tk["first_in"], tk["last_out"]) for tk in tokens
+             if tk.get("first_in") and tk.get("last_out") and int(tk["sent"]) > 0]
+    hold_hours = []
+    for fi, lo in holds:
+        try:
+            from datetime import datetime
+            h = (datetime.fromisoformat(str(lo)) - datetime.fromisoformat(str(fi))).total_seconds() / 3600
+            if h >= 0:
+                hold_hours.append(h)
+        except Exception:
+            pass
+    hold_hours.sort()
+    median_hold_h = round(hold_hours[len(hold_hours) // 2], 1) if hold_hours else None
+    # heuristic archetype (raw-only, refined once P&L lands)
+    archetype = "unknown"
+    if txs_per_active_day >= 200:
+        archetype = "bot / HFT"
+    elif median_hold_h is not None and median_hold_h < 24:
+        archetype = "paperhand"
+    elif median_hold_h is not None and median_hold_h > 30 * 24:
+        archetype = "diamond hand"
+    elif len(holdings) > 0 and n_sells < n_buys * 0.3:
+        archetype = "accumulator"
 
     daily = await ch.q(f"""
         SELECT toDate(timestamp) AS day, count() AS txs
         FROM rh.transactions WHERE from_addr='{w}' GROUP BY day ORDER BY day""")
 
+    counterparties = await ch.q(f"""
+        SELECT to_addr AS addr, count() AS txs
+        FROM rh.transactions WHERE from_addr='{w}' AND to_addr NOT IN ('0x')
+        GROUP BY to_addr ORDER BY txs DESC LIMIT 10""")
+
     # P&L / smart classification (once wallet_metrics exists)
     metrics = {}
     if await ch.table_exists("wallet_metrics"):
         metrics = await ch.one(f"SELECT * FROM rh.wallet_metrics FINAL WHERE wallet='{w}'")
+    is_smart = False
+    if await ch.table_exists("smart_wallets"):
+        is_smart = bool(await ch.scalar(f"SELECT 1 FROM rh.smart_wallets FINAL WHERE wallet='{w}'"))
 
     kpis = [
-        {"label": "Transactions", "value": act.get("txs")},
-        {"label": "Tokens touched", "value": len(tokens)},
-        {"label": "First seen", "value": act.get("first_seen")},
-        {"label": "Last seen", "value": act.get("last_seen")},
+        {"label": "Transactions", "value": txs},
+        {"label": "Active days", "value": active_days},
+        {"label": "Tokens traded", "value": len(tokens)},
+        {"label": "Currently holding", "value": len(holdings)},
+        {"label": "Txs / active day", "value": txs_per_active_day},
+        {"label": "Median hold (h)", "value": median_hold_h},
+        {"label": "Archetype", "value": archetype, "flag": archetype},
+        {"label": "Smart money", "value": "YES" if is_smart else "—", "flag": "smart" if is_smart else ""},
     ]
     if metrics:
         kpis += [
@@ -198,14 +252,23 @@ async def wallet_report(wallet: str) -> dict:
         "charts": [
             {"type": "line", "title": "Daily activity", "x": [d["day"] for d in daily],
              "series": [{"name": "txs", "data": [d["txs"] for d in daily]}]},
-            {"type": "bar", "title": "Token activity (net)", "items":
-                [{"label": tk["token"][:10] + "…", "value": round(float(tk["net"]), 2)} for tk in tokens[:12]]},
+            {"type": "bar", "title": "Current holdings (net)", "items":
+                [{"label": tk["token"][:8] + "…", "value": round(float(tk["net"]), 2)} for tk in holdings[:12]]},
         ],
         "tables": [
-            {"title": "Tokens", "columns": ["token", "received", "sent", "net"],
-             "rows": [[tk["token"], tk["received"], tk["sent"], round(float(tk["net"]), 2)] for tk in tokens]},
+            {"title": "Token history", "columns": ["token", "buys", "sells", "net"],
+             "rows": [[tk["token"], tk["received"], tk["sent"], round(float(tk["net"]), 2)] for tk in tokens[:25]]},
+            {"title": "Top counterparties", "columns": ["address", "txs"],
+             "rows": [[c["addr"], c["txs"]] for c in counterparties]},
         ],
-        "facts": {**act, "tokens_touched": len(tokens), **metrics},
+        "facts": {
+            "txs": txs, "active_days": active_days, "tokens_traded": len(tokens),
+            "holding_count": len(holdings), "buys": n_buys, "sells": n_sells,
+            "txs_per_active_day": txs_per_active_day, "median_hold_hours": median_hold_h,
+            "archetype": archetype, "is_smart_money": is_smart,
+            "first_seen": act.get("first_seen"), "last_seen": act.get("last_seen"),
+            **metrics,
+        },
     }
 
 
