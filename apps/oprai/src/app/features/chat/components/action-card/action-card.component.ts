@@ -8475,6 +8475,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
             // Portion of the position this close removed — a partial close is a
             // "Reduced", only a full close is "Closed".
             closedPct: String(Math.round(frac * 100)),
+            // What's left open after a partial close, so the card can say how
+            // much of the position remains.
+            remainingBase: (() => {
+              const dec = this.lighterMarket()?.sizeDecimals ?? 6;
+              return String(+Math.max(0, pos.baseAmount - closedBase).toFixed(dec));
+            })(),
           };
         }
       }

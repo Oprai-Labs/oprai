@@ -3582,7 +3582,10 @@
                   </div>
                   <div class="lighter-pnl__rows">
                     <div class="lighter-pnl__row"><span>{{ 'Closed' | t }}</span><span class="mono">{{ r.closedBase }} {{ r.symbol }}</span></div>
-                    <div class="lighter-pnl__row"><span>{{ 'Status' | t }}</span><span>{{ 'Position still open — PnL is realised when you close it fully' | t }}</span></div>
+                    @if (r.remainingBase) {
+                      <div class="lighter-pnl__row"><span>{{ 'Still open' | t }}</span><span class="mono">{{ r.remainingBase }} {{ r.symbol }}</span></div>
+                    }
+                    <div class="lighter-pnl__row"><span>{{ 'PnL' | t }}</span><span>{{ 'Realised when you close the rest' | t }}</span></div>
                   </div>
                 </div>
               </div>
