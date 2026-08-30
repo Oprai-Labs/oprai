@@ -3735,3 +3735,14 @@
 .os-stats__name { font-size: 15px; font-weight: 700; color: var(--op-text-primary); margin-bottom: 6px; }
 .os-stats__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 6px 14px;
   div { display: flex; flex-direction: column; gap: 1px; } }
+
+/* OpenSea single-NFT detail */
+.os-detail { display: flex; flex-direction: column; gap: 8px; }
+.os-detail__img, .os-detail .os-coll__ph { width: 100%; max-width: 280px; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--op-bg-surface-2); align-self: center; }
+.os-detail__img img { width: 100%; height: 100%; object-fit: cover; }
+.os-detail__name { font-size: 16px; font-weight: 700; color: var(--op-text-primary); }
+.os-detail__desc { font-size: 12px; color: var(--op-text-secondary); line-height: 1.5; }
+.os-traits { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
+.os-trait { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: 8px; background: var(--op-bg-surface-2); border: 1px solid var(--op-border-subtle);
+  &__k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--op-text-secondary); }
+  &__v { font-size: 12px; font-weight: 600; color: var(--op-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }

@@ -1159,6 +1159,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['openseaCollections']) this.openseaCollections = d['openseaCollections'] as OpenseaCollectionRow[];
     if (d['openseaListings'])    this.openseaListings    = d['openseaListings']    as OpenseaListingRow[];
     if (d['openseaCollectionDetail']) this.openseaCollectionDetail = d['openseaCollectionDetail'];
+    if (d['openseaNftDetail'])   this.openseaNftDetail   = d['openseaNftDetail'];
     if (d['openseaNftsRows'])    this.openseaNftsRows    = d['openseaNftsRows'] as any[];
     if (d['openseaOffersRows'])  this.openseaOffersRows  = d['openseaOffersRows'] as any[];
     if (d['openseaActivityRows']) this.openseaActivityRows = d['openseaActivityRows'] as any[];
@@ -1279,6 +1280,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.openseaCollections.length) d['openseaCollections'] = this.openseaCollections;
     if (this.openseaListings.length)    d['openseaListings']    = this.openseaListings;
     if (this.openseaCollectionDetail)   d['openseaCollectionDetail'] = this.openseaCollectionDetail;
+    if (this.openseaNftDetail)          d['openseaNftDetail']   = this.openseaNftDetail;
     if (this.openseaNftsRows.length)    d['openseaNftsRows']    = this.openseaNftsRows;
     if (this.openseaOffersRows.length)  d['openseaOffersRows']  = this.openseaOffersRows;
     if (this.openseaActivityRows.length) d['openseaActivityRows'] = this.openseaActivityRows;
@@ -3861,6 +3863,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   // OpenSea full marketplace state
   openseaCollectionDetail: any = null;
+  openseaNftDetail: any = null;
   openseaNftsRows: any[] = [];
   openseaOffersRows: any[] = [];
   openseaActivityRows: any[] = [];
@@ -3895,6 +3898,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       (this as any)[field] = Array.isArray(r?.data?.[key]) ? r.data[key] : [];
       this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
     } catch { this.error.set('Failed to load ' + type); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+
+  private async fetchOpenseaNft(): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    try {
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_nft',
+        params: {
+          contract: String(this.query.params?.['contract'] ?? this.query.params?.['token'] ?? ''),
+          tokenId: String(this.query.params?.['tokenId'] ?? this.query.params?.['identifier'] ?? ''),
+        },
+      }).pipe(timeout(30_000)));
+      this.openseaNftDetail = r?.data?.nft ?? null;
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load NFT'); this.openseaFetching.set(false); this.loading.set(false); }
   }
 
   /** List one of the user's NFTs for sale. */
@@ -4942,6 +4960,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'opensea_wallet_nfts':
         await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: await this.lighterPerp.resolveEvmAddress() ?? 'self', limit: 40 });
+        return;
+      case 'opensea_nft':
+        await this.fetchOpenseaNft();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

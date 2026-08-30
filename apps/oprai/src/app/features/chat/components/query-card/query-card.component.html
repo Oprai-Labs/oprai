@@ -3474,6 +3474,34 @@
         }
       }
 
+      <!-- OpenSea single NFT detail -->
+      @if (query.type === 'opensea_nft') {
+        @if (openseaNftDetail; as n) {
+          <div class="os-detail">
+            <div class="os-detail__img">
+              @if (n.image) { <img [src]="n.image" [alt]="n.name" (error)="$any($event.target).style.visibility='hidden'" /> }
+              @else { <div class="os-coll__ph"><lucide-icon name="image" [size]="24" /></div> }
+            </div>
+            <div class="os-detail__name">{{ n.name || ('#' + n.identifier) }}</div>
+            @if (n.description) { <div class="os-detail__desc">{{ n.description }}</div> }
+            @if (n.traits && n.traits.length) {
+              <div class="os-traits">
+                @for (t of n.traits; track $index) {
+                  <div class="os-trait"><span class="os-trait__k">{{ t.trait_type }}</span><span class="os-trait__v">{{ t.value }}</span></div>
+                }
+              </div>
+            }
+            <div class="mq-actions">
+              <button class="mq-btn mq-btn--lend" type="button" (click)="openseaMakeOffer(n)">{{ 'Make offer' | t }}</button>
+            </div>
+          </div>
+        } @else if (openseaFetching()) {
+          <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading NFT…' | t }}</span></div>
+        } @else {
+          <div class="empty-state"><lucide-icon name="image" [size]="20" /><span>{{ 'NFT not found' | t }}</span></div>
+        }
+      }
+
       <!-- OpenSea collection offers -->
       @if (query.type === 'opensea_offers') {
         @if (openseaFetching() && openseaOffersRows.length === 0) {
