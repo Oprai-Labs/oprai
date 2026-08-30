@@ -461,7 +461,8 @@ export class EvmHoldingsComponent implements OnInit {
         const ethBal = Number(eth?.balance) || 0;
         if (ethBal > 0) out.push({
           chain: 'robinhood', network: 'robinhood', address: 'native', symbol: 'ETH', name: 'Ethereum',
-          decimals: 18, logo: undefined, uiAmount: ethBal, priceUsd: ethUsd, valueUsd: ethBal * ethUsd, native: true,
+          decimals: 18, logo: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png',
+          uiAmount: ethBal, priceUsd: ethUsd, valueUsd: ethBal * ethUsd, native: true,
         });
         const usdgBal = Number(usdg?.balance) || 0;
         if (usdgBal > 0) out.push({
