@@ -286,6 +286,10 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/sushi/swap", solanaProxy.PostSushiSwap)
 		r.Post("/sushi/add-liquidity", solanaProxy.PostSushiAddLiquidity)
 		r.Post("/opensea/buy", solanaProxy.PostOpenseaBuy)
+		r.Post("/opensea/accept-offer", solanaProxy.PostOpenseaAcceptOffer)
+		r.Post("/opensea/list", solanaProxy.PostOpenseaList)
+		r.Post("/opensea/make-offer", solanaProxy.PostOpenseaMakeOffer)
+		r.Post("/opensea/order/submit", solanaProxy.PostOpenseaOrderSubmit)
 		// Lighter perps (Robinhood Chain domain) — proxied to chat-service
 		// (Python SDK + agent-key store), NOT solana-service. Wallet auth
 		// already applied by the block-level RequireWallet above.

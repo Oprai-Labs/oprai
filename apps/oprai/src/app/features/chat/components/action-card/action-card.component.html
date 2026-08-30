@@ -436,7 +436,8 @@
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
          || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()
-         || action.type === 'lighter_deposit' || isMorphoAction() || isSushiAction() || isOpenseaBuy()) {
+         || action.type === 'lighter_deposit' || isMorphoAction() || isSushiAction()
+         || isOpenseaBuy() || isOpenseaAccept() || isOpenseaOrder()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -3961,6 +3962,53 @@
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />
               <span>{{ 'You pay in ETH on Robinhood Chain; your wallet signs the purchase.' | t }}</span>
+            </div>
+          </div>
+        } @else if (isOpenseaOrder()) {
+          <!-- ─────── OpenSea list (sell) / make offer — set a price, sign the
+               gasless Seaport order. ──────────────────────────────────────── -->
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                @if (getEditParam('nftImage')) {
+                  <img class="km-icon km-icon--img" [src]="getEditParam('nftImage')" alt="" (error)="$any($event.target).style.display='none'" />
+                } @else { <span class="km-icon km-icon--fallback">🖼️</span> }
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ (isOpenseaList() ? 'List' : 'Offer on') | t }} {{ getEditParam('nftName') || 'NFT' }}</span>
+                <span class="uni-lp__sub">OpenSea · Robinhood Chain</span>
+              </div>
+            </div>
+            <div class="pump-panel" [class.proto-fields--shake]="shake()">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ (isOpenseaList() ? 'List price' : 'Your offer') | t }}</span>
+              </div>
+              <div class="pump-panel__row">
+                <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                       [value]="getEditParam('priceEth')" [disabled]="!isEditable()"
+                       (input)="setOpenseaPrice($any($event.target).value)" />
+                <div class="pump-token"><span class="pump-token__sym">{{ isOpenseaList() ? 'ETH' : 'WETH' }}</span></div>
+              </div>
+            </div>
+            <div class="limit-size">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ isOpenseaList()
+                ? ('Listing is gasless — you sign the order; it sells when someone buys.' | t)
+                : ('Offers are paid in WETH — you approve WETH once, then sign the offer.' | t) }}</span>
+            </div>
+          </div>
+        } @else if (isOpenseaAccept()) {
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo"><span class="km-icon km-icon--fallback">🖼️</span></span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ 'Accept offer' | t }}</span>
+                <span class="uni-lp__sub">OpenSea · Robinhood Chain</span>
+              </div>
+            </div>
+            <div class="limit-size">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ 'Accepting sells your NFT to the bidder for their WETH offer; your wallet signs the transfer.' | t }}</span>
             </div>
           </div>
         } @else if (isSushiSwap()) {

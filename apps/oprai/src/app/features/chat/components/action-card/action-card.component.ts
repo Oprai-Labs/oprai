@@ -10260,6 +10260,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   // ── SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity ──────────────
   readonly isOpenseaBuy = computed(() => this.action?.type === 'opensea_buy');
+  readonly isOpenseaAccept = computed(() => this.action?.type === 'opensea_accept_offer');
+  readonly isOpenseaOrder = computed(() => this.action?.type === 'opensea_list' || this.action?.type === 'opensea_make_offer');
+  readonly isOpenseaList = computed(() => this.action?.type === 'opensea_list');
+  setOpenseaPrice(v: string): void { if (this.isEditable()) this.setEditParam('priceEth', v); }
   readonly isSushiAction = computed(() => (this.action?.type ?? '').startsWith('sushi_'));
   readonly isSushiSwap = computed(() => this.action?.type === 'sushi_swap');
   readonly isSushiAddLiq = computed(() => this.action?.type === 'sushi_add_liquidity');

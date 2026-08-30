@@ -849,6 +849,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/protocols/sushi.svg';
       case 'opensea_collections':
       case 'opensea_listings':
+      case 'opensea_trending':
+      case 'opensea_collection':
+      case 'opensea_nfts':
+      case 'opensea_nft':
+      case 'opensea_offers':
+      case 'opensea_activity':
+      case 'opensea_wallet_nfts':
         return 'assets/protocols/opensea.svg';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
@@ -1151,6 +1158,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['sushiPoolRows'])      this.sushiPoolRows      = d['sushiPoolRows']      as SushiPoolRow[];
     if (d['openseaCollections']) this.openseaCollections = d['openseaCollections'] as OpenseaCollectionRow[];
     if (d['openseaListings'])    this.openseaListings    = d['openseaListings']    as OpenseaListingRow[];
+    if (d['openseaCollectionDetail']) this.openseaCollectionDetail = d['openseaCollectionDetail'];
+    if (d['openseaNftsRows'])    this.openseaNftsRows    = d['openseaNftsRows'] as any[];
+    if (d['openseaOffersRows'])  this.openseaOffersRows  = d['openseaOffersRows'] as any[];
+    if (d['openseaActivityRows']) this.openseaActivityRows = d['openseaActivityRows'] as any[];
+    if (d['openseaWalletNfts'])  this.openseaWalletNfts  = d['openseaWalletNfts'] as any[];
     if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
     if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
     if (d['uniswapLaunchSearch'] != null) this.uniswapLaunchSearch = d['uniswapLaunchSearch'] as string;
@@ -1266,6 +1278,11 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.sushiPoolRows.length)      d['sushiPoolRows']      = this.sushiPoolRows;
     if (this.openseaCollections.length) d['openseaCollections'] = this.openseaCollections;
     if (this.openseaListings.length)    d['openseaListings']    = this.openseaListings;
+    if (this.openseaCollectionDetail)   d['openseaCollectionDetail'] = this.openseaCollectionDetail;
+    if (this.openseaNftsRows.length)    d['openseaNftsRows']    = this.openseaNftsRows;
+    if (this.openseaOffersRows.length)  d['openseaOffersRows']  = this.openseaOffersRows;
+    if (this.openseaActivityRows.length) d['openseaActivityRows'] = this.openseaActivityRows;
+    if (this.openseaWalletNfts.length)  d['openseaWalletNfts']  = this.openseaWalletNfts;
     if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
     if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
     if (this.uniswapLaunchSearch) d['uniswapLaunchSearch'] = this.uniswapLaunchSearch;
@@ -3842,6 +3859,76 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.useAction.emit({ type: 'opensea_buy', params, raw: `[ACTION:opensea_buy] ${JSON.stringify(params)}` });
   }
 
+  // OpenSea full marketplace state
+  openseaCollectionDetail: any = null;
+  openseaNftsRows: any[] = [];
+  openseaOffersRows: any[] = [];
+  openseaActivityRows: any[] = [];
+  openseaWalletNfts: any[] = [];
+
+  private async fetchOpenseaTrending(): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    try {
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_trending', params: { limit: 48 } }).pipe(timeout(30_000)));
+      this.openseaCollections = Array.isArray(r?.data?.collections) ? r.data.collections : [];
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load trending collections'); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+  private async fetchOpenseaCollection(slug: string): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    this.openseaSelectedSlug.set(slug);
+    try {
+      const [det, ls] = await Promise.all([
+        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_collection', params: { slug } }).pipe(timeout(30_000))),
+        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_listings', params: { slug, limit: 24 } }).pipe(timeout(30_000))),
+      ]);
+      this.openseaCollectionDetail = det?.data?.collection ?? null;
+      this.openseaSelectedName.set(this.openseaCollectionDetail?.name || slug);
+      this.openseaListings = Array.isArray(ls?.data?.listings) ? ls.data.listings : [];
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load collection'); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+  private async fetchOpenseaSimple(type: string, field: 'openseaNftsRows'|'openseaOffersRows'|'openseaActivityRows'|'openseaWalletNfts', key: string, params: Record<string, unknown>): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    try {
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', { type, params }).pipe(timeout(30_000)));
+      (this as any)[field] = Array.isArray(r?.data?.[key]) ? r.data[key] : [];
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load ' + type); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+
+  /** List one of the user's NFTs for sale. */
+  openseaList(n: any): void {
+    const params: Record<string, string> = {
+      token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
+      ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+    };
+    this.useAction.emit({ type: 'opensea_list', params, raw: `[ACTION:opensea_list] ${JSON.stringify(params)}` });
+  }
+  /** Make an offer (WETH bid) on an NFT. */
+  openseaMakeOffer(n: any): void {
+    const params: Record<string, string> = {
+      token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
+      ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+    };
+    this.useAction.emit({ type: 'opensea_make_offer', params, raw: `[ACTION:opensea_make_offer] ${JSON.stringify(params)}` });
+  }
+  /** Accept an offer on the user's NFT. */
+  openseaAccept(o: any): void {
+    const params: Record<string, string> = {
+      orderHash: o.orderHash, protocolAddress: o.protocolAddress || '',
+      token: o.token || this.openseaCollectionDetail?.contract || '', tokenId: String(o.tokenId ?? ''),
+    };
+    this.useAction.emit({ type: 'opensea_accept_offer', params, raw: `[ACTION:opensea_accept_offer] ${JSON.stringify(params)}` });
+  }
+  osTime(ts: unknown): string {
+    const n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '';
+    const diff = Math.floor(Date.now() / 1000) - n;
+    if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
   morphoNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
   /** Open the Morpho action card for a market row (Lend or Borrow). */
@@ -4836,6 +4923,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'opensea_listings':
         this.openseaSelectedSlug.set(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
         await this.fetchOpenseaListings(this.openseaSelectedSlug() || '');
+        return;
+      case 'opensea_trending':
+        await this.fetchOpenseaTrending();
+        return;
+      case 'opensea_collection':
+        await this.fetchOpenseaCollection(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
+        return;
+      case 'opensea_nfts':
+        await this.fetchOpenseaSimple('opensea_nfts', 'openseaNftsRows', 'nfts', { slug: String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''), limit: 40 });
+        return;
+      case 'opensea_offers':
+        this.openseaSelectedSlug.set(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
+        await this.fetchOpenseaSimple('opensea_offers', 'openseaOffersRows', 'offers', { slug: this.openseaSelectedSlug() });
+        return;
+      case 'opensea_activity':
+        await this.fetchOpenseaSimple('opensea_activity', 'openseaActivityRows', 'events', { slug: String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''), limit: 25 });
+        return;
+      case 'opensea_wallet_nfts':
+        await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: await this.lighterPerp.resolveEvmAddress() ?? 'self', limit: 40 });
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

@@ -1566,10 +1566,13 @@ export class SolanaActionService {
     if (action.type === 'sushi_swap' || action.type === 'sushi_add_liquidity') {
       return this.executeSushi(action, callbacks);
     }
-    // OpenSea NFT buy — EVM (Robinhood Chain 4663). Backend returns the unsigned
-    // Seaport fulfillment tx; the user's own wallet signs. Route out first.
-    if (action.type === 'opensea_buy') {
-      return this.executeOpenseaBuy(action, callbacks);
+    // OpenSea NFT marketplace — EVM (Robinhood Chain 4663). Buy/accept-offer are
+    // unsigned Seaport txs; list/make-offer are gasless EIP-712 signed orders.
+    if (action.type === 'opensea_buy' || action.type === 'opensea_accept_offer') {
+      return this.executeOpenseaFulfill(action, callbacks);
+    }
+    if (action.type === 'opensea_list' || action.type === 'opensea_make_offer') {
+      return this.executeOpenseaOrder(action, callbacks);
     }
 
     const wallet = this.walletService.publicKey();
@@ -3274,14 +3277,15 @@ export class SolanaActionService {
    * fulfillment_data and ABI-encodes the Seaport tx; here we switch the wallet to
    * Robinhood Chain and sign the single fulfillment tx.
    */
-  private async executeOpenseaBuy(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+  private async executeOpenseaFulfill(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
     const p = action.params;
     const chainId = 4663;
+    const isAccept = action.type === 'opensea_accept_offer';
     const orderHash = String(p['orderHash'] ?? '').trim();
-    if (!orderHash) throw new Error('OpenSea: no listing selected.');
+    if (!orderHash) throw new Error('OpenSea: no order selected.');
 
     const ethereum = await this.walletService.resolveEvmProvider();
-    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to buy on OpenSea.');
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on OpenSea.');
     const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
       Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`OpenSea: ${label} timed out`)), ms))]);
     const toHexQty = (v: unknown): string | undefined => {
@@ -3307,25 +3311,107 @@ export class SolanaActionService {
     callbacks.onQuote?.();
     const reqBody: Record<string, unknown> = { orderHash, walletAddress: account };
     if (p['protocolAddress']) reqBody['protocolAddress'] = String(p['protocolAddress']);
-    const prep = await firstValueFrom(this.api.post<any>('/actions/opensea/buy', reqBody));
+    if (isAccept) { reqBody['token'] = String(p['token'] ?? ''); reqBody['tokenId'] = String(p['tokenId'] ?? ''); }
+    const endpoint = isAccept ? '/actions/opensea/accept-offer' : '/actions/opensea/buy';
+    const prep = await firstValueFrom(this.api.post<any>(endpoint, reqBody));
     const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
     if (txs.length === 0) throw new Error('OpenSea: no transaction was returned.');
 
     callbacks.onSign?.();
-    const tx = txs[0];
-    const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
-    const hash = await withTimeout(ethereum.request({
-      method: 'eth_sendTransaction',
-      params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gasHex ? { gas: gasHex } : {}) }],
-    }), 120_000, 'buy') as string;
-    callbacks.onSubmit?.(hash);
-    const ok = await this.watchEvmReceipt(ethereum, hash);
-    if (ok === false) {
-      callbacks.onFail?.('The purchase reverted on-chain — your funds are safe minus the network fee.', hash);
-      return hash;
+    const verb = isAccept ? 'accept' : 'buy';
+    let lastHash = '';
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
+      if (!tx?.to) continue;
+      const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+      const hash = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gasHex ? { gas: gasHex } : {}) }],
+      }), 120_000, i < txs.length - 1 ? 'approval' : verb) as string;
+      lastHash = hash;
+      if (i === 0) callbacks.onSubmit?.(hash);
+      const ok = await this.watchEvmReceipt(ethereum, hash);
+      if (ok === false) {
+        callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
+        return hash;
+      }
     }
-    callbacks.onConfirm?.(hash);
-    return hash;
+    callbacks.onConfirm?.(lastHash);
+    return lastHash;
+  }
+
+  /**
+   * OpenSea LIST (sell) / MAKE OFFER — gasless Seaport orders. Backend builds the
+   * order + EIP-712 typed data; the wallet signs it (signTypedData_v4, no gas);
+   * the backend submits the signed order to OpenSea. make-offer first sends a
+   * one-time WETH approval to the conduit.
+   */
+  private async executeOpenseaOrder(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = 4663;
+    const isOffer = action.type === 'opensea_make_offer';
+    const ethereum = await this.walletService.resolveEvmProvider();
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on OpenSea.');
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`OpenSea: ${label} timed out`)), ms))]);
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }), 60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network. Switch it to Robinhood Chain and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    const buildBody: Record<string, unknown> = {
+      token: String(p['token'] ?? p['contract'] ?? ''),
+      tokenId: String(p['tokenId'] ?? p['identifier'] ?? ''),
+      priceEth: String(p['priceEth'] ?? ''),
+      walletAddress: account,
+    };
+    if (p['slug']) buildBody['slug'] = String(p['slug']);
+    if (p['durationDays']) buildBody['durationDays'] = String(p['durationDays']);
+    const built = await firstValueFrom(this.api.post<any>(isOffer ? '/actions/opensea/make-offer' : '/actions/opensea/list', buildBody));
+    const typedData = built?.typedData;
+    const parameters = built?.parameters;
+    if (!typedData || !parameters) throw new Error('OpenSea: could not build the order.');
+
+    callbacks.onSign?.();
+    // make-offer: one-time WETH approval to the conduit so the bid can be pulled.
+    if (isOffer && built?.wethApprove?.to) {
+      const a = built.wethApprove;
+      const h = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: a.to, data: a.data ?? '0x', value: '0x0' }],
+      }), 120_000, 'WETH approval') as string;
+      await this.watchEvmReceipt(ethereum, h);
+    }
+    // Sign the Seaport order (EIP-712, gasless).
+    const signature = await withTimeout(ethereum.request({
+      method: 'eth_signTypedData_v4',
+      params: [account, JSON.stringify(typedData)],
+    }), 120_000, 'order signature') as string;
+
+    const res = await firstValueFrom(this.api.post<any>('/actions/opensea/order/submit', {
+      parameters, signature, kind: isOffer ? 'offer' : 'listing',
+      protocolAddress: built?.protocolAddress,
+    }));
+    if (!res?.ok) throw new Error('OpenSea rejected the order.');
+    // Off-chain order — no tx hash. Use the order hash as the receipt id.
+    const oh = String(res?.orderHash ?? '');
+    callbacks.onConfirm?.(oh);
+    return oh;
   }
 
   /** Resolve a Morpho chain hint (numeric id or name) to a chain id. */

@@ -445,8 +445,11 @@ class ActionType(str, Enum):
     # SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity, unsigned EVM txs.
     SUSHI_SWAP = "sushi_swap"
     SUSHI_ADD_LIQUIDITY = "sushi_add_liquidity"
-    # OpenSea (Seaport) NFT marketplace on Robinhood Chain — non-custodial buy.
-    OPENSEA_BUY = "opensea_buy"
+    # OpenSea (Seaport) NFT marketplace on Robinhood Chain.
+    OPENSEA_BUY = "opensea_buy"                    # fulfill a listing (tx)
+    OPENSEA_ACCEPT_OFFER = "opensea_accept_offer"  # seller fulfills a bid (tx)
+    OPENSEA_LIST = "opensea_list"                  # sell — Seaport listing (signed order)
+    OPENSEA_MAKE_OFFER = "opensea_make_offer"      # bid — Seaport offer in WETH (signed order)
     # Morpho Blue lending (Robinhood Chain 4663) — unsigned EVM txs, user signs.
     MORPHO_SUPPLY = "morpho_supply"      # lend loan asset (earn)
     MORPHO_BORROW = "morpho_borrow"      # supply collateral + borrow
@@ -662,9 +665,17 @@ class QueryType(str, Enum):
     MORPHO_POSITIONS = "morpho_positions"
     # SushiSwap V3 pool listing (Robinhood Chain). Data card.
     SUSHI_POOLS = "sushi_pools"
-    # OpenSea (Robinhood Chain) — NFT collection browse + a collection's listings.
+    # OpenSea (Robinhood Chain) — NFT reads: browse, trending, collection detail,
+    # a collection's listings / NFTs / offers / activity, one NFT, wallet NFTs.
     OPENSEA_COLLECTIONS = "opensea_collections"
     OPENSEA_LISTINGS = "opensea_listings"
+    OPENSEA_TRENDING = "opensea_trending"
+    OPENSEA_COLLECTION = "opensea_collection"
+    OPENSEA_NFTS = "opensea_nfts"
+    OPENSEA_NFT = "opensea_nft"
+    OPENSEA_OFFERS = "opensea_offers"
+    OPENSEA_ACTIVITY = "opensea_activity"
+    OPENSEA_WALLET_NFTS = "opensea_wallet_nfts"
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"
@@ -895,8 +906,9 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "morpho_supply", "morpho_borrow", "morpho_repay", "morpho_withdraw",
     # SushiSwap (Robinhood Chain) — swap spends input; add-liquidity deposits both legs
     "sushi_swap", "sushi_add_liquidity",
-    # OpenSea (Robinhood Chain) — buying an NFT spends ETH
-    "opensea_buy",
+    # OpenSea (Robinhood Chain) — buy spends ETH; accept-offer transfers the NFT;
+    # list/make-offer are signed orders that move value on acceptance.
+    "opensea_buy", "opensea_accept_offer", "opensea_list", "opensea_make_offer",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1153,6 +1165,9 @@ def validate_action_params(
         "sushi_swap":       ("tokenIn", "tokenOut"),
         # OpenSea buy needs the listing to fulfill.
         "opensea_buy":      ("orderHash",),
+        "opensea_accept_offer": ("orderHash", "token", "tokenId"),
+        "opensea_list":     ("token", "tokenId", "priceEth"),
+        "opensea_make_offer": ("token", "tokenId", "priceEth"),
         # Morpho Blue lending — no hard requirement at the chat layer: the card
         # carries a market picker and resolves `marketId` itself (from a
         # loanSymbol/collateralSymbol hint or the default market), the same way

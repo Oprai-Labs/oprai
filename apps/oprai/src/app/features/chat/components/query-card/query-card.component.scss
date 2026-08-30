@@ -3727,3 +3727,11 @@
   background: var(--op-brand); color: #fff;
   &:hover { filter: brightness(1.08); }
 }
+
+/* OpenSea collection detail stats header */
+.os-stats { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; }
+.os-stats__img { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+.os-stats__body { flex: 1; min-width: 0; }
+.os-stats__name { font-size: 15px; font-weight: 700; color: var(--op-text-primary); margin-bottom: 6px; }
+.os-stats__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 6px 14px;
+  div { display: flex; flex-direction: column; gap: 1px; } }

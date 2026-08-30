@@ -518,6 +518,48 @@ pub async fn post_build(
         let resp = crate::services::opensea::build_listings(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
+    if body.action_type == "opensea_trending" {
+        let p: crate::services::opensea::OpenseaCollectionsParams =
+            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::opensea::OpenseaCollectionsParams { limit: None, query: None });
+        let resp = crate::services::opensea::build_trending(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_collection" {
+        let p: crate::services::opensea::OpenseaCollectionParams = serde_json::from_value(body.params.clone())
+            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_collection params: {e}")))?;
+        let resp = crate::services::opensea::build_collection(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_nfts" {
+        let p: crate::services::opensea::OpenseaListingsParams = serde_json::from_value(body.params.clone())
+            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_nfts params: {e}")))?;
+        let resp = crate::services::opensea::build_nfts(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_nft" {
+        let p: crate::services::opensea::OpenseaNftParams = serde_json::from_value(body.params.clone())
+            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_nft params: {e}")))?;
+        let resp = crate::services::opensea::build_nft(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_offers" {
+        let p: crate::services::opensea::OpenseaListingsParams = serde_json::from_value(body.params.clone())
+            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_offers params: {e}")))?;
+        let resp = crate::services::opensea::build_offers(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_activity" {
+        let p: crate::services::opensea::OpenseaListingsParams = serde_json::from_value(body.params.clone())
+            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_activity params: {e}")))?;
+        let resp = crate::services::opensea::build_events(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_wallet_nfts" {
+        let p: crate::services::opensea::OpenseaWalletParams = serde_json::from_value(body.params.clone())
+            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_wallet_nfts params: {e}")))?;
+        let resp = crate::services::opensea::build_wallet_nfts(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
 
     let wallet = wallet_from_req(&req)?;
     let mut body = body.into_inner();
@@ -2036,6 +2078,50 @@ pub async fn post_opensea_buy(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result = crate::services::opensea::build_buy(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/opensea/accept-offer — seller fulfills a bid (unsigned tx).
+#[post("/opensea/accept-offer")]
+pub async fn post_opensea_accept_offer(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::opensea::build_accept_offer(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/opensea/list — build a Seaport LISTING order + EIP-712 typed data to sign.
+#[post("/opensea/list")]
+pub async fn post_opensea_list(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::opensea::build_list(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/opensea/make-offer — build a Seaport OFFER (WETH bid) + typed data.
+#[post("/opensea/make-offer")]
+pub async fn post_opensea_make_offer(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::opensea::build_make_offer(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/opensea/order/submit — submit a signed Seaport order to OpenSea.
+#[post("/opensea/order/submit")]
+pub async fn post_opensea_order_submit(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::opensea::submit_order(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
