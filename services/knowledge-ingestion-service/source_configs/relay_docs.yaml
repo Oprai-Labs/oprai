@@ -1,0 +1,19 @@
+id: relay_docs
+source_type: docs
+base_url: https://docs.relay.link
+protocol: relay
+category: bridge
+license: proprietary-fair-use
+language: en
+schedule_cron: "55 4 * * *"
+crawl_delay_s: 1.5
+max_pages: 250
+tags:
+  - relay
+  - bridge
+  - cross-chain
+  - swap
+  - evm
+  - same-chain
+notes: >
+  Relay docs. Cross-chain and same-chain EVM bridging/swaps, execution API, supported chains.

@@ -155,3 +155,24 @@ sources:
   - id: messari_token_unlocks
     file: messari_token_unlocks.yaml
     schedule_cron: "0 9 * * 1"
+
+  # ── Recently-added protocols (EVM / multichain) ───────────────────────────
+  - id: morpho_docs
+    file: morpho_docs.yaml
+    schedule_cron: "35 4 * * *"
+
+  - id: sushi_docs
+    file: sushi_docs.yaml
+    schedule_cron: "40 4 * * *"
+
+  - id: opensea_docs
+    file: opensea_docs.yaml
+    schedule_cron: "45 4 * * *"
+
+  - id: lighter_docs
+    file: lighter_docs.yaml
+    schedule_cron: "50 4 * * *"
+
+  - id: relay_docs
+    file: relay_docs.yaml
+    schedule_cron: "55 4 * * *"

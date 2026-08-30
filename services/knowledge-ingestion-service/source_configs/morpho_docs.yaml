@@ -1,0 +1,20 @@
+id: morpho_docs
+source_type: docs
+base_url: https://docs.morpho.org
+protocol: morpho
+category: lending
+license: proprietary-fair-use
+language: en
+schedule_cron: "35 4 * * *"
+crawl_delay_s: 1.5
+max_pages: 250
+tags:
+  - morpho
+  - lending
+  - borrow
+  - vaults
+  - markets
+  - multichain
+  - ltv
+notes: >
+  Morpho lending docs (Gitbook). Markets, vaults, LTV/liquidation, multichain deployments (Ethereum/Base/Arbitrum/Optimism/Polygon/Unichain/Robinhood-Chain).

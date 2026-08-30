@@ -1,0 +1,19 @@
+id: opensea_docs
+source_type: docs
+base_url: https://docs.opensea.io
+protocol: opensea
+category: nft
+license: proprietary-fair-use
+language: en
+schedule_cron: "45 4 * * *"
+crawl_delay_s: 1.5
+max_pages: 250
+tags:
+  - opensea
+  - nft
+  - marketplace
+  - seaport
+  - collections
+  - listings
+notes: >
+  OpenSea developer docs. Seaport protocol, collections, listings/offers, marketplace API.

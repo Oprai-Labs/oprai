@@ -1,0 +1,19 @@
+id: lighter_docs
+source_type: docs
+base_url: https://docs.lighter.xyz
+protocol: lighter
+category: perps
+license: proprietary-fair-use
+language: en
+schedule_cron: "50 4 * * *"
+crawl_delay_s: 1.5
+max_pages: 250
+tags:
+  - lighter
+  - perps
+  - orderbook
+  - robinhood-chain
+  - non-custodial
+  - agent-key
+notes: >
+  Lighter perps docs. Non-custodial order-book perps on the Robinhood Chain, agent-key signing, deposits/positions.
