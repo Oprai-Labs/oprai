@@ -8472,6 +8472,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
             closedBase: String(closedBase),
             realizedPnl: String(+realized.toFixed(4)),
             realizedPct: marginClosed > 0 ? String(+((realized / marginClosed) * 100).toFixed(2)) : '',
+            // Portion of the position this close removed — a partial close is a
+            // "Reduced", only a full close is "Closed".
+            closedPct: String(Math.round(frac * 100)),
           };
         }
       }

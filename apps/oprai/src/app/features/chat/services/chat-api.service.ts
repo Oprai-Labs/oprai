@@ -55,6 +55,7 @@ export interface StoredActionResult {
     closedBase?: string;
     realizedPnl?: string;
     realizedPct?: string;
+    closedPct?: string;
   };
 }
 

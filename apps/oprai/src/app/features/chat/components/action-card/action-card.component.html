@@ -3576,7 +3576,7 @@
                   @if (perpMarketLogo(r.symbol || ''); as logo) {
                     <img [src]="logo" [alt]="r.symbol" width="22" height="22" style="border-radius:50%;flex-shrink:0" />
                   }
-                  <span class="lighter-pnl__title">{{ r.symbol }}-PERP {{ r.side }} · {{ 'Closed' | t }}</span>
+                  <span class="lighter-pnl__title">{{ r.symbol }}-PERP {{ r.side }} · {{ +(r.closedPct || '100') >= 100 ? ('Closed' | t) : (('Reduced' | t) + ' ' + r.closedPct + '%') }}</span>
                 </div>
                 <div class="lighter-pnl__big">
                   {{ +(r.realizedPnl || '0') >= 0 ? '+' : '' }}{{ +(r.realizedPnl || '0') | currency:'USD':'symbol':'1.2-4' }}
