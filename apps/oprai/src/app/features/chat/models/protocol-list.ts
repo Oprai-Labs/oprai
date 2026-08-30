@@ -18,12 +18,15 @@ export const PROTOCOLS: Protocol[] = [
   { id: 'poolstrade',   label: 'pools.trade',  category: 'dex',       logo: 'assets/protocols/poolstrade.svg',   description: 'Robinhood launchpad — buy, sell & launch' },
   { id: 'pons',         label: 'Pons',         category: 'dex',       logo: 'assets/protocols/pons.png',         description: 'Robinhood launchpad (ponsfamily)' },
   { id: 'lighter',      label: 'Lighter',      category: 'dex',       logo: 'assets/protocols/lighter.png?v=2',  description: 'Zero-fee perps — crypto & stocks (Robinhood Chain)' },
+  { id: 'sushi',        label: 'SushiSwap',    category: 'dex',       logo: 'assets/protocols/sushi.svg',        description: 'EVM DEX — swap, pools & liquidity (Robinhood Chain)' },
   // Staking
   { id: 'jito',         label: 'Jito',         category: 'staking',   logo: 'assets/protocols/jito.png',         description: 'MEV-boosted staking (jitoSOL)' },
   // Lending
   { id: 'kamino',       label: 'Kamino',       category: 'lending',   logo: 'assets/protocols/kamino.png',       description: 'Lending & borrowing' },
+  { id: 'morpho',       label: 'Morpho',       category: 'lending',   logo: 'assets/protocols/morpho.svg',       description: 'Lend & borrow — multichain (Base, Robinhood…)' },
   // NFT
   { id: 'magic_eden',   label: 'Magic Eden',   category: 'nft',       logo: 'assets/protocols/magic_eden.png',   description: 'NFT marketplace' },
+  { id: 'opensea',      label: 'OpenSea',      category: 'nft',       logo: 'assets/protocols/opensea.svg',      description: 'NFT marketplace — buy, sell & offer (Robinhood Chain)' },
   { id: 'pumpfun',      label: 'Pump.fun',     category: 'nft',       logo: 'assets/protocols/pumpfun.png',      description: 'Token launches' },
   // Bridge
   { id: 'relay',        label: 'Relay',        category: 'bridge',    logo: 'assets/protocols/relay.png',        description: 'Cross-chain bridging' },
