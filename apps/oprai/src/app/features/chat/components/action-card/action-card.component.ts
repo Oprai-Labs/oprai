@@ -10182,6 +10182,38 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return String(Math.round(val * factor) / factor);
   }
 
+  /** Safe max the user can borrow against the collateral they've entered:
+   *  collateralValue × LLTV, held ~10% below the liquidation limit and capped by
+   *  market liquidity. Null until a collateral amount + oracle prices are known
+   *  (so the Max control simply doesn't show rather than guessing). */
+  morphoMaxBorrow(): number | null {
+    const m = this.morphoMarket();
+    if (!m) return null;
+    const collAmt = Number(this.getEditParam('collateralAmount'));
+    const collPrice = m.collateralPriceUsd ?? null;
+    const loanPrice = m.loanPriceUsd ?? 1;
+    const lltv = (m.lltvPct ?? 0) / 100;
+    if (!(collAmt > 0) || !(collPrice && collPrice > 0) || !(loanPrice > 0) || !(lltv > 0)) {
+      return null;
+    }
+    // Sit ~10% under the LLTV ceiling — borrowing AT the max is instantly
+    // liquidatable, which the card's own hint warns against.
+    const SAFETY = 0.9;
+    const maxLoan = (collAmt * collPrice * lltv * SAFETY) / loanPrice;
+    const liq = m.liquidityUsd != null ? m.liquidityUsd / loanPrice : Infinity;
+    const capped = Math.min(maxLoan, liq);
+    return capped > 0 ? capped : null;
+  }
+  /** Fill the borrow field with the safe max, floored to token precision. */
+  setMorphoMaxBorrow(): void {
+    if (!this.isEditable()) return;
+    const v = this.morphoMaxBorrow();
+    if (v == null) return;
+    const dec = Math.min(6, this.morphoMarket()?.loanDecimals ?? 6);
+    const factor = 10 ** dec;
+    this.setMorphoAmount('borrowAmount', String(Math.floor(v * factor) / factor));
+  }
+
   /** Gradient that fills the slider track (brand) up to the current % and greys
    *  the remainder — so the percentage line reads clearly at a glance. */
   morphoTrackFill(): string {

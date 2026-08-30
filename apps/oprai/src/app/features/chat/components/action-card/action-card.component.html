@@ -3857,7 +3857,16 @@
                 </div>
                 <div class="pump-swap__arrow" aria-hidden="true"><lucide-icon name="arrow-down" [size]="16" /></div>
                 <div class="pump-panel pump-panel--recv">
-                  <div class="pump-panel__top"><span class="pump-panel__label">{{ 'Borrow' | t }}</span></div>
+                  <div class="pump-panel__top">
+                    <span class="pump-panel__label">{{ 'Borrow' | t }}</span>
+                    <!-- Borrow amount is the user's choice, so it starts empty. Offer a
+                         safe max (≈10% under the LLTV limit) once collateral is entered. -->
+                    @if (isEditable() && morphoMaxBorrow() != null) {
+                      <span class="pump-panel__bal">{{ 'Max:' | t }} {{ morphoMaxBorrow() | number:'1.0-4' }}
+                        <button class="pump-panel__max" type="button" (click)="setMorphoMaxBorrow()">{{ 'Max' | t }}</button>
+                      </span>
+                    }
+                  </div>
                   <div class="pump-panel__row">
                     <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
                            [value]="getEditParam('borrowAmount')" [disabled]="!isEditable()"
