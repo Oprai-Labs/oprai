@@ -3904,9 +3904,9 @@
                 </div>
                 <div class="pump-panel__row">
                   @if (morphoIsMax()) {
-                    <span class="pump-panel__amount pump-panel__amount--out">
-                      {{ (mk === 'repay' ? 'Repay all' : 'Withdraw all') | t }}
-                    </span>
+                    <!-- "All" still submits the dust-safe on-chain sentinel, but show
+                         the concrete amount so the user sees exactly what leaves. -->
+                    <span class="pump-panel__amount pump-panel__amount--out">{{ morphoDisplayAmount() }}</span>
                   } @else {
                     <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
                            [value]="getEditParam('amount')" [disabled]="!isEditable()"
@@ -3914,9 +3914,19 @@
                   }
                   <div class="pump-token"><span class="pump-token__sym">{{ mtok?.symbol || mm?.loanSymbol || '—' }}</span></div>
                 </div>
-                @if ((mk === 'repay' || mk === 'withdraw') && morphoIsMax() && isEditable()) {
-                  <div class="pump-panel__chips">
-                    <button class="pl-buychip" type="button" (click)="setMorphoAmount('amount', '')">{{ 'Enter a partial amount' | t }}</button>
+                <!-- Percentage slider for repay / withdraw — drag how much of the
+                     position to pull; 100% = all (dust-safe sentinel). -->
+                @if ((mk === 'repay' || mk === 'withdraw') && mpos && morphoAvailableTokens() > 0) {
+                  <div class="morpho-pct">
+                    <input type="range" class="morpho-pct__range" min="0" max="100" step="1"
+                           [value]="morphoPctValue()" [disabled]="!isEditable()"
+                           (input)="setMorphoPct(+$any($event.target).value)" />
+                    <div class="morpho-pct__chips">
+                      <button type="button" [class.on]="morphoPctValue() === 25" [disabled]="!isEditable()" (click)="setMorphoPct(25)">25%</button>
+                      <button type="button" [class.on]="morphoPctValue() === 50" [disabled]="!isEditable()" (click)="setMorphoPct(50)">50%</button>
+                      <button type="button" [class.on]="morphoPctValue() === 75" [disabled]="!isEditable()" (click)="setMorphoPct(75)">75%</button>
+                      <button type="button" [class.on]="morphoIsMax()" [disabled]="!isEditable()" (click)="setMorphoPct(100)">{{ 'Max' | t }}</button>
+                    </div>
                   </div>
                 }
               </div>

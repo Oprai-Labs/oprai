@@ -10128,6 +10128,60 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** True once the current action is at "repay all" / "withdraw all". */
   morphoIsMax(): boolean { return this.getEditParam('max') === 'true'; }
 
+  /** Token amount the current repay/withdraw acts against — the position side's
+   *  balance (supplied / collateral / debt), scaled from base units. */
+  morphoAvailableTokens(): number {
+    const p = this.morphoUserPosition();
+    if (!p) return 0;
+    const kind = this.morphoKind();
+    if (kind === 'repay') {
+      return this.morphoNum(p.borrowAssets) / 10 ** (p.loanDecimals ?? 18);
+    }
+    // withdraw
+    if (this.getEditParam('target') === 'collateral') {
+      return this.morphoNum(p.collateral) / 10 ** (p.collateralDecimals ?? 18);
+    }
+    return this.morphoNum(p.supplyAssets) / 10 ** (p.loanDecimals ?? 18);
+  }
+
+  /** Current repay/withdraw amount as a percentage of the available position
+   *  (0–100). "All" reads as 100. */
+  morphoPctValue(): number {
+    if (this.morphoIsMax()) return 100;
+    const avail = this.morphoAvailableTokens();
+    if (!(avail > 0)) return 0;
+    const amt = Number(this.getEditParam('amount'));
+    if (!Number.isFinite(amt) || amt <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((amt / avail) * 100)));
+  }
+
+  /** Slider → amount. 100% uses the dust-safe "all" sentinel (backend reads the
+   *  live shares/collateral on-chain); anything less sets a concrete token
+   *  amount, floored to token precision so it never rounds above the balance. */
+  setMorphoPct(pct: number): void {
+    if (!this.isEditable()) return;
+    const p = Math.max(0, Math.min(100, Math.round(pct)));
+    if (p >= 100) { this.setMorphoMax(); return; }
+    const avail = this.morphoAvailableTokens();
+    if (!(avail > 0)) return;
+    const dec = Math.min(6, this.morphoAmountToken()?.decimals ?? 6);
+    const factor = 10 ** dec;
+    const trimmed = Math.floor(avail * (p / 100) * factor) / factor;
+    this.setMorphoAmount('amount', String(trimmed));
+  }
+
+  /** Plain decimal string of what will actually be withdrawn/repaid — the full
+   *  position balance when "all" is selected, else the typed amount. Shown where
+   *  the card used to print a bare "Withdraw all". */
+  morphoDisplayAmount(): string {
+    const val = this.morphoIsMax()
+      ? this.morphoAvailableTokens()
+      : (Number(this.getEditParam('amount')) || 0);
+    const dec = Math.min(6, this.morphoAmountToken()?.decimals ?? 6);
+    const factor = 10 ** dec;
+    return String(Math.round(val * factor) / factor);
+  }
+
   selectMorphoMarket(m: MorphoMarket): void {
     if (!this.isEditable()) return;
     this.setEditParam('marketId', m.marketId);
