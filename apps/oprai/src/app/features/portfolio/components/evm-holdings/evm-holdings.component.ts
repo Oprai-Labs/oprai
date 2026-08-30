@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, Input, OnInit, computed, inject, si
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { forkJoin, of, from } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { catchError, map, timeout } from 'rxjs/operators';
 import { HttpClient } from '@angular/common/http';
 import { AccountService } from '../../../../core/services/account.service';
 import { ApiService } from '../../../../core/services/api.service';
@@ -429,6 +429,7 @@ export class EvmHoldingsComponent implements OnInit {
   private lighterPositions$(addr: string | undefined) {
     if (!addr) return of([] as EvmPosition[]);
     return from(this.lighterPerp.getPositions(addr)).pipe(
+      timeout(7000),
       catchError(() => of([] as LighterPosition[])),
       map((positions): EvmPosition[] => (positions || []).filter((p) => !p.closed).map((p) => ({
         chain: 'robinhood',
@@ -456,6 +457,9 @@ export class EvmHoldingsComponent implements OnInit {
       .get<Record<string, { usd: number }>>('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
       .pipe(map((r) => Number(r?.['ethereum']?.usd) || 0), catchError(() => of(0)));
     return forkJoin({ eth: bal$(), usdg: bal$(USDG), ethUsd: ethUsd$ }).pipe(
+      // A hung Robinhood RPC or CoinGecko call must never stall the whole
+      // page — forkJoin only emits once every source completes, so cap it.
+      timeout(7000),
       map(({ eth, usdg, ethUsd }): EvmToken[] => {
         const out: EvmToken[] = [];
         const ethBal = Number(eth?.balance) || 0;
@@ -477,6 +481,7 @@ export class EvmHoldingsComponent implements OnInit {
 
   private uniswapPositions$() {
     return this.api.post<{ positions: any[] }>('/actions/uniswap/lp/positions', {}).pipe(
+      timeout(9000),
       catchError(() => of({ positions: [] })),
       map((res): EvmPosition[] => (res?.positions || []).map((p) => ({
         chain: p.chain,
