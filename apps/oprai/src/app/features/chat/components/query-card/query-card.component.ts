@@ -58,6 +58,39 @@ interface UniswapPool {
   quoteLogo?: string | null;
 }
 
+interface MorphoMarketRow {
+  marketId: string; chainId?: number; chainName?: string;
+  loanSymbol: string; loanAddress: string; loanDecimals: number; loanLogo?: string | null;
+  collateralSymbol: string; collateralAddress: string; collateralDecimals: number; collateralLogo?: string | null;
+  lltvPct: number;
+  supplyApy?: number | null; borrowApy?: number | null; utilization?: number | null;
+  supplyUsd?: number | null; borrowUsd?: number | null; liquidityUsd?: number | null;
+}
+interface MorphoPositionRow {
+  marketId: string; chainId?: number; chainName?: string;
+  loanSymbol: string; loanDecimals: number; loanLogo?: string | null;
+  collateralSymbol: string; collateralDecimals: number; collateralLogo?: string | null;
+  supplyAssets?: unknown; supplyUsd?: number | null;
+  borrowAssets?: unknown; borrowUsd?: number | null;
+  collateral?: unknown; collateralUsd?: number | null;
+  healthFactor?: number | null; supplyApy?: number | null; borrowApy?: number | null;
+}
+
+interface OpenseaCollectionRow {
+  slug: string; name: string; image?: string | null; description?: string | null; contract?: string; url?: string | null;
+}
+interface OpenseaListingRow {
+  orderHash: string; protocolAddress: string; token: string; tokenId: string;
+  price?: number | null; priceWei?: string; currency?: string;
+  name?: string | null; image?: string | null;
+}
+
+interface SushiPoolRow {
+  poolAddress: string; name: string; feePct?: number | null;
+  tvlUsd?: number | null; volume24hUsd?: number | null; aprEst?: number | null;
+  token0Symbol: string; token0Address: string; token1Symbol: string; token1Address: string;
+}
+
 interface UniswapLaunch {
   tokenAddress: string;
   symbol: string;
@@ -809,6 +842,21 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/marinade.webp';
       case 'lighter_positions':
         return 'assets/protocols/lighter.png?v=2';
+      case 'morpho_markets':
+      case 'morpho_positions':
+        return 'assets/protocols/morpho.svg';
+      case 'sushi_pools':
+        return 'assets/protocols/sushi.svg';
+      case 'opensea_collections':
+      case 'opensea_listings':
+      case 'opensea_trending':
+      case 'opensea_collection':
+      case 'opensea_nfts':
+      case 'opensea_nft':
+      case 'opensea_offers':
+      case 'opensea_activity':
+      case 'opensea_wallet_nfts':
+        return 'assets/protocols/opensea.svg';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:
@@ -871,6 +919,18 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // `query` — seed the search box so the card opens on the matches.
       const q = (this.query.params?.['query'] ?? this.query.params?.['search'] ?? '').toString();
       if (q) this.uniswapLaunchSearch = q;
+    }
+
+    // Morpho markets: open on the chain the user named ("morpho markets on Base"),
+    // else Robinhood (our home chain).
+    if (this.query.type === 'morpho_markets') {
+      const c = String(this.query.params?.['chain'] ?? this.query.params?.['chainId'] ?? '').toLowerCase().trim();
+      const map: Record<string, number> = {
+        ethereum: 1, eth: 1, mainnet: 1, base: 8453, arbitrum: 42161, arb: 42161,
+        optimism: 10, op: 10, polygon: 137, matic: 137, unichain: 130, robinhood: 4663, rh: 4663,
+      };
+      const id = Number(c) || map[c] || 0;
+      if (id && this.MORPHO_CHAINS.some(([cid]) => cid === id)) this.morphoChain.set(id);
     }
 
     // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
@@ -1093,6 +1153,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['uniswapPoolsResults']) this.uniswapPoolsResults = d['uniswapPoolsResults'] as UniswapPool[];
     if (d['uniswapLaunchesResults']) this.uniswapLaunchesResults = d['uniswapLaunchesResults'] as UniswapLaunch[];
+    if (d['morphoMarketRows'])   this.morphoMarketRows   = d['morphoMarketRows']   as MorphoMarketRow[];
+    if (d['morphoPositionRows']) this.morphoPositionRows = d['morphoPositionRows'] as MorphoPositionRow[];
+    if (d['sushiPoolRows'])      this.sushiPoolRows      = d['sushiPoolRows']      as SushiPoolRow[];
+    if (d['openseaCollections']) this.openseaCollections = d['openseaCollections'] as OpenseaCollectionRow[];
+    if (d['openseaListings'])    this.openseaListings    = d['openseaListings']    as OpenseaListingRow[];
+    if (d['openseaCollectionDetail']) this.openseaCollectionDetail = d['openseaCollectionDetail'];
+    if (d['openseaNftDetail'])   this.openseaNftDetail   = d['openseaNftDetail'];
+    if (d['openseaNftsRows'])    this.openseaNftsRows    = d['openseaNftsRows'] as any[];
+    if (d['openseaOffersRows'])  this.openseaOffersRows  = d['openseaOffersRows'] as any[];
+    if (d['openseaActivityRows']) this.openseaActivityRows = d['openseaActivityRows'] as any[];
+    if (d['openseaWalletNfts'])  this.openseaWalletNfts  = d['openseaWalletNfts'] as any[];
     if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
     if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
     if (d['uniswapLaunchSearch'] != null) this.uniswapLaunchSearch = d['uniswapLaunchSearch'] as string;
@@ -1203,6 +1274,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
     if (this.uniswapPoolsResults.length) d['uniswapPoolsResults'] = this.uniswapPoolsResults;
     if (this.uniswapLaunchesResults.length) d['uniswapLaunchesResults'] = this.uniswapLaunchesResults;
+    if (this.morphoMarketRows.length)   d['morphoMarketRows']   = this.morphoMarketRows;
+    if (this.morphoPositionRows.length) d['morphoPositionRows'] = this.morphoPositionRows;
+    if (this.sushiPoolRows.length)      d['sushiPoolRows']      = this.sushiPoolRows;
+    if (this.openseaCollections.length) d['openseaCollections'] = this.openseaCollections;
+    if (this.openseaListings.length)    d['openseaListings']    = this.openseaListings;
+    if (this.openseaCollectionDetail)   d['openseaCollectionDetail'] = this.openseaCollectionDetail;
+    if (this.openseaNftDetail)          d['openseaNftDetail']   = this.openseaNftDetail;
+    if (this.openseaNftsRows.length)    d['openseaNftsRows']    = this.openseaNftsRows;
+    if (this.openseaOffersRows.length)  d['openseaOffersRows']  = this.openseaOffersRows;
+    if (this.openseaActivityRows.length) d['openseaActivityRows'] = this.openseaActivityRows;
+    if (this.openseaWalletNfts.length)  d['openseaWalletNfts']  = this.openseaWalletNfts;
     if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
     if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
     if (this.uniswapLaunchSearch) d['uniswapLaunchSearch'] = this.uniswapLaunchSearch;
@@ -3600,6 +3682,298 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Morpho Blue (Robinhood Chain) — market list + user positions ────────────
+  morphoMarketRows: MorphoMarketRow[] = [];
+  morphoPositionRows: MorphoPositionRow[] = [];
+  readonly morphoFetching = signal(false);
+
+  morphoPct(v: unknown): string { const n = Number(v); return `${(Number.isFinite(n) ? n * 100 : 0).toFixed(2)}%`; }
+  morphoUsd(v: unknown): string {
+    const n = Number(v);
+    if (!(n > 0)) return '$0';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+
+  /** Chains Morpho is on across OPRAI's networks (for the markets chain switcher). */
+  readonly MORPHO_CHAINS: ReadonlyArray<readonly [number, string]> = [
+    [4663, 'Robinhood'], [8453, 'Base'], [1, 'Ethereum'], [42161, 'Arbitrum'],
+    [10, 'Optimism'], [137, 'Polygon'], [130, 'Unichain'],
+  ];
+  readonly morphoChain = signal<number>(4663);
+  setMorphoChain(id: number): void {
+    if (this.morphoChain() === id) return;
+    this.morphoChain.set(id);
+    this.morphoMarketRows = [];
+    void this.fetchMorphoMarkets();
+  }
+  private async fetchMorphoMarkets(): Promise<void> {
+    this.morphoFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'morpho_markets',
+        params: { chain: this.morphoChain(), ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : { limit: 30 }) },
+      }).pipe(timeout(30_000)));
+      this.morphoMarketRows = Array.isArray(resp?.data?.markets) ? resp.data.markets : [];
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Morpho markets');
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  private async fetchMorphoPositions(): Promise<void> {
+    this.morphoFetching.set(true);
+    this.error.set(null);
+    // Morpho is EVM (Robinhood Chain) — positions are keyed by the linked EVM
+    // address, resolved the same way as Lighter's.
+    const evm = await this.lighterPerp.resolveEvmAddress();
+    if (!evm) {
+      this.error.set('Connect an EVM wallet to see Morpho positions');
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'morpho_positions', params: { wallet: evm },
+      }).pipe(timeout(30_000)));
+      this.morphoPositionRows = Array.isArray(resp?.data?.positions) ? resp.data.positions : [];
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Morpho positions');
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  // ── SushiSwap V3 pools (Robinhood Chain) ────────────────────────────────────
+  sushiPoolRows: SushiPoolRow[] = [];
+  readonly sushiFetching = signal(false);
+
+  private async fetchSushiPools(): Promise<void> {
+    this.sushiFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'sushi_pools',
+        params: { ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : { limit: 30 }) },
+      }).pipe(timeout(30_000)));
+      this.sushiPoolRows = Array.isArray(resp?.data?.pools) ? resp.data.pools : [];
+      this.sushiFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Sushi pools');
+      this.sushiFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+  /** Open the Sushi add-liquidity card for a pool row. */
+  sushiAddLiq(p: SushiPoolRow): void {
+    const params: Record<string, string> = {
+      poolAddress: p.poolAddress,
+      inputToken: p.token0Address,
+      tokenInSymbol: p.token0Symbol,
+      tokenOutSymbol: p.token1Symbol,
+    };
+    this.useAction.emit({ type: 'sushi_add_liquidity', params, raw: `[ACTION:sushi_add_liquidity] ${JSON.stringify(params)}` });
+  }
+  sushiUsd(v: unknown): string {
+    const n = Number(v);
+    if (!(n > 0)) return '$0';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+
+  // ── OpenSea NFTs (Robinhood Chain) — collections → in-card drill to listings ──
+  openseaCollections: OpenseaCollectionRow[] = [];
+  openseaListings: OpenseaListingRow[] = [];
+  readonly openseaSelectedSlug = signal<string | null>(null);
+  readonly openseaSelectedName = signal<string>('');
+  readonly openseaFetching = signal(false);
+
+  private async fetchOpenseaCollections(): Promise<void> {
+    this.openseaFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_collections',
+        params: { ...(this.query.params?.['query'] ? { query: String(this.query.params['query']) } : {}), limit: 48 },
+      }).pipe(timeout(30_000)));
+      this.openseaCollections = Array.isArray(resp?.data?.collections) ? resp.data.collections : [];
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load OpenSea collections');
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+  private async fetchOpenseaListings(slug: string): Promise<void> {
+    this.openseaFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_listings', params: { slug, limit: 30 },
+      }).pipe(timeout(30_000)));
+      this.openseaListings = Array.isArray(resp?.data?.listings) ? resp.data.listings : [];
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load OpenSea listings');
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+  /** Drill into a collection's listings inside the same card. */
+  openOpenseaCollection(c: OpenseaCollectionRow): void {
+    this.openseaSelectedSlug.set(c.slug);
+    this.openseaSelectedName.set(c.name || c.slug);
+    this.openseaListings = [];
+    void this.fetchOpenseaListings(c.slug);
+  }
+  backToOpenseaCollections(): void {
+    this.openseaSelectedSlug.set(null);
+    this.openseaListings = [];
+  }
+  /** Buy an NFT listing → opens the OpenSea buy action card. */
+  openseaBuy(l: OpenseaListingRow): void {
+    const params: Record<string, string> = {
+      orderHash: l.orderHash,
+      protocolAddress: l.protocolAddress,
+      ...(l.name ? { nftName: l.name } : {}),
+      ...(l.image ? { nftImage: l.image } : {}),
+      ...(l.price != null ? { price: String(l.price) } : {}),
+    };
+    this.useAction.emit({ type: 'opensea_buy', params, raw: `[ACTION:opensea_buy] ${JSON.stringify(params)}` });
+  }
+
+  // OpenSea full marketplace state
+  openseaCollectionDetail: any = null;
+  openseaNftDetail: any = null;
+  openseaNftsRows: any[] = [];
+  openseaOffersRows: any[] = [];
+  openseaActivityRows: any[] = [];
+  openseaWalletNfts: any[] = [];
+
+  private async fetchOpenseaTrending(): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    try {
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_trending', params: { limit: 48 } }).pipe(timeout(30_000)));
+      this.openseaCollections = Array.isArray(r?.data?.collections) ? r.data.collections : [];
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load trending collections'); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+  private async fetchOpenseaCollection(slug: string): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    this.openseaSelectedSlug.set(slug);
+    try {
+      const [det, ls] = await Promise.all([
+        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_collection', params: { slug } }).pipe(timeout(30_000))),
+        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_listings', params: { slug, limit: 24 } }).pipe(timeout(30_000))),
+      ]);
+      this.openseaCollectionDetail = det?.data?.collection ?? null;
+      this.openseaSelectedName.set(this.openseaCollectionDetail?.name || slug);
+      this.openseaListings = Array.isArray(ls?.data?.listings) ? ls.data.listings : [];
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load collection'); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+  private async fetchOpenseaSimple(type: string, field: 'openseaNftsRows'|'openseaOffersRows'|'openseaActivityRows'|'openseaWalletNfts', key: string, params: Record<string, unknown>): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    try {
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', { type, params }).pipe(timeout(30_000)));
+      (this as any)[field] = Array.isArray(r?.data?.[key]) ? r.data[key] : [];
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load ' + type); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+
+  private async fetchOpenseaNft(): Promise<void> {
+    this.openseaFetching.set(true); this.error.set(null);
+    try {
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_nft',
+        params: {
+          contract: String(this.query.params?.['contract'] ?? this.query.params?.['token'] ?? ''),
+          tokenId: String(this.query.params?.['tokenId'] ?? this.query.params?.['identifier'] ?? ''),
+        },
+      }).pipe(timeout(30_000)));
+      this.openseaNftDetail = r?.data?.nft ?? null;
+      this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
+    } catch { this.error.set('Failed to load NFT'); this.openseaFetching.set(false); this.loading.set(false); }
+  }
+
+  /** List one of the user's NFTs for sale. */
+  openseaList(n: any): void {
+    const params: Record<string, string> = {
+      token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
+      ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+    };
+    this.useAction.emit({ type: 'opensea_list', params, raw: `[ACTION:opensea_list] ${JSON.stringify(params)}` });
+  }
+  /** Make an offer (WETH bid) on an NFT. */
+  openseaMakeOffer(n: any): void {
+    const params: Record<string, string> = {
+      token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
+      ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+    };
+    this.useAction.emit({ type: 'opensea_make_offer', params, raw: `[ACTION:opensea_make_offer] ${JSON.stringify(params)}` });
+  }
+  /** Accept an offer on the user's NFT. */
+  openseaAccept(o: any): void {
+    const params: Record<string, string> = {
+      orderHash: o.orderHash, protocolAddress: o.protocolAddress || '',
+      token: o.token || this.openseaCollectionDetail?.contract || '', tokenId: String(o.tokenId ?? ''),
+    };
+    this.useAction.emit({ type: 'opensea_accept_offer', params, raw: `[ACTION:opensea_accept_offer] ${JSON.stringify(params)}` });
+  }
+  osTime(ts: unknown): string {
+    const n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '';
+    const diff = Math.floor(Date.now() / 1000) - n;
+    if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  morphoNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
+  /** Open the Morpho action card for a market row (Lend or Borrow). */
+  morphoAct(kind: 'supply' | 'borrow' | 'repay' | 'withdraw', m: MorphoMarketRow): void {
+    const p: Record<string, string> = {
+      marketId: m.marketId,
+      loanSymbol: m.loanSymbol,
+      collateralSymbol: m.collateralSymbol,
+      ...(m.chainId ? { chain: String(m.chainId) } : {}),
+    };
+    this.useAction.emit({ type: `morpho_${kind}`, params: p, raw: `[ACTION:morpho_${kind}] ${JSON.stringify(p)}` });
+  }
+  /** Open the Morpho action card from a POSITION row (Repay or Withdraw). For a
+   *  withdraw, default the target to whichever side the user actually holds. */
+  morphoActPos(kind: 'repay' | 'withdraw', p: MorphoPositionRow): void {
+    const params: Record<string, string> = {
+      marketId: p.marketId,
+      loanSymbol: p.loanSymbol,
+      collateralSymbol: p.collateralSymbol,
+      ...(p.chainId ? { chain: String(p.chainId) } : {}),
+    };
+    if (kind === 'withdraw') {
+      params['target'] = this.morphoNum(p.collateralUsd) > 0 && this.morphoNum(p.supplyUsd) <= 0 ? 'collateral' : 'supply';
+    }
+    this.useAction.emit({ type: `morpho_${kind}`, params, raw: `[ACTION:morpho_${kind}] ${JSON.stringify(params)}` });
+  }
+
   /** Buy a launched token natively on pools.trade (bonding curve / CCA), paying
    *  in USD-worth of ETH on Robinhood Chain. Opens the pools_buy action card
    *  where the user enters the USD amount. Uses trade.prepareBuy, NOT a raw v4
@@ -4551,6 +4925,44 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'uniswap_launches':
         await this.fetchUniswapLaunches();
+        return;
+      case 'morpho_markets':
+        await this.fetchMorphoMarkets();
+        return;
+      case 'morpho_positions':
+        await this.fetchMorphoPositions();
+        return;
+      case 'sushi_pools':
+        await this.fetchSushiPools();
+        return;
+      case 'opensea_collections':
+        await this.fetchOpenseaCollections();
+        return;
+      case 'opensea_listings':
+        this.openseaSelectedSlug.set(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
+        await this.fetchOpenseaListings(this.openseaSelectedSlug() || '');
+        return;
+      case 'opensea_trending':
+        await this.fetchOpenseaTrending();
+        return;
+      case 'opensea_collection':
+        await this.fetchOpenseaCollection(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
+        return;
+      case 'opensea_nfts':
+        await this.fetchOpenseaSimple('opensea_nfts', 'openseaNftsRows', 'nfts', { slug: String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''), limit: 40 });
+        return;
+      case 'opensea_offers':
+        this.openseaSelectedSlug.set(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
+        await this.fetchOpenseaSimple('opensea_offers', 'openseaOffersRows', 'offers', { slug: this.openseaSelectedSlug() });
+        return;
+      case 'opensea_activity':
+        await this.fetchOpenseaSimple('opensea_activity', 'openseaActivityRows', 'events', { slug: String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''), limit: 25 });
+        return;
+      case 'opensea_wallet_nfts':
+        await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: await this.lighterPerp.resolveEvmAddress() ?? 'self', limit: 40 });
+        return;
+      case 'opensea_nft':
+        await this.fetchOpenseaNft();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

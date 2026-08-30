@@ -56,6 +56,9 @@ VALID_PROTOCOLS: frozenset[str] = frozenset({
     "tensor", "magic_eden", "pumpfun",
     "relay", "uniswap",
     "lighter",
+    "morpho",
+    "sushi",
+    "opensea",
 })
 
 
@@ -103,6 +106,12 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     "uniswap":   ("uniswap", "uni swap"),
     "poolstrade": ("pools.trade", "pools trade", "poolstrade", "uniswap launchpad", "launchpad"),
     "pons":      ("pons", "ponsfamily"),
+    # Morpho Blue = lending on Robinhood Chain (single-meaning product name).
+    "morpho":    ("morpho", "morpho blue"),
+    # SushiSwap = DEX on Robinhood Chain (single-meaning product name).
+    "sushi":     ("sushi", "sushiswap", "sushi swap"),
+    # OpenSea = NFT marketplace on Robinhood Chain (single-meaning product name).
+    "opensea":   ("opensea", "open sea"),
     # Lighter = zero-fee CLOB perps (Robinhood Chain domain). Multi-word / suffix
     # forms only — the bare word "lighter" is a common English adjective, so the
     # classifier handles that case semantically (see _SYSTEM). These are

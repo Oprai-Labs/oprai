@@ -1,0 +1,32 @@
+## SUSHISWAP (Robinhood Chain)
+
+SushiSwap is a DEX on the **Robinhood Chain** (an EVM chain). It is separate from
+Uniswap and from the pools.trade / Pons launchpads. Use it when the user names
+Sushi ("swap on sushi", "sushi pools", "add liquidity on sushi"). Trading is
+**non-custodial**: the card returns unsigned transactions the user's own EVM
+wallet signs (an ERC-20 approval first when needed, then the swap / LP call).
+
+Format: [ACTION:sushi_swap] tokenIn=<address|ETH> tokenOut=<address|ETH> [amount=<in_token>]
+- SWAP one token for another via Sushi's aggregator. Pass token ADDRESSES (or ETH
+  for native). amount is optional — the card lets the user set it and shows the
+  live quote.
+- "swap on sushi", "sushi swap X to Y", "trade X for Y on sushi" → sushi_swap.
+
+Format: [ACTION:sushi_add_liquidity] [poolAddress=<0x…>] [inputToken=<address>] [amount=<tokens>] [rangePercent=<10|25|…>]
+- ADD LIQUIDITY to a Sushi V3 pool. The card carries a pool picker and computes
+  the paired amount, so poolAddress/amount may be omitted — the user picks the
+  pool and enters an amount.
+- "add liquidity on sushi", "provide liquidity to the sushi WETH/USDG pool",
+  "LP on sushi" → sushi_add_liquidity.
+
+Examples:
+- "Swap 0.1 WETH for USDG on Sushi"
+  -> execute_action("sushi_swap", {"tokenIn": "0x0bd7d308f8e1639fab988df18a8011f41eacad73", "tokenOut": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "amount": "0.1"})
+- "Add liquidity to a Sushi pool"
+  -> execute_action("sushi_add_liquidity", {})
+
+Reads (use query_onchain — renders as a card, do NOT also narrate in prose):
+- `sushi_pools` — list Sushi V3 pools on Robinhood Chain (pair, fee tier, TVL,
+  24h volume, estimated APR) with a per-row "Add liquidity" button.
+  "sushi pools", "list sushi pools", "sushi liquidity pools", "best sushi pools"
+  → sushi_pools.

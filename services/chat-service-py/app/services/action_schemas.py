@@ -442,6 +442,19 @@ class ActionType(str, Enum):
     PONS_BUY = "pons_buy"
     PONS_SELL = "pons_sell"
     PONS_LAUNCH = "pons_launch"
+    # SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity, unsigned EVM txs.
+    SUSHI_SWAP = "sushi_swap"
+    SUSHI_ADD_LIQUIDITY = "sushi_add_liquidity"
+    # OpenSea (Seaport) NFT marketplace on Robinhood Chain.
+    OPENSEA_BUY = "opensea_buy"                    # fulfill a listing (tx)
+    OPENSEA_ACCEPT_OFFER = "opensea_accept_offer"  # seller fulfills a bid (tx)
+    OPENSEA_LIST = "opensea_list"                  # sell — Seaport listing (signed order)
+    OPENSEA_MAKE_OFFER = "opensea_make_offer"      # bid — Seaport offer in WETH (signed order)
+    # Morpho Blue lending (Robinhood Chain 4663) — unsigned EVM txs, user signs.
+    MORPHO_SUPPLY = "morpho_supply"      # lend loan asset (earn)
+    MORPHO_BORROW = "morpho_borrow"      # supply collateral + borrow
+    MORPHO_REPAY = "morpho_repay"        # repay debt (partial or full)
+    MORPHO_WITHDRAW = "morpho_withdraw"  # withdraw supplied loan asset or collateral
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -646,6 +659,23 @@ class QueryType(str, Enum):
     UNISWAP_POOLS = "uniswap_pools"
     # Read-only pools.trade launchpad feed (Robinhood Chain). Data card.
     UNISWAP_LAUNCHES = "uniswap_launches"
+    # Morpho Blue lending (Robinhood Chain). Data cards — market list + a
+    # wallet's positions (supplied / collateral / borrowed / health).
+    MORPHO_MARKETS = "morpho_markets"
+    MORPHO_POSITIONS = "morpho_positions"
+    # SushiSwap V3 pool listing (Robinhood Chain). Data card.
+    SUSHI_POOLS = "sushi_pools"
+    # OpenSea (Robinhood Chain) — NFT reads: browse, trending, collection detail,
+    # a collection's listings / NFTs / offers / activity, one NFT, wallet NFTs.
+    OPENSEA_COLLECTIONS = "opensea_collections"
+    OPENSEA_LISTINGS = "opensea_listings"
+    OPENSEA_TRENDING = "opensea_trending"
+    OPENSEA_COLLECTION = "opensea_collection"
+    OPENSEA_NFTS = "opensea_nfts"
+    OPENSEA_NFT = "opensea_nft"
+    OPENSEA_OFFERS = "opensea_offers"
+    OPENSEA_ACTIVITY = "opensea_activity"
+    OPENSEA_WALLET_NFTS = "opensea_wallet_nfts"
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"
@@ -872,6 +902,13 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "pools_buy", "pools_sell", "pools_launch",
     # Pons launchpad (ponsfamily.com) — same fund-moving semantics
     "pons_buy", "pons_sell", "pons_launch",
+    # Morpho Blue lending (Robinhood Chain) — supply/borrow/repay/withdraw move funds
+    "morpho_supply", "morpho_borrow", "morpho_repay", "morpho_withdraw",
+    # SushiSwap (Robinhood Chain) — swap spends input; add-liquidity deposits both legs
+    "sushi_swap", "sushi_add_liquidity",
+    # OpenSea (Robinhood Chain) — buy spends ETH; accept-offer transfers the NFT;
+    # list/make-offer are signed orders that move value on acceptance.
+    "opensea_buy", "opensea_accept_offer", "opensea_list", "opensea_make_offer",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1123,6 +1160,20 @@ def validate_action_params(
         "lighter_open":     ("symbol", "side"),
         "lighter_close":    ("symbol", "side"),
         "lighter_leverage": ("symbol", "leverage"),
+        # SushiSwap — a swap needs both sides; add-liquidity resolves the rest in
+        # the card (pool picker + amount).
+        "sushi_swap":       ("tokenIn", "tokenOut"),
+        # OpenSea buy needs the listing to fulfill.
+        "opensea_buy":      ("orderHash",),
+        "opensea_accept_offer": ("orderHash", "token", "tokenId"),
+        "opensea_list":     ("token", "tokenId", "priceEth"),
+        "opensea_make_offer": ("token", "tokenId", "priceEth"),
+        # Morpho Blue lending — no hard requirement at the chat layer: the card
+        # carries a market picker and resolves `marketId` itself (from a
+        # loanSymbol/collateralSymbol hint or the default market), the same way
+        # the Lighter card resolves size/leverage. Forcing marketId here would
+        # break the natural "lend USDG on Morpho" turn where the user names no
+        # specific market.
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]

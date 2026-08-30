@@ -294,6 +294,57 @@ func (p *SolanaProxy) PostPonsLaunch(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// Morpho Blue lending — unsigned EVM txs on Robinhood Chain (4663), signed by
+// the user's own wallet.
+func (p *SolanaProxy) PostMorphoSupply(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/supply"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostMorphoBorrow(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/borrow"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostMorphoRepay(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/repay"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostMorphoWithdraw(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/withdraw"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// SushiSwap — swap + V3 add-liquidity on Robinhood Chain (unsigned EVM txs).
+func (p *SolanaProxy) PostSushiSwap(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/sushi/swap"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostSushiAddLiquidity(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/sushi/add-liquidity"
+	p.proxy.ServeHTTP(w, r)
+}
+
+// OpenSea (Seaport) — full marketplace on Robinhood Chain (unsigned txs / signed orders).
+func (p *SolanaProxy) PostOpenseaBuy(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/buy"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostOpenseaAcceptOffer(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/accept-offer"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostOpenseaList(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/list"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostOpenseaMakeOffer(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/make-offer"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostOpenseaOrderSubmit(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/order/submit"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

@@ -290,6 +290,25 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # pools.trade launchpad feed (Robinhood) — self-fetching card with per-row
     # Buy buttons. Prose can't carry logo/price/FDV/holders per launch.
     "uniswap_launches",
+    # Morpho Blue lending (Robinhood Chain) — the market list needs APY/LLTV/TVL
+    # per row with Lend/Borrow buttons; positions need per-market supplied /
+    # collateral / borrowed / health. Prose is the wrong shape for both.
+    "morpho_markets",
+    "morpho_positions",
+    # SushiSwap V3 pool list (Robinhood Chain) — per-row TVL/APR/fee + Add-liquidity
+    # button; prose can't carry that shape.
+    "sushi_pools",
+    # OpenSea (Robinhood Chain) — all NFT reads render as cards (grids, detail,
+    # activity, offers). NFTs are pictures with prices — prose is the wrong shape.
+    "opensea_collections",
+    "opensea_listings",
+    "opensea_trending",
+    "opensea_collection",
+    "opensea_nfts",
+    "opensea_nft",
+    "opensea_offers",
+    "opensea_activity",
+    "opensea_wallet_nfts",
     # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
     # shape for all of these. The collection lists need a floor and a thumbnail
     # per row, the token lists a grid you can buy from, the offer lists an

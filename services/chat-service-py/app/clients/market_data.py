@@ -2893,6 +2893,25 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "strategy_flows",
     "position_review",
     "lending_rates",
+    # Morpho Blue lending (Robinhood Chain 4663) — market list + a wallet's
+    # positions. Served by the Rust service via /actions/build (tx=None); the
+    # market list is wallet-independent, positions take a `wallet` param.
+    "morpho_markets",
+    "morpho_positions",
+    # SushiSwap V3 pool list (Robinhood Chain) — served by the Rust service via
+    # /actions/build (GeckoTerminal under the hood), tx=None.
+    "sushi_pools",
+    # OpenSea (Robinhood Chain) — all NFT reads, served by the Rust service via
+    # /actions/build (OpenSea API, key server-side).
+    "opensea_collections",
+    "opensea_listings",
+    "opensea_trending",
+    "opensea_collection",
+    "opensea_nfts",
+    "opensea_nft",
+    "opensea_offers",
+    "opensea_activity",
+    "opensea_wallet_nfts",
 })
 
 

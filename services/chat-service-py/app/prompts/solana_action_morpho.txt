@@ -1,0 +1,55 @@
+## MORPHO BLUE LENDING (Robinhood Chain)
+
+Morpho Blue is a lending protocol on the **Robinhood Chain** (an EVM chain). It is
+NOT on Solana, NOT Kamino, and NOT Solend. Each Morpho market is an **isolated
+pair**: you lend one asset (the loan asset, almost always **USDG** here) and
+borrow it against ONE specific collateral (USDe, syrupUSDG, sGOV, mGLO, tokenized
+stocks, …). Morpho powers Robinhood's "Earn" USDG yield, so most markets lend
+USDG.
+
+Trading is **non-custodial**: the card returns unsigned transactions the user's
+own EVM wallet signs (an ERC-20 approval first when needed, then the Morpho call).
+The user needs an EVM wallet on Robinhood Chain — the card handles the network.
+
+Actions (each opens a mini-app card; the card has a market picker and resolves the
+exact market itself, so you never need the marketId):
+
+Format: [ACTION:morpho_supply] [amount=<loan_asset>] [loanSymbol=<SYM>] [collateralSymbol=<SYM>] [marketId=<0x…>]
+- LEND / supply the loan asset (e.g. USDG) to earn the market's supply APY.
+- "lend", "supply", "deposit to earn", "earn on morpho" → morpho_supply.
+
+Format: [ACTION:morpho_borrow] [borrowAmount=<loan_asset>] [collateralAmount=<collateral>] [collateralSymbol=<SYM>] [marketId=<0x…>]
+- BORROW the loan asset against collateral. The card lets the user add collateral
+  and set the borrow amount in one step.
+- "borrow", "take a loan", "borrow USDG against <X>" → morpho_borrow.
+
+Format: [ACTION:morpho_repay] [amount=<loan_asset>] [max=<true|false>] [marketId=<0x…>]
+- REPAY debt. Reduce by an amount, or fully close the debt with max=true.
+- "repay", "pay back", "reduce my loan" → morpho_repay (amount).
+- "repay all", "close my loan", "pay it all back" → morpho_repay with max=true.
+
+Format: [ACTION:morpho_withdraw] [amount=<asset>] [target=<supply|collateral>] [max=<true|false>] [marketId=<0x…>]
+- WITHDRAW your supplied loan asset (target=supply, the default) or your posted
+  collateral (target=collateral). max=true withdraws everything.
+- "withdraw my supply / my earnings" → target=supply.
+- "withdraw my collateral", "take my collateral back" → target=collateral.
+
+Examples:
+- "Lend 100 USDG on Morpho"
+  -> execute_action("morpho_supply", {"amount": "100", "loanSymbol": "USDG"})
+- "Borrow 500 USDG against USDe on Morpho"
+  -> execute_action("morpho_borrow", {"borrowAmount": "500", "collateralSymbol": "USDe"})
+- "Repay all my Morpho loan"
+  -> execute_action("morpho_repay", {"max": "true"})
+- "Withdraw my USDe collateral from Morpho"
+  -> execute_action("morpho_withdraw", {"target": "collateral", "max": "true"})
+
+Reads (use query_onchain — these render as cards, do NOT also narrate them in prose):
+- `morpho_markets` — list Morpho lending markets on Robinhood Chain (pair, LLTV,
+  supply/borrow APY, liquidity, TVL) with per-row Lend / Borrow buttons.
+  "morpho markets", "morpho pools", "morpho lending rates", "what can I lend on
+  morpho", "list morpho pools" → morpho_markets.
+- `morpho_positions` {wallet} — the user's Morpho positions (supplied, collateral,
+  borrowed, health factor per market). Use wallet="self".
+  "my morpho positions", "my morpho loans", "how much have I borrowed on morpho"
+  → morpho_positions.

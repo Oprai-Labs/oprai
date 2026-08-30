@@ -79,6 +79,12 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap', 'uniswap_pools', 'uniswap_add_liquidity',
   'pools_buy', 'pools_sell', 'pools_launch',
   'pons_buy', 'pons_sell', 'pons_launch',
+  // Morpho Blue lending (Robinhood Chain 4663 — EVM)
+  'morpho_supply', 'morpho_borrow', 'morpho_repay', 'morpho_withdraw',
+  // SushiSwap (Robinhood Chain 4663 — EVM)
+  'sushi_swap', 'sushi_add_liquidity',
+  // OpenSea NFT marketplace (Robinhood Chain 4663 — EVM)
+  'opensea_buy', 'opensea_accept_offer', 'opensea_list', 'opensea_make_offer',
   'nft_buy', 'nft_list', 'nft_mint',
   // Jupiter
   'limit_order', 'cancel_limit_order', 'cancel_all_limit_orders', 'dca', 'cancel_dca',
@@ -258,6 +264,13 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'analytics', 'nft_collection', 'airdrops', 'gas',
   'wallet_info', 'tax_report', 'limit_orders', 'dca', 'lend_positions', 'perp_positions',
   'lighter_positions', 'lighter_markets', 'lighter_market',
+  // Morpho Blue lending (Robinhood Chain) — market list + user positions cards
+  'morpho_markets', 'morpho_positions',
+  // SushiSwap (Robinhood Chain) — pool list card
+  'sushi_pools',
+  // OpenSea (Robinhood Chain) — NFT marketplace cards
+  'opensea_collections', 'opensea_listings', 'opensea_trending', 'opensea_collection',
+  'opensea_nfts', 'opensea_nft', 'opensea_offers', 'opensea_activity', 'opensea_wallet_nfts',
   // Kamino Multiply pool list (self-fetching query-card)
   'kamino_multiply_markets',
   // Simulation & tracking
@@ -605,6 +618,26 @@ export class IntentParserService {
         return `Close ${action.params['side'] ?? ''} ${action.params['symbol'] ?? action.params['market'] ?? ''} on Lighter`;
       case 'lighter_leverage':
         return `Set ${action.params['symbol'] ?? ''} leverage to ${action.params['leverage'] ?? ''}x on Lighter`;
+      case 'morpho_supply':
+        return `Lend ${action.params['amount'] ?? ''} ${action.params['loanSymbol'] ?? 'USDG'} on Morpho`;
+      case 'morpho_borrow':
+        return `Borrow ${action.params['borrowAmount'] ?? ''} ${action.params['loanSymbol'] ?? 'USDG'} on Morpho`;
+      case 'morpho_repay':
+        return action.params['max'] === 'true' ? `Repay all on Morpho` : `Repay ${action.params['amount'] ?? ''} on Morpho`;
+      case 'morpho_withdraw':
+        return `Withdraw ${action.params['target'] === 'collateral' ? 'collateral' : 'supply'} on Morpho`;
+      case 'sushi_swap':
+        return `Swap on Sushi`;
+      case 'sushi_add_liquidity':
+        return `Add liquidity on Sushi`;
+      case 'opensea_buy':
+        return `Buy NFT on OpenSea`;
+      case 'opensea_accept_offer':
+        return `Accept offer on OpenSea`;
+      case 'opensea_list':
+        return `List NFT on OpenSea${action.params['priceEth'] ? ' for ' + action.params['priceEth'] + ' ETH' : ''}`;
+      case 'opensea_make_offer':
+        return `Make offer on OpenSea${action.params['priceEth'] ? ' (' + action.params['priceEth'] + ' WETH)' : ''}`;
       case 'jlp_add':
         return `Add ${action.params['amount'] ?? ''} ${action.params['token'] ?? 'SOL'} to JLP pool`;
       case 'jlp_remove':
@@ -985,6 +1018,16 @@ export class IntentParserService {
       case 'lighter_onboard': return 'shield-check';
       case 'lighter_deposit': return 'wallet';
       case 'lighter_leverage': return 'settings';
+      case 'morpho_supply': return 'piggy-bank';
+      case 'morpho_borrow': return 'hand-coins';
+      case 'morpho_repay': return 'undo-2';
+      case 'morpho_withdraw': return 'download';
+      case 'sushi_swap': return 'arrow-down-up';
+      case 'sushi_add_liquidity': return 'droplets';
+      case 'opensea_buy': return 'shopping-cart';
+      case 'opensea_accept_offer': return 'check-check';
+      case 'opensea_list': return 'tag';
+      case 'opensea_make_offer': return 'hand-coins';
       case 'jlp_add': return 'droplets';
       case 'jlp_remove': return 'droplets';
       case 'nft_buy': return 'image';
@@ -1182,6 +1225,18 @@ export class IntentParserService {
       case 'lend_positions': return 'landmark';
       case 'perp_positions': return 'trending-up';
       case 'lighter_positions': return 'trending-up';
+      case 'morpho_markets': return 'layers';
+      case 'morpho_positions': return 'piggy-bank';
+      case 'sushi_pools': return 'droplets';
+      case 'opensea_collections': return 'image';
+      case 'opensea_listings': return 'image';
+      case 'opensea_trending': return 'flame';
+      case 'opensea_collection': return 'image';
+      case 'opensea_nfts': return 'image';
+      case 'opensea_nft': return 'image';
+      case 'opensea_offers': return 'hand-coins';
+      case 'opensea_activity': return 'activity';
+      case 'opensea_wallet_nfts': return 'wallet';
       case 'alerts': return 'bell-ring';
       // Solend (data-only)
       case 'solend_user_info': return 'user';
@@ -1314,6 +1369,30 @@ export class IntentParserService {
         return 'Jupiter Perp Positions';
       case 'lighter_positions':
         return 'Lighter Positions';
+      case 'morpho_markets':
+        return 'Morpho Markets';
+      case 'morpho_positions':
+        return 'Morpho Positions';
+      case 'sushi_pools':
+        return 'Sushi Pools';
+      case 'opensea_collections':
+        return 'OpenSea Collections';
+      case 'opensea_listings':
+        return 'OpenSea Listings';
+      case 'opensea_trending':
+        return 'Trending on OpenSea';
+      case 'opensea_collection':
+        return 'OpenSea Collection';
+      case 'opensea_nfts':
+        return 'OpenSea NFTs';
+      case 'opensea_nft':
+        return 'NFT';
+      case 'opensea_offers':
+        return 'OpenSea Offers';
+      case 'opensea_activity':
+        return 'OpenSea Activity';
+      case 'opensea_wallet_nfts':
+        return 'My NFTs';
       case 'transactions':
         return `Recent Transactions`;
       case 'token_info':

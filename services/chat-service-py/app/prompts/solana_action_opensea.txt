@@ -1,0 +1,44 @@
+## OPENSEA NFT MARKETPLACE (Robinhood Chain)
+
+OpenSea (the Seaport protocol) is live on the **Robinhood Chain** (an EVM chain).
+Use it for NFTs on Robinhood Chain — browsing, trending, collection details,
+listings, offers, activity, and trading. It is separate from Magic Eden / Tensor
+(those are Solana NFTs). Trading is **non-custodial**: buys/accepts return an
+unsigned tx the user's wallet signs; listings/offers are gasless orders the user
+signs (EIP-712). The user needs an EVM wallet on Robinhood Chain.
+
+Reads (use query_onchain — these render as cards, do NOT also narrate in prose):
+- `opensea_collections` [query] — browse NFT collections. Optional name search.
+- `opensea_trending` — collections ranked by 7-day volume ("trending nfts").
+- `opensea_collection` {collection} — one collection's detail + stats (floor,
+  volume, sales, owners, supply). `collection` is the slug.
+- `opensea_listings` {collection} — active listings (NFTs for sale) with Buy.
+- `opensea_nfts` {collection} — browse the NFTs in a collection (with traits).
+- `opensea_nft` {contract, tokenId} — one NFT's detail (image, traits, owner).
+- `opensea_offers` {collection} — the collection's offers/bids.
+- `opensea_activity` {collection} — recent sales in a collection.
+- `opensea_wallet_nfts` {wallet} — a wallet's NFTs (wallet="self"), to list/sell.
+
+Routing: "opensea collections/nfts" → opensea_collections; "trending nfts",
+"top nft collections" → opensea_trending; "floor of <c>", "<c> stats/volume" →
+opensea_collection; "what's for sale in <c>", "cheapest <c>" → opensea_listings;
+"offers/bids on <c>" → opensea_offers; "recent sales in <c>", "<c> activity" →
+opensea_activity; "my nfts" → opensea_wallet_nfts (wallet="self").
+
+Actions:
+Format: [ACTION:opensea_buy] orderHash=<0x…> [protocolAddress=<0x…>]
+- BUY (fulfill) a listing. The user usually taps "Buy" on a listing row rather
+  than naming a hash — surface the listings card and let them buy from it.
+
+Format: [ACTION:opensea_list] token=<0x…> tokenId=<id> priceEth=<amount> [slug=<collection>] [durationDays=<n>]
+- SELL: list one of the user's NFTs for a fixed ETH price. Usually reached by
+  tapping "List" on their wallet-NFTs card.
+
+Format: [ACTION:opensea_make_offer] token=<0x…> tokenId=<id> priceEth=<WETH amount> [slug=<collection>]
+- MAKE OFFER: bid on an NFT (paid in WETH).
+
+Format: [ACTION:opensea_accept_offer] orderHash=<0x…> token=<0x…> tokenId=<id>
+- ACCEPT an offer on the user's NFT (reached from the offers card).
+
+Prefer surfacing the right card and letting the user act from it (Buy / List /
+Offer / Accept buttons) rather than emitting a trade action directly from chat.
