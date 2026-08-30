@@ -83,6 +83,8 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'morpho_supply', 'morpho_borrow', 'morpho_repay', 'morpho_withdraw',
   // SushiSwap (Robinhood Chain 4663 — EVM)
   'sushi_swap', 'sushi_add_liquidity',
+  // OpenSea NFT marketplace (Robinhood Chain 4663 — EVM)
+  'opensea_buy',
   'nft_buy', 'nft_list', 'nft_mint',
   // Jupiter
   'limit_order', 'cancel_limit_order', 'cancel_all_limit_orders', 'dca', 'cancel_dca',
@@ -266,6 +268,8 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'morpho_markets', 'morpho_positions',
   // SushiSwap (Robinhood Chain) — pool list card
   'sushi_pools',
+  // OpenSea (Robinhood Chain) — NFT collections + collection listings cards
+  'opensea_collections', 'opensea_listings',
   // Kamino Multiply pool list (self-fetching query-card)
   'kamino_multiply_markets',
   // Simulation & tracking
@@ -625,6 +629,8 @@ export class IntentParserService {
         return `Swap on Sushi`;
       case 'sushi_add_liquidity':
         return `Add liquidity on Sushi`;
+      case 'opensea_buy':
+        return `Buy NFT on OpenSea`;
       case 'jlp_add':
         return `Add ${action.params['amount'] ?? ''} ${action.params['token'] ?? 'SOL'} to JLP pool`;
       case 'jlp_remove':
@@ -1011,6 +1017,7 @@ export class IntentParserService {
       case 'morpho_withdraw': return 'download';
       case 'sushi_swap': return 'arrow-down-up';
       case 'sushi_add_liquidity': return 'droplets';
+      case 'opensea_buy': return 'shopping-cart';
       case 'jlp_add': return 'droplets';
       case 'jlp_remove': return 'droplets';
       case 'nft_buy': return 'image';
@@ -1211,6 +1218,8 @@ export class IntentParserService {
       case 'morpho_markets': return 'layers';
       case 'morpho_positions': return 'piggy-bank';
       case 'sushi_pools': return 'droplets';
+      case 'opensea_collections': return 'image';
+      case 'opensea_listings': return 'image';
       case 'alerts': return 'bell-ring';
       // Solend (data-only)
       case 'solend_user_info': return 'user';
@@ -1349,6 +1358,10 @@ export class IntentParserService {
         return 'Morpho Positions';
       case 'sushi_pools':
         return 'Sushi Pools';
+      case 'opensea_collections':
+        return 'OpenSea Collections';
+      case 'opensea_listings':
+        return 'OpenSea Listings';
       case 'transactions':
         return `Recent Transactions`;
       case 'token_info':

@@ -284,6 +284,7 @@ fn is_evm_build_action(action_type: &str) -> bool {
         || action_type.starts_with("pons")   // pons_buy/sell/launch (EVM Robinhood launchpad)
         || action_type.starts_with("morpho") // morpho_supply/borrow/repay/withdraw (EVM lending)
         || action_type.starts_with("sushi")  // sushi_swap/add_liquidity (EVM DEX)
+        || action_type.starts_with("opensea") // opensea_buy/list (EVM NFT marketplace)
         || action_type.starts_with("pools")  // pools_buy/sell/launch (pools.trade launchpad)
         || matches!(action_type, "cross_chain_swap" | "bridge")
 }
@@ -496,6 +497,25 @@ pub async fn post_build(
                 query: None,
             });
         let resp = crate::services::sushi::build_pools(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
+    // Read-only, wallet-independent EVM data: OpenSea NFT collections + a
+    // collection's listings on Robinhood Chain. Key is server-side.
+    if body.action_type == "opensea_collections" {
+        let p: crate::services::opensea::OpenseaCollectionsParams =
+            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::opensea::OpenseaCollectionsParams {
+                limit: None,
+                query: None,
+            });
+        let resp = crate::services::opensea::build_collections(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+    if body.action_type == "opensea_listings" {
+        let p: crate::services::opensea::OpenseaListingsParams =
+            serde_json::from_value(body.params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_listings params: {e}")))?;
+        let resp = crate::services::opensea::build_listings(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
 
@@ -2004,6 +2024,18 @@ pub async fn post_sushi_add_liquidity(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result = crate::services::sushi::build_add_liquidity(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/opensea/buy — fulfill an OpenSea listing (Seaport) on Robinhood
+/// Chain. Returns an unsigned tx the user's wallet signs.
+#[post("/opensea/buy")]
+pub async fn post_opensea_buy(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::opensea::build_buy(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 

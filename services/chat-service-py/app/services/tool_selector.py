@@ -373,6 +373,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "morpho_withdraw":               _A({"morpho", "lending"}),
     "sushi_swap":                    _A({"sushi", "dex", "swap"}),
     "sushi_add_liquidity":           _A({"sushi", "dex", "liquidity"}),
+    "opensea_buy":                   _A({"opensea", "nft"}),
     "uniswap_add_liquidity":         _A({"dex", "uniswap", "liquidity"}),
     "relay_bridge":                  _A({"bridge", "relay"}),
     "relay_index_transaction":       _A({"bridge", "relay"}),
@@ -491,6 +492,8 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "morpho_markets": _A({"morpho", "lending", "analysis"}),
     "morpho_positions": _A({"morpho", "lending", "portfolio"}),
     "sushi_pools": _A({"sushi", "dex", "liquidity", "analysis"}),
+    "opensea_collections": _A({"opensea", "nft", "analysis"}),
+    "opensea_listings": _A({"opensea", "nft", "analysis"}),
     "simulate":       _A({"core"}),
     "whale":          _A({"analysis"}),
     "smart_money":    _A({"analysis"}),
@@ -588,6 +591,8 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     "morpho":      _A({"morpho"}),
     # SushiSwap on Robinhood Chain — swap + pools + add-liquidity.
     "sushi":       _A({"sushi"}),
+    # OpenSea NFT marketplace on Robinhood Chain — browse + buy.
+    "opensea":     _A({"opensea", "nft"}),
     "relay":       _A({"relay"}),
     "native_stake":_A({"native_stake", "staking"}),
     # Lighter perps — its own tag so lighter_open/close/leverage surface when

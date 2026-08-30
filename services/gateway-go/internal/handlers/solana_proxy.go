@@ -323,6 +323,12 @@ func (p *SolanaProxy) PostSushiAddLiquidity(w http.ResponseWriter, r *http.Reque
 	p.proxy.ServeHTTP(w, r)
 }
 
+// OpenSea (Seaport) — buy an NFT listing on Robinhood Chain (unsigned tx).
+func (p *SolanaProxy) PostOpenseaBuy(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/buy"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

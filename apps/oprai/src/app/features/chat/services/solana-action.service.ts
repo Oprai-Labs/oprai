@@ -1566,6 +1566,11 @@ export class SolanaActionService {
     if (action.type === 'sushi_swap' || action.type === 'sushi_add_liquidity') {
       return this.executeSushi(action, callbacks);
     }
+    // OpenSea NFT buy — EVM (Robinhood Chain 4663). Backend returns the unsigned
+    // Seaport fulfillment tx; the user's own wallet signs. Route out first.
+    if (action.type === 'opensea_buy') {
+      return this.executeOpenseaBuy(action, callbacks);
+    }
 
     const wallet = this.walletService.publicKey();
     // A cross-chain bridge FROM an EVM chain (e.g. Ethereum → Robinhood) is
@@ -3262,6 +3267,65 @@ export class SolanaActionService {
     }
     callbacks.onConfirm?.(lastHash);
     return lastHash;
+  }
+
+  /**
+   * OpenSea NFT buy (Robinhood Chain 4663). Backend calls OpenSea's
+   * fulfillment_data and ABI-encodes the Seaport tx; here we switch the wallet to
+   * Robinhood Chain and sign the single fulfillment tx.
+   */
+  private async executeOpenseaBuy(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = 4663;
+    const orderHash = String(p['orderHash'] ?? '').trim();
+    if (!orderHash) throw new Error('OpenSea: no listing selected.');
+
+    const ethereum = await this.walletService.resolveEvmProvider();
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to buy on OpenSea.');
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`OpenSea: ${label} timed out`)), ms))]);
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }), 60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network. Switch it to Robinhood Chain and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    const reqBody: Record<string, unknown> = { orderHash, walletAddress: account };
+    if (p['protocolAddress']) reqBody['protocolAddress'] = String(p['protocolAddress']);
+    const prep = await firstValueFrom(this.api.post<any>('/actions/opensea/buy', reqBody));
+    const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
+    if (txs.length === 0) throw new Error('OpenSea: no transaction was returned.');
+
+    callbacks.onSign?.();
+    const tx = txs[0];
+    const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+    const hash = await withTimeout(ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gasHex ? { gas: gasHex } : {}) }],
+    }), 120_000, 'buy') as string;
+    callbacks.onSubmit?.(hash);
+    const ok = await this.watchEvmReceipt(ethereum, hash);
+    if (ok === false) {
+      callbacks.onFail?.('The purchase reverted on-chain — your funds are safe minus the network fee.', hash);
+      return hash;
+    }
+    callbacks.onConfirm?.(hash);
+    return hash;
   }
 
   /** Resolve a Morpho chain hint (numeric id or name) to a chain id. */

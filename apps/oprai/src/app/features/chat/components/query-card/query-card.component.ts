@@ -76,6 +76,15 @@ interface MorphoPositionRow {
   healthFactor?: number | null; supplyApy?: number | null; borrowApy?: number | null;
 }
 
+interface OpenseaCollectionRow {
+  slug: string; name: string; image?: string | null; description?: string | null; contract?: string; url?: string | null;
+}
+interface OpenseaListingRow {
+  orderHash: string; protocolAddress: string; token: string; tokenId: string;
+  price?: number | null; priceWei?: string; currency?: string;
+  name?: string | null; image?: string | null;
+}
+
 interface SushiPoolRow {
   poolAddress: string; name: string; feePct?: number | null;
   tvlUsd?: number | null; volume24hUsd?: number | null; aprEst?: number | null;
@@ -838,6 +847,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/protocols/morpho.svg';
       case 'sushi_pools':
         return 'assets/protocols/sushi.svg';
+      case 'opensea_collections':
+      case 'opensea_listings':
+        return 'assets/protocols/opensea.svg';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:
@@ -1137,6 +1149,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['morphoMarketRows'])   this.morphoMarketRows   = d['morphoMarketRows']   as MorphoMarketRow[];
     if (d['morphoPositionRows']) this.morphoPositionRows = d['morphoPositionRows'] as MorphoPositionRow[];
     if (d['sushiPoolRows'])      this.sushiPoolRows      = d['sushiPoolRows']      as SushiPoolRow[];
+    if (d['openseaCollections']) this.openseaCollections = d['openseaCollections'] as OpenseaCollectionRow[];
+    if (d['openseaListings'])    this.openseaListings    = d['openseaListings']    as OpenseaListingRow[];
     if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
     if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
     if (d['uniswapLaunchSearch'] != null) this.uniswapLaunchSearch = d['uniswapLaunchSearch'] as string;
@@ -1250,6 +1264,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.morphoMarketRows.length)   d['morphoMarketRows']   = this.morphoMarketRows;
     if (this.morphoPositionRows.length) d['morphoPositionRows'] = this.morphoPositionRows;
     if (this.sushiPoolRows.length)      d['sushiPoolRows']      = this.sushiPoolRows;
+    if (this.openseaCollections.length) d['openseaCollections'] = this.openseaCollections;
+    if (this.openseaListings.length)    d['openseaListings']    = this.openseaListings;
     if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
     if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
     if (this.uniswapLaunchSearch) d['uniswapLaunchSearch'] = this.uniswapLaunchSearch;
@@ -3761,6 +3777,71 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return `$${n.toFixed(2)}`;
   }
 
+  // ── OpenSea NFTs (Robinhood Chain) — collections → in-card drill to listings ──
+  openseaCollections: OpenseaCollectionRow[] = [];
+  openseaListings: OpenseaListingRow[] = [];
+  readonly openseaSelectedSlug = signal<string | null>(null);
+  readonly openseaSelectedName = signal<string>('');
+  readonly openseaFetching = signal(false);
+
+  private async fetchOpenseaCollections(): Promise<void> {
+    this.openseaFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_collections',
+        params: { ...(this.query.params?.['query'] ? { query: String(this.query.params['query']) } : {}), limit: 48 },
+      }).pipe(timeout(30_000)));
+      this.openseaCollections = Array.isArray(resp?.data?.collections) ? resp.data.collections : [];
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load OpenSea collections');
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+  private async fetchOpenseaListings(slug: string): Promise<void> {
+    this.openseaFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_listings', params: { slug, limit: 30 },
+      }).pipe(timeout(30_000)));
+      this.openseaListings = Array.isArray(resp?.data?.listings) ? resp.data.listings : [];
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load OpenSea listings');
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+  /** Drill into a collection's listings inside the same card. */
+  openOpenseaCollection(c: OpenseaCollectionRow): void {
+    this.openseaSelectedSlug.set(c.slug);
+    this.openseaSelectedName.set(c.name || c.slug);
+    this.openseaListings = [];
+    void this.fetchOpenseaListings(c.slug);
+  }
+  backToOpenseaCollections(): void {
+    this.openseaSelectedSlug.set(null);
+    this.openseaListings = [];
+  }
+  /** Buy an NFT listing → opens the OpenSea buy action card. */
+  openseaBuy(l: OpenseaListingRow): void {
+    const params: Record<string, string> = {
+      orderHash: l.orderHash,
+      protocolAddress: l.protocolAddress,
+      ...(l.name ? { nftName: l.name } : {}),
+      ...(l.image ? { nftImage: l.image } : {}),
+      ...(l.price != null ? { price: String(l.price) } : {}),
+    };
+    this.useAction.emit({ type: 'opensea_buy', params, raw: `[ACTION:opensea_buy] ${JSON.stringify(params)}` });
+  }
+
   morphoNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
   /** Open the Morpho action card for a market row (Lend or Borrow). */
@@ -4748,6 +4829,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'sushi_pools':
         await this.fetchSushiPools();
+        return;
+      case 'opensea_collections':
+        await this.fetchOpenseaCollections();
+        return;
+      case 'opensea_listings':
+        this.openseaSelectedSlug.set(String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''));
+        await this.fetchOpenseaListings(this.openseaSelectedSlug() || '');
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

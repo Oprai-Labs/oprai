@@ -445,6 +445,8 @@ class ActionType(str, Enum):
     # SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity, unsigned EVM txs.
     SUSHI_SWAP = "sushi_swap"
     SUSHI_ADD_LIQUIDITY = "sushi_add_liquidity"
+    # OpenSea (Seaport) NFT marketplace on Robinhood Chain — non-custodial buy.
+    OPENSEA_BUY = "opensea_buy"
     # Morpho Blue lending (Robinhood Chain 4663) — unsigned EVM txs, user signs.
     MORPHO_SUPPLY = "morpho_supply"      # lend loan asset (earn)
     MORPHO_BORROW = "morpho_borrow"      # supply collateral + borrow
@@ -660,6 +662,9 @@ class QueryType(str, Enum):
     MORPHO_POSITIONS = "morpho_positions"
     # SushiSwap V3 pool listing (Robinhood Chain). Data card.
     SUSHI_POOLS = "sushi_pools"
+    # OpenSea (Robinhood Chain) — NFT collection browse + a collection's listings.
+    OPENSEA_COLLECTIONS = "opensea_collections"
+    OPENSEA_LISTINGS = "opensea_listings"
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"
@@ -890,6 +895,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "morpho_supply", "morpho_borrow", "morpho_repay", "morpho_withdraw",
     # SushiSwap (Robinhood Chain) — swap spends input; add-liquidity deposits both legs
     "sushi_swap", "sushi_add_liquidity",
+    # OpenSea (Robinhood Chain) — buying an NFT spends ETH
+    "opensea_buy",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1144,6 +1151,8 @@ def validate_action_params(
         # SushiSwap — a swap needs both sides; add-liquidity resolves the rest in
         # the card (pool picker + amount).
         "sushi_swap":       ("tokenIn", "tokenOut"),
+        # OpenSea buy needs the listing to fulfill.
+        "opensea_buy":      ("orderHash",),
         # Morpho Blue lending — no hard requirement at the chat layer: the card
         # carries a market picker and resolves `marketId` itself (from a
         # loanSymbol/collateralSymbol hint or the default market), the same way

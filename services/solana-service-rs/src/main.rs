@@ -231,6 +231,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_morpho_withdraw)
                     .service(routes::actions::post_sushi_swap)
                     .service(routes::actions::post_sushi_add_liquidity)
+                    .service(routes::actions::post_opensea_buy)
                     .service(routes::actions::post_uniswap_record)
                     .service(routes::actions::post_relay_index_transaction)
                     .service(routes::actions::post_relay_single_transaction)

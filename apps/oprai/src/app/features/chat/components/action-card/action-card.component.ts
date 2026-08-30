@@ -121,6 +121,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png?v=2',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
   morpho:    { name: 'Morpho',     icon: 'assets/protocols/morpho.svg',          accent: '#2470FF', accentBg: 'rgba(36,112,255,0.12)' },
   sushi:     { name: 'SushiSwap',  icon: 'assets/protocols/sushi.svg',           accent: '#FA52A0', accentBg: 'rgba(250,82,160,0.12)' },
+  opensea:   { name: 'OpenSea',    icon: 'assets/protocols/opensea.svg',         accent: '#2081E2', accentBg: 'rgba(32,129,226,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -192,6 +193,8 @@ function getProtocolKey(action: ParsedAction): string {
   if (t.startsWith('morpho_')) return 'morpho';
   // SushiSwap (Robinhood Chain 4663 — EVM).
   if (t.startsWith('sushi_')) return 'sushi';
+  // OpenSea NFT marketplace (Robinhood Chain 4663 — EVM).
+  if (t.startsWith('opensea_')) return 'opensea';
   if (t === 'stake') return p || 'jito';
   if (t === 'unstake') return p || 'jito';
   if (t.startsWith('native_stake')) return 'default';
@@ -243,6 +246,8 @@ function getActionLabel(action: ParsedAction): string {
     morpho_repay: 'Repay (Morpho)', morpho_withdraw: 'Withdraw (Morpho)',
     // SushiSwap (Robinhood Chain)
     sushi_swap: 'Swap (Sushi)', sushi_add_liquidity: 'Add Liquidity (Sushi)',
+    // OpenSea (Robinhood Chain)
+    opensea_buy: 'Buy NFT (OpenSea)',
     jupsol_stake: 'Stake for jupSOL', jupsol_unstake: 'Unstake jupSOL',
     burn: 'Burn Tokens', close_accounts: 'Close Empty Accounts',
     sns_register: 'Register .sol Domain', sns_transfer: 'Transfer Domain',
@@ -6071,7 +6076,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // on Robinhood Mainnet). The LLM's params carry no chainId for these, so
     // the tx link would otherwise fall through to Solscan.
     const t = this.action?.type ?? '';
-    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_')) return 4663;
+    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_') || t.startsWith('opensea_')) return 4663;
     return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
@@ -10254,6 +10259,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   // ── SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity ──────────────
+  readonly isOpenseaBuy = computed(() => this.action?.type === 'opensea_buy');
   readonly isSushiAction = computed(() => (this.action?.type ?? '').startsWith('sushi_'));
   readonly isSushiSwap = computed(() => this.action?.type === 'sushi_swap');
   readonly isSushiAddLiq = computed(() => this.action?.type === 'sushi_add_liquidity');

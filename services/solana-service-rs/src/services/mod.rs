@@ -23,6 +23,7 @@ pub mod mint_security;
 pub mod morpho;
 pub mod native_stake;
 pub mod onchain_value;
+pub mod opensea;
 pub mod orca;
 pub mod params;
 pub mod protocol_reads;

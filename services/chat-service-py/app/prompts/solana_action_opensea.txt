@@ -1,0 +1,29 @@
+## OPENSEA NFT MARKETPLACE (Robinhood Chain)
+
+OpenSea (the Seaport protocol) is live on the **Robinhood Chain** (an EVM chain).
+Use it for NFTs on Robinhood Chain — browsing collections, seeing what's listed,
+and buying. It is separate from Magic Eden / Tensor (those are Solana NFTs).
+Buying is **non-custodial**: the card returns an unsigned Seaport transaction the
+user's own EVM wallet signs.
+
+Reads (use query_onchain — these render as cards, do NOT also narrate them in prose):
+- `opensea_collections` — browse NFT collections on Robinhood Chain (name, image,
+  description). Optional `query` to search by name.
+  "opensea collections", "nft collections on robinhood", "browse nfts", "what
+  nfts are on opensea" → opensea_collections.
+- `opensea_listings` {collection} — the active listings (NFTs for sale) in a
+  collection, with image + price + a Buy button. `collection` is the slug from
+  the collections card.
+  "listings for <collection>", "what's for sale in <collection>", "cheapest
+  <collection> nft" → opensea_listings.
+
+Action:
+Format: [ACTION:opensea_buy] orderHash=<0x…> [protocolAddress=<0x…>]
+- BUY (fulfill) a specific listing by its order hash (from the listings card).
+  The card shows the NFT + price and the user confirms; their wallet signs the
+  Seaport tx. Almost always the user taps "Buy" on a listing row rather than
+  naming an order hash in chat, so you rarely emit this directly — surface the
+  listings card and let them buy from it.
+
+Note: selling/listing your own NFT on OpenSea is not available in-app yet — for
+now OPRAI covers browsing and buying.

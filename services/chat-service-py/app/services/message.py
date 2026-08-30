@@ -298,6 +298,10 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # SushiSwap V3 pool list (Robinhood Chain) — per-row TVL/APR/fee + Add-liquidity
     # button; prose can't carry that shape.
     "sushi_pools",
+    # OpenSea (Robinhood Chain) — NFT collection grid + a collection's listings
+    # (image + price + Buy). NFTs are pictures with prices — prose is wrong.
+    "opensea_collections",
+    "opensea_listings",
     # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
     # shape for all of these. The collection lists need a floor and a thumbnail
     # per row, the token lists a grid you can buy from, the offer lists an

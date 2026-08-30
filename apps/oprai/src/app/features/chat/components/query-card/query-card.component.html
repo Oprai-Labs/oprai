@@ -3359,6 +3359,59 @@
         }
       }
 
+      <!-- OpenSea NFTs (Robinhood Chain) — collections grid → drill to listings -->
+      @if (query.type === 'opensea_collections' || query.type === 'opensea_listings') {
+        @if (query.type === 'opensea_collections' && !openseaSelectedSlug()) {
+          <!-- collections grid -->
+          @if (openseaFetching() && openseaCollections.length === 0) {
+            <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading OpenSea collections…' | t }}</span></div>
+          } @else if (openseaCollections.length === 0) {
+            <div class="empty-state"><lucide-icon name="image" [size]="20" /><span>{{ 'No OpenSea collections found' | t }}</span></div>
+          } @else {
+            <div class="os-grid">
+              @for (c of openseaCollections; track c.slug) {
+                <button type="button" class="os-coll" (click)="openOpenseaCollection(c)">
+                  <div class="os-coll__img">
+                    @if (c.image) { <img [src]="c.image" [alt]="c.name" loading="lazy" (error)="$any($event.target).style.visibility='hidden'" /> }
+                    @else { <div class="os-coll__ph"><lucide-icon name="image" [size]="18" /></div> }
+                  </div>
+                  <span class="os-coll__name">{{ c.name }}</span>
+                </button>
+              }
+            </div>
+          }
+        } @else {
+          <!-- listings for the selected (or queried) collection -->
+          @if (query.type === 'opensea_collections') {
+            <button type="button" class="os-back" (click)="backToOpenseaCollections()">
+              <lucide-icon name="chevron-left" [size]="14" /> {{ 'All collections' | t }}
+            </button>
+          }
+          @if (openseaSelectedName()) { <div class="os-title">{{ openseaSelectedName() }}</div> }
+          @if (openseaFetching() && openseaListings.length === 0) {
+            <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading listings…' | t }}</span></div>
+          } @else if (openseaListings.length === 0) {
+            <div class="empty-state"><lucide-icon name="tag" [size]="20" /><span>{{ 'No active listings in this collection' | t }}</span></div>
+          } @else {
+            <div class="os-grid">
+              @for (l of openseaListings; track l.orderHash) {
+                <div class="os-nft">
+                  <div class="os-nft__img">
+                    @if (l.image) { <img [src]="l.image" [alt]="l.name || l.tokenId" loading="lazy" (error)="$any($event.target).style.visibility='hidden'" /> }
+                    @else { <div class="os-coll__ph"><lucide-icon name="image" [size]="18" /></div> }
+                  </div>
+                  <span class="os-nft__name">{{ l.name || ('#' + l.tokenId) }}</span>
+                  <div class="os-nft__row">
+                    <span class="os-nft__price">{{ l.price != null ? (l.price | number:'1.0-4') : '—' }} {{ l.currency || 'ETH' }}</span>
+                    <button class="os-buy" type="button" (click)="openseaBuy(l)">{{ 'Buy' | t }}</button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+
       <!-- Jupiter Lend Positions results -->
       @if (query.type === 'lend_positions') {
         @if (lendEarnPositions.length === 0 && lendBorrowPositions.length === 0) {
