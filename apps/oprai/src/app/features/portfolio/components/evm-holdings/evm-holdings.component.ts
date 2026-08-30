@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { forkJoin, of, from } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
+import { HttpClient } from '@angular/common/http';
 import { AccountService } from '../../../../core/services/account.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx, EvmNft } from '../../services/evm-portfolio.service';
@@ -59,7 +60,7 @@ function categoryFor(label: string): ProtocolCategory {
               </button>
             </div>
             <div class="hero-total">{{ totalUsd() | currency:'USD':'symbol':'1.2-2' }}</div>
-            <div class="hero-sub">Ethereum &amp; L2s · {{ tokens().length }} tokens · {{ positions().length }} positions</div>
+            <div class="hero-sub">{{ chainFilter() === 'all' ? 'All EVM chains' : chainLabel(chainFilter()) }} · {{ visTokens().length }} tokens · {{ visPositions().length }} positions</div>
           </div>
           <div class="hero-right">
             <app-allocation-chart [segments]="allocationSegments()" [totalValue]="totalUsd()" />
@@ -275,6 +276,7 @@ export class EvmHoldingsComponent implements OnInit {
   private evm = inject(EvmPortfolioService);
   private api = inject(ApiService);
   private lighterPerp = inject(LighterPerpService);
+  private http = inject(HttpClient);
 
   loading = signal(true);
   walletCount = signal(0);
@@ -395,9 +397,13 @@ export class EvmHoldingsComponent implements OnInit {
           // (they're L2 sequencer positions), so pull them from Lighter's own
           // API and fold them into the same positions pipeline.
           lighter: this.lighterPositions$(evmWallets[0]),
+          // Robinhood Chain (4663) token balances — Moralis/Alchemy don't index
+          // it, so the wallet's loose ETH/USDG there is invisible. Pull it
+          // ourselves so the total isn't just protocol positions.
+          rhTokens: this.robinhoodTokens$(evmWallets[0]),
         })
-          .pipe(map(({ perWallet, uniswap, lighter }) => ({
-            tokens: perWallet.flatMap((r) => r.portfolio.tokens || []).sort((a, b) => b.valueUsd - a.valueUsd),
+          .pipe(map(({ perWallet, uniswap, lighter, rhTokens }) => ({
+            tokens: [...rhTokens, ...perWallet.flatMap((r) => r.portfolio.tokens || [])].sort((a, b) => b.valueUsd - a.valueUsd),
             positions: [...uniswap, ...lighter, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
             txs: perWallet.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
             nfts: perWallet.flatMap((r) => r.nfts.nfts || []),
@@ -434,6 +440,37 @@ export class EvmHoldingsComponent implements OnInit {
         unclaimedUsd: 0,
         tokens: [{ symbol: p.market, type: p.side, amount: Number(p.baseAmount) || 0, logo: undefined }],
       }))),
+    );
+  }
+
+  /** Robinhood Chain (4663) wallet balances — native ETH + USDG — which the
+   *  EVM data provider doesn't index. Priced (ETH via CoinGecko, USDG = $1) so
+   *  they count toward the chain total like any other token holding. */
+  private robinhoodTokens$(addr: string | undefined) {
+    if (!addr) return of([] as EvmToken[]);
+    const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168';
+    const bal$ = (token?: string) => this.api
+      .post<{ balance?: string | number }>('/actions/uniswap/eth-balance', token ? { address: addr, token } : { address: addr })
+      .pipe(catchError(() => of({ balance: 0 })));
+    const ethUsd$ = this.http
+      .get<Record<string, { usd: number }>>('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
+      .pipe(map((r) => Number(r?.['ethereum']?.usd) || 0), catchError(() => of(0)));
+    return forkJoin({ eth: bal$(), usdg: bal$(USDG), ethUsd: ethUsd$ }).pipe(
+      map(({ eth, usdg, ethUsd }): EvmToken[] => {
+        const out: EvmToken[] = [];
+        const ethBal = Number(eth?.balance) || 0;
+        if (ethBal > 0) out.push({
+          chain: 'robinhood', network: 'robinhood', address: 'native', symbol: 'ETH', name: 'Ethereum',
+          decimals: 18, logo: undefined, uiAmount: ethBal, priceUsd: ethUsd, valueUsd: ethBal * ethUsd, native: true,
+        });
+        const usdgBal = Number(usdg?.balance) || 0;
+        if (usdgBal > 0) out.push({
+          chain: 'robinhood', network: 'robinhood', address: USDG, symbol: 'USDG', name: 'Global Dollar',
+          decimals: 6, logo: 'assets/tokens/usdg.png', uiAmount: usdgBal, priceUsd: 1, valueUsd: usdgBal, native: false,
+        });
+        return out;
+      }),
+      catchError(() => of([] as EvmToken[])),
     );
   }
 
