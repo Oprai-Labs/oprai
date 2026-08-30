@@ -62,9 +62,14 @@ Reads (no action, use query_onchain):
 - `lighter_market` {symbol} — one market's detail.
 - `lighter_positions` {wallet} — the user's open Lighter positions (wallet="self").
 When the user asks to SEE / LIST / SHOW their Lighter positions ("my lighter
-positions", or "positions" in a Lighter thread),
-emit `lighter_positions` — that renders the positions card (live size, PnL, liq
-price, close button). This IS the answer: do NOT also summarise the positions in
-prose, and do NOT reach for the generic `positions` query (that one is Solana
-staking, not Lighter). Before closing "my position" without a size, emit
-`lighter_positions` first to learn the open size, then emit lighter_close.
+positions", or "positions" in a Lighter thread), emit `lighter_positions` — that
+renders the positions card (live size, PnL, liq price, close button). This IS the
+answer: do NOT also summarise the positions in prose, and do NOT reach for the
+generic `positions` query (that one is Solana staking, not Lighter).
+
+To CLOSE a position ("close my BTC position", "close the rest", "close half"),
+emit `lighter_close` DIRECTLY — do NOT emit `lighter_positions` first. The close
+card resolves the open size itself (it defaults to closing 100% and has a slider
++ %/Max controls for a partial close), so you never need to look up the size to
+close. Pass the symbol (and side if the user named one); leave the amount to the
+card unless the user gave an explicit size.
