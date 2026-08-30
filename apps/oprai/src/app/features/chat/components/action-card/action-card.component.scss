@@ -7389,31 +7389,40 @@
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
-    height: 4px;
+    height: 8px;
     border-radius: 999px;
-    background: var(--op-bg-surface-2, rgba(125,125,150,.2));
+    /* Track fill is set inline (brand up to the current %); this is the fallback. */
+    background: var(--op-border, rgba(125,125,150,.35));
+    border: 1px solid var(--op-border-subtle, rgba(125,125,150,.25));
     outline: none;
     cursor: pointer;
     &:disabled { opacity: .45; cursor: default; }
 
+    /* Keep the runnable track transparent so the input's own gradient shows. */
+    &::-webkit-slider-runnable-track { background: transparent; border-radius: 999px; height: 8px; }
+    &::-moz-range-track { background: transparent; border-radius: 999px; height: 8px; }
+    /* Firefox paints the filled portion natively too. */
+    &::-moz-range-progress { background: var(--op-brand, #5b5fc7); height: 8px; border-radius: 999px; }
+
     &::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 16px;
-      height: 16px;
+      width: 20px;
+      height: 20px;
+      margin-top: -7px;
       border-radius: 50%;
       background: var(--op-brand, #5b5fc7);
-      border: 2px solid var(--op-bg-surface-1, #fff);
-      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+      border: 3px solid var(--op-bg-surface-1, #fff);
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
       cursor: pointer;
     }
     &::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
       background: var(--op-brand, #5b5fc7);
-      border: 2px solid var(--op-bg-surface-1, #fff);
-      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+      border: 3px solid var(--op-bg-surface-1, #fff);
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
       cursor: pointer;
     }
   }

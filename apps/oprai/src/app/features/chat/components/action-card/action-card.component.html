@@ -3920,6 +3920,7 @@
                   <div class="morpho-pct">
                     <input type="range" class="morpho-pct__range" min="0" max="100" step="1"
                            [value]="morphoPctValue()" [disabled]="!isEditable()"
+                           [style.background]="morphoTrackFill()"
                            (input)="setMorphoPct(+$any($event.target).value)" />
                     <div class="morpho-pct__chips">
                       <button type="button" [class.on]="morphoPctValue() === 25" [disabled]="!isEditable()" (click)="setMorphoPct(25)">25%</button>

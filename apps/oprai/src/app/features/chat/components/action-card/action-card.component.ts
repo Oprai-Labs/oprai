@@ -10182,6 +10182,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return String(Math.round(val * factor) / factor);
   }
 
+  /** Gradient that fills the slider track (brand) up to the current % and greys
+   *  the remainder — so the percentage line reads clearly at a glance. */
+  morphoTrackFill(): string {
+    const p = this.morphoPctValue();
+    const brand = 'var(--op-brand, #5b5fc7)';
+    const rest = 'var(--op-border, rgba(125,125,150,.35))';
+    return `linear-gradient(90deg, ${brand} 0%, ${brand} ${p}%, ${rest} ${p}%, ${rest} 100%)`;
+  }
+
   selectMorphoMarket(m: MorphoMarket): void {
     if (!this.isEditable()) return;
     this.setEditParam('marketId', m.marketId);
