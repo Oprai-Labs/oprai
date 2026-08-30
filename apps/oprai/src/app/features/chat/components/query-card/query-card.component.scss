@@ -3682,3 +3682,17 @@
   &--borrow { background: transparent; color: var(--op-text-primary); border-color: var(--op-border-subtle);
     &:hover { border-color: var(--op-brand); color: var(--op-brand); } }
 }
+
+/* Morpho markets chain switcher + position chain badge */
+.mq-chains { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.mq-chip {
+  padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--op-border-subtle); background: var(--op-bg-surface-2); color: var(--op-text-secondary);
+  &:hover { color: var(--op-text-primary); }
+  &.on { background: color-mix(in srgb, var(--op-brand) 16%, transparent); color: var(--op-brand); border-color: color-mix(in srgb, var(--op-brand) 35%, transparent); }
+}
+.mq-right { display: inline-flex; align-items: center; gap: 6px; }
+.mq-chainbadge {
+  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px;
+  background: var(--op-bg-surface-3, rgba(255,255,255,0.06)); color: var(--op-text-secondary);
+}

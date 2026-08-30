@@ -145,7 +145,7 @@ const EVM_EXPLORERS: Record<number, string> = {
 
 /** One Morpho Blue market on Robinhood Chain (from /actions/build morpho_markets). */
 interface MorphoMarket {
-  marketId: string;
+  marketId: string; chainId?: number; chainName?: string;
   loanSymbol: string; loanAddress: string; loanDecimals: number; loanLogo?: string | null; loanPriceUsd?: number | null;
   collateralSymbol: string; collateralAddress: string; collateralDecimals: number; collateralLogo?: string | null; collateralPriceUsd?: number | null;
   lltvPct: number;
@@ -10125,6 +10125,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   selectMorphoMarket(m: MorphoMarket): void {
     if (!this.isEditable()) return;
     this.setEditParam('marketId', m.marketId);
+    if (m.chainId) this.setEditParam('chain', String(m.chainId));
     this.setEditParam('loanSymbol', m.loanSymbol);
     this.setEditParam('collateralSymbol', m.collateralSymbol);
     this.morphoPickerOpen.set(false);
@@ -10189,9 +10190,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
   private async refreshMorphoMarkets(): Promise<void> {
     try {
+      const chain = this.getEditParam('chain') || '4663';
       const resp = await firstValueFrom(
         this.apiService.post<{ data?: { markets?: MorphoMarket[] } }>('/actions/build', {
-          type: 'morpho_markets', params: { limit: 30 },
+          type: 'morpho_markets', params: { limit: 30, chain },
         }).pipe(timeout(20_000)),
       );
       const ms = resp?.data?.markets ?? [];

@@ -466,6 +466,7 @@ pub async fn post_build(
             serde_json::from_value(body.params.clone()).unwrap_or(crate::services::morpho::MorphoMarketsParams {
                 limit: None,
                 query: None,
+                chain: None,
             });
         let resp = crate::services::morpho::build_markets(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));

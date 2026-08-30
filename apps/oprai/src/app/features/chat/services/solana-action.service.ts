@@ -3182,7 +3182,9 @@ export class SolanaActionService {
    */
   private async executeMorpho(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
     const p = action.params;
-    const chainId = 4663;
+    // Morpho is multichain (Ethereum/Base/Arbitrum/Optimism/Polygon/Unichain/
+    // Robinhood) — the market carries its chain; default Robinhood (4663).
+    const chainId = this.morphoChainId(String(p['chain'] ?? p['chainId'] ?? '')) || 4663;
     const kind = action.type.replace('morpho_', ''); // supply | borrow | repay | withdraw
     const marketId = String(p['marketId'] ?? '').trim();
     if (!marketId) throw new Error('Morpho: pick a market first.');
@@ -3213,7 +3215,7 @@ export class SolanaActionService {
     }
 
     callbacks.onQuote?.();
-    const reqBody: Record<string, unknown> = { marketId, walletAddress: account };
+    const reqBody: Record<string, unknown> = { marketId, walletAddress: account, chain: String(chainId) };
     // Forward whichever amount/flag fields the card set; the backend accepts both
     // human `amount` and `amountBaseUnits` (card prefers base units).
     const fwd = (k: string) => { if (p[k] != null && String(p[k]) !== '') reqBody[k] = String(p[k]); };
@@ -3260,6 +3262,19 @@ export class SolanaActionService {
     }
     callbacks.onConfirm?.(lastHash);
     return lastHash;
+  }
+
+  /** Resolve a Morpho chain hint (numeric id or name) to a chain id. */
+  private morphoChainId(v: string): number {
+    const s = (v || '').trim().toLowerCase();
+    if (!s) return 0;
+    const n = Number(s);
+    if (Number.isFinite(n) && n > 0) return n;
+    const map: Record<string, number> = {
+      ethereum: 1, eth: 1, mainnet: 1, base: 8453, arbitrum: 42161, arb: 42161,
+      optimism: 10, op: 10, polygon: 137, matic: 137, unichain: 130, robinhood: 4663, rh: 4663,
+    };
+    return map[s] ?? 0;
   }
 
   /**

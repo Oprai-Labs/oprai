@@ -3242,6 +3242,11 @@
 
       <!-- Morpho Blue markets (Robinhood Chain) -->
       @if (query.type === 'morpho_markets') {
+        <div class="mq-chains">
+          @for (c of MORPHO_CHAINS; track c[0]) {
+            <button type="button" class="mq-chip" [class.on]="morphoChain() === c[0]" (click)="setMorphoChain(c[0])">{{ c[1] }}</button>
+          }
+        </div>
         @if (morphoFetching() && morphoMarketRows.length === 0) {
           <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading Morpho markets…' | t }}</span></div>
         } @else if (morphoMarketRows.length === 0) {
@@ -3292,9 +3297,12 @@
                     }
                     <span class="mq-pair__txt"><b>{{ p.loanSymbol }}</b><span class="mq-slash">/</span>{{ p.collateralSymbol }}</span>
                   </div>
-                  @if (p.healthFactor != null) {
-                    <span class="mq-hf" [class.mq-hf--risk]="morphoNum(p.healthFactor) < 1.2">{{ 'HF' | t }} {{ p.healthFactor | number:'1.2-2' }}</span>
-                  }
+                  <span class="mq-right">
+                    @if (p.chainName) { <span class="mq-chainbadge">{{ p.chainName }}</span> }
+                    @if (p.healthFactor != null) {
+                      <span class="mq-hf" [class.mq-hf--risk]="morphoNum(p.healthFactor) < 1.2">{{ 'HF' | t }} {{ p.healthFactor | number:'1.2-2' }}</span>
+                    }
+                  </span>
                 </div>
                 <div class="mq-stats">
                   @if (morphoNum(p.supplyUsd) > 0) {

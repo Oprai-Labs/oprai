@@ -25,9 +25,64 @@ use uuid::Uuid;
 /// Morpho Blue singleton on Robinhood Chain (4663). Per-chain — do not reuse the
 /// Ethereum-mainnet address.
 pub const MORPHO_SINGLETON: &str = "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010";
-const ROBINHOOD_CHAIN: u64 = 4663;
 const NATIVE: &str = "0x0000000000000000000000000000000000000000";
 const MORPHO_API: &str = "https://blue-api.morpho.org/graphql";
+
+/// Morpho Blue singleton per chain (verified live via the API `morphoBlues`).
+/// These are the OPRAI-supported chains Morpho is deployed on. Robinhood (4663)
+/// and Ethereum/Base share no address — the address is genuinely per-chain.
+fn chain_singleton(chain: u64) -> Option<&'static str> {
+    Some(match chain {
+        1 => "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb",     // Ethereum
+        8453 => "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb",  // Base
+        42161 => "0x6c247b1F6182318877311737BaC0844bAa518F5e", // Arbitrum
+        10 => "0xce95AfbB8EA029495c66020883F87aaE8864AF92",    // Optimism
+        137 => "0x1bF0c2541F820E775182832f06c0B7Fc27A25f67",   // Polygon
+        130 => "0x8f5ae9CddB9f68de460C77730b018Ae7E04a140A",   // Unichain (reads only — no Alchemy RPC)
+        4663 => MORPHO_SINGLETON,                              // Robinhood
+        _ => return None,
+    })
+}
+
+/// Chains OPRAI shows Morpho reads for (market list / positions). Superset of the
+/// write-capable chains — Unichain has no Alchemy RPC so it's read-only.
+const MORPHO_READ_CHAINS: &[u64] = &[1, 8453, 42161, 10, 137, 130, 4663];
+
+/// RPC for a chain's write path (idToMarketParams / position / allowance).
+/// Robinhood uses its public RPC; the rest go through Alchemy.
+fn rpc_for(chain: u64) -> Option<String> {
+    if chain == 4663 { return Some(rpc()); }
+    crate::services::uniswap::alchemy_rpc(chain)
+}
+
+/// The chain a request targets — `chain` may be a numeric id or a name; default
+/// Robinhood (4663), OPRAI's home chain for Morpho.
+fn chain_of(body: &Value) -> u64 {
+    match body.get("chain").or_else(|| body.get("chainId")) {
+        Some(Value::Number(n)) => n.as_u64().unwrap_or(4663),
+        Some(Value::String(s)) => {
+            let s = s.trim().to_lowercase();
+            if let Ok(n) = s.parse::<u64>() { return n; }
+            match s.as_str() {
+                "ethereum" | "eth" | "mainnet" => 1,
+                "base" => 8453,
+                "arbitrum" | "arb" => 42161,
+                "optimism" | "op" => 10,
+                "polygon" | "matic" => 137,
+                "unichain" => 130,
+                "robinhood" | "rh" => 4663,
+                _ => 4663,
+            }
+        }
+        _ => 4663,
+    }
+}
+fn chain_name(chain: u64) -> &'static str {
+    match chain {
+        1 => "Ethereum", 8453 => "Base", 42161 => "Arbitrum", 10 => "Optimism",
+        137 => "Polygon", 130 => "Unichain", 4663 => "Robinhood", _ => "EVM",
+    }
+}
 
 // Morpho Blue write selectors (verified present in deployed 4663 bytecode).
 const SEL_SUPPLY: &str = "a99aad89"; // supply(MarketParams,assets,shares,onBehalf,data)
@@ -121,6 +176,7 @@ fn mul_div_up(a: u128, b: u128, d: u128) -> u128 {
 async fn market_params(
     http: &reqwest::Client,
     rpc: &str,
+    singleton: &str,
     market_id: &str,
 ) -> Result<(String, String, String), AppError> {
     let id = market_id.trim();
@@ -129,7 +185,7 @@ async fn market_params(
         return Err(AppError::InvalidParams("morpho: invalid marketId".into()));
     }
     let data = format!("{SEL_ID_TO_PARAMS}{id}");
-    let raw = eth_call(http, rpc, MORPHO_SINGLETON, &data).await?;
+    let raw = eth_call(http, rpc, singleton, &data).await?;
     let h = raw.trim_start_matches("0x");
     if h.len() < 320 {
         return Err(AppError::InvalidParams("morpho: market not found".into()));
@@ -158,9 +214,9 @@ async fn token_decimals(http: &reqwest::Client, rpc: &str, token: &str) -> u32 {
     }
 }
 
-/// Current ERC-20 allowance owner→singleton.
-async fn allowance(http: &reqwest::Client, rpc: &str, token: &str, owner: &str) -> u128 {
-    let data = format!("{SEL_ALLOWANCE}{}{}", w_addr(owner), w_addr(MORPHO_SINGLETON));
+/// Current ERC-20 allowance owner→spender (the chain's singleton).
+async fn allowance(http: &reqwest::Client, rpc: &str, token: &str, owner: &str, spender: &str) -> u128 {
+    let data = format!("{SEL_ALLOWANCE}{}{}", w_addr(owner), w_addr(spender));
     match eth_call(http, rpc, token, &data).await {
         Ok(h) => word_u128(&h, 0),
         Err(_) => 0,
@@ -211,10 +267,13 @@ fn parse_scaled(s: &str, dec: u32) -> u128 {
     int_v * 10u128.pow(dec) + frac_v
 }
 
-/// Build an ERC-20 approve tx (spender = singleton) if allowance is short.
+/// Build an ERC-20 approve tx (spender = the chain's singleton) if allowance is short.
+#[allow(clippy::too_many_arguments)]
 async fn maybe_approve(
     http: &reqwest::Client,
     rpc: &str,
+    chain: u64,
+    singleton: &str,
     token: &str,
     owner: &str,
     need: u128,
@@ -223,16 +282,16 @@ async fn maybe_approve(
     if need == 0 {
         return;
     }
-    let have = allowance(http, rpc, token, owner).await;
+    let have = allowance(http, rpc, token, owner, singleton).await;
     if have >= need {
         return;
     }
-    let data = format!("{SEL_APPROVE}{}{}", w_addr(MORPHO_SINGLETON), w_u128(need));
-    txs.push(json!({ "to": token, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
+    let data = format!("{SEL_APPROVE}{}{}", w_addr(singleton), w_u128(need));
+    txs.push(json!({ "to": token, "data": format!("0x{data}"), "value": "0", "chainId": chain }));
 }
 
-fn ok(txs: Vec<Value>, extra: Value) -> Value {
-    let mut out = json!({ "transactions": txs, "chainId": ROBINHOOD_CHAIN });
+fn ok(chain: u64, txs: Vec<Value>, extra: Value) -> Value {
+    let mut out = json!({ "transactions": txs, "chainId": chain });
     if let (Some(o), Some(e)) = (out.as_object_mut(), extra.as_object()) {
         for (k, v) in e {
             o.insert(k.clone(), v.clone());
@@ -246,16 +305,20 @@ fn ok(txs: Vec<Value>, extra: Value) -> Value {
 /// LEND (supply loan asset → earn supplyApy). Body: {marketId, walletAddress,
 /// amount|amountBaseUnits}. → [approve loan?, supply(params, assets, 0, wallet, "")].
 pub async fn build_lend(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
-    let rpc = rpc();
+    let chain = chain_of(body);
+    let singleton = chain_singleton(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: not deployed on {}", chain_name(chain))))?;
+    let rpc = rpc_for(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: writes not available on {} (no RPC)", chain_name(chain))))?;
     let market_id = req_market(body)?;
     let wallet = req_wallet(body)?;
-    let (params, loan, _coll) = market_params(http, &rpc, &market_id).await?;
+    let (params, loan,_coll) = market_params(http, &rpc, singleton, &market_id).await?;
     let assets = resolve_amount(http, &rpc, body, "amount", "amountBaseUnits", &loan).await;
     if assets == 0 {
         return Err(AppError::InvalidParams("morpho: amount required".into()));
     }
     let mut txs = vec![];
-    maybe_approve(http, &rpc, &loan, &wallet, assets, &mut txs).await;
+    maybe_approve(http, &rpc, chain, singleton, &loan, &wallet, assets, &mut txs).await;
     // supply(params, assets, shares=0, onBehalf=wallet, data=empty)
     let data = format!(
         "{SEL_SUPPLY}{params}{}{}{}{}{}",
@@ -265,18 +328,22 @@ pub async fn build_lend(http: &reqwest::Client, body: &Value) -> Result<Value, A
         w_u128(0x120), // offset to data (9 words)
         w_u128(0),     // data length 0
     );
-    txs.push(json!({ "to": MORPHO_SINGLETON, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
-    Ok(ok(txs, json!({ "amountBaseUnits": assets.to_string(), "loanToken": loan })))
+    txs.push(json!({ "to": singleton, "data": format!("0x{data}"), "value": "0", "chainId": chain }));
+    Ok(ok(chain, txs, json!({ "amountBaseUnits": assets.to_string(), "loanToken": loan, "chainName": chain_name(chain) })))
 }
 
 /// BORROW (optionally add collateral first, then borrow loan asset). Body:
 /// {marketId, walletAddress, collateralAmount|collateralBaseUnits?, borrowAmount|borrowBaseUnits}.
 /// → [approve coll?, supplyCollateral?, borrow(params, borrow, 0, wallet, wallet)].
 pub async fn build_borrow(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
-    let rpc = rpc();
+    let chain = chain_of(body);
+    let singleton = chain_singleton(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: not deployed on {}", chain_name(chain))))?;
+    let rpc = rpc_for(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: writes not available on {} (no RPC)", chain_name(chain))))?;
     let market_id = req_market(body)?;
     let wallet = req_wallet(body)?;
-    let (params, loan, collateral) = market_params(http, &rpc, &market_id).await?;
+    let (params, loan,collateral) = market_params(http, &rpc, singleton, &market_id).await?;
     let coll = resolve_amount(http, &rpc, body, "collateralAmount", "collateralBaseUnits", &collateral).await;
     let borrow = resolve_amount(http, &rpc, body, "borrowAmount", "borrowBaseUnits", &loan).await;
     if borrow == 0 {
@@ -284,7 +351,7 @@ pub async fn build_borrow(http: &reqwest::Client, body: &Value) -> Result<Value,
     }
     let mut txs = vec![];
     if coll > 0 {
-        maybe_approve(http, &rpc, &collateral, &wallet, coll, &mut txs).await;
+        maybe_approve(http, &rpc, chain, singleton, &collateral, &wallet, coll, &mut txs).await;
         // supplyCollateral(params, assets, onBehalf=wallet, data=empty)
         let data = format!(
             "{SEL_SUPPLY_COLLATERAL}{params}{}{}{}{}",
@@ -293,7 +360,7 @@ pub async fn build_borrow(http: &reqwest::Client, body: &Value) -> Result<Value,
             w_u128(0x100), // offset to data (8 words)
             w_u128(0),     // data length 0
         );
-        txs.push(json!({ "to": MORPHO_SINGLETON, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
+        txs.push(json!({ "to": singleton, "data": format!("0x{data}"), "value": "0", "chainId": chain }));
     }
     // borrow(params, assets, shares=0, onBehalf=wallet, receiver=wallet)
     let data = format!(
@@ -303,8 +370,9 @@ pub async fn build_borrow(http: &reqwest::Client, body: &Value) -> Result<Value,
         w_addr(&wallet),
         w_addr(&wallet),
     );
-    txs.push(json!({ "to": MORPHO_SINGLETON, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
+    txs.push(json!({ "to": singleton, "data": format!("0x{data}"), "value": "0", "chainId": chain }));
     Ok(ok(
+        chain,
         txs,
         json!({ "borrowBaseUnits": borrow.to_string(), "collateralBaseUnits": coll.to_string(), "loanToken": loan, "collateralToken": collateral }),
     ))
@@ -313,10 +381,14 @@ pub async fn build_borrow(http: &reqwest::Client, body: &Value) -> Result<Value,
 /// REPAY (partial by amount, or full via `max` using borrow shares). Body:
 /// {marketId, walletAddress, amount|amountBaseUnits, max?}. → [approve loan?, repay(...)].
 pub async fn build_repay(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
-    let rpc = rpc();
+    let chain = chain_of(body);
+    let singleton = chain_singleton(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: not deployed on {}", chain_name(chain))))?;
+    let rpc = rpc_for(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: writes not available on {} (no RPC)", chain_name(chain))))?;
     let market_id = req_market(body)?;
     let wallet = req_wallet(body)?;
-    let (params, loan, _coll) = market_params(http, &rpc, &market_id).await?;
+    let (params, loan,_coll) = market_params(http, &rpc, singleton, &market_id).await?;
     let max = body.get("max").and_then(|v| v.as_bool()).unwrap_or(false)
         || body.get("max").and_then(|v| v.as_str()) == Some("true");
 
@@ -325,12 +397,12 @@ pub async fn build_repay(http: &reqwest::Client, body: &Value) -> Result<Value, 
         // repay ALL by shares: assets=0, shares=userBorrowShares. Approve the
         // asset value (shares→assets, rounded up) + a small buffer for interest
         // that accrues between build and signature.
-        let pos = eth_call(http, &rpc, MORPHO_SINGLETON, &format!("{SEL_POSITION}{}{}", strip_id(&market_id), w_addr(&wallet))).await?;
+        let pos = eth_call(http, &rpc, singleton, &format!("{SEL_POSITION}{}{}", strip_id(&market_id), w_addr(&wallet))).await?;
         let borrow_shares = word_u128(&pos, 1);
         if borrow_shares == 0 {
             return Err(AppError::InvalidParams("morpho: no debt to repay in this market".into()));
         }
-        let mkt = eth_call(http, &rpc, MORPHO_SINGLETON, &format!("{SEL_MARKET}{}", strip_id(&market_id))).await?;
+        let mkt = eth_call(http, &rpc, singleton, &format!("{SEL_MARKET}{}", strip_id(&market_id))).await?;
         let total_borrow_assets = word_u128(&mkt, 2);
         let total_borrow_shares = word_u128(&mkt, 3);
         let owed = mul_div_up(borrow_shares, total_borrow_assets, total_borrow_shares);
@@ -348,7 +420,7 @@ pub async fn build_repay(http: &reqwest::Client, body: &Value) -> Result<Value, 
     }
 
     let mut txs = vec![];
-    maybe_approve(http, &rpc, &loan, &wallet, approve_amt, &mut txs).await;
+    maybe_approve(http, &rpc, chain, singleton, &loan, &wallet, approve_amt, &mut txs).await;
     // repay(params, assets, shares, onBehalf=wallet, data=empty)
     let data = format!(
         "{SEL_REPAY}{params}{}{}{}{}{}",
@@ -358,8 +430,9 @@ pub async fn build_repay(http: &reqwest::Client, body: &Value) -> Result<Value, 
         w_u128(0x120),
         w_u128(0),
     );
-    txs.push(json!({ "to": MORPHO_SINGLETON, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN }));
+    txs.push(json!({ "to": singleton, "data": format!("0x{data}"), "value": "0", "chainId": chain }));
     Ok(ok(
+        chain,
         txs,
         json!({ "repayAll": max, "amountBaseUnits": assets.to_string(), "sharesRepaid": shares.to_string(), "loanToken": loan }),
     ))
@@ -369,10 +442,14 @@ pub async fn build_repay(http: &reqwest::Client, body: &Value) -> Result<Value, 
 /// (`target`="collateral"). `max` withdraws everything (supply→by shares,
 /// collateral→by read balance). Body: {marketId, walletAddress, amount|amountBaseUnits, target?, max?}.
 pub async fn build_withdraw(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
-    let rpc = rpc();
+    let chain = chain_of(body);
+    let singleton = chain_singleton(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: not deployed on {}", chain_name(chain))))?;
+    let rpc = rpc_for(chain)
+        .ok_or_else(|| AppError::InvalidParams(format!("morpho: writes not available on {} (no RPC)", chain_name(chain))))?;
     let market_id = req_market(body)?;
     let wallet = req_wallet(body)?;
-    let (params, loan, collateral) = market_params(http, &rpc, &market_id).await?;
+    let (params, loan,collateral) = market_params(http, &rpc, singleton, &market_id).await?;
     let target = body.get("target").and_then(|v| v.as_str()).unwrap_or("supply");
     let max = body.get("max").and_then(|v| v.as_bool()).unwrap_or(false)
         || body.get("max").and_then(|v| v.as_str()) == Some("true");
@@ -382,7 +459,7 @@ pub async fn build_withdraw(http: &reqwest::Client, body: &Value) -> Result<Valu
     let data = if is_collateral {
         // withdrawCollateral(params, assets, onBehalf=wallet, receiver=wallet)
         let assets = if max {
-            let pos = eth_call(http, &rpc, MORPHO_SINGLETON, &format!("{SEL_POSITION}{}{}", strip_id(&market_id), w_addr(&wallet))).await?;
+            let pos = eth_call(http, &rpc, singleton, &format!("{SEL_POSITION}{}{}", strip_id(&market_id), w_addr(&wallet))).await?;
             word_u128(&pos, 2) // collateral
         } else {
             resolve_amount(http, &rpc, body, "amount", "amountBaseUnits", token).await
@@ -399,7 +476,7 @@ pub async fn build_withdraw(http: &reqwest::Client, body: &Value) -> Result<Valu
     } else {
         // withdraw(params, assets, shares, onBehalf=wallet, receiver=wallet)
         let (assets, shares) = if max {
-            let pos = eth_call(http, &rpc, MORPHO_SINGLETON, &format!("{SEL_POSITION}{}{}", strip_id(&market_id), w_addr(&wallet))).await?;
+            let pos = eth_call(http, &rpc, singleton, &format!("{SEL_POSITION}{}{}", strip_id(&market_id), w_addr(&wallet))).await?;
             (0u128, word_u128(&pos, 0)) // supplyShares
         } else {
             (resolve_amount(http, &rpc, body, "amount", "amountBaseUnits", token).await, 0u128)
@@ -415,8 +492,8 @@ pub async fn build_withdraw(http: &reqwest::Client, body: &Value) -> Result<Valu
             w_addr(&wallet),
         )
     };
-    let txs = vec![json!({ "to": MORPHO_SINGLETON, "data": format!("0x{data}"), "value": "0", "chainId": ROBINHOOD_CHAIN })];
-    Ok(ok(txs, json!({ "target": if is_collateral { "collateral" } else { "supply" }, "withdrawAll": max })))
+    let txs = vec![json!({ "to": singleton, "data": format!("0x{data}"), "value": "0", "chainId": chain })];
+    Ok(ok(chain, txs, json!({ "target": if is_collateral { "collateral" } else { "supply" }, "withdrawAll": max })))
 }
 
 fn strip_id(market_id: &str) -> String {
@@ -448,6 +525,9 @@ pub struct MorphoMarketsParams {
     pub limit: Option<usize>,
     #[serde(default, alias = "search", alias = "q")]
     pub query: Option<String>,
+    /// Chain id or name (default Robinhood 4663).
+    #[serde(default, alias = "chainId")]
+    pub chain: Option<Value>,
 }
 
 async fn api_query(http: &reqwest::Client, query: &str) -> Option<Value> {
@@ -462,11 +542,12 @@ async fn api_query(http: &reqwest::Client, query: &str) -> Option<Value> {
     resp.json::<Value>().await.ok()
 }
 
-/// List Morpho markets on Robinhood Chain (4663), richest first. Optional name
-/// filter on the loan/collateral symbols.
-pub async fn fetch_markets(http: &reqwest::Client, limit: usize, search: Option<&str>) -> Vec<Value> {
+/// List Morpho markets on `chain`, richest first. Optional name filter. Applies
+/// the clean-market filter (borrowApy ≤ 200%, supplied ≥ $100k, listed) so the
+/// spam/broken markets with absurd APRs and fake TVL never surface.
+pub async fn fetch_markets(http: &reqwest::Client, chain: u64, limit: usize, search: Option<&str>) -> Vec<Value> {
     let q = format!(
-        r#"{{ markets(first: {}, where: {{ chainId_in: [4663] }}, orderBy: SupplyAssetsUsd, orderDirection: Desc) {{ items {{ marketId lltv loanAsset {{ address symbol decimals priceUsd logoURI }} collateralAsset {{ address symbol decimals priceUsd logoURI }} state {{ supplyApy borrowApy utilization supplyAssetsUsd borrowAssetsUsd liquidityAssetsUsd }} }} }} }}"#,
+        r#"{{ markets(first: {}, where: {{ chainId_in: [{chain}], borrowApy_lte: 2.0, supplyAssetsUsd_gte: 100000, listed: true }}, orderBy: SupplyAssetsUsd, orderDirection: Desc) {{ items {{ marketId lltv loanAsset {{ address symbol decimals priceUsd logoURI }} collateralAsset {{ address symbol decimals priceUsd logoURI }} state {{ supplyApy borrowApy utilization supplyAssetsUsd borrowAssetsUsd liquidityAssetsUsd }} }} }} }}"#,
         (limit * 2).clamp(10, 60)
     );
     let body = match api_query(http, &q).await {
@@ -481,7 +562,7 @@ pub async fn fetch_markets(http: &reqwest::Client, limit: usize, search: Option<
     let ql = search.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
     let mut rows: Vec<Value> = items
         .into_iter()
-        .filter_map(|m| shape_market(&m))
+        .filter_map(|m| shape_market(&m, chain))
         .filter(|r| {
             let Some(ql) = &ql else { return true };
             let ls = r.get("loanSymbol").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
@@ -493,7 +574,7 @@ pub async fn fetch_markets(http: &reqwest::Client, limit: usize, search: Option<
     rows
 }
 
-fn shape_market(m: &Value) -> Option<Value> {
+fn shape_market(m: &Value, chain: u64) -> Option<Value> {
     let market_id = m.get("marketId").and_then(|v| v.as_str())?.to_string();
     let loan = m.get("loanAsset")?;
     let coll = m.get("collateralAsset");
@@ -528,19 +609,23 @@ fn shape_market(m: &Value) -> Option<Value> {
         "supplyUsd": st.and_then(|s| s.get("supplyAssetsUsd")).cloned().unwrap_or(Value::Null),
         "borrowUsd": st.and_then(|s| s.get("borrowAssetsUsd")).cloned().unwrap_or(Value::Null),
         "liquidityUsd": st.and_then(|s| s.get("liquidityAssetsUsd")).cloned().unwrap_or(Value::Null),
-        "chain": "robinhood",
+        "chainId": chain,
+        "chainName": chain_name(chain),
+        "chain": chain_name(chain).to_lowercase(),
     }))
 }
 
-/// A user's Morpho positions on Robinhood Chain (supplied, collateral, borrowed,
-/// health factor per market).
+/// A user's Morpho positions across every OPRAI-supported Morpho chain (supplied,
+/// collateral, borrowed, health factor per market).
 pub async fn fetch_positions(http: &reqwest::Client, wallet: &str) -> Vec<Value> {
     let w = wallet.trim().to_lowercase();
     if !(w.starts_with("0x") && w.len() == 42) {
         return vec![];
     }
+    let chains: Vec<String> = MORPHO_READ_CHAINS.iter().map(|c| c.to_string()).collect();
     let q = format!(
-        r#"{{ marketPositions(first: 50, where: {{ chainId_in: [4663], userAddress_in: ["{w}"] }}) {{ items {{ healthFactor market {{ marketId loanAsset {{ symbol decimals logoURI }} collateralAsset {{ symbol decimals logoURI }} state {{ supplyApy borrowApy }} }} state {{ supplyAssets supplyAssetsUsd borrowAssets borrowAssetsUsd collateral collateralUsd }} }} }} }}"#
+        r#"{{ marketPositions(first: 100, where: {{ chainId_in: [{}], userAddress_in: ["{w}"] }}) {{ items {{ healthFactor market {{ marketId chain {{ id }} loanAsset {{ symbol decimals logoURI }} collateralAsset {{ symbol decimals logoURI }} state {{ supplyApy borrowApy }} }} state {{ supplyAssets supplyAssetsUsd borrowAssets borrowAssetsUsd collateral collateralUsd }} }} }} }}"#,
+        chains.join(", ")
     );
     let body = match api_query(http, &q).await {
         Some(b) => b,
@@ -571,8 +656,11 @@ fn shape_position(p: &Value) -> Option<Value> {
     let loan = market.get("loanAsset");
     let collateral = market.get("collateralAsset");
     let mst = market.get("state");
+    let chain_id = market.pointer("/chain/id").and_then(|v| v.as_u64()).unwrap_or(4663);
     Some(json!({
         "marketId": market_id,
+        "chainId": chain_id,
+        "chainName": chain_name(chain_id),
         "loanSymbol": loan.and_then(|l| l.get("symbol")).and_then(|v| v.as_str()).unwrap_or(""),
         "loanDecimals": loan.and_then(|l| l.get("decimals")).and_then(|v| v.as_u64()).unwrap_or(18),
         "loanLogo": loan.and_then(|l| l.get("logoURI")).cloned().unwrap_or(Value::Null),
@@ -588,7 +676,7 @@ fn shape_position(p: &Value) -> Option<Value> {
         "healthFactor": p.get("healthFactor").cloned().unwrap_or(Value::Null),
         "supplyApy": mst.and_then(|s| s.get("supplyApy")).cloned().unwrap_or(Value::Null),
         "borrowApy": mst.and_then(|s| s.get("borrowApy")).cloned().unwrap_or(Value::Null),
-        "chain": "robinhood",
+        "chain": chain_name(chain_id).to_lowercase(),
     }))
 }
 fn num(v: &Value) -> Option<f64> {
@@ -599,12 +687,17 @@ fn num(v: &Value) -> Option<f64> {
 pub async fn build_markets(http: &reqwest::Client, params: &MorphoMarketsParams) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(12).clamp(1, 40);
     let search = params.query.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let rows = fetch_markets(http, limit, search).await;
+    let chain = params.chain.as_ref()
+        .map(|c| chain_of(&json!({ "chain": c })))
+        .filter(|c| chain_singleton(*c).is_some())
+        .unwrap_or(4663);
+    let rows = fetch_markets(http, chain, limit, search).await;
+    let cname = chain_name(chain);
     let description = match search {
-        Some(q) if rows.is_empty() => format!("No Morpho markets match “{q}”."),
-        Some(q) => format!("{} Morpho markets match “{q}”.", rows.len()),
-        None if rows.is_empty() => "No Morpho markets found on Robinhood Chain.".to_string(),
-        None => format!("Morpho lending markets — {} on Robinhood Chain.", rows.len()),
+        Some(q) if rows.is_empty() => format!("No Morpho markets match “{q}” on {cname}."),
+        Some(q) => format!("{} Morpho markets match “{q}” on {cname}.", rows.len()),
+        None if rows.is_empty() => format!("No Morpho markets found on {cname}."),
+        None => format!("Morpho lending markets — {} on {cname}.", rows.len()),
     };
     Ok(BuildResponse {
         preview: ActionPreview {
@@ -622,7 +715,7 @@ pub async fn build_markets(http: &reqwest::Client, params: &MorphoMarketsParams)
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: Some(json!({ "chain": "robinhood", "chainName": "Robinhood", "markets": rows })),
+        data: Some(json!({ "chainId": chain, "chainName": cname, "markets": rows })),
     })
 }
 
@@ -651,6 +744,6 @@ pub async fn build_positions(http: &reqwest::Client, wallet: &str) -> Result<Bui
         execution_steps: None,
         quote: None,
         is_cross_chain: false,
-        data: Some(json!({ "chain": "robinhood", "chainName": "Robinhood", "wallet": wallet, "positions": rows })),
+        data: Some(json!({ "wallet": wallet, "positions": rows })),
     })
 }

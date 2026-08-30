@@ -59,7 +59,7 @@ interface UniswapPool {
 }
 
 interface MorphoMarketRow {
-  marketId: string;
+  marketId: string; chainId?: number; chainName?: string;
   loanSymbol: string; loanAddress: string; loanDecimals: number; loanLogo?: string | null;
   collateralSymbol: string; collateralAddress: string; collateralDecimals: number; collateralLogo?: string | null;
   lltvPct: number;
@@ -67,7 +67,7 @@ interface MorphoMarketRow {
   supplyUsd?: number | null; borrowUsd?: number | null; liquidityUsd?: number | null;
 }
 interface MorphoPositionRow {
-  marketId: string;
+  marketId: string; chainId?: number; chainName?: string;
   loanSymbol: string; loanDecimals: number; loanLogo?: string | null;
   collateralSymbol: string; collateralDecimals: number; collateralLogo?: string | null;
   supplyAssets?: unknown; supplyUsd?: number | null;
@@ -900,6 +900,18 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       // `query` — seed the search box so the card opens on the matches.
       const q = (this.query.params?.['query'] ?? this.query.params?.['search'] ?? '').toString();
       if (q) this.uniswapLaunchSearch = q;
+    }
+
+    // Morpho markets: open on the chain the user named ("morpho markets on Base"),
+    // else Robinhood (our home chain).
+    if (this.query.type === 'morpho_markets') {
+      const c = String(this.query.params?.['chain'] ?? this.query.params?.['chainId'] ?? '').toLowerCase().trim();
+      const map: Record<string, number> = {
+        ethereum: 1, eth: 1, mainnet: 1, base: 8453, arbitrum: 42161, arb: 42161,
+        optimism: 10, op: 10, polygon: 137, matic: 137, unichain: 130, robinhood: 4663, rh: 4663,
+      };
+      const id = Number(c) || map[c] || 0;
+      if (id && this.MORPHO_CHAINS.some(([cid]) => cid === id)) this.morphoChain.set(id);
     }
 
     // `nft_collection` used to render four invented NFTs — Mad Lads, Claynosaurz,
@@ -3650,13 +3662,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return `$${n.toFixed(2)}`;
   }
 
+  /** Chains Morpho is on across OPRAI's networks (for the markets chain switcher). */
+  readonly MORPHO_CHAINS: ReadonlyArray<readonly [number, string]> = [
+    [4663, 'Robinhood'], [8453, 'Base'], [1, 'Ethereum'], [42161, 'Arbitrum'],
+    [10, 'Optimism'], [137, 'Polygon'], [130, 'Unichain'],
+  ];
+  readonly morphoChain = signal<number>(4663);
+  setMorphoChain(id: number): void {
+    if (this.morphoChain() === id) return;
+    this.morphoChain.set(id);
+    this.morphoMarketRows = [];
+    void this.fetchMorphoMarkets();
+  }
   private async fetchMorphoMarkets(): Promise<void> {
     this.morphoFetching.set(true);
     this.error.set(null);
     try {
       const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
         type: 'morpho_markets',
-        params: { ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : { limit: 30 }) },
+        params: { chain: this.morphoChain(), ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : { limit: 30 }) },
       }).pipe(timeout(30_000)));
       this.morphoMarketRows = Array.isArray(resp?.data?.markets) ? resp.data.markets : [];
       this.morphoFetching.set(false);
@@ -3745,6 +3769,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       marketId: m.marketId,
       loanSymbol: m.loanSymbol,
       collateralSymbol: m.collateralSymbol,
+      ...(m.chainId ? { chain: String(m.chainId) } : {}),
     };
     this.useAction.emit({ type: `morpho_${kind}`, params: p, raw: `[ACTION:morpho_${kind}] ${JSON.stringify(p)}` });
   }
@@ -3755,6 +3780,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       marketId: p.marketId,
       loanSymbol: p.loanSymbol,
       collateralSymbol: p.collateralSymbol,
+      ...(p.chainId ? { chain: String(p.chainId) } : {}),
     };
     if (kind === 'withdraw') {
       params['target'] = this.morphoNum(p.collateralUsd) > 0 && this.morphoNum(p.supplyUsd) <= 0 ? 'collateral' : 'supply';

@@ -3757,7 +3757,7 @@
                   {{ (mk === 'supply' ? 'Lend' : mk === 'borrow' ? 'Borrow' : mk === 'repay' ? 'Repay' : 'Withdraw') | t }}
                   @if (mm) { {{ mm.loanSymbol }} }
                 </span>
-                <span class="uni-lp__sub">Morpho · Robinhood Chain</span>
+                <span class="uni-lp__sub">Morpho · {{ mm?.chainName || 'Robinhood' }}</span>
               </div>
             </div>
 
