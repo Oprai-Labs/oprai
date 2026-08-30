@@ -40,6 +40,7 @@ pub mod spending_client;
 pub mod squid;
 pub mod strategies;
 pub mod streamflow;
+pub mod sushi;
 pub mod swap;
 pub mod tensor;
 pub mod token_safety;

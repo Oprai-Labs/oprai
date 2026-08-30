@@ -283,6 +283,7 @@ fn is_evm_build_action(action_type: &str) -> bool {
         || action_type.starts_with("uniswap") // uniswap_swap/pools/launches/add_liquidity
         || action_type.starts_with("pons")   // pons_buy/sell/launch (EVM Robinhood launchpad)
         || action_type.starts_with("morpho") // morpho_supply/borrow/repay/withdraw (EVM lending)
+        || action_type.starts_with("sushi")  // sushi_swap/add_liquidity (EVM DEX)
         || action_type.starts_with("pools")  // pools_buy/sell/launch (pools.trade launchpad)
         || matches!(action_type, "cross_chain_swap" | "bridge")
 }
@@ -482,6 +483,18 @@ pub async fn post_build(
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let resp = crate::services::morpho::build_positions(&state.http, wallet).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
+    // Read-only, wallet-independent EVM data: SushiSwap V3 pool list on Robinhood
+    // Chain (GeckoTerminal). Served before the Solana-wallet gate like the others.
+    if body.action_type == "sushi_pools" {
+        let p: crate::services::sushi::SushiPoolsParams =
+            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::sushi::SushiPoolsParams {
+                limit: None,
+                query: None,
+            });
+        let resp = crate::services::sushi::build_pools(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
 
@@ -1967,6 +1980,29 @@ pub async fn post_morpho_withdraw(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result = crate::services::morpho::build_withdraw(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/sushi/swap — SushiSwap aggregator swap on Robinhood Chain.
+/// Returns unsigned txs (approve? to RedSnwapper + the swap call).
+#[post("/sushi/swap")]
+pub async fn post_sushi_swap(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::sushi::build_swap(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/sushi/add-liquidity — Sushi V3 add-liquidity (NPM.mint tx).
+#[post("/sushi/add-liquidity")]
+pub async fn post_sushi_add_liquidity(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::sushi::build_add_liquidity(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 

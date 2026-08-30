@@ -436,7 +436,7 @@
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
          || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()
-         || action.type === 'lighter_deposit' || isMorphoAction()) {
+         || action.type === 'lighter_deposit' || isMorphoAction() || isSushiAction()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -3927,6 +3927,151 @@
               <div class="limit-size">
                 <lucide-icon name="info" [size]="13" />
                 <span>{{ 'Borrow is over-collateralised — keep well under the max LTV so a price move does not liquidate you.' | t }}</span>
+              </div>
+            }
+          </div>
+        } @else if (isSushiSwap()) {
+          <!-- ─────── SushiSwap swap (Robinhood Chain) — two-panel mini-swap.
+               Pay tokenIn → receive tokenOut (live estimate from Sushi's
+               aggregator). Tokens come as addresses from the LLM/pool card. ── -->
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                <span class="km-icon km-icon--fallback">{{ sushiInSym().charAt(0) }}</span>
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ 'Swap' | t }} {{ sushiInSym() }} → {{ sushiOutSym() }}</span>
+                <span class="uni-lp__sub">SushiSwap · Robinhood Chain</span>
+              </div>
+            </div>
+            <div class="pump-swap" [class.proto-fields--shake]="shake()">
+              <div class="pump-panel">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">{{ 'You pay' | t }}</span>
+                  @if (sushiPayBal() != null) {
+                    <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ sushiPayBal() | number:'1.0-4' }}
+                      @if (isEditable() && sushiPayBal()! > 0) {
+                        <button class="pump-panel__max" type="button" (click)="setSushiSwapMax()">{{ 'Max' | t }}</button>
+                      }
+                    </span>
+                  }
+                </div>
+                <div class="pump-panel__row">
+                  <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                         [value]="getEditParam('amount')" [disabled]="!isEditable()"
+                         (input)="setSushiSwapAmount($any($event.target).value)" />
+                  <div class="pump-token"><span class="pump-token__sym">{{ sushiInSym() }}</span></div>
+                </div>
+              </div>
+              <div class="pump-swap__arrow" aria-hidden="true"><lucide-icon name="arrow-down" [size]="16" /></div>
+              <div class="pump-panel pump-panel--recv">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">{{ 'You receive (estimated)' | t }}</span>
+                  @if (sushiQuoting()) { <span class="pump-panel__refresh"><lucide-icon name="refresh-cw" [size]="10" /></span> }
+                </div>
+                <div class="pump-panel__row">
+                  <span class="pump-panel__amount pump-panel__amount--out">
+                    @if (sushiQuoteOut()) { ≈ {{ sushiQuoteOut() }} }
+                    @else { <span class="pump-panel__ph">—</span> }
+                  </span>
+                  <div class="pump-token"><span class="pump-token__sym">{{ sushiOutSym() }}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        } @else if (isSushiAddLiq()) {
+          <!-- ─────── SushiSwap V3 add-liquidity — pool picker + one-sided input;
+               the backend computes the paired amount + tick band. ──────────── -->
+          @let sp = sushiPool();
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                <span class="km-icon km-icon--fallback">S</span>
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ 'Add liquidity' | t }} @if (sp) { · {{ sp.token0Symbol }} / {{ sp.token1Symbol }} }</span>
+                <span class="uni-lp__sub">SushiSwap V3 · Robinhood Chain</span>
+              </div>
+            </div>
+
+            <!-- Pool picker -->
+            <div class="morpho-market">
+              @if (sp) {
+                <button type="button" class="morpho-market__sel"
+                        [disabled]="!isEditable() || sushiPools().length < 2"
+                        (click)="sushiPoolPickerOpen.set(!sushiPoolPickerOpen())">
+                  <span class="morpho-market__pair">
+                    <span class="morpho-market__loan">{{ sp.token0Symbol }}</span>
+                    <span class="morpho-market__slash">/</span>
+                    <span class="morpho-market__coll">{{ sp.token1Symbol }}</span>
+                  </span>
+                  <span class="morpho-market__meta">
+                    @if (sp.feePct != null) { {{ sp.feePct }}% · } {{ sushiUsd(sp.tvlUsd) }} {{ 'TVL' | t }}
+                  </span>
+                  @if (isEditable() && sushiPools().length > 1) { <lucide-icon name="chevron-down" [size]="14" /> }
+                </button>
+              } @else {
+                <div class="morpho-market__loading">{{ 'Loading Sushi pools…' | t }}</div>
+              }
+              @if (sushiPoolPickerOpen()) {
+                <div class="morpho-market__menu">
+                  <input class="morpho-market__search" type="text" [placeholder]="'Search pools' | t"
+                         [value]="sushiPoolSearch()" (input)="sushiPoolSearch.set($any($event.target).value)" />
+                  <div class="morpho-market__list">
+                    @for (p of sushiFilteredPools(); track p.poolAddress) {
+                      <button type="button" class="morpho-market__opt" [class.on]="sp?.poolAddress === p.poolAddress"
+                              (click)="selectSushiPool(p)">
+                        <span class="morpho-market__pair">{{ p.token0Symbol }} / {{ p.token1Symbol }}</span>
+                        <span class="morpho-market__optmeta">@if (p.feePct != null) { {{ p.feePct }}% · } {{ sushiUsd(p.tvlUsd) }}</span>
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+
+            @if (sp) {
+              <!-- deposit side toggle -->
+              <div class="morpho-toggle">
+                <button type="button" [class.on]="getEditParam('inputToken').toLowerCase() === sp.token0Address.toLowerCase()"
+                        [disabled]="!isEditable()" (click)="setSushiLpInput(sp.token0Address)">{{ sp.token0Symbol }}</button>
+                <button type="button" [class.on]="getEditParam('inputToken').toLowerCase() === sp.token1Address.toLowerCase()"
+                        [disabled]="!isEditable()" (click)="setSushiLpInput(sp.token1Address)">{{ sp.token1Symbol }}</button>
+              </div>
+              <div class="pump-panel" [class.proto-fields--shake]="shake()">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">{{ 'You deposit' | t }}</span>
+                  @if (sushiLpBal() != null) {
+                    <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ sushiLpBal() | number:'1.0-4' }}
+                      @if (isEditable() && sushiLpBal()! > 0) {
+                        <button class="pump-panel__max" type="button" (click)="setSushiLpMax()">{{ 'Max' | t }}</button>
+                      }
+                    </span>
+                  }
+                </div>
+                <div class="pump-panel__row">
+                  <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                         [value]="getEditParam('amount')" [disabled]="!isEditable()"
+                         (input)="setSushiLpAmount($any($event.target).value)" />
+                  <div class="pump-token"><span class="pump-token__sym">{{ sushiLpSym(getEditParam('inputToken')) }}</span></div>
+                </div>
+              </div>
+              <!-- range -->
+              <div class="morpho-toggle">
+                @for (r of [['10','±10%'],['25','±25%'],['','Wide']]; track r[0]) {
+                  <button type="button" [class.on]="(getEditParam('rangePercent') || '') === r[0]"
+                          [disabled]="!isEditable()" (click)="setSushiLpRange(r[0])">{{ r[1] }}</button>
+                }
+              </div>
+              <div class="perp-summary">
+                <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Pool' | t }}</span><span class="perp-summary__v">{{ sp.token0Symbol }} / {{ sp.token1Symbol }}</span></div>
+                @if (sp.feePct != null) { <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Fee tier' | t }}</span><span class="perp-summary__v">{{ sp.feePct }}%</span></div> }
+                @if (sp.aprEst != null) { <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Est. APR' | t }}</span><span class="perp-summary__v">{{ sp.aprEst | number:'1.0-1' }}%</span></div> }
+                <div class="perp-summary__row"><span class="perp-summary__k">{{ 'TVL' | t }}</span><span class="perp-summary__v">{{ sushiUsd(sp.tvlUsd) }}</span></div>
+              </div>
+              <div class="limit-size">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'OPRAI computes the paired amount and the price range; excess is refunded to your wallet.' | t }}</span>
               </div>
             }
           </div>

@@ -295,6 +295,9 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # collateral / borrowed / health. Prose is the wrong shape for both.
     "morpho_markets",
     "morpho_positions",
+    # SushiSwap V3 pool list (Robinhood Chain) — per-row TVL/APR/fee + Add-liquidity
+    # button; prose can't carry that shape.
+    "sushi_pools",
     # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
     # shape for all of these. The collection lists need a floor and a thumbnail
     # per row, the token lists a grid you can buy from, the offer lists an

@@ -120,6 +120,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   pons:      { name: 'Pons',       icon: 'assets/protocols/pons.png',             accent: '#1a2740', accentBg: 'rgba(26,39,64,0.12)' },
   lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png?v=2',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
   morpho:    { name: 'Morpho',     icon: 'assets/protocols/morpho.svg',          accent: '#2470FF', accentBg: 'rgba(36,112,255,0.12)' },
+  sushi:     { name: 'SushiSwap',  icon: 'assets/protocols/sushi.svg',           accent: '#FA52A0', accentBg: 'rgba(250,82,160,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -162,6 +163,13 @@ interface MorphoPosition {
   healthFactor?: number | null; supplyApy?: number | null; borrowApy?: number | null;
 }
 
+/** One SushiSwap V3 pool on Robinhood Chain (from /actions/build sushi_pools). */
+interface SushiPool {
+  poolAddress: string; name: string; feePct?: number | null;
+  tvlUsd?: number | null; volume24hUsd?: number | null; aprEst?: number | null;
+  token0Symbol: string; token0Address: string; token1Symbol: string; token1Address: string;
+}
+
 function getProtocolKey(action: ParsedAction): string {
   const p = (action.params['protocol'] ?? '').toLowerCase();
   if (p && PROTOCOL_CONFIGS[p]) return p;
@@ -182,6 +190,8 @@ function getProtocolKey(action: ParsedAction): string {
       || t === 'lighter_close' || t === 'lighter_leverage') return 'lighter';
   // Morpho Blue lending (Robinhood Chain 4663 — EVM).
   if (t.startsWith('morpho_')) return 'morpho';
+  // SushiSwap (Robinhood Chain 4663 — EVM).
+  if (t.startsWith('sushi_')) return 'sushi';
   if (t === 'stake') return p || 'jito';
   if (t === 'unstake') return p || 'jito';
   if (t.startsWith('native_stake')) return 'default';
@@ -231,6 +241,8 @@ function getActionLabel(action: ParsedAction): string {
     // Morpho Blue lending (Robinhood Chain)
     morpho_supply: 'Lend / Earn (Morpho)', morpho_borrow: 'Borrow (Morpho)',
     morpho_repay: 'Repay (Morpho)', morpho_withdraw: 'Withdraw (Morpho)',
+    // SushiSwap (Robinhood Chain)
+    sushi_swap: 'Swap (Sushi)', sushi_add_liquidity: 'Add Liquidity (Sushi)',
     jupsol_stake: 'Stake for jupSOL', jupsol_unstake: 'Unstake jupSOL',
     burn: 'Burn Tokens', close_accounts: 'Close Empty Accounts',
     sns_register: 'Register .sol Domain', sns_transfer: 'Transfer Domain',
@@ -6059,7 +6071,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // on Robinhood Mainnet). The LLM's params carry no chainId for these, so
     // the tx link would otherwise fall through to Solscan.
     const t = this.action?.type ?? '';
-    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_')) return 4663;
+    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_')) return 4663;
     return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
@@ -6457,6 +6469,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Morpho Blue lending: load the live market list (+ user positions for
     // repay/withdraw) and auto-pick the market from any LLM hint.
     if (this.isMorphoAction()) this.startMorphoCard();
+    // SushiSwap: swap quote/balance, or the pool picker for add-liquidity.
+    if (this.isSushiAction()) this.startSushiCard();
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
@@ -10235,6 +10249,195 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const bal = Number(r?.balance ?? r?.balanceEth);
       this.morphoWalletBal.set(Number.isFinite(bal) ? bal : null);
     } catch { this.morphoWalletBal.set(null); }
+  }
+
+  // ── SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity ──────────────
+  readonly isSushiAction = computed(() => (this.action?.type ?? '').startsWith('sushi_'));
+  readonly isSushiSwap = computed(() => this.action?.type === 'sushi_swap');
+  readonly isSushiAddLiq = computed(() => this.action?.type === 'sushi_add_liquidity');
+
+  // swap state
+  readonly sushiPayBal = signal<number | null>(null);
+  readonly sushiQuoteOut = signal<string | null>(null);
+  readonly sushiQuoting = signal(false);
+  private sushiInDec = 18;
+  private sushiOutDec = 18;
+  private _sushiQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  // add-liquidity state
+  readonly sushiPools = signal<SushiPool[]>([]);
+  readonly sushiPoolPickerOpen = signal(false);
+  readonly sushiPoolSearch = signal('');
+  readonly sushiLpBal = signal<number | null>(null);
+
+  private readonly SUSHI_KNOWN: Record<string, { sym: string; dec: number }> = {
+    '0x0bd7d308f8e1639fab988df18a8011f41eacad73': { sym: 'WETH', dec: 18 },
+    '0x5fc5360d0400a0fd4f2af552add042d716f1d168': { sym: 'USDG', dec: 6 },
+  };
+  /** Display symbol for a token address (known map → LLM hint → short address). */
+  private sushiSymOf(addr: string, hint: string): string {
+    const a = (addr || '').toLowerCase().trim();
+    if (!a || a === 'eth' || a === 'native') return 'ETH';
+    if (this.SUSHI_KNOWN[a]) return this.SUSHI_KNOWN[a].sym;
+    if (hint) return hint;
+    return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
+  }
+  sushiInSym(): string { return this.sushiSymOf(this.getEditParam('tokenIn'), this.getEditParam('tokenInSymbol')); }
+  sushiOutSym(): string { return this.sushiSymOf(this.getEditParam('tokenOut'), this.getEditParam('tokenOutSymbol')); }
+
+  sushiPool(): SushiPool | null {
+    const a = this.getEditParam('poolAddress').toLowerCase();
+    if (!a) return null;
+    return this.sushiPools().find(p => p.poolAddress.toLowerCase() === a) ?? null;
+  }
+  sushiFilteredPools(): SushiPool[] {
+    const q = this.sushiPoolSearch().trim().toLowerCase();
+    const ps = this.sushiPools();
+    if (!q) return ps;
+    return ps.filter(p => (p.name || '').toLowerCase().includes(q));
+  }
+  sushiUsd(v: unknown): string {
+    const n = Number(v);
+    if (!(n > 0)) return '$0';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+
+  private startSushiCard(): void {
+    if (this.isSushiSwap()) {
+      void this.resolveSushiSwapDecimals().then(() => {
+        const amt = this.getEditParam('amount');
+        if (amt && +amt > 0) this.queueSushiQuote();
+      });
+      void this.refreshSushiPayBalance();
+    } else {
+      void this.refreshSushiPools();
+      if (this.getEditParam('poolAddress')) void this.refreshSushiLpBalance();
+    }
+  }
+
+  private async resolveSushiSwapDecimals(): Promise<void> {
+    const inAddr = this.getEditParam('tokenIn');
+    const outAddr = this.getEditParam('tokenOut');
+    const ka = (a: string) => this.SUSHI_KNOWN[(a || '').toLowerCase()];
+    if (ka(inAddr)) this.sushiInDec = ka(inAddr)!.dec;
+    if (ka(outAddr)) this.sushiOutDec = ka(outAddr)!.dec;
+    // Fill unknown decimals from the balance probe (returns decimals per token).
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    if (!ka(inAddr) && inAddr && inAddr.startsWith('0x')) {
+      try {
+        const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token: inAddr }));
+        if (Number.isFinite(Number(r?.decimals))) this.sushiInDec = Number(r.decimals);
+      } catch { /* keep 18 */ }
+    }
+    if (!ka(outAddr) && outAddr && outAddr.startsWith('0x')) {
+      try {
+        const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token: outAddr }));
+        if (Number.isFinite(Number(r?.decimals))) this.sushiOutDec = Number(r.decimals);
+      } catch { /* keep 18 */ }
+    }
+  }
+  private async refreshSushiPayBalance(): Promise<void> {
+    const inAddr = this.getEditParam('tokenIn');
+    const addr = await this.resolveEvmAddress();
+    if (!addr || !inAddr) { this.sushiPayBal.set(null); return; }
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token: inAddr }));
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      this.sushiPayBal.set(Number.isFinite(bal) ? bal : null);
+    } catch { this.sushiPayBal.set(null); }
+  }
+  setSushiSwapAmount(v: string): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('amount', v);
+    this.queueSushiQuote();
+  }
+  setSushiSwapMax(): void {
+    const b = this.sushiPayBal();
+    if (b != null && b > 0 && this.isEditable()) this.setSushiSwapAmount(String(+b.toFixed(8)));
+  }
+  private queueSushiQuote(): void {
+    if (this._sushiQuoteTimer) clearTimeout(this._sushiQuoteTimer);
+    const amt = this.getEditParam('amount');
+    if (!amt || !(+amt > 0)) { this.sushiQuoteOut.set(null); return; }
+    this._sushiQuoteTimer = setTimeout(() => void this.fetchSushiQuote(), 450);
+  }
+  private async fetchSushiQuote(): Promise<void> {
+    const inAddr = this.getEditParam('tokenIn');
+    const outAddr = this.getEditParam('tokenOut');
+    const amt = this.getEditParam('amount');
+    if (!inAddr || !outAddr || !amt || !(+amt > 0)) return;
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    this.sushiQuoting.set(true);
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/sushi/swap', {
+        tokenIn: inAddr, tokenOut: outAddr, amount: amt, walletAddress: addr,
+        slippagePct: Number(this.getEditParam('slippagePct') || 0.5),
+      }));
+      const out = Number(r?.expectedAmountOut);
+      if (Number.isFinite(out) && out > 0) {
+        this.sushiQuoteOut.set((out / Math.pow(10, this.sushiOutDec)).toLocaleString(undefined, { maximumFractionDigits: 6 }));
+      } else {
+        this.sushiQuoteOut.set(null);
+      }
+    } catch { this.sushiQuoteOut.set(null); }
+    this.sushiQuoting.set(false);
+  }
+
+  private async refreshSushiPools(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(this.apiService.post<{ data?: { pools?: SushiPool[] } }>('/actions/build', {
+        type: 'sushi_pools', params: { limit: 30 },
+      }).pipe(timeout(20_000)));
+      const ps = resp?.data?.pools ?? [];
+      if (ps.length) {
+        this.sushiPools.set(ps);
+        if (!this.getEditParam('poolAddress')) this.selectSushiPool(ps[0]);
+        else void this.refreshSushiLpBalance();
+      }
+    } catch { /* retry on demand */ }
+  }
+  selectSushiPool(p: SushiPool): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('poolAddress', p.poolAddress);
+    // Default the deposit side to the pool's non-stable / token0 leg.
+    if (!this.getEditParam('inputToken')) this.setEditParam('inputToken', p.token0Address);
+    this.sushiPoolPickerOpen.set(false);
+    this.sushiLpBal.set(null);
+    void this.refreshSushiLpBalance();
+  }
+  setSushiLpInput(addr: string): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('inputToken', addr);
+    this.setEditParam('amount', '');
+    this.sushiLpBal.set(null);
+    void this.refreshSushiLpBalance();
+  }
+  setSushiLpRange(pct: string): void { if (this.isEditable()) this.setEditParam('rangePercent', pct); }
+  setSushiLpAmount(v: string): void { if (this.isEditable()) this.setEditParam('amount', v); }
+  setSushiLpMax(): void {
+    const b = this.sushiLpBal();
+    if (b != null && b > 0 && this.isEditable()) this.setEditParam('amount', String(+b.toFixed(8)));
+  }
+  private async refreshSushiLpBalance(): Promise<void> {
+    const tok = this.getEditParam('inputToken');
+    const addr = await this.resolveEvmAddress();
+    if (!addr || !tok) { this.sushiLpBal.set(null); return; }
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token: tok }));
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      this.sushiLpBal.set(Number.isFinite(bal) ? bal : null);
+    } catch { this.sushiLpBal.set(null); }
+  }
+  /** Symbol for the LP input-token toggle. */
+  sushiLpSym(addr: string): string {
+    const p = this.sushiPool();
+    if (p && addr.toLowerCase() === p.token0Address.toLowerCase()) return p.token0Symbol || 'Token 0';
+    if (p && addr.toLowerCase() === p.token1Address.toLowerCase()) return p.token1Symbol || 'Token 1';
+    return this.sushiSymOf(addr, '');
   }
 
   // USDG (Global Dollar) on Robinhood Mainnet 4663 — the deposit token. Read

@@ -76,6 +76,12 @@ interface MorphoPositionRow {
   healthFactor?: number | null; supplyApy?: number | null; borrowApy?: number | null;
 }
 
+interface SushiPoolRow {
+  poolAddress: string; name: string; feePct?: number | null;
+  tvlUsd?: number | null; volume24hUsd?: number | null; aprEst?: number | null;
+  token0Symbol: string; token0Address: string; token1Symbol: string; token1Address: string;
+}
+
 interface UniswapLaunch {
   tokenAddress: string;
   symbol: string;
@@ -830,6 +836,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'morpho_markets':
       case 'morpho_positions':
         return 'assets/protocols/morpho.svg';
+      case 'sushi_pools':
+        return 'assets/protocols/sushi.svg';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:
@@ -1116,6 +1124,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['uniswapLaunchesResults']) this.uniswapLaunchesResults = d['uniswapLaunchesResults'] as UniswapLaunch[];
     if (d['morphoMarketRows'])   this.morphoMarketRows   = d['morphoMarketRows']   as MorphoMarketRow[];
     if (d['morphoPositionRows']) this.morphoPositionRows = d['morphoPositionRows'] as MorphoPositionRow[];
+    if (d['sushiPoolRows'])      this.sushiPoolRows      = d['sushiPoolRows']      as SushiPoolRow[];
     if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
     if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
     if (d['uniswapLaunchSearch'] != null) this.uniswapLaunchSearch = d['uniswapLaunchSearch'] as string;
@@ -1228,6 +1237,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.uniswapLaunchesResults.length) d['uniswapLaunchesResults'] = this.uniswapLaunchesResults;
     if (this.morphoMarketRows.length)   d['morphoMarketRows']   = this.morphoMarketRows;
     if (this.morphoPositionRows.length) d['morphoPositionRows'] = this.morphoPositionRows;
+    if (this.sushiPoolRows.length)      d['sushiPoolRows']      = this.sushiPoolRows;
     if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
     if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
     if (this.uniswapLaunchSearch) d['uniswapLaunchSearch'] = this.uniswapLaunchSearch;
@@ -3686,6 +3696,47 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── SushiSwap V3 pools (Robinhood Chain) ────────────────────────────────────
+  sushiPoolRows: SushiPoolRow[] = [];
+  readonly sushiFetching = signal(false);
+
+  private async fetchSushiPools(): Promise<void> {
+    this.sushiFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'sushi_pools',
+        params: { ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : { limit: 30 }) },
+      }).pipe(timeout(30_000)));
+      this.sushiPoolRows = Array.isArray(resp?.data?.pools) ? resp.data.pools : [];
+      this.sushiFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Sushi pools');
+      this.sushiFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+  /** Open the Sushi add-liquidity card for a pool row. */
+  sushiAddLiq(p: SushiPoolRow): void {
+    const params: Record<string, string> = {
+      poolAddress: p.poolAddress,
+      inputToken: p.token0Address,
+      tokenInSymbol: p.token0Symbol,
+      tokenOutSymbol: p.token1Symbol,
+    };
+    this.useAction.emit({ type: 'sushi_add_liquidity', params, raw: `[ACTION:sushi_add_liquidity] ${JSON.stringify(params)}` });
+  }
+  sushiUsd(v: unknown): string {
+    const n = Number(v);
+    if (!(n > 0)) return '$0';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+
   morphoNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
   /** Open the Morpho action card for a market row (Lend or Borrow). */
@@ -4668,6 +4719,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'morpho_positions':
         await this.fetchMorphoPositions();
+        return;
+      case 'sushi_pools':
+        await this.fetchSushiPools();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

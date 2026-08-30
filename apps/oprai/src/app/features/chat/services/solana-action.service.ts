@@ -1561,6 +1561,11 @@ export class SolanaActionService {
     if (action.type.startsWith('morpho_')) {
       return this.executeMorpho(action, callbacks);
     }
+    // SushiSwap — EVM (Robinhood Chain 4663). Swap + V3 add-liquidity; backend
+    // returns unsigned txs (approval? + the call). Route out before the Solana guard.
+    if (action.type === 'sushi_swap' || action.type === 'sushi_add_liquidity') {
+      return this.executeSushi(action, callbacks);
+    }
 
     const wallet = this.walletService.publicKey();
     // A cross-chain bridge FROM an EVM chain (e.g. Ethereum → Robinhood) is
@@ -3250,6 +3255,91 @@ export class SolanaActionService {
       const ok = await this.watchEvmReceipt(ethereum, hash);
       if (ok === false) {
         callbacks.onFail?.(`The ${kind} reverted on-chain — your funds are safe minus the network fee.`, hash);
+        return hash;
+      }
+    }
+    callbacks.onConfirm?.(lastHash);
+    return lastHash;
+  }
+
+  /**
+   * SushiSwap (Robinhood Chain 4663) — swap (via Sushi's aggregator API) and V3
+   * add-liquidity (NonfungiblePositionManager.mint). Backend returns unsigned txs
+   * (an ERC-20 approval to RedSnwapper/NPM when needed, then the call); we switch
+   * the wallet to Robinhood Chain and sign each in order, like the Morpho flow.
+   */
+  private async executeSushi(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = 4663;
+    const isSwap = action.type === 'sushi_swap';
+
+    const ethereum = await this.walletService.resolveEvmProvider();
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to use Sushi on Robinhood Chain.');
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`Sushi: ${label} timed out`)), ms))]);
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }), 60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network. Switch it to Robinhood Chain and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    let endpoint: string;
+    const reqBody: Record<string, unknown> = { walletAddress: account };
+    const fwd = (k: string) => { if (p[k] != null && String(p[k]) !== '') reqBody[k] = String(p[k]); };
+    if (isSwap) {
+      reqBody['tokenIn'] = String(p['tokenIn'] ?? '');
+      reqBody['tokenOut'] = String(p['tokenOut'] ?? '');
+      fwd('amount'); fwd('amountBaseUnits'); fwd('slippagePct');
+      endpoint = '/actions/sushi/swap';
+    } else {
+      fwd('poolAddress'); fwd('inputToken'); fwd('amount'); fwd('amountBaseUnits');
+      fwd('rangePercent'); fwd('slippagePct');
+      endpoint = '/actions/sushi/add-liquidity';
+    }
+
+    const prep = await firstValueFrom(this.api.post<any>(endpoint, reqBody));
+    const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
+    if (txs.length === 0) throw new Error('Sushi: no transaction was returned.');
+
+    callbacks.onSign?.();
+    const verb = isSwap ? 'swap' : 'add liquidity';
+    let lastHash = '';
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
+      if (!tx?.to) continue;
+      const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+      const isApproval = i < txs.length - 1;
+      const hash = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: account,
+          to: tx.to,
+          data: tx.data ?? '0x',
+          value: toHexQty(tx.value) ?? '0x0',
+          ...(gasHex ? { gas: gasHex } : {}),
+        }],
+      }), 120_000, isApproval ? 'approval' : verb) as string;
+      lastHash = hash;
+      if (i === 0) callbacks.onSubmit?.(hash);
+      const ok = await this.watchEvmReceipt(ethereum, hash);
+      if (ok === false) {
+        callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
       }
     }

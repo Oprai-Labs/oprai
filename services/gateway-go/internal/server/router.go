@@ -283,6 +283,8 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/morpho/borrow", solanaProxy.PostMorphoBorrow)
 		r.Post("/morpho/repay", solanaProxy.PostMorphoRepay)
 		r.Post("/morpho/withdraw", solanaProxy.PostMorphoWithdraw)
+		r.Post("/sushi/swap", solanaProxy.PostSushiSwap)
+		r.Post("/sushi/add-liquidity", solanaProxy.PostSushiAddLiquidity)
 		// Lighter perps (Robinhood Chain domain) — proxied to chat-service
 		// (Python SDK + agent-key store), NOT solana-service. Wallet auth
 		// already applied by the block-level RequireWallet above.

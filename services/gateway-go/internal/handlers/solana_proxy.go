@@ -313,6 +313,16 @@ func (p *SolanaProxy) PostMorphoWithdraw(w http.ResponseWriter, r *http.Request)
 	p.proxy.ServeHTTP(w, r)
 }
 
+// SushiSwap — swap + V3 add-liquidity on Robinhood Chain (unsigned EVM txs).
+func (p *SolanaProxy) PostSushiSwap(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/sushi/swap"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostSushiAddLiquidity(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/sushi/add-liquidity"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

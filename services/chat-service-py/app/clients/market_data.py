@@ -2898,6 +2898,9 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # market list is wallet-independent, positions take a `wallet` param.
     "morpho_markets",
     "morpho_positions",
+    # SushiSwap V3 pool list (Robinhood Chain) — served by the Rust service via
+    # /actions/build (GeckoTerminal under the hood), tx=None.
+    "sushi_pools",
 })
 
 

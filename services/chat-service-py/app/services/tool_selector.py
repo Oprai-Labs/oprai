@@ -371,6 +371,8 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "morpho_borrow":                 _A({"morpho", "lending"}),
     "morpho_repay":                  _A({"morpho", "lending"}),
     "morpho_withdraw":               _A({"morpho", "lending"}),
+    "sushi_swap":                    _A({"sushi", "dex", "swap"}),
+    "sushi_add_liquidity":           _A({"sushi", "dex", "liquidity"}),
     "uniswap_add_liquidity":         _A({"dex", "uniswap", "liquidity"}),
     "relay_bridge":                  _A({"bridge", "relay"}),
     "relay_index_transaction":       _A({"bridge", "relay"}),
@@ -488,6 +490,7 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "lighter_positions": _A({"perp", "lighter", "portfolio"}),
     "morpho_markets": _A({"morpho", "lending", "analysis"}),
     "morpho_positions": _A({"morpho", "lending", "portfolio"}),
+    "sushi_pools": _A({"sushi", "dex", "liquidity", "analysis"}),
     "simulate":       _A({"core"}),
     "whale":          _A({"analysis"}),
     "smart_money":    _A({"analysis"}),
@@ -583,6 +586,8 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     # Morpho Blue lending on Robinhood Chain — its own identity tag so
     # supply/borrow/repay/withdraw + market/position reads surface together.
     "morpho":      _A({"morpho"}),
+    # SushiSwap on Robinhood Chain — swap + pools + add-liquidity.
+    "sushi":       _A({"sushi"}),
     "relay":       _A({"relay"}),
     "native_stake":_A({"native_stake", "staking"}),
     # Lighter perps — its own tag so lighter_open/close/leverage surface when
