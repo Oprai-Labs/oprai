@@ -111,6 +111,12 @@ services:
     container_name: oprai-qdrant
     mem_limit: 4g
     pids_limit: 512
+    # Qdrant opens many segment files; the 1024 default hits "Too many open
+    # files (os error 24)" under heavy upserts and drops the collection to RED.
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__GRPC_PORT: 6334
