@@ -9730,8 +9730,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const dec = this.lighterMarket()?.sizeDecimals ?? 4;
     this.setEditParam('baseAmount', String(+v.toFixed(dec)));
   }
-  setLighterCloseMax(): void { this.setLighterCloseBase(this.lighterCloseFullBase()); }
-  setLighterClosePct(pct: number): void { this.setLighterCloseBase(this.lighterCloseFullBase() * pct / 100); }
+  setLighterCloseMax(): void { this.setLighterClosePct(100); }
+  /** Set the close to a % of the open position. The % is the source of truth for
+   *  the slider (stored as closePct) — a tiny position may not land 50% exactly
+   *  on the size step, but the user still sees the 50% they asked for; the base
+   *  amount is the step-rounded quantity that actually closes. */
+  setLighterClosePct(pct: number): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('closePct', String(pct));
+    this.setLighterCloseBase(this.lighterCloseFullBase() * pct / 100);
+  }
+  /** Manual base-amount entry — the amount becomes the source of truth, so drop
+   *  the stored percentage and let the slider re-derive from the typed size. */
+  setLighterCloseAmount(v: string): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('closePct', '');
+    this.setEditParam('baseAmount', v);
+  }
   /** The realized-PnL receipt for a COMPLETED close (confirmed live, or
    *  re-hydrated from the stored result on reload). Null while still editing. */
   lighterCloseReceipt(): NonNullable<StoredActionResult['lighterReceipt']> | null {
@@ -9741,8 +9756,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return r && r.kind === 'close' && r.realizedPnl != null && r.realizedPnl !== '' ? r : null;
   }
 
-  /** Current close amount as a % of the open position (0–100), for the slider. */
+  /** Current close amount as a % of the open position (0–100), for the slider.
+   *  Prefers the explicit percentage intent (so "close half" shows 50% even
+   *  when the tiny size can't land exactly on the step grid); falls back to
+   *  deriving from a manually-typed base amount. */
   lighterClosePct(): number {
+    const stored = parseFloat(this.getEditParam('closePct'));
+    if (Number.isFinite(stored) && stored > 0 && stored <= 100) return Math.round(stored);
     const full = this.lighterCloseFullBase();
     if (full <= 0) return 0;
     const amt = Number(this.getEditParam('baseAmount') || this.getEditParam('amount')) || 0;
