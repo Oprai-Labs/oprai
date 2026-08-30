@@ -463,12 +463,14 @@ pub async fn post_build(
     // Read-only, wallet-independent EVM data: the Morpho market list (Robinhood
     // Chain lending). Served before the Solana-wallet gate like uniswap_launches.
     if body.action_type == "morpho_markets" {
-        let p: crate::services::morpho::MorphoMarketsParams =
-            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::morpho::MorphoMarketsParams {
-                limit: None,
-                query: None,
-                chain: None,
-            });
+        let p: crate::services::morpho::MorphoMarketsParams = serde_json::from_value(
+            body.params.clone(),
+        )
+        .unwrap_or(crate::services::morpho::MorphoMarketsParams {
+            limit: None,
+            query: None,
+            chain: None,
+        });
         let resp = crate::services::morpho::build_markets(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
@@ -491,72 +493,107 @@ pub async fn post_build(
     // Read-only, wallet-independent EVM data: SushiSwap V3 pool list on Robinhood
     // Chain (GeckoTerminal). Served before the Solana-wallet gate like the others.
     if body.action_type == "sushi_pools" {
-        let p: crate::services::sushi::SushiPoolsParams =
-            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::sushi::SushiPoolsParams {
-                limit: None,
-                query: None,
-            });
+        let p: crate::services::sushi::SushiPoolsParams = serde_json::from_value(
+            body.params.clone(),
+        )
+        .unwrap_or(crate::services::sushi::SushiPoolsParams {
+            limit: None,
+            query: None,
+        });
         let resp = crate::services::sushi::build_pools(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
+    // Read-only: a wallet's Sushi V3 LP positions on Robinhood Chain. Wallet is a
+    // param (linked EVM address), so serve before the Solana-wallet gate.
+    if body.action_type == "sushi_positions" {
+        let wallet = body
+            .params
+            .get("wallet")
+            .or_else(|| body.params.get("walletAddress"))
+            .or_else(|| body.params.get("address"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let resp = crate::services::sushi::build_positions(&state.http, wallet).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
 
     // Read-only, wallet-independent EVM data: OpenSea NFT collections + a
     // collection's listings on Robinhood Chain. Key is server-side.
     if body.action_type == "opensea_collections" {
-        let p: crate::services::opensea::OpenseaCollectionsParams =
-            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::opensea::OpenseaCollectionsParams {
-                limit: None,
-                query: None,
-            });
+        let p: crate::services::opensea::OpenseaCollectionsParams = serde_json::from_value(
+            body.params.clone(),
+        )
+        .unwrap_or(crate::services::opensea::OpenseaCollectionsParams {
+            limit: None,
+            query: None,
+        });
         let resp = crate::services::opensea::build_collections(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_listings" {
         let p: crate::services::opensea::OpenseaListingsParams =
-            serde_json::from_value(body.params.clone())
-                .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_listings params: {e}")))?;
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_listings params: {e}"))
+            })?;
         let resp = crate::services::opensea::build_listings(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_trending" {
-        let p: crate::services::opensea::OpenseaCollectionsParams =
-            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::opensea::OpenseaCollectionsParams { limit: None, query: None });
+        let p: crate::services::opensea::OpenseaCollectionsParams = serde_json::from_value(
+            body.params.clone(),
+        )
+        .unwrap_or(crate::services::opensea::OpenseaCollectionsParams {
+            limit: None,
+            query: None,
+        });
         let resp = crate::services::opensea::build_trending(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_collection" {
-        let p: crate::services::opensea::OpenseaCollectionParams = serde_json::from_value(body.params.clone())
-            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_collection params: {e}")))?;
+        let p: crate::services::opensea::OpenseaCollectionParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_collection params: {e}"))
+            })?;
         let resp = crate::services::opensea::build_collection(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_nfts" {
-        let p: crate::services::opensea::OpenseaListingsParams = serde_json::from_value(body.params.clone())
-            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_nfts params: {e}")))?;
+        let p: crate::services::opensea::OpenseaListingsParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_nfts params: {e}"))
+            })?;
         let resp = crate::services::opensea::build_nfts(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_nft" {
-        let p: crate::services::opensea::OpenseaNftParams = serde_json::from_value(body.params.clone())
-            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_nft params: {e}")))?;
+        let p: crate::services::opensea::OpenseaNftParams =
+            serde_json::from_value(body.params.clone())
+                .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_nft params: {e}")))?;
         let resp = crate::services::opensea::build_nft(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_offers" {
-        let p: crate::services::opensea::OpenseaListingsParams = serde_json::from_value(body.params.clone())
-            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_offers params: {e}")))?;
+        let p: crate::services::opensea::OpenseaListingsParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_offers params: {e}"))
+            })?;
         let resp = crate::services::opensea::build_offers(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_activity" {
-        let p: crate::services::opensea::OpenseaListingsParams = serde_json::from_value(body.params.clone())
-            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_activity params: {e}")))?;
+        let p: crate::services::opensea::OpenseaListingsParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_activity params: {e}"))
+            })?;
         let resp = crate::services::opensea::build_events(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
     if body.action_type == "opensea_wallet_nfts" {
-        let p: crate::services::opensea::OpenseaWalletParams = serde_json::from_value(body.params.clone())
-            .map_err(|e| AppError::InvalidParams(format!("Invalid opensea_wallet_nfts params: {e}")))?;
+        let p: crate::services::opensea::OpenseaWalletParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_wallet_nfts params: {e}"))
+            })?;
         let resp = crate::services::opensea::build_wallet_nfts(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
@@ -1788,7 +1825,11 @@ pub async fn post_uniswap_quote(
     // Swapper: prefer a valid EVM address the client passes (a Solana-native
     // OPRAI session can't be the EVM swapper, but the user has a connected EVM
     // wallet). Pricing only — the built swap is signed by the user's own wallet.
-    let wallet = match body.sender.as_deref().filter(|s| s.len() == 42 && s.starts_with("0x")) {
+    let wallet = match body
+        .sender
+        .as_deref()
+        .filter(|s| s.len() == 42 && s.starts_with("0x"))
+    {
         Some(s) => s.to_string(),
         None => wallet_from_req(&req)?,
     };
@@ -1871,13 +1912,24 @@ pub async fn post_uniswap_lp_balances(
     body: web::Json<UniswapLpBalancesBody>,
 ) -> Result<HttpResponse, AppError> {
     let wallet = wallet_from_req(&req)?;
-    let by_slug = crate::services::uniswap::dexscreener_slug_to_chain_id(&body.chain.trim().to_lowercase());
-    let chain_id = if by_slug != 0 { by_slug } else { body.chain.trim().parse::<u64>().unwrap_or(0) };
+    let by_slug =
+        crate::services::uniswap::dexscreener_slug_to_chain_id(&body.chain.trim().to_lowercase());
+    let chain_id = if by_slug != 0 {
+        by_slug
+    } else {
+        body.chain.trim().parse::<u64>().unwrap_or(0)
+    };
     if chain_id == 0 {
-        return Err(AppError::InvalidParams("A valid EVM chain is required.".into()));
+        return Err(AppError::InvalidParams(
+            "A valid EVM chain is required.".into(),
+        ));
     }
-    let (b0, r0, d0) = crate::services::uniswap::token_balance_of(&state.http, chain_id, &wallet, &body.token0).await;
-    let (b1, r1, d1) = crate::services::uniswap::token_balance_of(&state.http, chain_id, &wallet, &body.token1).await;
+    let (b0, r0, d0) =
+        crate::services::uniswap::token_balance_of(&state.http, chain_id, &wallet, &body.token0)
+            .await;
+    let (b1, r1, d1) =
+        crate::services::uniswap::token_balance_of(&state.http, chain_id, &wallet, &body.token1)
+            .await;
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "token0": { "balance": b0, "balanceRaw": r0, "decimals": d0 },
         "token1": { "balance": b1, "balanceRaw": r1, "decimals": d1 },
@@ -1907,7 +1959,8 @@ pub async fn post_pools_launch_buy(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result =
-        crate::services::uniswap::pools_trade_mutation(&state.http, "trade.prepareBuy", &body).await?;
+        crate::services::uniswap::pools_trade_mutation(&state.http, "trade.prepareBuy", &body)
+            .await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
@@ -1920,7 +1973,8 @@ pub async fn post_pools_launch_sell(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result =
-        crate::services::uniswap::pools_trade_mutation(&state.http, "trade.prepareSell", &body).await?;
+        crate::services::uniswap::pools_trade_mutation(&state.http, "trade.prepareSell", &body)
+            .await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
@@ -1934,8 +1988,12 @@ pub async fn post_pools_x_auth_url(
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
-    let result =
-        crate::services::uniswap::pools_trade_mutation(&state.http, "xVerification.getAuthUrl", &body).await?;
+    let result = crate::services::uniswap::pools_trade_mutation(
+        &state.http,
+        "xVerification.getAuthUrl",
+        &body,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
@@ -1950,7 +2008,8 @@ pub async fn post_pools_launch_bid(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result =
-        crate::services::uniswap::pools_trade_mutation(&state.http, "cca.prepareBid", &body).await?;
+        crate::services::uniswap::pools_trade_mutation(&state.http, "cca.prepareBid", &body)
+            .await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
@@ -1962,7 +2021,10 @@ pub async fn post_pons_token_meta(
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
-    let token = body.get("tokenAddress").and_then(|v| v.as_str()).unwrap_or("");
+    let token = body
+        .get("tokenAddress")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let meta = crate::services::pons::pons_token_meta(&state.http, token).await?;
     Ok(HttpResponse::Ok().json(serde_json::json!({ "token": meta })))
 }
@@ -2205,7 +2267,8 @@ pub async fn post_pools_launch_create(
     if let Some(obj) = payload.as_object_mut() {
         obj.remove("mode");
     }
-    let result = crate::services::uniswap::pools_trade_mutation(&state.http, method, &payload).await?;
+    let result =
+        crate::services::uniswap::pools_trade_mutation(&state.http, method, &payload).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 

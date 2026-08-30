@@ -340,34 +340,40 @@ export class EvmHoldingsComponent implements OnInit {
   /** EVM positions mapped into the Solana ProtocolPosition shape so the exact
    *  DefiPositionsComponent panel renders them. */
   protoPositions = computed<ProtocolPosition[]>(() => {
-    const byProto = new Map<string, ProtocolPosition>();
+    // Key by protocol + category so a protocol that both lends and borrows
+    // (Morpho) splits into its own "Lending" and "Borrowing" sections, exactly
+    // as the Solana pipeline does for Kamino — one ProtocolPosition per category.
+    const byBucket = new Map<string, ProtocolPosition>();
     for (const p of this.visPositions()) {
-      let pp = byProto.get(p.protocol);
+      const category = (p.category as ProtocolCategory) || categoryFor(p.label);
+      const key = `${p.protocol}::${category}`;
+      let pp = byBucket.get(key);
       if (!pp) {
         pp = {
           protocolId: p.protocolId || p.protocol.toLowerCase().replace(/\s+/g, '-'),
           protocolName: p.protocol,
           protocolLogoUri: p.logo || null,
-          category: categoryFor(p.label),
+          category,
           positions: [],
           totalUsdValue: 0,
           totalClaimableUsd: 0,
           claimableCount: 0,
         };
-        byProto.set(p.protocol, pp);
+        byBucket.set(key, pp);
       }
       pp.positions.push({
         label: `${p.label}${p.chain ? ' · ' + p.chain : ''}`,
         tokens: (p.tokens || []).map((t) => ({ symbol: t.symbol, amount: t.amount, logoUri: t.logo || null })),
         totalUsdValue: p.balanceUsd,
-        metadata: {},
+        metadata: p.healthFactor != null ? { healthFactor: p.healthFactor } : {},
+        apy: p.apy ?? null,
         claimableUsd: p.unclaimedUsd > 0 ? p.unclaimedUsd : null,
         feesUsd: p.unclaimedUsd > 0 ? p.unclaimedUsd : null,
       });
       pp.totalUsdValue += p.balanceUsd || 0;
       if (p.unclaimedUsd > 0) { pp.totalClaimableUsd = (pp.totalClaimableUsd || 0) + p.unclaimedUsd; pp.claimableCount = (pp.claimableCount || 0) + 1; }
     }
-    return [...byProto.values()].sort((a, b) => b.totalUsdValue - a.totalUsdValue);
+    return [...byBucket.values()].sort((a, b) => b.totalUsdValue - a.totalUsdValue);
   });
 
   ngOnInit(): void {
@@ -397,16 +403,25 @@ export class EvmHoldingsComponent implements OnInit {
           // (they're L2 sequencer positions), so pull them from Lighter's own
           // API and fold them into the same positions pipeline.
           lighter: this.lighterPositions$(evmWallets[0]),
+          // Morpho lending/borrowing (multichain) — read from Morpho's own API
+          // (Moralis/Alchemy don't surface it) across every linked EVM wallet.
+          morpho: forkJoin(evmWallets.map((a) => this.morphoPositions$(a))).pipe(map((r) => r.flat())),
+          // SushiSwap V3 LP positions on Robinhood Chain — read on-chain (no
+          // hosted API), folded in like Uniswap's.
+          sushi: forkJoin(evmWallets.map((a) => this.sushiPositions$(a))).pipe(map((r) => r.flat())),
+          // OpenSea NFTs on Robinhood Chain (chain 4663) — Alchemy doesn't index
+          // it, so pull the wallet's NFTs from OpenSea and fold into the gallery.
+          openseaNfts: forkJoin(evmWallets.map((a) => this.openseaNfts$(a))).pipe(map((r) => r.flat())),
           // Robinhood Chain (4663) token balances — Moralis/Alchemy don't index
           // it, so the wallet's loose ETH/USDG there is invisible. Pull it
           // ourselves so the total isn't just protocol positions.
           rhTokens: this.robinhoodTokens$(evmWallets[0]),
         })
-          .pipe(map(({ perWallet, uniswap, lighter, rhTokens }) => ({
+          .pipe(map(({ perWallet, uniswap, lighter, morpho, sushi, openseaNfts, rhTokens }) => ({
             tokens: [...rhTokens, ...perWallet.flatMap((r) => r.portfolio.tokens || [])].sort((a, b) => b.valueUsd - a.valueUsd),
-            positions: [...uniswap, ...lighter, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
+            positions: [...uniswap, ...lighter, ...morpho, ...sushi, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
             txs: perWallet.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
-            nfts: perWallet.flatMap((r) => r.nfts.nfts || []),
+            nfts: [...perWallet.flatMap((r) => r.nfts.nfts || []), ...openseaNfts],
           })))
           .subscribe(({ tokens, positions, txs, nfts }) => {
             this.tokens.set(tokens);
@@ -496,6 +511,100 @@ export class EvmHoldingsComponent implements OnInit {
           { symbol: p.token1?.symbol, type: 'supplied', amount: Number(p.token1?.amountDisplay) || 0, logo: undefined },
         ],
       }))),
+    );
+  }
+
+  /** Morpho lending + borrowing positions (multichain) mapped to EvmPosition.
+   *  A market where the user only supplies the loan asset → a `lending` row; a
+   *  market with collateral + debt → a `borrowing` row (net equity as value,
+   *  health factor + borrow-cost APY carried through). Amounts are base units
+   *  from the API → scaled by the asset decimals for display. */
+  private morphoPositions$(addr: string | undefined) {
+    if (!addr) return of([] as EvmPosition[]);
+    return this.api.post<{ data?: { positions: any[] } }>('/actions/build', { type: 'morpho_positions', params: { wallet: addr } }).pipe(
+      timeout(12000),
+      catchError(() => of({ data: { positions: [] } })),
+      map((res): EvmPosition[] => {
+        const out: EvmPosition[] = [];
+        for (const p of (res?.data?.positions || [])) {
+          const chain = p.chain || 'ethereum';
+          const loanDec = Number(p.loanDecimals) || 18;
+          const collDec = Number(p.collateralDecimals) || 18;
+          const supplyUsd = Number(p.supplyUsd) || 0;
+          const borrowUsd = Number(p.borrowUsd) || 0;
+          const collateralUsd = Number(p.collateralUsd) || 0;
+          // Pure lender: loan asset supplied, no debt.
+          if (supplyUsd > 0 && borrowUsd === 0 && collateralUsd === 0) {
+            out.push({
+              chain, protocol: 'Morpho', protocolId: 'morpho', logo: 'assets/protocols/morpho.svg',
+              category: 'lending',
+              label: `${p.loanSymbol} Supplied`,
+              balanceUsd: supplyUsd, unclaimedUsd: 0,
+              apy: p.supplyApy != null ? Number(p.supplyApy) * 100 : null,
+              tokens: [{ symbol: p.loanSymbol, type: 'supplied', amount: (Number(p.supplyAssets) || 0) / 10 ** loanDec, logo: p.loanLogo || undefined }],
+            });
+          }
+          // Borrower: collateral posted + loan borrowed against it.
+          if (borrowUsd > 0 || collateralUsd > 0) {
+            out.push({
+              chain, protocol: 'Morpho', protocolId: 'morpho', logo: 'assets/protocols/morpho.svg',
+              category: 'borrowing',
+              label: `${p.collateralSymbol} / ${p.loanSymbol} Borrow`,
+              balanceUsd: Math.max(0, collateralUsd - borrowUsd), unclaimedUsd: 0,
+              apy: p.borrowApy != null ? -Number(p.borrowApy) * 100 : null, // borrow APY is a cost
+              healthFactor: p.healthFactor != null ? Number(p.healthFactor) : null,
+              tokens: [
+                { symbol: p.collateralSymbol, type: 'supplied', amount: (Number(p.collateral) || 0) / 10 ** collDec, logo: p.collateralLogo || undefined },
+                { symbol: p.loanSymbol, type: 'borrowed', amount: (Number(p.borrowAssets) || 0) / 10 ** loanDec, logo: p.loanLogo || undefined },
+              ],
+            });
+          }
+        }
+        return out;
+      }),
+    );
+  }
+
+  /** SushiSwap V3 LP positions (Robinhood Chain) mapped to EvmPosition, same
+   *  shape as Uniswap's. Emits [] on any error so it never blocks the load. */
+  private sushiPositions$(addr: string | undefined) {
+    if (!addr) return of([] as EvmPosition[]);
+    return this.api.post<{ data?: { positions: any[] } }>('/actions/build', { type: 'sushi_positions', params: { wallet: addr } }).pipe(
+      timeout(12000),
+      catchError(() => of({ data: { positions: [] } })),
+      map((res): EvmPosition[] => (res?.data?.positions || []).map((p) => ({
+        chain: p.chain || 'robinhood',
+        protocol: 'SushiSwap',
+        protocolId: 'sushi',
+        logo: 'assets/protocols/sushi.svg',
+        category: 'liquidity-pool',
+        label: `${p.pair} V3${p.inRange ? '' : ' · out of range'}`,
+        balanceUsd: Number(p.valueUsd) || 0,
+        unclaimedUsd: Number(p.uncollectedFeesUsd) || 0,
+        tokens: [
+          { symbol: p.token0?.symbol, type: 'supplied', amount: Number(p.token0?.amountDisplay) || 0, logo: undefined },
+          { symbol: p.token1?.symbol, type: 'supplied', amount: Number(p.token1?.amountDisplay) || 0, logo: undefined },
+        ],
+      }))),
+    );
+  }
+
+  /** OpenSea NFTs (Robinhood Chain) mapped to EvmNft, folded into the gallery
+   *  alongside the Alchemy multichain feed. */
+  private openseaNfts$(addr: string | undefined) {
+    if (!addr) return of([] as EvmNft[]);
+    return this.api.post<{ data?: { nfts: any[] } }>('/actions/build', { type: 'opensea_wallet_nfts', params: { wallet: addr } }).pipe(
+      timeout(12000),
+      catchError(() => of({ data: { nfts: [] } })),
+      map((res): EvmNft[] => (res?.data?.nfts || [])
+        .filter((n) => n?.image)
+        .map((n) => ({
+          chain: 'robinhood',
+          name: n.name || `#${n.identifier}`,
+          collection: n.collection || '',
+          image: n.image,
+          tokenId: String(n.identifier ?? ''),
+        }))),
     );
   }
 

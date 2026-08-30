@@ -40,6 +40,15 @@ export interface EvmPosition {
   balanceUsd: number;
   unclaimedUsd: number;
   tokens: EvmPositionToken[];
+  // Optional cross-cutting signals surfaced by lending/LP protocols (Morpho,
+  // Sushi). Threaded into the ProtocolPosition item so defi-positions renders
+  // the APY / risk columns; omitted by feeds that don't report them.
+  apy?: number | null;
+  healthFactor?: number | null;
+  // Explicit position category ('lending' | 'borrowing' | 'liquidity-pool' | …).
+  // When set it wins over the label-keyword heuristic — an LP pair label like
+  // "WETH/USDG V3" carries no keyword the heuristic recognises.
+  category?: string;
 }
 
 export interface EvmPositions {
