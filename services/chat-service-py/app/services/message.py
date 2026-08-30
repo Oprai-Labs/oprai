@@ -1247,6 +1247,7 @@ async def stream_chat_response(
     """
     from app.services import session as session_svc
     from app.services.action_schemas import (
+        QueryType,
         ValidatedAction,
         ValidatedClarify,
         ValidatedQuery,
@@ -1826,6 +1827,31 @@ async def stream_chat_response(
     tools = ToolSelector().build(_all_protocols)
     tools = filter_tools_by_intent(tools, intent_for_filter)
 
+    # Cross-protocol query guard.
+    #
+    # `ToolSelector.build` already scopes the query_onchain enum to the active
+    # protocol(s), but the model can still emit a DIFFERENT protocol's query out
+    # of that enum — pulled in by conversation recency. Tagging @Morpho and asking
+    # "list my positions" came back as `lighter_positions` because a Lighter card
+    # had been on screen a few turns earlier; ValidatedQuery accepts it (it is a
+    # real QueryType member) and the wrong protocol's card renders. Detect a query
+    # that belongs to a non-active protocol and, for the positions family, remap it
+    # to the active protocol's own positions query; otherwise drop it.
+    from app.services.tool_selector import (
+        PROTOCOL_TAGS as _PTAGS,
+        PROTOCOL_TO_TAGS as _P2T,
+        QUERY_TAGS as _QTAGS,
+    )
+    _active_proto_tags: set[str] = set()
+    for _p in _all_protocols:
+        _active_proto_tags |= _P2T.get(_p, frozenset())
+
+    def _is_cross_protocol_query(_qt: str) -> bool:
+        """True when `_qt` is a protocol-specific read for a protocol that is NOT
+        in this turn's active scope (so it was never in the offered enum)."""
+        _proto_on_tool = _QTAGS.get(_qt, frozenset()) & _PTAGS
+        return bool(_proto_on_tool) and not (_proto_on_tool & _active_proto_tags)
+
     # Tool-choice gate: action / query intents MUST trigger a tool call. This
     # defeats Haiku 4.5's documented avoidance behaviour and the cheaper-model
     # tendency to answer "yes/no" to existence questions from training data
@@ -2305,6 +2331,54 @@ async def stream_chat_response(
                 yield f"data: {json.dumps({'action': d})}\n\n"
 
             elif isinstance(validated, ValidatedQuery):
+                # Cross-protocol guard (see the helper defined above). When a
+                # protocol is actively scoped and the model emits a query that
+                # belongs to a DIFFERENT protocol, do not render that protocol's
+                # card. For a positions query, remap to the active protocol's own
+                # positions read (@Morpho + "my positions" → morpho_positions);
+                # otherwise drop it with a corrective note.
+                if _all_protocols and _is_cross_protocol_query(validated.type.value):
+                    _wrong = validated.type.value
+                    _remap: str | None = None
+                    if _wrong.endswith("_positions") and len(_all_protocols) == 1:
+                        _cand = f"{_all_protocols[0]}_positions"
+                        if _cand != _wrong and _cand in market_data.MARKET_DATA_TYPES:
+                            try:
+                                validated = ValidatedQuery(
+                                    type=QueryType(_cand), params=dict(validated.params or {})
+                                )
+                                _remap = _cand
+                            except Exception:
+                                _remap = None
+                    try:
+                        with open("/tmp/oprai-debug.log", "a") as _df:
+                            _df.write(
+                                f"  CROSS_PROTO_{'REMAP ' + _wrong + '→' + _remap if _remap else 'DROP ' + _wrong}"
+                                f" active={_all_protocols}\n"
+                            )
+                    except Exception:
+                        pass
+                    if _remap:
+                        _log.info(
+                            "cross_protocol_query_remap %s→%s active=%s wallet=%s",
+                            _wrong, _remap, _all_protocols, wallet[:16] + "…",
+                        )
+                    else:
+                        _log.info(
+                            "cross_protocol_query_dropped type=%s active=%s wallet=%s",
+                            _wrong, _all_protocols, wallet[:16] + "…",
+                        )
+                        _proto = _wrong.split("_")[0]
+                        market_data_results.append((_wrong, dict(validated.params or {}), {
+                            "_out_of_scope": True,
+                            "note": (
+                                f"'{_wrong}' belongs to {_proto}, a protocol the user did not "
+                                f"ask about. The user's active protocol(s): "
+                                f"{', '.join(_all_protocols)}. Answer using only that "
+                                f"protocol's tools, and do not mention {_proto}."
+                            ),
+                        }))
+                        continue
                 # Market data queries are fetched; results fed back to LLM for interpretation.
                 if validated.type.value in market_data.MARKET_DATA_TYPES:
                     params_dict = dict(validated.params or {})
