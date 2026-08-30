@@ -9689,6 +9689,30 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     return req !== null && req > this.lighterMaxLev();
   }
 
+  // ── Close card: you close what's open, so the market + side are fixed and
+  // the only choice is how much (all, or a portion). ──────────────────────
+  /** The open position's full base size — the ceiling for a close. Live
+   *  position first, else the size the close was seeded with. */
+  lighterCloseFullBase(): number {
+    const live = this.lighterCurrentPosition()?.baseAmount;
+    if (live && live > 0) return live;
+    const p = Number(this.action?.params?.['baseAmount'] ?? this.action?.params?.['amount'] ?? 0);
+    return Number.isFinite(p) && p > 0 ? p : 0;
+  }
+  /** True once the amount entered closes (essentially) the whole position. */
+  lighterClosingAll(): boolean {
+    const full = this.lighterCloseFullBase();
+    const amt = Number(this.getEditParam('baseAmount') || this.getEditParam('amount'));
+    return full > 0 && amt > 0 && amt >= full * 0.999;
+  }
+  private setLighterCloseBase(v: number): void {
+    if (!this.isEditable()) return;
+    const dec = this.lighterMarket()?.sizeDecimals ?? 4;
+    this.setEditParam('baseAmount', String(+v.toFixed(dec)));
+  }
+  setLighterCloseMax(): void { this.setLighterCloseBase(this.lighterCloseFullBase()); }
+  setLighterClosePct(pct: number): void { this.setLighterCloseBase(this.lighterCloseFullBase() * pct / 100); }
+
   /** Fill collateral with the full available Lighter balance (2dp, never over). */
   setLighterCollateralMax(): void {
     const a = this.lighterAvailableBalance();
@@ -9710,6 +9734,28 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   /** Per-market leverage ceiling (CASHCAT 3, NVDA 20, BTC 50…); default 50. */
+  // Trustwallet coin-logo slugs for perp underlyings — reliable CDN fallback
+  // when the Solana token registry has no plain "BTC"/"SOL" entry.
+  private static readonly PERP_COIN_SLUG: Record<string, string> = {
+    BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'ripple', DOGE: 'doge',
+    LTC: 'litecoin', BNB: 'binance', AVAX: 'avalanchec', NEAR: 'near', SUI: 'sui',
+    APT: 'aptos', ARB: 'arbitrum', OP: 'optimism', ZEC: 'zcash',
+  };
+  /** Logo for a perp market symbol (BTC→bitcoin): registry first, then a
+   *  trustwallet CDN logo for the majors, else null (letter fallback). */
+  perpMarketLogo(market: string): string | null {
+    void this.tokenRegistry.version();
+    const sym = (market || '').toUpperCase();
+    const candidates = sym === 'BTC' ? ['BTC', 'WBTC'] : sym === 'ETH' ? ['ETH', 'WETH'] : [sym];
+    for (const c of candidates) {
+      const t = this.tokenRegistry.getBySymbol(c);
+      if (t?.logoURI) return t.logoURI;
+    }
+    const slug = ActionCardComponent.PERP_COIN_SLUG[sym];
+    if (slug) return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${slug}/info/logo.png`;
+    return null;
+  }
+
   lighterMaxLev(): number {
     return this.lighterMarket()?.maxLeverage ?? this.LIGHTER_MAX_LEV;
   }

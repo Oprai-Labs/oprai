@@ -3566,42 +3566,31 @@
             }
           </div>
         } @else if (action.type === 'lighter_close') {
-          <!-- ─────── Lighter perp close ─────── -->
+          <!-- ─────── Lighter perp close — you close what's open, so market and
+               side are FIXED (read-only); the only choice is how much. ─────── -->
           <div class="perp" [class.proto-fields--shake]="shake()">
 
-            <!-- Long / Short toggle — which side's position to close -->
-            <div class="perp-side">
-              <button type="button" class="perp-side__btn perp-side__btn--long"
-                      [class.is-active]="lighterSide() === 'long'"
-                      [disabled]="!isEditable()" (click)="setLighterSide('long')">{{ 'Long' | t }}</button>
-              <button type="button" class="perp-side__btn perp-side__btn--short"
-                      [class.is-active]="lighterSide() === 'short'"
-                      [disabled]="!isEditable()" (click)="setLighterSide('short')">{{ 'Short' | t }}</button>
-            </div>
-
-            <!-- Market picker -->
-            <div class="perp-field">
-              <label class="perp-label">{{ 'Market' | t }}</label>
-              @if (isEditable()) {
-                <div class="perp-lev__ticks" style="flex-wrap:wrap;">
-                  @for (s of lighterAllSymbols(); track s) {
-                    <button type="button" class="perp-lev__tick"
-                            [class.is-active]="lighterSymbol() === s"
-                            (click)="setLighterSymbol(s)">{{ s }}</button>
-                  }
-                </div>
-              } @else {
-                <div class="perp-market-display">
-                  <span class="perp-market-display__sym">{{ lighterSymbol() || '—' }}</span>
-                  <span class="perp-market-display__tag">{{ 'PERP' | t }}</span>
-                </div>
+            <!-- The position being closed (not selectable) -->
+            <div class="perp-market-display lighter-selected">
+              @if (perpMarketLogo(lighterSymbol()); as logo) {
+                <img [src]="logo" [alt]="lighterSymbol()" width="22" height="22" style="border-radius:50%;flex-shrink:0" />
+              }
+              <span class="perp-market-display__sym">{{ lighterSymbol() }}-PERP</span>
+              <span class="perp-side-badge"
+                    [class.perp-side-badge--long]="lighterSide() === 'long'"
+                    [class.perp-side-badge--short]="lighterSide() === 'short'">{{ lighterSide() }}</span>
+              @if (lighterCloseFullBase() > 0) {
+                <span class="perp-market-display__tag">{{ lighterCloseFullBase() | number:'1.0-6' }} {{ lighterSymbol() }} {{ 'open' | t }}</span>
               }
             </div>
 
-            <!-- Amount to close (base units) -->
+            <!-- Amount to close: all, or a portion -->
             <div class="pump-panel">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ 'Amount to close' | t }}</span>
+                @if (isEditable() && lighterCloseFullBase() > 0) {
+                  <button class="pump-panel__max" type="button" (click)="setLighterCloseMax()">{{ 'Max' | t }}</button>
+                }
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
@@ -3609,16 +3598,29 @@
                        (input)="setEditParam('baseAmount', $any($event.target).value)"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">
-                  <span class="pump-token__icon pump-token__icon--ph">{{ (lighterSymbol() || '?').charAt(0) }}</span>
+                  @if (perpMarketLogo(lighterSymbol()); as logo) {
+                    <img class="pump-token__logo" [src]="logo" [alt]="lighterSymbol()" width="18" height="18" />
+                  } @else {
+                    <span class="pump-token__icon pump-token__icon--ph">{{ (lighterSymbol() || '?').charAt(0) }}</span>
+                  }
                   <span class="pump-token__sym">{{ lighterSymbol() }}</span>
                 </span>
               </div>
             </div>
 
+            <!-- Close a portion quickly -->
+            @if (isEditable() && lighterCloseFullBase() > 0) {
+              <div class="perp-lev__ticks">
+                @for (pct of [25, 50, 75, 100]; track pct) {
+                  <button type="button" class="perp-lev__tick" (click)="setLighterClosePct(pct)">{{ pct === 100 ? ('All' | t) : pct + '%' }}</button>
+                }
+              </div>
+            }
+
             <div class="perp-summary">
               <div class="perp-summary__row">
                 <span class="perp-summary__k">{{ 'Action' | t }}</span>
-                <span class="perp-summary__v">{{ 'Close' | t }} {{ lighterSymbol() }}-PERP {{ lighterSide() }}</span>
+                <span class="perp-summary__v">{{ (lighterClosingAll() ? 'Close all' : 'Close') | t }} {{ lighterSymbol() }}-PERP {{ lighterSide() }}</span>
               </div>
             </div>
           </div>
