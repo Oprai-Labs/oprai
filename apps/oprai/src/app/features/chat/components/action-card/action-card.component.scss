@@ -7084,6 +7084,42 @@
   color: var(--op-text-tertiary, var(--op-text-secondary));
 }
 
+// Realized-PnL receipt card shown after a Lighter position is closed.
+.lighter-pnl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--op-border-subtle, var(--op-border, rgba(128,128,128,0.18)));
+  background: var(--op-bg-surface-2, color-mix(in srgb, var(--op-text-secondary) 5%, transparent));
+
+  &__head { display: flex; align-items: center; gap: 8px; }
+  &__title { font-size: 0.8125rem; font-weight: 600; color: var(--op-text-secondary); }
+  &__big {
+    font-size: 1.75rem;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+    margin-top: 4px;
+  }
+  &__pct { font-size: 1rem; font-weight: 650; opacity: 0.85; margin-left: 4px; }
+  &__label {
+    font-size: 0.625rem; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--op-text-tertiary, var(--op-text-secondary));
+  }
+  &--up &__big, &--up &__pct { color: var(--op-success, #16a34a); }
+  &--down &__big, &--down &__pct { color: var(--op-danger, #dc2626); }
+
+  &__rows { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  &__row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.8125rem;
+    span:first-child { color: var(--op-text-secondary); }
+    span:last-child { color: var(--op-text-primary); font-weight: 500; }
+  }
+}
+
 .lighter-soon {
   margin-left: 5px;
   font-size: 0.5625rem;

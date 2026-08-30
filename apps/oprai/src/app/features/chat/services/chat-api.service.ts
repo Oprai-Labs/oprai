@@ -48,6 +48,13 @@ export interface StoredActionResult {
     sizeUsd?: string;
     baseAmount?: string;
     accountIndex?: string;
+    // Realized-PnL receipt fields (close only): the position's entry/exit and
+    // the profit/loss booked by this close, so the completed card is a receipt.
+    entryPrice?: string;
+    exitPrice?: string;
+    closedBase?: string;
+    realizedPnl?: string;
+    realizedPct?: string;
   };
 }
 

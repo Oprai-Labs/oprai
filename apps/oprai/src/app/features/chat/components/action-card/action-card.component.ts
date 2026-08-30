@@ -8455,6 +8455,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         sizeUsd: size !== null ? String(+size.toFixed(2)) : '',
         baseAmount: this.getEditParam('baseAmount') || this.getEditParam('amount') || '',
       };
+      // A close books realized PnL — snapshot the position's entry/exit and the
+      // profit/loss for the closed portion so the completed card is a receipt.
+      if (kind === 'close') {
+        const pos = this.lighterCurrentPosition();
+        if (pos) {
+          const closedBase = Number(this.getEditParam('baseAmount') || this.getEditParam('amount')) || pos.baseAmount;
+          const frac = pos.baseAmount > 0 ? Math.min(1, closedBase / pos.baseAmount) : 1;
+          const realized = (pos.unrealizedPnl || 0) * frac;
+          const lev = pos.leverage || this.lighterLeverage() || 1;
+          const marginClosed = lev > 0 ? (closedBase * pos.entryPrice) / lev : (closedBase * pos.entryPrice);
+          this.lastLighterReceipt = {
+            ...this.lastLighterReceipt,
+            entryPrice: String(pos.entryPrice),
+            exitPrice: String(pos.currentPrice),
+            closedBase: String(closedBase),
+            realizedPnl: String(+realized.toFixed(4)),
+            realizedPct: marginClosed > 0 ? String(+((realized / marginClosed) * 100).toFixed(2)) : '',
+          };
+        }
+      }
     }
 
     this.status.set('quoting');
@@ -9712,6 +9732,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
   setLighterCloseMax(): void { this.setLighterCloseBase(this.lighterCloseFullBase()); }
   setLighterClosePct(pct: number): void { this.setLighterCloseBase(this.lighterCloseFullBase() * pct / 100); }
+  /** The realized-PnL receipt for a COMPLETED close (confirmed live, or
+   *  re-hydrated from the stored result on reload). Null while still editing. */
+  lighterCloseReceipt(): NonNullable<StoredActionResult['lighterReceipt']> | null {
+    const done = this.status() === 'confirmed' || !!this.cachedResult?.lighterReceipt;
+    if (!done) return null;
+    const r = this.lastLighterReceipt ?? this.cachedResult?.lighterReceipt ?? null;
+    return r && r.kind === 'close' && r.realizedPnl != null && r.realizedPnl !== '' ? r : null;
+  }
+
   /** Current close amount as a % of the open position (0–100), for the slider. */
   lighterClosePct(): number {
     const full = this.lighterCloseFullBase();

@@ -3568,6 +3568,31 @@
         } @else if (action.type === 'lighter_close') {
           <!-- ─────── Lighter perp close — you close what's open, so market and
                side are FIXED (read-only); the only choice is how much. ─────── -->
+          @if (lighterCloseReceipt(); as r) {
+            <!-- Completed close → realized-PnL receipt card. -->
+            <div class="perp">
+              <div class="lighter-pnl" [class.lighter-pnl--up]="+(r.realizedPnl || '0') >= 0" [class.lighter-pnl--down]="+(r.realizedPnl || '0') < 0">
+                <div class="lighter-pnl__head">
+                  @if (perpMarketLogo(r.symbol || ''); as logo) {
+                    <img [src]="logo" [alt]="r.symbol" width="22" height="22" style="border-radius:50%;flex-shrink:0" />
+                  }
+                  <span class="lighter-pnl__title">{{ r.symbol }}-PERP {{ r.side }} · {{ 'Closed' | t }}</span>
+                </div>
+                <div class="lighter-pnl__big">
+                  {{ +(r.realizedPnl || '0') >= 0 ? '+' : '' }}{{ +(r.realizedPnl || '0') | currency:'USD':'symbol':'1.2-4' }}
+                  @if (r.realizedPct) {
+                    <span class="lighter-pnl__pct">({{ +r.realizedPct >= 0 ? '+' : '' }}{{ r.realizedPct }}%)</span>
+                  }
+                </div>
+                <span class="lighter-pnl__label">{{ 'Realized PnL' | t }}</span>
+                <div class="lighter-pnl__rows">
+                  <div class="lighter-pnl__row"><span>{{ 'Entry' | t }}</span><span class="mono">{{ +(r.entryPrice || '0') | currency:'USD':'symbol':'1.2-2' }}</span></div>
+                  <div class="lighter-pnl__row"><span>{{ 'Exit' | t }}</span><span class="mono">{{ +(r.exitPrice || '0') | currency:'USD':'symbol':'1.2-2' }}</span></div>
+                  <div class="lighter-pnl__row"><span>{{ 'Closed' | t }}</span><span class="mono">{{ r.closedBase }} {{ r.symbol }}</span></div>
+                </div>
+              </div>
+            </div>
+          } @else {
           <div class="perp" [class.proto-fields--shake]="shake()">
 
             <!-- The position being closed (not selectable) -->
@@ -3639,6 +3664,7 @@
               </div>
             </div>
           </div>
+          }
         } @else if (action.type === 'lighter_leverage') {
           <!-- ─────── Lighter set leverage ─────── -->
           <div class="perp" [class.proto-fields--shake]="shake()">
