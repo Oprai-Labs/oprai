@@ -10204,14 +10204,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const capped = Math.min(maxLoan, liq);
     return capped > 0 ? capped : null;
   }
-  /** Fill the borrow field with the safe max, floored to token precision. */
+  /** Fill the borrow field with the safe max, floored to token precision, and
+   *  flag it so it keeps tracking the collateral as that changes. */
   setMorphoMaxBorrow(): void {
     if (!this.isEditable()) return;
     const v = this.morphoMaxBorrow();
     if (v == null) return;
     const dec = Math.min(6, this.morphoMarket()?.loanDecimals ?? 6);
     const factor = 10 ** dec;
-    this.setMorphoAmount('borrowAmount', String(Math.floor(v * factor) / factor));
+    // setEditParam directly (not setMorphoAmount) so the max-track flag survives.
+    this.setEditParam('borrowAmount', String(Math.floor(v * factor) / factor));
+    this.setEditParam('borrowMaxed', 'true');
   }
 
   /** Gradient that fills the slider track (brand) up to the current % and greys
@@ -10233,11 +10236,33 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.morphoWalletBal.set(null);
     void this.refreshMorphoBalance();
   }
-  /** Typing an amount clears any "max" flag, then stores it. */
+  /** Typing an amount clears any "max" flag, then stores it. Editing the
+   *  collateral re-syncs the borrow amount so it tracks the collateral. */
   setMorphoAmount(key: string, v: string): void {
     if (!this.isEditable()) return;
     if (this.getEditParam('max') === 'true') this.setEditParam('max', '');
+    // Typing a borrow amount by hand cancels the "borrow at Max" tracking.
+    if (key === 'borrowAmount') this.setEditParam('borrowMaxed', '');
     this.setEditParam(key, v);
+    if (key === 'collateralAmount') this.syncMorphoBorrowToCollateral();
+  }
+
+  /** Keep the borrow amount consistent with the collateral just entered:
+   *  a Max'd borrow re-pins to the new safe max; a custom amount is preserved
+   *  but clamped so it can never exceed what the new collateral supports. */
+  private syncMorphoBorrowToCollateral(): void {
+    if (this.morphoKind() !== 'borrow') return;
+    const max = this.morphoMaxBorrow();
+    if (max == null) return;
+    const dec = Math.min(6, this.morphoMarket()?.loanDecimals ?? 6);
+    const factor = 10 ** dec;
+    const fmt = (n: number) => String(Math.floor(n * factor) / factor);
+    if (this.getEditParam('borrowMaxed') === 'true') {
+      this.setEditParam('borrowAmount', fmt(max));
+      return;
+    }
+    const cur = Number(this.getEditParam('borrowAmount'));
+    if (Number.isFinite(cur) && cur > max) this.setEditParam('borrowAmount', fmt(max));
   }
   /** Max = wallet balance for spend-side actions (lend, borrow-collateral);
    *  = "all" flag for repay/withdraw (backend reads shares/collateral on-chain). */
