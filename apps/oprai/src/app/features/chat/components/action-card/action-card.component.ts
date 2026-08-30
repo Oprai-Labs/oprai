@@ -10247,9 +10247,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (key === 'collateralAmount') this.syncMorphoBorrowToCollateral();
   }
 
-  /** Keep the borrow amount consistent with the collateral just entered:
-   *  a Max'd borrow re-pins to the new safe max; a custom amount is preserved
-   *  but clamped so it can never exceed what the new collateral supports. */
+  /** Keep the borrow amount consistent with the collateral. By default the
+   *  borrow auto-fills to the safe max the collateral supports (and re-tracks as
+   *  the collateral changes); once the user types their own amount it's preserved
+   *  but clamped so it can never exceed what the collateral supports. */
   private syncMorphoBorrowToCollateral(): void {
     if (this.morphoKind() !== 'borrow') return;
     const max = this.morphoMaxBorrow();
@@ -10257,11 +10258,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const dec = Math.min(6, this.morphoMarket()?.loanDecimals ?? 6);
     const factor = 10 ** dec;
     const fmt = (n: number) => String(Math.floor(n * factor) / factor);
-    if (this.getEditParam('borrowMaxed') === 'true') {
+    const raw = this.getEditParam('borrowAmount');
+    const cur = Number(raw);
+    const isEmpty = !raw || !(cur > 0);
+    // Auto-fill an untouched field, or keep a Max'd borrow pinned to the max.
+    if (isEmpty || this.getEditParam('borrowMaxed') === 'true') {
       this.setEditParam('borrowAmount', fmt(max));
+      this.setEditParam('borrowMaxed', 'true');
       return;
     }
-    const cur = Number(this.getEditParam('borrowAmount'));
     if (Number.isFinite(cur) && cur > max) this.setEditParam('borrowAmount', fmt(max));
   }
   /** Max = wallet balance for spend-side actions (lend, borrow-collateral);
@@ -10327,6 +10332,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         this.morphoMarkets.set(ms);
         if (!this.getEditParam('marketId')) this.autoPickMorphoMarket(ms);
         else void this.refreshMorphoBalance();
+        // Prices are now known — auto-fill the borrow against any collateral
+        // already entered (e.g. carried in from the action params).
+        this.syncMorphoBorrowToCollateral();
       }
     } catch { /* the card still lets the user retry the action */ }
   }
