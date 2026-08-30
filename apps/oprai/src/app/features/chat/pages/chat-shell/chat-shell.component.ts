@@ -533,7 +533,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
    * identical to a normal send — same parser, same reveal logic, same
    * error handling.
    */
-  onEditMessage(payload: { messageId: string; content: string }): void {
+  onEditMessage(payload: { messageId: string; content: string; protocols?: string[] }): void {
     const trimmed = payload.content.trim();
     if (!trimmed || this.streaming()) return;
 
@@ -553,11 +553,12 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       // creates a new persisted turn.
       const all = this.messages();
       const editIdx = all.findIndex(m => m.id === payload.messageId);
-      // Keep the protocol tags the message carried (temp/local turns store them
-      // in metadata just like persisted ones); fall back to the last-sent set.
-      const protocols = editIdx !== -1
-        ? ((all[editIdx].metadata?.protocols ?? []) as string[])
-        : this._lastSentProtocols;
+      // Use the tags from the edit UI (the user may have added/removed some);
+      // fall back to what the message carried, then to the last-sent set.
+      const protocols = payload.protocols
+        ?? (editIdx !== -1
+          ? ((all[editIdx].metadata?.protocols ?? []) as string[])
+          : this._lastSentProtocols);
       if (editIdx !== -1) {
         const droppedIds = all.slice(editIdx).map(m => m.id);
         this.messages.set(all.slice(0, editIdx));
@@ -582,7 +583,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
     // Reuse the same protocols the user originally tagged on this message
     // (if any) — the backend won't re-derive them and the chip metadata
     // disappears with the soft-delete unless we forward it explicitly.
-    const originalProtocols = (all[editIdx].metadata?.protocols ?? []) as string[];
+    const originalProtocols = payload.protocols ?? ((all[editIdx].metadata?.protocols ?? []) as string[]);
 
     const newUserMessage: ChatMessage = {
       id: `temp-${Date.now()}`,

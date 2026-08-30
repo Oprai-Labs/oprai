@@ -212,7 +212,7 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
    * parent can call the supersede endpoint and prune subsequent messages
    * locally before the new assistant turn streams back.
    */
-  @Output() editMessage = new EventEmitter<{ messageId: string; content: string }>();
+  @Output() editMessage = new EventEmitter<{ messageId: string; content: string; protocols: string[] }>();
   /**
    * Retry-from-this-message: resend the EXACT same content as a fresh turn,
    * supersede everything after. Wired to the same backend edit endpoint as
@@ -227,6 +227,17 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   readonly editingMessageId = signal<string | null>(null);
   /** Working draft inside the edit textarea — committed on save, discarded on cancel. */
   readonly editDraft = signal('');
+  /** Protocol tags being edited — seeded from the message, add/remove while
+   *  editing, sent on save. So the venue tag survives an edit and can change. */
+  readonly editProtocols = signal<string[]>([]);
+  readonly showEditProtoPicker = signal(false);
+  readonly ALL_PROTOCOLS = PROTOCOLS;
+  toggleEditProtocol(id: string): void {
+    this.editProtocols.update(ps => ps.includes(id) ? ps.filter(p => p !== id) : [...ps, id]);
+  }
+  removeEditProtocol(id: string): void {
+    this.editProtocols.update(ps => ps.filter(p => p !== id));
+  }
 
   startEdit(message: ChatMessage): void {
     if (this.readOnly) return;
@@ -237,11 +248,17 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
     if (this.streaming) return;
     this.editingMessageId.set(message.id);
     this.editDraft.set(message.content);
+    // Seed the tag editor with what the message already carried, so editing
+    // preserves the venue (and lets the user add/remove it).
+    this.editProtocols.set([...((message.metadata?.protocols ?? []) as string[])]);
+    this.showEditProtoPicker.set(false);
   }
 
   cancelEdit(): void {
     this.editingMessageId.set(null);
     this.editDraft.set('');
+    this.editProtocols.set([]);
+    this.showEditProtoPicker.set(false);
   }
 
   /**
@@ -251,11 +268,14 @@ export class MessageListComponent implements AfterViewChecked, OnChanges {
   saveEdit(message: ChatMessage): void {
     if (this.streaming) return; // a reply is in flight — don't stack a second turn
     const next = this.editDraft().trim();
-    if (!next || next === message.content) {
-      this.cancelEdit();
-      return;
-    }
-    this.editMessage.emit({ messageId: message.id, content: next });
+    if (!next) { this.cancelEdit(); return; }
+    const protocols = this.editProtocols();
+    const original = (message.metadata?.protocols ?? []) as string[];
+    const protosChanged = protocols.length !== original.length
+      || protocols.some(p => !original.includes(p));
+    // Nothing changed (neither text nor tags) — just close the editor.
+    if (next === message.content && !protosChanged) { this.cancelEdit(); return; }
+    this.editMessage.emit({ messageId: message.id, content: next, protocols });
     this.cancelEdit();
   }
 

@@ -262,6 +262,49 @@
   gap: 6px;
 }
 
+// Inline-edit protocol tag editor
+.bubble-edit-protos {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.bubble-protocol-chip--rm { padding-right: 4px; }
+.bubble-proto-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: 2px; padding: 0;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: color-mix(in srgb, var(--op-text-secondary) 18%, transparent);
+  color: var(--op-text-primary); font-size: 12px; line-height: 1;
+  &:hover { background: color-mix(in srgb, var(--op-danger, #dc2626) 30%, transparent); }
+}
+.bubble-proto-add {
+  padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px dashed var(--op-border, rgba(128,128,128,0.35));
+  background: transparent; color: var(--op-text-secondary);
+  font-size: 0.75rem; font-weight: 600;
+  &:hover { color: var(--op-brand, #5b5fc7); border-color: var(--op-brand, #5b5fc7); }
+}
+.bubble-proto-picker {
+  position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 4px;
+  max-height: 240px; overflow-y: auto; width: 220px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  border-radius: 12px; border: 1px solid var(--op-border, rgba(128,128,128,0.2));
+  background: var(--op-bg-surface-1); box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+}
+.bubble-proto-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--op-text-primary);
+  font-size: 0.8125rem; text-align: left;
+  img { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0; }
+  span { flex: 1; }
+  &:hover { background: color-mix(in srgb, var(--op-text-secondary) 10%, transparent); }
+  &.is-on { color: var(--op-brand, #5b5fc7); font-weight: 600; }
+}
+
 .bubble-edit-btn {
   padding: 6px 12px;
   border-radius: var(--op-radius-sm);
