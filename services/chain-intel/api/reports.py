@@ -211,6 +211,14 @@ async def wallet_report(wallet: str) -> dict:
     smart-score once the derived tables are built."""
     w = addr(wallet)
 
+    FIFO_CAP = 300000
+    has_pos = await ch.table_exists("wallet_token_positions")
+    has_prices = await ch.table_exists("token_prices")
+    # NB: this box is CPU/IO-saturated (the archive node + index + app share 16
+    # cores at load ~15), so concurrent ClickHouse queries CONTEND and run slower
+    # than sequential — keep these awaits serial. Latency is box-bound, not query-
+    # design-bound; it falls once the node finishes catching up.
+
     act = await ch.one(f"""
         SELECT count() AS txs, uniqExact(to_addr) AS distinct_dests,
                min(timestamp) AS first_seen, max(timestamp) AS last_seen,
@@ -279,10 +287,11 @@ async def wallet_report(wallet: str) -> dict:
         is_smart = bool(await ch.scalar(f"SELECT 1 FROM rh.smart_wallets FINAL WHERE wallet='{w}'"))
 
     # jeet / missed-gains: tokens this wallet SOLD before the peak. sell_price =
-    # usd_out/qty_out; peak = token ATH from token_prices. missed = (peak-sell)*qty_out.
-    jeet = []
-    total_missed = 0
-    if await ch.table_exists("wallet_token_positions") and await ch.table_exists("token_prices"):
+    # usd_out/qty_out; peak = token ATH — computed ONLY over this wallet's tokens
+    # (filtering the peak subquery to the wallet's positions is critical: a global
+    # max(price) over all 1.5M-token token_prices took many seconds per request).
+    jeet, total_missed = [], 0
+    if has_pos and has_prices:
         jeet = await ch.q(f"""
             SELECT p.token AS token,
                    p.usd_out/nullIf(p.qty_out,0) AS sell_price,
@@ -290,7 +299,11 @@ async def wallet_report(wallet: str) -> dict:
                    (pk.peak - p.usd_out/nullIf(p.qty_out,0)) * p.qty_out AS missed_usd,
                    pk.peak/nullIf(p.usd_out/nullIf(p.qty_out,0),0) AS peak_mult
             FROM rh.wallet_token_positions p
-            INNER JOIN (SELECT token, max(price_usd) AS peak FROM rh.token_prices GROUP BY token) pk
+            INNER JOIN (
+                SELECT token, max(price_usd) AS peak FROM rh.token_prices
+                WHERE token IN (SELECT token FROM rh.wallet_token_positions
+                                WHERE wallet='{w}' AND qty_out>0)
+                GROUP BY token) pk
               ON p.token=pk.token
             WHERE p.wallet='{w}' AND p.qty_out>0 AND p.usd_out>0 AND abs(p.usd_out)<1e8
               AND pk.peak > p.usd_out/nullIf(p.qty_out,0)
@@ -305,19 +318,29 @@ async def wallet_report(wallet: str) -> dict:
     # sell day. Daily prices are the cost/proceeds basis. Computed on-the-fly (fast).
     daily_series, cum_series = [], []
     pnl_7d = pnl_30d = pnl_total_ts = 0.0
-    if await ch.table_exists("token_prices"):
+    pnl_truncated = False; pnl_fifo_ok = False
+    if has_prices:
         from collections import defaultdict, deque
-        evs = await ch.q(f"""
-            SELECT toDate(tt.timestamp) AS day, tt.token AS token,
-                   if(tt.to_addr='{w}', 1, -1) AS dir,
-                   toFloat64(tt.value)/1e18 AS qty, p.price_usd AS px
-            FROM rh.token_transfers tt
-            INNER JOIN rh.token_prices p
-                   ON tt.token=p.token AND toDate(tt.timestamp)=toDate(p.timestamp)
-            WHERE (tt.to_addr='{w}' OR tt.from_addr='{w}') AND tt.kind='erc20'
-              AND p.price_usd > 0 AND p.price_usd < 1e6
-            ORDER BY tt.block_number, tt.log_index
-            LIMIT 300000""")
+        evs = []
+        try:
+            # bounded 12s timeout: a hyper-active infra/router address would otherwise
+            # scan ~40s and stall the caller. On timeout/error we skip FIFO and fall
+            # back to the avg-cost figure below.
+            evs = await ch.q(f"""
+                SELECT toDate(tt.timestamp) AS day, tt.token AS token,
+                       if(tt.to_addr='{w}', 1, -1) AS dir,
+                       toFloat64(tt.value)/1e18 AS qty, p.price_usd AS px
+                FROM rh.token_transfers tt
+                INNER JOIN rh.token_prices p
+                       ON tt.token=p.token AND toDate(tt.timestamp)=toDate(p.timestamp)
+                WHERE (tt.to_addr='{w}' OR tt.from_addr='{w}') AND tt.kind='erc20'
+                  AND p.price_usd > 0 AND p.price_usd < 1e6
+                ORDER BY tt.block_number, tt.log_index
+                LIMIT {FIFO_CAP}""", timeout=12.0)
+            pnl_fifo_ok = True
+            pnl_truncated = len(evs) >= FIFO_CAP
+        except Exception:
+            evs = []          # too slow / errored → avg-cost fallback kicks in
         lots: dict = defaultdict(deque)   # token -> deque([qty, cost_per_unit])
         realized_by_day: dict = defaultdict(float)
         for e in evs:
@@ -359,7 +382,14 @@ async def wallet_report(wallet: str) -> dict:
     # headline realized P&L: prefer TRUE FIFO (pnl_total_ts) when we have events,
     # fall back to the avg-cost wallet_metrics figure otherwise.
     realized_headline = pnl_total_ts if daily_series else round(float(metrics.get("realized_pnl", 0)), 2) if metrics else 0.0
-    pnl_method = "fifo" if daily_series else ("avg_cost" if metrics else "none")
+    if daily_series:
+        pnl_method = "fifo_partial" if pnl_truncated else "fifo"
+    elif not pnl_fifo_ok and metrics:
+        pnl_method = "avg_cost_fallback_infra"   # FIFO skipped (hyper-active address)
+    elif metrics:
+        pnl_method = "avg_cost"
+    else:
+        pnl_method = "none"
     kpis.append({"label": "Realized PnL", "value": realized_headline, "fmt": "$"})
     if metrics:
         kpis += [
@@ -408,6 +438,9 @@ async def wallet_report(wallet: str) -> dict:
             "first_seen": act.get("first_seen"), "last_seen": act.get("last_seen"),
             "total_missed_usd": total_missed, "jeet": jeet[:10],
             "realized_pnl": realized_headline, "pnl_method": pnl_method,
+            "pnl_truncated": pnl_truncated,
+            **({"pnl_note": f"P&L computed on the earliest {FIFO_CAP:,} events (address too active for a full replay)."} if pnl_truncated else {}),
+            **({"pnl_note": "Address too active for on-the-fly FIFO (likely a router/infra contract) — showing avg-cost estimate."} if pnl_method == "avg_cost_fallback_infra" else {}),
             "realized_pnl_avg_cost": round(float(metrics.get("realized_pnl", 0)), 2) if metrics else 0.0,
             "pnl_7d": pnl_7d, "pnl_30d": pnl_30d, "pnl_timeseries_total": pnl_total_ts,
             "pnl_daily": [{"day": d, "realized": v} for d, v in daily_series[-90:]],
@@ -552,10 +585,14 @@ async def honeypot(token: str, amount_tokens: float | None = None) -> dict:
         tb = (f"FROM rh.token_transfers WHERE token='{t}' AND kind='erc20' "
               f"AND from_addr NOT IN ('0x','0x0000000000000000000000000000000000000000') "
               f"AND to_addr NOT IN ('0x','0x000000000000000000000000000000000000dead')")
+        # anchor recency windows to the INDEX TIP, not wall-clock now() — the index
+        # lags real time (ETL tail), so now()-24h would sit entirely past the last
+        # indexed block and every token would falsely read 0 recent sellers.
         row = await ch.one(
+            "WITH (SELECT max(timestamp) FROM rh.token_transfers) AS tip "
             "SELECT uniqExact(from_addr) AS sellers, count() AS n, "
-            "  uniqExactIf(from_addr, timestamp > now() - INTERVAL 24 HOUR) AS sellers_24h, "
-            "  uniqExactIf(from_addr, timestamp > now() - INTERVAL 7 DAY)  AS sellers_7d, "
+            "  uniqExactIf(from_addr, timestamp > tip - INTERVAL 24 HOUR) AS sellers_24h, "
+            "  uniqExactIf(from_addr, timestamp > tip - INTERVAL 7 DAY)  AS sellers_7d, "
             "  maxIf(timestamp, 1) AS last_send " + tb)
         n_sellers = int(row.get("sellers") or 0)
         n_sends = int(row.get("n") or 0)
