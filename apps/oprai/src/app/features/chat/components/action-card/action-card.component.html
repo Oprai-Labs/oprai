@@ -3608,12 +3608,27 @@
               </div>
             </div>
 
-            <!-- Close a portion quickly -->
+            <!-- Close amount as a % of the open position — drag or tap a preset -->
             @if (isEditable() && lighterCloseFullBase() > 0) {
-              <div class="perp-lev__ticks">
-                @for (pct of [25, 50, 75, 100]; track pct) {
-                  <button type="button" class="perp-lev__tick" (click)="setLighterClosePct(pct)">{{ pct === 100 ? ('All' | t) : pct + '%' }}</button>
-                }
+              <div class="perp-lev">
+                <div class="perp-lev__top">
+                  <span class="perp-label">{{ 'Close amount' | t }}</span>
+                  <span class="perp-lev__value">{{ lighterClosePct() }}%</span>
+                </div>
+                <div class="perp-lev__control">
+                  <input type="range" class="perp-lev__range" min="1" max="100" step="1"
+                         [value]="lighterClosePct()"
+                         [style.background]="'linear-gradient(to right, var(--op-brand) 0%, var(--op-brand) ' + lighterClosePct() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) ' + lighterClosePct() + '%, var(--op-bg-surface-3, rgba(255,255,255,0.08)) 100%)'"
+                         (input)="setLighterClosePct(+$any($event.target).value)"
+                         [disabled]="!isEditable()" [attr.aria-label]="'Close amount percent' | t" />
+                </div>
+                <div class="perp-lev__ticks">
+                  @for (pct of [25, 50, 75, 100]; track pct) {
+                    <button type="button" class="perp-lev__tick"
+                            [class.is-active]="lighterClosePct() >= pct"
+                            (click)="setLighterClosePct(pct)">{{ pct === 100 ? ('All' | t) : pct + '%' }}</button>
+                  }
+                </div>
               </div>
             }
 

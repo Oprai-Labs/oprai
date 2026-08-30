@@ -9712,6 +9712,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
   setLighterCloseMax(): void { this.setLighterCloseBase(this.lighterCloseFullBase()); }
   setLighterClosePct(pct: number): void { this.setLighterCloseBase(this.lighterCloseFullBase() * pct / 100); }
+  /** Current close amount as a % of the open position (0–100), for the slider. */
+  lighterClosePct(): number {
+    const full = this.lighterCloseFullBase();
+    if (full <= 0) return 0;
+    const amt = Number(this.getEditParam('baseAmount') || this.getEditParam('amount')) || 0;
+    return Math.min(100, Math.max(0, Math.round((amt / full) * 100)));
+  }
 
   /** Fill collateral with the full available Lighter balance (2dp, never over). */
   setLighterCollateralMax(): void {
