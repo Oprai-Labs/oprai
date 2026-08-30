@@ -519,6 +519,12 @@ class QueryType(str, Enum):
     TOKEN_DEEP_ANALYSIS = "token_deep_analysis"
     BUNDLE_RING_ANALYSIS = "bundle_ring_analysis"
     KOL_DISCOVERY_FEED = "kol_discovery_feed"
+    # Robinhood-Chain on-chain intelligence (self-hosted index)
+    RH_WALLET_ANALYSIS = "rh_wallet_analysis"
+    RH_TOKEN_ANALYSIS = "rh_token_analysis"
+    RH_SMART_MONEY = "rh_smart_money"
+    RH_COHORT_FLOW = "rh_cohort_flow"
+    RH_HONEYPOT = "rh_honeypot"
     BIRDEYE_SEARCH = "birdeye_search"
     BIRDEYE_PRICE_HISTORY = "birdeye_price_history"
     # DexScreener

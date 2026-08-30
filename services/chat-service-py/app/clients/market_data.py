@@ -2562,6 +2562,67 @@ async def sns_subdomains(domain: str) -> dict:
         return {"domain": f"{d}.sol", "subdomains": [], "count": 0}
 
 
+# ── Robinhood-Chain on-chain intelligence (self-hosted ClickHouse index, :3160) ─
+CHAIN_INTEL_BASE = os.environ.get("CHAIN_INTEL_URL", "http://rh-chain-intel-api:3160")
+
+
+async def _chain_intel(path: str) -> dict:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+        r = await c.get(f"{CHAIN_INTEL_BASE}{path}")
+        r.raise_for_status()
+        return r.json()
+
+
+@query_tool(required=["wallet"], tags={"analysis", "portfolio"})
+async def rh_wallet_analysis(wallet: str) -> dict:
+    """Robinhood-Chain (chain 4663) wallet X-ray from our own on-chain index:
+    realized P&L (daily series + 7d/30d/total) and a cumulative curve, win-rate,
+    trader archetype (bot/paperhand/diamond/whale/accumulator), current holdings,
+    JEET / missed-gains (tokens sold before the peak, with 'left on the table $'),
+    top counterparties and a smart-money flag. Use for any 'analyze / how much did
+    this wallet make / P&L / win rate / is it smart money / did they jeet' about a
+    Robinhood-Chain 0x (EVM) wallet."""
+    return await _chain_intel(f"/wallet/{wallet}")
+
+
+@query_tool(required=["token"], tags={"analysis"})
+async def rh_token_analysis(token: str) -> dict:
+    """Robinhood-Chain token X-ray from our own index: holders, REAL-wallet
+    concentration (bonding-curve/AMM excluded), whales, snipers (still-holding vs
+    dumped), % of supply bundled in the LAUNCH block, DEVELOPER identity — how many
+    tokens the dev launched, how many rugged, and the dev's current holding % —
+    smart-money holders, and a composite RISK score (0-100, LOW/MED/HIGH). Use for
+    'analyze this token / is it a rug / who is the dev / bundle / snipers / dev
+    holdings / risk' on Robinhood Chain."""
+    return await _chain_intel(f"/token/{token}")
+
+
+@query_tool(optional=["limit"], tags={"analysis", "dex"})
+async def rh_smart_money(limit: int = 50) -> dict:
+    """Robinhood-Chain smart money from our index: the most profitable wallets, and
+    what they are ACCUMULATING right now (24h/7d/30d net inflows by token). Use for
+    'what is smart money buying / top traders on Robinhood Chain'."""
+    return await _chain_intel(f"/smart-money?limit={int(limit)}")
+
+
+@query_tool(required=["token"], optional=["window_days"], tags={"analysis", "dex"})
+async def rh_cohort_flow(token: str, window_days: int = 7) -> dict:
+    """What are THIS token's whales buying NEXT? Follows the cohort's money on
+    Robinhood Chain. Use for 'what are <token> holders / whales buying / rotating
+    into'."""
+    return await _chain_intel(f"/cohort/{token}?window_days={int(window_days)}")
+
+
+@query_tool(required=["token"], optional=["amount"], tags={"analysis"})
+async def rh_honeypot(token: str, amount: float | None = None) -> dict:
+    """Can you EXIT this Robinhood-Chain token? For Pons curve tokens resolves the
+    live curve via our node — sellable?, sell tax (fee + creator tax), and the ETH
+    you'd get for `amount` tokens; for others uses on-chain transfer history
+    (distinct sellers). Use for 'can I sell / is it a honeypot / sell tax / exit'."""
+    path = f"/honeypot/{token}" + (f"?amount={float(amount)}" if amount else "")
+    return await _chain_intel(path)
+
+
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 # Maps action_type → (function, required_params, optional_params)
