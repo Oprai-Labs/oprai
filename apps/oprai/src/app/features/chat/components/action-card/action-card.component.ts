@@ -9986,6 +9986,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private async refreshLighterAccount(): Promise<void> {
     try { this.lighterAcct.set(await this.lighterPerp.getAccount()); }
     catch { /* best-effort; card still works for sizing */ }
+    // A close needs a size. The model sometimes emits lighter_close with no
+    // usable amount ("close my position" / "close the rest"), leaving the card
+    // stuck on "Enter an amount" at 0%. Once the live position is known, default
+    // to closing ALL of it (100%) — the common intent; the user can drag down
+    // to a portion. Only seed when the model gave nothing valid.
+    if (this.action?.type === 'lighter_close' && this.isEditable()) {
+      const cur = Number(this.getEditParam('baseAmount') || this.getEditParam('amount'));
+      if (!(cur > 0) && this.lighterCloseFullBase() > 0) this.setLighterCloseMax();
+    }
   }
 
   // USDG (Global Dollar) on Robinhood Mainnet 4663 — the deposit token. Read
