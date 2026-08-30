@@ -5468,13 +5468,25 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
 
   /** Token logo for a perp market (SOL / BTC / ETH), via the token registry. */
+  // Trustwallet coin-logo slugs for the common perp underlyings — a reliable
+  // CDN (already CSP-allowed for chain icons) so majors resolve even when the
+  // Solana token registry has no plain "BTC"/"SOL" entry.
+  private static readonly PERP_COIN_SLUG: Record<string, string> = {
+    BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'ripple', DOGE: 'doge',
+    LTC: 'litecoin', BNB: 'binance', AVAX: 'avalanchec', NEAR: 'near', SUI: 'sui',
+    APT: 'aptos', ARB: 'arbitrum', OP: 'optimism', ZEC: 'zcash',
+  };
+
   perpMarketLogo(market: string): string | null {
+    void this.tokenRegistry.version(); // re-render once the registry loads
     const sym = (market || '').toUpperCase();
     const candidates = sym === 'BTC' ? ['BTC', 'WBTC'] : sym === 'ETH' ? ['ETH', 'WETH'] : [sym];
     for (const c of candidates) {
       const t = this.tokenRegistry.getBySymbol(c);
       if (t?.logoURI) return t.logoURI;
     }
+    const slug = QueryCardComponent.PERP_COIN_SLUG[sym];
+    if (slug) return `https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/${slug}/info/logo.png`;
     return null;
   }
 }
