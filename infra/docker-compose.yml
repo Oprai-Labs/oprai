@@ -508,6 +508,10 @@ services:
       # current tick when building an add-liquidity position. Unset → LP add
       # returns "Adding liquidity isn't available on <chain> yet."
       ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
+      # OpenSea API v2 key — NFT marketplace reads (collections/listings/offers/
+      # activity) + Seaport buy/list/offer on Robinhood Chain. Unset → OpenSea
+      # actions return "OpenSea is not configured".
+      OPENSEA_API_KEY: ${OPENSEA_API_KEY:-}
       RELAY_FEE_RECIPIENT: ${RELAY_FEE_RECIPIENT:-}
       # Cashback share of the Relay app fee is split off to this pool at collection
       # (the wallet that also pays claims → self-funding). Unset → whole fee to profit.
