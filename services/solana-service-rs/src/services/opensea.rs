@@ -15,13 +15,21 @@ use serde_json::{json, Value};
 
 use crate::error::AppError;
 use crate::services::builder::{ActionPreview, BuildResponse};
+use crate::services::sushi::SUSHI_WETH; // WETH on Robinhood — the offer currency
 use uuid::Uuid;
 
 const OPENSEA_API: &str = "https://api.opensea.io/api/v2";
 const CHAIN: u64 = 4663;
 const CHAIN_SLUG: &str = "robinhood";
+const ZERO: &str = "0x0000000000000000000000000000000000000000";
 /// Seaport 1.6 — canonical address, verified deployed on 4663.
 pub const SEAPORT: &str = "0x0000000000000068F116a894984e2DB1123eB395";
+
+/// Robinhood Chain public RPC (for the Seaport getCounter read). Overridable.
+fn rpc() -> String {
+    std::env::var("ROBINHOOD_RPC").ok().filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://rpc.mainnet.chain.robinhood.com".to_string())
+}
 
 fn api_key() -> Result<String, AppError> {
     std::env::var("OPENSEA_API_KEY").ok().filter(|s| !s.is_empty())
@@ -253,9 +261,11 @@ pub struct OpenseaCollectionParams {
 pub async fn build_collection(http: &reqwest::Client, p: &OpenseaCollectionParams) -> Result<BuildResponse, AppError> {
     let slug = p.slug.trim();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
+    let url_detail = format!("/collections/{slug}");
+    let url_stats = format!("/collections/{slug}/stats");
     let (detail, stats) = futures::join!(
-        os_get(http, &format!("/collections/{slug}")),
-        os_get(http, &format!("/collections/{slug}/stats")),
+        os_get(http, &url_detail),
+        os_get(http, &url_stats),
     );
     let d = detail?;
     let st = stats.ok();
