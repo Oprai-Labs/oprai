@@ -3269,7 +3269,16 @@ export class SolanaActionService {
       lastHash = hash;
       if (i === 0) callbacks.onSubmit?.(hash);
       const ok = await this.watchEvmReceipt(ethereum, hash);
-      if (ok === false) {
+      // An approval MUST be confirmed on-chain before the dependent Morpho call —
+      // otherwise the call's transferFrom races an unmined allowance and reverts.
+      // ok===null (unconfirmed within the poll window) also stops here: retry then
+      // sees the landed allowance and skips straight to the call.
+      if (isApproval) {
+        if (ok !== true) {
+          callbacks.onFail?.('The token approval didn’t confirm on-chain yet — tap Confirm again in a moment (your approval is on its way).', hash);
+          return hash;
+        }
+      } else if (ok === false) {
         callbacks.onFail?.(`The ${kind} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
       }
@@ -3330,14 +3339,22 @@ export class SolanaActionService {
       const tx = txs[i];
       if (!tx?.to) continue;
       const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+      const isApproval = i < txs.length - 1;
       const hash = await withTimeout(ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0', ...(gasHex ? { gas: gasHex } : {}) }],
-      }), 120_000, i < txs.length - 1 ? 'approval' : verb) as string;
+      }), 120_000, isApproval ? 'approval' : verb) as string;
       lastHash = hash;
       if (i === 0) callbacks.onSubmit?.(hash);
       const ok = await this.watchEvmReceipt(ethereum, hash);
-      if (ok === false) {
+      // An approval must confirm before the dependent call — else it races the
+      // unmined allowance and reverts. null (unconfirmed) also stops here.
+      if (isApproval) {
+        if (ok !== true) {
+          callbacks.onFail?.('The token approval didn’t confirm on-chain yet — tap Confirm again in a moment.', hash);
+          return hash;
+        }
+      } else if (ok === false) {
         callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
       }
@@ -3509,7 +3526,14 @@ export class SolanaActionService {
       lastHash = hash;
       if (i === 0) callbacks.onSubmit?.(hash);
       const ok = await this.watchEvmReceipt(ethereum, hash);
-      if (ok === false) {
+      // The ERC-20 approval must confirm before the swap/LP call — else it races
+      // the unmined allowance and reverts. null (unconfirmed) also stops here.
+      if (isApproval) {
+        if (ok !== true) {
+          callbacks.onFail?.('The token approval didn’t confirm on-chain yet — tap Confirm again in a moment.', hash);
+          return hash;
+        }
+      } else if (ok === false) {
         callbacks.onFail?.(`The ${verb} reverted on-chain — your funds are safe minus the network fee.`, hash);
         return hash;
       }
