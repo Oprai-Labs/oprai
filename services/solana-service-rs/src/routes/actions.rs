@@ -282,6 +282,7 @@ fn is_evm_build_action(action_type: &str) -> bool {
     action_type.starts_with("relay")        // relay_bridge, relay_get_quote/chains/currencies/requests…
         || action_type.starts_with("uniswap") // uniswap_swap/pools/launches/add_liquidity
         || action_type.starts_with("pons")   // pons_buy/sell/launch (EVM Robinhood launchpad)
+        || action_type.starts_with("morpho") // morpho_supply/borrow/repay/withdraw (EVM lending)
         || action_type.starts_with("pools")  // pools_buy/sell/launch (pools.trade launchpad)
         || matches!(action_type, "cross_chain_swap" | "bridge")
 }
@@ -454,6 +455,33 @@ pub async fn post_build(
                 AppError::InvalidParams(format!("Invalid uniswap_launches params: {e}"))
             })?;
         let resp = crate::services::uniswap::build_uniswap_launches(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
+    // Read-only, wallet-independent EVM data: the Morpho market list (Robinhood
+    // Chain lending). Served before the Solana-wallet gate like uniswap_launches.
+    if body.action_type == "morpho_markets" {
+        let p: crate::services::morpho::MorphoMarketsParams =
+            serde_json::from_value(body.params.clone()).unwrap_or(crate::services::morpho::MorphoMarketsParams {
+                limit: None,
+                query: None,
+            });
+        let resp = crate::services::morpho::build_markets(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
+
+    // Read-only: a wallet's Morpho positions. The wallet is a param (the user's
+    // linked EVM address), so serve before the Solana-wallet gate — an EVM
+    // session's X-User-Wallet is a 0x address wallet_from_req would reject.
+    if body.action_type == "morpho_positions" {
+        let wallet = body
+            .params
+            .get("wallet")
+            .or_else(|| body.params.get("walletAddress"))
+            .or_else(|| body.params.get("address"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let resp = crate::services::morpho::build_positions(&state.http, wallet).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
 
@@ -1893,6 +1921,52 @@ pub async fn post_pons_launch(
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
     let result = crate::services::pons::build_pons_launch(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/morpho/supply — Morpho Blue LEND (supply loan asset → earn).
+/// Returns unsigned EVM txs (approve? + supply) for the user's wallet to sign.
+#[post("/morpho/supply")]
+pub async fn post_morpho_supply(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::morpho::build_lend(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/morpho/borrow — Morpho Blue BORROW (optional supplyCollateral + borrow).
+#[post("/morpho/borrow")]
+pub async fn post_morpho_borrow(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::morpho::build_borrow(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/morpho/repay — Morpho Blue REPAY (partial by amount, or full via `max`).
+#[post("/morpho/repay")]
+pub async fn post_morpho_repay(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::morpho::build_repay(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/morpho/withdraw — Morpho Blue WITHDRAW supplied loan asset
+/// (`target`="supply") or collateral (`target`="collateral"); `max` for all.
+#[post("/morpho/withdraw")]
+pub async fn post_morpho_withdraw(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::morpho::build_withdraw(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 

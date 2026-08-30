@@ -294,6 +294,25 @@ func (p *SolanaProxy) PostPonsLaunch(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
 }
 
+// Morpho Blue lending — unsigned EVM txs on Robinhood Chain (4663), signed by
+// the user's own wallet.
+func (p *SolanaProxy) PostMorphoSupply(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/supply"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostMorphoBorrow(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/borrow"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostMorphoRepay(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/repay"
+	p.proxy.ServeHTTP(w, r)
+}
+func (p *SolanaProxy) PostMorphoWithdraw(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/morpho/withdraw"
+	p.proxy.ServeHTTP(w, r)
+}
+
 func (p *SolanaProxy) GetTopValidators(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/validators/top"
 	p.proxy.ServeHTTP(w, r)

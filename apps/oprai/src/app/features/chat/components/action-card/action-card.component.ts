@@ -119,6 +119,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   poolstrade:{ name: 'pools.trade', icon: 'assets/protocols/poolstrade.svg',      accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)' },
   pons:      { name: 'Pons',       icon: 'assets/protocols/pons.png',             accent: '#1a2740', accentBg: 'rgba(26,39,64,0.12)' },
   lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png?v=2',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
+  morpho:    { name: 'Morpho',     icon: 'assets/protocols/morpho.svg',          accent: '#2470FF', accentBg: 'rgba(36,112,255,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };
 
@@ -141,6 +142,26 @@ const EVM_EXPLORERS: Record<number, string> = {
   4663: 'https://robinhoodchain.blockscout.com',
 };
 
+/** One Morpho Blue market on Robinhood Chain (from /actions/build morpho_markets). */
+interface MorphoMarket {
+  marketId: string;
+  loanSymbol: string; loanAddress: string; loanDecimals: number; loanLogo?: string | null; loanPriceUsd?: number | null;
+  collateralSymbol: string; collateralAddress: string; collateralDecimals: number; collateralLogo?: string | null; collateralPriceUsd?: number | null;
+  lltvPct: number;
+  supplyApy?: number | null; borrowApy?: number | null; utilization?: number | null;
+  supplyUsd?: number | null; borrowUsd?: number | null; liquidityUsd?: number | null;
+}
+/** A wallet's position in one Morpho market. */
+interface MorphoPosition {
+  marketId: string;
+  loanSymbol: string; loanDecimals: number; loanLogo?: string | null;
+  collateralSymbol: string; collateralDecimals: number; collateralLogo?: string | null;
+  supplyAssets?: unknown; supplyUsd?: number | null;
+  borrowAssets?: unknown; borrowUsd?: number | null;
+  collateral?: unknown; collateralUsd?: number | null;
+  healthFactor?: number | null; supplyApy?: number | null; borrowApy?: number | null;
+}
+
 function getProtocolKey(action: ParsedAction): string {
   const p = (action.params['protocol'] ?? '').toLowerCase();
   if (p && PROTOCOL_CONFIGS[p]) return p;
@@ -159,6 +180,8 @@ function getProtocolKey(action: ParsedAction): string {
   // Lighter perps (Robinhood Chain Lighter domain) — onboarding, deposit, open/close/leverage.
   if (t === 'lighter_onboard' || t === 'lighter_deposit' || t === 'lighter_open'
       || t === 'lighter_close' || t === 'lighter_leverage') return 'lighter';
+  // Morpho Blue lending (Robinhood Chain 4663 — EVM).
+  if (t.startsWith('morpho_')) return 'morpho';
   if (t === 'stake') return p || 'jito';
   if (t === 'unstake') return p || 'jito';
   if (t.startsWith('native_stake')) return 'default';
@@ -205,6 +228,9 @@ function getActionLabel(action: ParsedAction): string {
     lighter_onboard: 'Enable Lighter Trading', lighter_deposit: 'Deposit to Lighter',
     lighter_open: 'Open Perp (Lighter)', lighter_close: 'Close Perp (Lighter)',
     lighter_leverage: 'Set Leverage (Lighter)',
+    // Morpho Blue lending (Robinhood Chain)
+    morpho_supply: 'Lend / Earn (Morpho)', morpho_borrow: 'Borrow (Morpho)',
+    morpho_repay: 'Repay (Morpho)', morpho_withdraw: 'Withdraw (Morpho)',
     jupsol_stake: 'Stake for jupSOL', jupsol_unstake: 'Unstake jupSOL',
     burn: 'Burn Tokens', close_accounts: 'Close Empty Accounts',
     sns_register: 'Register .sol Domain', sns_transfer: 'Transfer Domain',
@@ -6033,7 +6059,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // on Robinhood Mainnet). The LLM's params carry no chainId for these, so
     // the tx link would otherwise fall through to Solscan.
     const t = this.action?.type ?? '';
-    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_')) return 4663;
+    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_')) return 4663;
     return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
@@ -6428,6 +6454,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Lighter perps: load the live market catalogue + account snapshot and,
     // for an open ticket, start the 3s live-price refresh.
     if (this.isLighterAction()) this.startLighterCard();
+    // Morpho Blue lending: load the live market list (+ user positions for
+    // repay/withdraw) and auto-pick the market from any LLM hint.
+    if (this.isMorphoAction()) this.startMorphoCard();
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
@@ -10032,6 +10061,180 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (Number.isFinite(pct) && pct > 0 && pct <= 100) this.setLighterClosePct(pct);
       else if (!(cur > 0)) this.setLighterCloseMax();
     }
+  }
+
+  // ── Morpho Blue lending (Robinhood Chain 4663) ─────────────────────────────
+  readonly morphoMarkets = signal<MorphoMarket[]>([]);
+  readonly morphoPositions = signal<MorphoPosition[]>([]);
+  readonly morphoSearch = signal('');
+  readonly morphoPickerOpen = signal(false);
+  /** The connected wallet's balance of the token the current amount is in. */
+  readonly morphoWalletBal = signal<number | null>(null);
+
+  readonly isMorphoAction = computed(() => (this.action?.type ?? '').startsWith('morpho_'));
+  /** supply | borrow | repay | withdraw */
+  morphoKind(): string { return (this.action?.type ?? '').replace('morpho_', ''); }
+
+  /** The selected market (by the marketId in edit state), or null until picked. */
+  morphoMarket(): MorphoMarket | null {
+    const id = this.getEditParam('marketId').toLowerCase();
+    if (!id) return null;
+    return this.morphoMarkets().find(m => m.marketId.toLowerCase() === id) ?? null;
+  }
+  /** Markets filtered by the picker search box (loan/collateral symbol contains). */
+  morphoFilteredMarkets(): MorphoMarket[] {
+    const q = this.morphoSearch().trim().toLowerCase();
+    const ms = this.morphoMarkets();
+    if (!q) return ms;
+    return ms.filter(m => m.loanSymbol.toLowerCase().includes(q) || m.collateralSymbol.toLowerCase().includes(q));
+  }
+  /** The user's position in the selected market (drives repay/withdraw context). */
+  morphoUserPosition(): MorphoPosition | null {
+    const id = this.getEditParam('marketId').toLowerCase();
+    if (!id) return null;
+    return this.morphoPositions().find(p => p.marketId.toLowerCase() === id) ?? null;
+  }
+  /** The token the PRIMARY amount is denominated in for the current action. */
+  morphoAmountToken(): { symbol: string; address: string; decimals: number; logo?: string | null } | null {
+    const m = this.morphoMarket();
+    if (!m) return null;
+    // Withdraw-collateral is the only case the amount is in the collateral asset;
+    // supply / repay / withdraw-supply / borrow (loan side) are all the loan asset.
+    if (this.morphoKind() === 'withdraw' && this.getEditParam('target') === 'collateral') {
+      return { symbol: m.collateralSymbol, address: m.collateralAddress, decimals: m.collateralDecimals, logo: m.collateralLogo };
+    }
+    return { symbol: m.loanSymbol, address: m.loanAddress, decimals: m.loanDecimals, logo: m.loanLogo };
+  }
+  /** True once the current action is at "repay all" / "withdraw all". */
+  morphoIsMax(): boolean { return this.getEditParam('max') === 'true'; }
+
+  selectMorphoMarket(m: MorphoMarket): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('marketId', m.marketId);
+    this.setEditParam('loanSymbol', m.loanSymbol);
+    this.setEditParam('collateralSymbol', m.collateralSymbol);
+    this.morphoPickerOpen.set(false);
+    this.morphoWalletBal.set(null);
+    void this.refreshMorphoBalance();
+  }
+  /** Typing an amount clears any "max" flag, then stores it. */
+  setMorphoAmount(key: string, v: string): void {
+    if (!this.isEditable()) return;
+    if (this.getEditParam('max') === 'true') this.setEditParam('max', '');
+    this.setEditParam(key, v);
+  }
+  /** Max = wallet balance for spend-side actions (lend, borrow-collateral);
+   *  = "all" flag for repay/withdraw (backend reads shares/collateral on-chain). */
+  setMorphoMax(): void {
+    const kind = this.morphoKind();
+    if (kind === 'repay' || kind === 'withdraw') {
+      this.setEditParam('max', 'true');
+      this.setEditParam(kind === 'withdraw' ? 'amount' : 'amount', '');
+      return;
+    }
+    const bal = this.morphoWalletBal();
+    if (bal != null && bal > 0 && this.isEditable()) {
+      const key = kind === 'borrow' ? 'collateralAmount' : 'amount';
+      this.setMorphoAmount(key, String(+bal.toFixed(8)));
+    }
+  }
+  setMorphoWithdrawTarget(t: string): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('target', t);
+    this.setEditParam('max', '');
+    this.setEditParam('amount', '');
+    this.morphoWalletBal.set(null);
+    void this.refreshMorphoBalance();
+  }
+  setMorphoRepayAll(all: boolean): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('max', all ? 'true' : '');
+    if (all) this.setEditParam('amount', '');
+  }
+  /** A number formatted from a possibly-string API field. */
+  private morphoNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+  /** APY fraction (0.042) → "4.20%". */
+  morphoPct(v: unknown): string {
+    const n = this.morphoNum(v);
+    return `${(n * 100).toFixed(2)}%`;
+  }
+  /** Compact USD ("$310.9M", "$1.2K"). */
+  morphoUsd(v: unknown): string {
+    const n = this.morphoNum(v);
+    if (!(n > 0)) return '$0';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+
+  private startMorphoCard(): void {
+    void this.refreshMorphoMarkets();
+    const kind = this.morphoKind();
+    if (kind === 'repay' || kind === 'withdraw') void this.refreshMorphoPositions();
+  }
+  private async refreshMorphoMarkets(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<{ data?: { markets?: MorphoMarket[] } }>('/actions/build', {
+          type: 'morpho_markets', params: { limit: 30 },
+        }).pipe(timeout(20_000)),
+      );
+      const ms = resp?.data?.markets ?? [];
+      if (ms.length) {
+        this.morphoMarkets.set(ms);
+        if (!this.getEditParam('marketId')) this.autoPickMorphoMarket(ms);
+        else void this.refreshMorphoBalance();
+      }
+    } catch { /* the card still lets the user retry the action */ }
+  }
+  /** Pick the market from an LLM hint (collateral/loan symbol) or a held position,
+   *  else the deepest market (the list is TVL-sorted). */
+  private autoPickMorphoMarket(ms: MorphoMarket[]): void {
+    const kind = this.morphoKind();
+    const wantColl = this.getEditParam('collateralSymbol').trim().toLowerCase();
+    const wantLoan = this.getEditParam('loanSymbol').trim().toLowerCase();
+    let pick: MorphoMarket | undefined;
+    if (kind === 'borrow' && wantColl) pick = ms.find(m => m.collateralSymbol.toLowerCase() === wantColl);
+    if (!pick && wantColl) pick = ms.find(m => m.collateralSymbol.toLowerCase() === wantColl);
+    if (!pick && wantLoan) pick = ms.find(m => m.loanSymbol.toLowerCase() === wantLoan);
+    if (!pick && (kind === 'repay' || kind === 'withdraw')) {
+      const rel = this.morphoPositions().find(p =>
+        kind === 'repay' ? this.morphoNum(p.borrowUsd) > 0
+                         : (this.morphoNum(p.supplyUsd) > 0 || this.morphoNum(p.collateralUsd) > 0));
+      if (rel) pick = ms.find(m => m.marketId.toLowerCase() === rel.marketId.toLowerCase());
+    }
+    pick = pick ?? ms[0];
+    if (pick) this.selectMorphoMarket(pick);
+  }
+  private async refreshMorphoPositions(): Promise<void> {
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    try {
+      const resp = await firstValueFrom(
+        this.apiService.post<{ data?: { positions?: MorphoPosition[] } }>('/actions/build', {
+          type: 'morpho_positions', params: { wallet: addr },
+        }).pipe(timeout(20_000)),
+      );
+      this.morphoPositions.set(resp?.data?.positions ?? []);
+      // Now that positions are known, re-pick if the market wasn't chosen yet.
+      if (!this.getEditParam('marketId') && this.morphoMarkets().length) {
+        this.autoPickMorphoMarket(this.morphoMarkets());
+      }
+    } catch { /* positions optional — the card still works for sizing */ }
+  }
+  private async refreshMorphoBalance(): Promise<void> {
+    const tok = this.morphoAmountToken();
+    if (!tok?.address) { this.morphoWalletBal.set(null); return; }
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', {
+        address: addr, token: tok.address,
+      }));
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      this.morphoWalletBal.set(Number.isFinite(bal) ? bal : null);
+    } catch { this.morphoWalletBal.set(null); }
   }
 
   // USDG (Global Dollar) on Robinhood Mainnet 4663 — the deposit token. Read

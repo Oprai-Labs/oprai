@@ -3638,3 +3638,47 @@
   .km-table .km-row { min-width: 430px; }
   .km-table--ray .km-row { min-width: 590px; }
 }
+
+/* ── Morpho Blue markets / positions cards ─────────────────────────────────── */
+.mq-list { display: flex; flex-direction: column; gap: 8px; }
+.mq-row {
+  border: 1px solid var(--op-border-subtle);
+  border-radius: 12px;
+  background: var(--op-bg-surface-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  &__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+}
+.mq-pair { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.mq-logo { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; }
+.mq-pair__txt { font-size: 13px; color: var(--op-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  b { font-weight: 700; } }
+.mq-slash { color: var(--op-text-secondary); margin: 0 3px; }
+.mq-lltv { font-size: 11px; color: var(--op-text-secondary); white-space: nowrap; }
+.mq-hf { font-size: 11px; font-weight: 600; color: var(--op-text-secondary); white-space: nowrap;
+  &--risk { color: #ef4444; } }
+
+.mq-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 6px 12px; }
+.mq-stat { display: flex; flex-direction: column; gap: 1px; min-width: 0;
+  &__k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--op-text-secondary); }
+  &__v { font-size: 13px; font-weight: 600; color: var(--op-text-primary); font-variant-numeric: tabular-nums; } }
+.mq-up { color: #22c55e; }
+.mq-down { color: #ef4444; }
+
+.mq-actions { display: flex; gap: 6px; }
+.mq-btn {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  &--lend { background: color-mix(in srgb, var(--op-brand) 16%, transparent); color: var(--op-brand); border-color: color-mix(in srgb, var(--op-brand) 30%, transparent);
+    &:hover { background: var(--op-brand); color: #fff; } }
+  &--borrow { background: transparent; color: var(--op-text-primary); border-color: var(--op-border-subtle);
+    &:hover { border-color: var(--op-brand); color: var(--op-brand); } }
+}

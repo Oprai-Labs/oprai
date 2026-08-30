@@ -1555,6 +1555,12 @@ export class SolanaActionService {
     if (action.type === 'lighter_open' || action.type === 'lighter_close' || action.type === 'lighter_leverage') {
       return this.executeLighterPerp(action, callbacks);
     }
+    // Morpho Blue lending — EVM (Robinhood Chain 4663). Backend returns unsigned
+    // txs (approval? + the Morpho call); the user's own wallet signs. No Solana
+    // wallet, so route out before the Solana-wallet guard.
+    if (action.type.startsWith('morpho_')) {
+      return this.executeMorpho(action, callbacks);
+    }
 
     const wallet = this.walletService.publicKey();
     // A cross-chain bridge FROM an EVM chain (e.g. Ethereum → Robinhood) is
@@ -3154,6 +3160,97 @@ export class SolanaActionService {
           // The token launched fine; only the optional bundled buy failed. Don't
           // fail the whole action — the launch already succeeded.
         }
+      }
+    }
+    callbacks.onConfirm?.(lastHash);
+    return lastHash;
+  }
+
+  /**
+   * Morpho Blue lending (Robinhood Chain 4663). The backend ABI-encodes the
+   * Morpho call against the singleton and returns unsigned txs — an ERC-20
+   * approval first when the allowance is short, then the supply/borrow/repay/
+   * withdraw call. We switch the wallet to Robinhood Chain and sign each tx in
+   * order (waiting for every receipt), exactly like the pools.trade EVM flow.
+   * All amounts/flags come from the card, which knows each token's decimals from
+   * the market list, so it can pass base-unit amounts directly.
+   */
+  private async executeMorpho(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = 4663;
+    const kind = action.type.replace('morpho_', ''); // supply | borrow | repay | withdraw
+    const marketId = String(p['marketId'] ?? '').trim();
+    if (!marketId) throw new Error('Morpho: pick a market first.');
+
+    const ethereum = await this.walletService.resolveEvmProvider();
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to use Morpho on Robinhood Chain.');
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`Morpho: ${label} timed out`)), ms))]);
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }), 60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network. Switch it to Robinhood Chain and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    const reqBody: Record<string, unknown> = { marketId, walletAddress: account };
+    // Forward whichever amount/flag fields the card set; the backend accepts both
+    // human `amount` and `amountBaseUnits` (card prefers base units).
+    const fwd = (k: string) => { if (p[k] != null && String(p[k]) !== '') reqBody[k] = String(p[k]); };
+    if (kind === 'supply') {
+      fwd('amount'); fwd('amountBaseUnits');
+    } else if (kind === 'borrow') {
+      fwd('borrowAmount'); fwd('borrowBaseUnits'); fwd('collateralAmount'); fwd('collateralBaseUnits');
+    } else if (kind === 'repay') {
+      fwd('amount'); fwd('amountBaseUnits'); if (String(p['max']) === 'true') reqBody['max'] = true;
+    } else if (kind === 'withdraw') {
+      fwd('amount'); fwd('amountBaseUnits'); reqBody['target'] = String(p['target'] ?? 'supply');
+      if (String(p['max']) === 'true') reqBody['max'] = true;
+    }
+    const endpoint = `/actions/morpho/${kind}`;
+
+    const prep = await firstValueFrom(this.api.post<any>(endpoint, reqBody));
+    const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
+    if (txs.length === 0) throw new Error('Morpho: no transaction was returned.');
+
+    callbacks.onSign?.();
+    let lastHash = '';
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
+      if (!tx?.to) continue;
+      const gasHex = toHexQty(tx.gas ?? tx.gasLimit);
+      const isApproval = i < txs.length - 1; // last tx is the Morpho call
+      const hash = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: account,
+          to: tx.to,
+          data: tx.data ?? '0x',
+          value: toHexQty(tx.value) ?? '0x0',
+          ...(gasHex ? { gas: gasHex } : {}),
+        }],
+      }), 120_000, isApproval ? 'approval' : kind) as string;
+      lastHash = hash;
+      if (i === 0) callbacks.onSubmit?.(hash);
+      const ok = await this.watchEvmReceipt(ethereum, hash);
+      if (ok === false) {
+        callbacks.onFail?.(`The ${kind} reverted on-chain — your funds are safe minus the network fee.`, hash);
+        return hash;
       }
     }
     callbacks.onConfirm?.(lastHash);

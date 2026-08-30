@@ -47,6 +47,9 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     # pools.trade + Pons launchpads live in the crosschain fragment (Robinhood).
     "poolstrade":   ["solana_action_crosschain.txt"],
     "pons":         ["solana_action_crosschain.txt"],
+    # Morpho Blue — lending on Robinhood Chain (its own fragment). market_data
+    # loads too so the market-list / positions reads render.
+    "morpho":       ["solana_action_morpho.txt", "solana_action_market_data.txt"],
 
     # Lighter — zero-fee CLOB perps on Robinhood Chain (crypto + stock perps).
     # market_data.txt loads too so mark-price / funding reads render.
@@ -107,6 +110,7 @@ class PromptLoader:
         "solana_action_pumpfun.txt",
         "solana_action_crosschain.txt",
         "solana_action_lighter.txt",
+        "solana_action_morpho.txt",
         "solana_action_market_data.txt",
         "solana_action_knowledge.txt",
         "solana_action_strategy.txt",

@@ -58,6 +58,24 @@ interface UniswapPool {
   quoteLogo?: string | null;
 }
 
+interface MorphoMarketRow {
+  marketId: string;
+  loanSymbol: string; loanAddress: string; loanDecimals: number; loanLogo?: string | null;
+  collateralSymbol: string; collateralAddress: string; collateralDecimals: number; collateralLogo?: string | null;
+  lltvPct: number;
+  supplyApy?: number | null; borrowApy?: number | null; utilization?: number | null;
+  supplyUsd?: number | null; borrowUsd?: number | null; liquidityUsd?: number | null;
+}
+interface MorphoPositionRow {
+  marketId: string;
+  loanSymbol: string; loanDecimals: number; loanLogo?: string | null;
+  collateralSymbol: string; collateralDecimals: number; collateralLogo?: string | null;
+  supplyAssets?: unknown; supplyUsd?: number | null;
+  borrowAssets?: unknown; borrowUsd?: number | null;
+  collateral?: unknown; collateralUsd?: number | null;
+  healthFactor?: number | null; supplyApy?: number | null; borrowApy?: number | null;
+}
+
 interface UniswapLaunch {
   tokenAddress: string;
   symbol: string;
@@ -809,6 +827,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return 'assets/icons/protocols/marinade.webp';
       case 'lighter_positions':
         return 'assets/protocols/lighter.png?v=2';
+      case 'morpho_markets':
+      case 'morpho_positions':
+        return 'assets/protocols/morpho.svg';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
       default:
@@ -1093,6 +1114,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['lendBorrowPositions']) this.lendBorrowPositions = d['lendBorrowPositions'] as BorrowPosition[];
     if (d['uniswapPoolsResults']) this.uniswapPoolsResults = d['uniswapPoolsResults'] as UniswapPool[];
     if (d['uniswapLaunchesResults']) this.uniswapLaunchesResults = d['uniswapLaunchesResults'] as UniswapLaunch[];
+    if (d['morphoMarketRows'])   this.morphoMarketRows   = d['morphoMarketRows']   as MorphoMarketRow[];
+    if (d['morphoPositionRows']) this.morphoPositionRows = d['morphoPositionRows'] as MorphoPositionRow[];
     if (d['uniswapLaunchpads']) this.uniswapLaunchpads = d['uniswapLaunchpads'] as LaunchpadOpt[];
     if (d['uniswapLaunchFilter'] != null) this.uniswapLaunchFilter = d['uniswapLaunchFilter'] as string;
     if (d['uniswapLaunchSearch'] != null) this.uniswapLaunchSearch = d['uniswapLaunchSearch'] as string;
@@ -1203,6 +1226,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.lendBorrowPositions.length) d['lendBorrowPositions'] = this.lendBorrowPositions;
     if (this.uniswapPoolsResults.length) d['uniswapPoolsResults'] = this.uniswapPoolsResults;
     if (this.uniswapLaunchesResults.length) d['uniswapLaunchesResults'] = this.uniswapLaunchesResults;
+    if (this.morphoMarketRows.length)   d['morphoMarketRows']   = this.morphoMarketRows;
+    if (this.morphoPositionRows.length) d['morphoPositionRows'] = this.morphoPositionRows;
     if (this.uniswapLaunchpads.length) d['uniswapLaunchpads'] = this.uniswapLaunchpads;
     if (this.uniswapLaunchFilter) d['uniswapLaunchFilter'] = this.uniswapLaunchFilter;
     if (this.uniswapLaunchSearch) d['uniswapLaunchSearch'] = this.uniswapLaunchSearch;
@@ -3600,6 +3625,92 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Morpho Blue (Robinhood Chain) — market list + user positions ────────────
+  morphoMarketRows: MorphoMarketRow[] = [];
+  morphoPositionRows: MorphoPositionRow[] = [];
+  readonly morphoFetching = signal(false);
+
+  morphoPct(v: unknown): string { const n = Number(v); return `${(Number.isFinite(n) ? n * 100 : 0).toFixed(2)}%`; }
+  morphoUsd(v: unknown): string {
+    const n = Number(v);
+    if (!(n > 0)) return '$0';
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+
+  private async fetchMorphoMarkets(): Promise<void> {
+    this.morphoFetching.set(true);
+    this.error.set(null);
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'morpho_markets',
+        params: { ...(this.query.params?.['limit'] ? { limit: Number(this.query.params['limit']) } : { limit: 30 }) },
+      }).pipe(timeout(30_000)));
+      this.morphoMarketRows = Array.isArray(resp?.data?.markets) ? resp.data.markets : [];
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Morpho markets');
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  private async fetchMorphoPositions(): Promise<void> {
+    this.morphoFetching.set(true);
+    this.error.set(null);
+    // Morpho is EVM (Robinhood Chain) — positions are keyed by the linked EVM
+    // address, resolved the same way as Lighter's.
+    const evm = await this.lighterPerp.resolveEvmAddress();
+    if (!evm) {
+      this.error.set('Connect an EVM wallet to see Morpho positions');
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'morpho_positions', params: { wallet: evm },
+      }).pipe(timeout(30_000)));
+      this.morphoPositionRows = Array.isArray(resp?.data?.positions) ? resp.data.positions : [];
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Morpho positions');
+      this.morphoFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  morphoNum(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
+  /** Open the Morpho action card for a market row (Lend or Borrow). */
+  morphoAct(kind: 'supply' | 'borrow' | 'repay' | 'withdraw', m: MorphoMarketRow): void {
+    const p: Record<string, string> = {
+      marketId: m.marketId,
+      loanSymbol: m.loanSymbol,
+      collateralSymbol: m.collateralSymbol,
+    };
+    this.useAction.emit({ type: `morpho_${kind}`, params: p, raw: `[ACTION:morpho_${kind}] ${JSON.stringify(p)}` });
+  }
+  /** Open the Morpho action card from a POSITION row (Repay or Withdraw). For a
+   *  withdraw, default the target to whichever side the user actually holds. */
+  morphoActPos(kind: 'repay' | 'withdraw', p: MorphoPositionRow): void {
+    const params: Record<string, string> = {
+      marketId: p.marketId,
+      loanSymbol: p.loanSymbol,
+      collateralSymbol: p.collateralSymbol,
+    };
+    if (kind === 'withdraw') {
+      params['target'] = this.morphoNum(p.collateralUsd) > 0 && this.morphoNum(p.supplyUsd) <= 0 ? 'collateral' : 'supply';
+    }
+    this.useAction.emit({ type: `morpho_${kind}`, params, raw: `[ACTION:morpho_${kind}] ${JSON.stringify(params)}` });
+  }
+
   /** Buy a launched token natively on pools.trade (bonding curve / CCA), paying
    *  in USD-worth of ETH on Robinhood Chain. Opens the pools_buy action card
    *  where the user enters the USD amount. Uses trade.prepareBuy, NOT a raw v4
@@ -4551,6 +4662,12 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'uniswap_launches':
         await this.fetchUniswapLaunches();
+        return;
+      case 'morpho_markets':
+        await this.fetchMorphoMarkets();
+        return;
+      case 'morpho_positions':
+        await this.fetchMorphoPositions();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

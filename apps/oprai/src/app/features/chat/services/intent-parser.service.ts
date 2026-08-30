@@ -79,6 +79,8 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'launch_token', 'cross_chain_swap', 'bridge', 'uniswap_swap', 'uniswap_pools', 'uniswap_add_liquidity',
   'pools_buy', 'pools_sell', 'pools_launch',
   'pons_buy', 'pons_sell', 'pons_launch',
+  // Morpho Blue lending (Robinhood Chain 4663 — EVM)
+  'morpho_supply', 'morpho_borrow', 'morpho_repay', 'morpho_withdraw',
   'nft_buy', 'nft_list', 'nft_mint',
   // Jupiter
   'limit_order', 'cancel_limit_order', 'cancel_all_limit_orders', 'dca', 'cancel_dca',
@@ -258,6 +260,8 @@ const KNOWN_QUERY_TYPES = new Set<string>([
   'analytics', 'nft_collection', 'airdrops', 'gas',
   'wallet_info', 'tax_report', 'limit_orders', 'dca', 'lend_positions', 'perp_positions',
   'lighter_positions', 'lighter_markets', 'lighter_market',
+  // Morpho Blue lending (Robinhood Chain) — market list + user positions cards
+  'morpho_markets', 'morpho_positions',
   // Kamino Multiply pool list (self-fetching query-card)
   'kamino_multiply_markets',
   // Simulation & tracking
@@ -605,6 +609,14 @@ export class IntentParserService {
         return `Close ${action.params['side'] ?? ''} ${action.params['symbol'] ?? action.params['market'] ?? ''} on Lighter`;
       case 'lighter_leverage':
         return `Set ${action.params['symbol'] ?? ''} leverage to ${action.params['leverage'] ?? ''}x on Lighter`;
+      case 'morpho_supply':
+        return `Lend ${action.params['amount'] ?? ''} ${action.params['loanSymbol'] ?? 'USDG'} on Morpho`;
+      case 'morpho_borrow':
+        return `Borrow ${action.params['borrowAmount'] ?? ''} ${action.params['loanSymbol'] ?? 'USDG'} on Morpho`;
+      case 'morpho_repay':
+        return action.params['max'] === 'true' ? `Repay all on Morpho` : `Repay ${action.params['amount'] ?? ''} on Morpho`;
+      case 'morpho_withdraw':
+        return `Withdraw ${action.params['target'] === 'collateral' ? 'collateral' : 'supply'} on Morpho`;
       case 'jlp_add':
         return `Add ${action.params['amount'] ?? ''} ${action.params['token'] ?? 'SOL'} to JLP pool`;
       case 'jlp_remove':
@@ -985,6 +997,10 @@ export class IntentParserService {
       case 'lighter_onboard': return 'shield-check';
       case 'lighter_deposit': return 'wallet';
       case 'lighter_leverage': return 'settings';
+      case 'morpho_supply': return 'piggy-bank';
+      case 'morpho_borrow': return 'hand-coins';
+      case 'morpho_repay': return 'undo-2';
+      case 'morpho_withdraw': return 'download';
       case 'jlp_add': return 'droplets';
       case 'jlp_remove': return 'droplets';
       case 'nft_buy': return 'image';
@@ -1182,6 +1198,8 @@ export class IntentParserService {
       case 'lend_positions': return 'landmark';
       case 'perp_positions': return 'trending-up';
       case 'lighter_positions': return 'trending-up';
+      case 'morpho_markets': return 'layers';
+      case 'morpho_positions': return 'piggy-bank';
       case 'alerts': return 'bell-ring';
       // Solend (data-only)
       case 'solend_user_info': return 'user';
@@ -1314,6 +1332,10 @@ export class IntentParserService {
         return 'Jupiter Perp Positions';
       case 'lighter_positions':
         return 'Lighter Positions';
+      case 'morpho_markets':
+        return 'Morpho Markets';
+      case 'morpho_positions':
+        return 'Morpho Positions';
       case 'transactions':
         return `Recent Transactions`;
       case 'token_info':

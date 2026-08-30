@@ -442,6 +442,11 @@ class ActionType(str, Enum):
     PONS_BUY = "pons_buy"
     PONS_SELL = "pons_sell"
     PONS_LAUNCH = "pons_launch"
+    # Morpho Blue lending (Robinhood Chain 4663) — unsigned EVM txs, user signs.
+    MORPHO_SUPPLY = "morpho_supply"      # lend loan asset (earn)
+    MORPHO_BORROW = "morpho_borrow"      # supply collateral + borrow
+    MORPHO_REPAY = "morpho_repay"        # repay debt (partial or full)
+    MORPHO_WITHDRAW = "morpho_withdraw"  # withdraw supplied loan asset or collateral
     # Cross-chain bridges
     DEBRIDGE = "debridge"
     SQUID = "squid"
@@ -646,6 +651,10 @@ class QueryType(str, Enum):
     UNISWAP_POOLS = "uniswap_pools"
     # Read-only pools.trade launchpad feed (Robinhood Chain). Data card.
     UNISWAP_LAUNCHES = "uniswap_launches"
+    # Morpho Blue lending (Robinhood Chain). Data cards — market list + a
+    # wallet's positions (supplied / collateral / borrowed / health).
+    MORPHO_MARKETS = "morpho_markets"
+    MORPHO_POSITIONS = "morpho_positions"
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"
@@ -872,6 +881,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "pools_buy", "pools_sell", "pools_launch",
     # Pons launchpad (ponsfamily.com) — same fund-moving semantics
     "pons_buy", "pons_sell", "pons_launch",
+    # Morpho Blue lending (Robinhood Chain) — supply/borrow/repay/withdraw move funds
+    "morpho_supply", "morpho_borrow", "morpho_repay", "morpho_withdraw",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1123,6 +1134,12 @@ def validate_action_params(
         "lighter_open":     ("symbol", "side"),
         "lighter_close":    ("symbol", "side"),
         "lighter_leverage": ("symbol", "leverage"),
+        # Morpho Blue lending — no hard requirement at the chat layer: the card
+        # carries a market picker and resolves `marketId` itself (from a
+        # loanSymbol/collateralSymbol hint or the default market), the same way
+        # the Lighter card resolves size/leverage. Forcing marketId here would
+        # break the natural "lend USDG on Morpho" turn where the user names no
+        # specific market.
     }
     if (req := _REQUIRED.get(action_type)):
         missing = [k for k in req if not params.get(k) and not params.get(_SNAKE_TO_CAMEL.get(k, k))]

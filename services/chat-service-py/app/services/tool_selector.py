@@ -367,6 +367,10 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "pons_buy":                      _A({"dex", "uniswap", "pons", "launchpad", "swap"}),
     "pons_sell":                     _A({"dex", "uniswap", "pons", "launchpad", "swap"}),
     "pons_launch":                   _A({"dex", "uniswap", "pons", "launchpad", "launch"}),
+    "morpho_supply":                 _A({"morpho", "lending"}),
+    "morpho_borrow":                 _A({"morpho", "lending"}),
+    "morpho_repay":                  _A({"morpho", "lending"}),
+    "morpho_withdraw":               _A({"morpho", "lending"}),
     "uniswap_add_liquidity":         _A({"dex", "uniswap", "liquidity"}),
     "relay_bridge":                  _A({"bridge", "relay"}),
     "relay_index_transaction":       _A({"bridge", "relay"}),
@@ -482,6 +486,8 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "lighter_markets": _A({"perp", "lighter", "dex"}),
     "lighter_market": _A({"perp", "lighter", "dex"}),
     "lighter_positions": _A({"perp", "lighter", "portfolio"}),
+    "morpho_markets": _A({"morpho", "lending", "analysis"}),
+    "morpho_positions": _A({"morpho", "lending", "portfolio"}),
     "simulate":       _A({"core"}),
     "whale":          _A({"analysis"}),
     "smart_money":    _A({"analysis"}),
@@ -574,6 +580,9 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     # separate protocols; picking one must not surface the other's actions).
     "poolstrade":  _A({"poolstrade"}),
     "pons":        _A({"pons"}),
+    # Morpho Blue lending on Robinhood Chain — its own identity tag so
+    # supply/borrow/repay/withdraw + market/position reads surface together.
+    "morpho":      _A({"morpho"}),
     "relay":       _A({"relay"}),
     "native_stake":_A({"native_stake", "staking"}),
     # Lighter perps — its own tag so lighter_open/close/leverage surface when

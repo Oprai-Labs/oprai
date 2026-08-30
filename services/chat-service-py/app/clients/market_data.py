@@ -2893,6 +2893,11 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "strategy_flows",
     "position_review",
     "lending_rates",
+    # Morpho Blue lending (Robinhood Chain 4663) — market list + a wallet's
+    # positions. Served by the Rust service via /actions/build (tx=None); the
+    # market list is wallet-independent, positions take a `wallet` param.
+    "morpho_markets",
+    "morpho_positions",
 })
 
 

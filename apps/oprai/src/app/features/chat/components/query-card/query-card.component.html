@@ -3240,6 +3240,85 @@
         }
       }
 
+      <!-- Morpho Blue markets (Robinhood Chain) -->
+      @if (query.type === 'morpho_markets') {
+        @if (morphoFetching() && morphoMarketRows.length === 0) {
+          <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading Morpho markets…' | t }}</span></div>
+        } @else if (morphoMarketRows.length === 0) {
+          <div class="empty-state"><lucide-icon name="layers" [size]="20" /><span>{{ 'No Morpho markets found' | t }}</span></div>
+        } @else {
+          <div class="mq-list">
+            @for (m of morphoMarketRows; track m.marketId) {
+              <div class="mq-row">
+                <div class="mq-row__head">
+                  <div class="mq-pair">
+                    @if (m.loanLogo) {
+                      <img class="mq-logo" [src]="m.loanLogo" alt="" (error)="$any($event.target).style.display='none'" />
+                    }
+                    <span class="mq-pair__txt"><b>{{ m.loanSymbol }}</b><span class="mq-slash">/</span>{{ m.collateralSymbol }}</span>
+                  </div>
+                  <span class="mq-lltv">{{ 'LLTV' | t }} {{ m.lltvPct | number:'1.0-1' }}%</span>
+                </div>
+                <div class="mq-stats">
+                  <div class="mq-stat"><span class="mq-stat__k">{{ 'Earn' | t }}</span><span class="mq-stat__v mq-up">{{ morphoPct(m.supplyApy) }}</span></div>
+                  <div class="mq-stat"><span class="mq-stat__k">{{ 'Borrow' | t }}</span><span class="mq-stat__v">{{ morphoPct(m.borrowApy) }}</span></div>
+                  <div class="mq-stat"><span class="mq-stat__k">{{ 'Liquidity' | t }}</span><span class="mq-stat__v">{{ morphoUsd(m.liquidityUsd) }}</span></div>
+                  <div class="mq-stat"><span class="mq-stat__k">{{ 'Supplied' | t }}</span><span class="mq-stat__v">{{ morphoUsd(m.supplyUsd) }}</span></div>
+                </div>
+                <div class="mq-actions">
+                  <button class="mq-btn mq-btn--lend" type="button" (click)="morphoAct('supply', m)">{{ 'Lend' | t }}</button>
+                  <button class="mq-btn mq-btn--borrow" type="button" (click)="morphoAct('borrow', m)">{{ 'Borrow' | t }}</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+
+      <!-- Morpho Blue positions (Robinhood Chain) -->
+      @if (query.type === 'morpho_positions') {
+        @if (morphoFetching() && morphoPositionRows.length === 0) {
+          <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading Morpho positions…' | t }}</span></div>
+        } @else if (morphoPositionRows.length === 0) {
+          <div class="empty-state"><lucide-icon name="piggy-bank" [size]="20" /><span>{{ 'No Morpho positions' | t }}</span></div>
+        } @else {
+          <div class="mq-list">
+            @for (p of morphoPositionRows; track p.marketId) {
+              <div class="mq-row">
+                <div class="mq-row__head">
+                  <div class="mq-pair">
+                    @if (p.loanLogo) {
+                      <img class="mq-logo" [src]="p.loanLogo" alt="" (error)="$any($event.target).style.display='none'" />
+                    }
+                    <span class="mq-pair__txt"><b>{{ p.loanSymbol }}</b><span class="mq-slash">/</span>{{ p.collateralSymbol }}</span>
+                  </div>
+                  @if (p.healthFactor != null) {
+                    <span class="mq-hf" [class.mq-hf--risk]="morphoNum(p.healthFactor) < 1.2">{{ 'HF' | t }} {{ p.healthFactor | number:'1.2-2' }}</span>
+                  }
+                </div>
+                <div class="mq-stats">
+                  @if (morphoNum(p.supplyUsd) > 0) {
+                    <div class="mq-stat"><span class="mq-stat__k">{{ 'Supplied' | t }}</span><span class="mq-stat__v mq-up">{{ morphoUsd(p.supplyUsd) }}</span></div>
+                  }
+                  @if (morphoNum(p.collateralUsd) > 0) {
+                    <div class="mq-stat"><span class="mq-stat__k">{{ 'Collateral' | t }}</span><span class="mq-stat__v">{{ morphoUsd(p.collateralUsd) }}</span></div>
+                  }
+                  @if (morphoNum(p.borrowUsd) > 0) {
+                    <div class="mq-stat"><span class="mq-stat__k">{{ 'Borrowed' | t }}</span><span class="mq-stat__v mq-down">{{ morphoUsd(p.borrowUsd) }}</span></div>
+                  }
+                </div>
+                <div class="mq-actions">
+                  @if (morphoNum(p.borrowUsd) > 0) {
+                    <button class="mq-btn mq-btn--lend" type="button" (click)="morphoActPos('repay', p)">{{ 'Repay' | t }}</button>
+                  }
+                  <button class="mq-btn mq-btn--borrow" type="button" (click)="morphoActPos('withdraw', p)">{{ 'Withdraw' | t }}</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+
       <!-- Jupiter Lend Positions results -->
       @if (query.type === 'lend_positions') {
         @if (lendEarnPositions.length === 0 && lendBorrowPositions.length === 0) {

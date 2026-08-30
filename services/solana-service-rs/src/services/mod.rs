@@ -20,6 +20,7 @@ pub mod marinade;
 pub mod memo;
 pub mod meteora;
 pub mod mint_security;
+pub mod morpho;
 pub mod native_stake;
 pub mod onchain_value;
 pub mod orca;

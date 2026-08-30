@@ -436,7 +436,7 @@
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
          || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()
-         || action.type === 'lighter_deposit') {
+         || action.type === 'lighter_deposit' || isMorphoAction()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -3733,6 +3733,202 @@
                 }
               </div>
             </div>
+          </div>
+        } @else if (isMorphoAction()) {
+          <!-- ─────── Morpho Blue lending (Robinhood Chain) — Jupiter-swap style
+               mini-app: pick a market, set an amount, confirm. One panel covers
+               lend / borrow / repay / withdraw off morphoKind(). ────────────── -->
+          @let mk = morphoKind();
+          @let mm = morphoMarket();
+          @let mtok = morphoAmountToken();
+          @let mpos = morphoUserPosition();
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                @if (mm?.loanLogo) {
+                  <img class="km-icon km-icon--img" [src]="mm!.loanLogo" alt=""
+                       (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="km-icon km-icon--fallback">{{ (mm?.loanSymbol || 'M').charAt(0) }}</span>
+                }
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">
+                  {{ (mk === 'supply' ? 'Lend' : mk === 'borrow' ? 'Borrow' : mk === 'repay' ? 'Repay' : 'Withdraw') | t }}
+                  @if (mm) { {{ mm.loanSymbol }} }
+                </span>
+                <span class="uni-lp__sub">Morpho · Robinhood Chain</span>
+              </div>
+            </div>
+
+            <!-- Market picker -->
+            <div class="morpho-market">
+              @if (mm) {
+                <button type="button" class="morpho-market__sel"
+                        [disabled]="!isEditable() || morphoMarkets().length < 2"
+                        (click)="morphoPickerOpen.set(!morphoPickerOpen())">
+                  <span class="morpho-market__pair">
+                    <span class="morpho-market__loan">{{ mm.loanSymbol }}</span>
+                    <span class="morpho-market__slash">/</span>
+                    <span class="morpho-market__coll">{{ mm.collateralSymbol }}</span>
+                  </span>
+                  <span class="morpho-market__meta">
+                    {{ 'LLTV' | t }} {{ mm.lltvPct | number:'1.0-1' }}% ·
+                    {{ (mk === 'supply' ? 'Earn' : 'Borrow') | t }} {{ morphoPct(mk === 'supply' ? mm.supplyApy : mm.borrowApy) }}
+                  </span>
+                  @if (isEditable() && morphoMarkets().length > 1) { <lucide-icon name="chevron-down" [size]="14" /> }
+                </button>
+              } @else {
+                <div class="morpho-market__loading">{{ 'Loading Morpho markets…' | t }}</div>
+              }
+              @if (morphoPickerOpen()) {
+                <div class="morpho-market__menu">
+                  <input class="morpho-market__search" type="text" [placeholder]="'Search markets' | t"
+                         [value]="morphoSearch()" (input)="morphoSearch.set($any($event.target).value)" />
+                  <div class="morpho-market__list">
+                    @for (m of morphoFilteredMarkets(); track m.marketId) {
+                      <button type="button" class="morpho-market__opt" [class.on]="mm?.marketId === m.marketId"
+                              (click)="selectMorphoMarket(m)">
+                        <span class="morpho-market__pair">
+                          <span class="morpho-market__loan">{{ m.loanSymbol }}</span> / {{ m.collateralSymbol }}
+                        </span>
+                        <span class="morpho-market__optmeta">
+                          {{ morphoPct(mk === 'supply' ? m.supplyApy : m.borrowApy) }} · {{ morphoUsd(m.liquidityUsd) }} {{ 'liq' | t }}
+                        </span>
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+
+            @if (mk === 'borrow') {
+              <!-- collateral in → borrow out -->
+              <div class="pump-swap" [class.proto-fields--shake]="shake()">
+                <div class="pump-panel">
+                  <div class="pump-panel__top">
+                    <span class="pump-panel__label">{{ 'Add collateral' | t }}</span>
+                    @if (morphoWalletBal() != null) {
+                      <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ morphoWalletBal() | number:'1.0-4' }}
+                        @if (isEditable() && morphoWalletBal()! > 0) {
+                          <button class="pump-panel__max" type="button" (click)="setMorphoMax()">{{ 'Max' | t }}</button>
+                        }
+                      </span>
+                    }
+                  </div>
+                  <div class="pump-panel__row">
+                    <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                           [value]="getEditParam('collateralAmount')" [disabled]="!isEditable()"
+                           (input)="setMorphoAmount('collateralAmount', $any($event.target).value)" />
+                    <div class="pump-token"><span class="pump-token__sym">{{ mm?.collateralSymbol || '—' }}</span></div>
+                  </div>
+                </div>
+                <div class="pump-swap__arrow" aria-hidden="true"><lucide-icon name="arrow-down" [size]="16" /></div>
+                <div class="pump-panel pump-panel--recv">
+                  <div class="pump-panel__top"><span class="pump-panel__label">{{ 'Borrow' | t }}</span></div>
+                  <div class="pump-panel__row">
+                    <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                           [value]="getEditParam('borrowAmount')" [disabled]="!isEditable()"
+                           (input)="setMorphoAmount('borrowAmount', $any($event.target).value)" />
+                    <div class="pump-token"><span class="pump-token__sym">{{ mm?.loanSymbol || 'USDG' }}</span></div>
+                  </div>
+                </div>
+              </div>
+            } @else {
+              @if (mk === 'withdraw') {
+                <div class="morpho-toggle">
+                  <button type="button" [class.on]="getEditParam('target') !== 'collateral'"
+                          [disabled]="!isEditable()" (click)="setMorphoWithdrawTarget('supply')">{{ 'Supplied' | t }}</button>
+                  <button type="button" [class.on]="getEditParam('target') === 'collateral'"
+                          [disabled]="!isEditable()" (click)="setMorphoWithdrawTarget('collateral')">{{ 'Collateral' | t }}</button>
+                </div>
+              }
+              <div class="pump-panel" [class.proto-fields--shake]="shake()">
+                <div class="pump-panel__top">
+                  <span class="pump-panel__label">
+                    {{ (mk === 'supply' ? 'You lend' : mk === 'repay' ? 'You repay' : 'You withdraw') | t }}
+                  </span>
+                  @if (mk === 'supply' && morphoWalletBal() != null) {
+                    <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ morphoWalletBal() | number:'1.0-4' }}
+                      @if (isEditable() && morphoWalletBal()! > 0) {
+                        <button class="pump-panel__max" type="button" (click)="setMorphoMax()">{{ 'Max' | t }}</button>
+                      }
+                    </span>
+                  } @else if (mk === 'repay' && mpos) {
+                    <span class="pump-panel__bal">{{ 'Debt:' | t }} {{ morphoUsd(mpos.borrowUsd) }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMorphoMax()">{{ 'All' | t }}</button>
+                      }
+                    </span>
+                  } @else if (mk === 'withdraw' && mpos) {
+                    <span class="pump-panel__bal">
+                      {{ (getEditParam('target') === 'collateral' ? 'Collateral:' : 'Supplied:') | t }}
+                      {{ morphoUsd(getEditParam('target') === 'collateral' ? mpos.collateralUsd : mpos.supplyUsd) }}
+                      @if (isEditable()) {
+                        <button class="pump-panel__max" type="button" (click)="setMorphoMax()">{{ 'Max' | t }}</button>
+                      }
+                    </span>
+                  }
+                </div>
+                <div class="pump-panel__row">
+                  @if (morphoIsMax()) {
+                    <span class="pump-panel__amount pump-panel__amount--out">
+                      {{ (mk === 'repay' ? 'Repay all' : 'Withdraw all') | t }}
+                    </span>
+                  } @else {
+                    <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                           [value]="getEditParam('amount')" [disabled]="!isEditable()"
+                           (input)="setMorphoAmount('amount', $any($event.target).value)" />
+                  }
+                  <div class="pump-token"><span class="pump-token__sym">{{ mtok?.symbol || mm?.loanSymbol || '—' }}</span></div>
+                </div>
+                @if ((mk === 'repay' || mk === 'withdraw') && morphoIsMax() && isEditable()) {
+                  <div class="pump-panel__chips">
+                    <button class="pl-buychip" type="button" (click)="setMorphoAmount('amount', '')">{{ 'Enter a partial amount' | t }}</button>
+                  </div>
+                }
+              </div>
+            }
+
+            @if (mm) {
+              <div class="perp-summary">
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">{{ 'Market' | t }}</span>
+                  <span class="perp-summary__v">{{ mm.loanSymbol }} / {{ mm.collateralSymbol }}</span>
+                </div>
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">{{ 'Max LTV (LLTV)' | t }}</span>
+                  <span class="perp-summary__v">{{ mm.lltvPct | number:'1.0-1' }}%</span>
+                </div>
+                <div class="perp-summary__row">
+                  <span class="perp-summary__k">{{ mk === 'supply' ? ('Supply APY' | t) : ('Borrow APY' | t) }}</span>
+                  <span class="perp-summary__v">{{ morphoPct(mk === 'supply' ? mm.supplyApy : mm.borrowApy) }}</span>
+                </div>
+                @if (mk === 'supply') {
+                  <div class="perp-summary__row">
+                    <span class="perp-summary__k">{{ 'Total supplied' | t }}</span>
+                    <span class="perp-summary__v">{{ morphoUsd(mm.supplyUsd) }}</span>
+                  </div>
+                } @else {
+                  <div class="perp-summary__row">
+                    <span class="perp-summary__k">{{ 'Available to borrow' | t }}</span>
+                    <span class="perp-summary__v">{{ morphoUsd(mm.liquidityUsd) }}</span>
+                  </div>
+                }
+                @if (mpos && mpos.healthFactor != null && (mk === 'repay' || mk === 'withdraw' || mk === 'borrow')) {
+                  <div class="perp-summary__row">
+                    <span class="perp-summary__k">{{ 'Health factor' | t }}</span>
+                    <span class="perp-summary__v">{{ mpos.healthFactor | number:'1.2-2' }}</span>
+                  </div>
+                }
+              </div>
+            }
+            @if (mk === 'borrow') {
+              <div class="limit-size">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'Borrow is over-collateralised — keep well under the max LTV so a price move does not liquidate you.' | t }}</span>
+              </div>
+            }
           </div>
         } @else if (action.type === 'lend') {
           <!-- ─────── Jupiter Lend (Earn): deposit a token, earn APY (swap-card look) ─────── -->
