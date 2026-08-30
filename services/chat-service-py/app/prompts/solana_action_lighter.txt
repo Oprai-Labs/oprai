@@ -57,6 +57,15 @@ Format: [ACTION:lighter_onboard]
 Format: [ACTION:lighter_deposit] [amount=<usdc>] [chain=<arbitrum|base|ethereum|avalanche>]
 - Deposit USDG collateral to Lighter (Robinhood-Chain quote asset). The card handles it.
 
+Format: [ACTION:lighter_withdraw] [amount=<usdg>]
+- WITHDRAW USDG collateral OUT of Lighter, back to the user's OWN wallet. Use for
+  "withdraw my USDG from Lighter", "take my collateral out", "cash out my Lighter
+  balance". Gas-free (agent-signed); Lighter forces the destination to the user's
+  own wallet. Omit `amount` to open the card (it shows the available balance + a
+  Max button). This is NOT `lighter_positions`: positions only LISTS holdings;
+  **withdraw MOVES the USDG out**. Any withdraw / take-out / cash-out of Lighter
+  USDG → lighter_withdraw, never lighter_positions.
+
 Reads (no action, use query_onchain):
 - `lighter_markets` — list tradable Lighter markets (symbol, mark price, funding).
 - `lighter_market` {symbol} — one market's detail.

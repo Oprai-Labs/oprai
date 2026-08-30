@@ -472,6 +472,40 @@ async def close_position(*, account_index: int, agent_private_key: str, symbol: 
             "base_amount": base_amount, "response": _jsonable(resp)}
 
 
+async def withdraw(*, account_index: int, agent_private_key: str, amount: float,
+                   api_key_index: int = AGENT_API_KEY_INDEX) -> dict:
+    """Withdraw USDG collateral from Lighter back to the account's L1 owner.
+
+    The agent key can SIGN this, but Lighter gates the destination to the
+    account's L1 owner — the funds always return to the user's own wallet and
+    can never be sent elsewhere with the agent key. Gas-free (agent-signed),
+    like a trade; no on-chain tx for the user to sign. `amount` is in USDG."""
+    if not (amount and float(amount) > 0):
+        return {"error": "withdraw amount required"}
+    signer = _signer(account_index, agent_private_key, api_key_index)
+    try:
+        # ROUTE_PERP: collateral sits in the perp margin account (where deposits
+        # land for trading). ASSET_ID_USDC is Lighter's settlement asset (USDG here).
+        _tx, resp, err = await signer.withdraw(
+            asset_id=SignerClient.ASSET_ID_USDC,
+            route_type=SignerClient.ROUTE_PERP,
+            amount=float(amount),
+            api_key_index=api_key_index,
+        )
+    except Exception as e:
+        log.warning("lighter withdraw raised: amount=%s: %r", amount, e)
+        return {"error": f"Lighter rejected the withdrawal: {e}"}
+    finally:
+        try:
+            await signer.close()
+        except Exception:  # pragma: no cover - best-effort cleanup
+            pass
+    if err:
+        log.warning("lighter withdraw rejected: amount=%s err=%s", amount, err)
+        return {"error": err}
+    return {"ok": True, "amount": float(amount), "response": _jsonable(resp)}
+
+
 async def attach_tpsl(*, account_index: int, agent_private_key: str, symbol: str,
                       position_side: str, base_amount: float,
                       take_profit: float | None = None, stop_loss: float | None = None,

@@ -187,7 +187,7 @@ function getProtocolKey(action: ParsedAction): string {
   if (t === 'cancel_dca' || t === 'cancel_limit_order' || t === 'cancel_all_limit_orders') return 'jupiter';
   if (t === 'perp_open' || t === 'perp_close' || t === 'jlp_add' || t === 'jlp_remove') return 'jupiter';
   // Lighter perps (Robinhood Chain Lighter domain) — onboarding, deposit, open/close/leverage.
-  if (t === 'lighter_onboard' || t === 'lighter_deposit' || t === 'lighter_open'
+  if (t === 'lighter_onboard' || t === 'lighter_deposit' || t === 'lighter_withdraw' || t === 'lighter_open'
       || t === 'lighter_close' || t === 'lighter_leverage') return 'lighter';
   // Morpho Blue lending (Robinhood Chain 4663 — EVM).
   if (t.startsWith('morpho_')) return 'morpho';
@@ -239,6 +239,7 @@ function getActionLabel(action: ParsedAction): string {
     jlp_add: 'Add to JLP', jlp_remove: 'Remove from JLP',
     // Lighter perps (Robinhood Chain Lighter domain, zero-fee stock/crypto perps)
     lighter_onboard: 'Enable Lighter Trading', lighter_deposit: 'Deposit to Lighter',
+    lighter_withdraw: 'Withdraw from Lighter',
     lighter_open: 'Open Perp (Lighter)', lighter_close: 'Close Perp (Lighter)',
     lighter_leverage: 'Set Leverage (Lighter)',
     // Morpho Blue lending (Robinhood Chain)
@@ -10477,6 +10478,14 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       // Trim to the token's 6 decimals so the amount can't exceed the balance
       // by a rounding hair (the transfer would then revert on-chain).
       this.setEditParam('amount', String(Math.floor(b * 1e6) / 1e6));
+    }
+  }
+
+  /** Set the withdraw amount to the full available Lighter balance (2dp floor). */
+  setLighterWithdrawMax(): void {
+    const b = this.lighterAvailableBalance();
+    if (b != null && b > 0 && this.isEditable()) {
+      this.setEditParam('amount', String(Math.floor(b * 100) / 100));
     }
   }
 

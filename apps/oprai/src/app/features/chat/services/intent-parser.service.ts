@@ -92,7 +92,7 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'lend', 'withdraw_lend', 'borrow', 'repay',
   'perp_open', 'perp_close', 'jlp_add', 'jlp_remove',
   // Lighter perps (Robinhood Chain domain — stock perps in USDG)
-  'lighter_onboard', 'lighter_deposit', 'lighter_open', 'lighter_close', 'lighter_leverage',
+  'lighter_onboard', 'lighter_deposit', 'lighter_withdraw', 'lighter_open', 'lighter_close', 'lighter_leverage',
   // pump.fun — bonding curve transactions
   'pumpfun_buy', 'pumpfun_sell', 'pumpfun_launch',
   // pump.fun — data queries
@@ -618,6 +618,8 @@ export class IntentParserService {
         return `Close ${action.params['side'] ?? ''} ${action.params['symbol'] ?? action.params['market'] ?? ''} on Lighter`;
       case 'lighter_leverage':
         return `Set ${action.params['symbol'] ?? ''} leverage to ${action.params['leverage'] ?? ''}x on Lighter`;
+      case 'lighter_withdraw':
+        return `Withdraw ${action.params['amount'] ?? ''} USDG from Lighter`;
       case 'morpho_supply':
         return `Lend ${action.params['amount'] ?? ''} ${action.params['loanSymbol'] ?? 'USDG'} on Morpho`;
       case 'morpho_borrow':
@@ -1017,6 +1019,7 @@ export class IntentParserService {
       case 'lighter_close': return 'trending-down';
       case 'lighter_onboard': return 'shield-check';
       case 'lighter_deposit': return 'wallet';
+      case 'lighter_withdraw': return 'download';
       case 'lighter_leverage': return 'settings';
       case 'morpho_supply': return 'piggy-bank';
       case 'morpho_borrow': return 'hand-coins';

@@ -1021,6 +1021,11 @@ class LighterLeverageIn(BaseModel):
     leverage: int = Field(..., ge=1, le=100)
 
 
+class LighterWithdrawIn(BaseModel):
+    wallet: str | None = None
+    amount: float = Field(..., gt=0)               # USDG to withdraw back to the L1 owner
+
+
 class LighterDepositBuildIn(BaseModel):
     wallet: str | None = None
     amount: float | None = None
@@ -1096,6 +1101,18 @@ async def lighter_close(
     return await lighter_service.close_position(
         session, l1_address=l1, symbol=body.symbol,
         position_side=body.side, base_amount=body.baseAmount)
+
+
+@app.post("/actions/lighter/withdraw")
+async def lighter_withdraw(
+    body: LighterWithdrawIn,
+    wallet: str = Depends(require_auth),
+    x_user_account: str | None = Header(None, alias="X-User-Account"),
+    session: AsyncSession = Depends(get_session),
+):
+    account_id = await _resolve_account_id(session, wallet, x_user_account)
+    l1 = await _lighter_l1(session, wallet, account_id, body.wallet)
+    return await lighter_service.withdraw_collateral(session, l1_address=l1, amount=body.amount)
 
 
 @app.post("/actions/lighter/leverage")

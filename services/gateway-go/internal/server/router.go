@@ -299,6 +299,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/lighter/open", chatProxy.LighterProxy)
 		r.Post("/lighter/close", chatProxy.LighterProxy)
 		r.Post("/lighter/leverage", chatProxy.LighterProxy)
+		r.Post("/lighter/withdraw", chatProxy.LighterProxy)
 	})
 	r.Route("/protocols", func(r chi.Router) {
 		r.Use(defaultTimeout)

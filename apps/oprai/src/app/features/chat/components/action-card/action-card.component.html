@@ -436,7 +436,7 @@
     @if (actionFields.length > 0 || isMeNftPanel() || isMeAmountPanel() || isRelayBridge()
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
          || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()
-         || action.type === 'lighter_deposit' || isMorphoAction() || isSushiAction()
+         || action.type === 'lighter_deposit' || action.type === 'lighter_withdraw' || isMorphoAction() || isSushiAction()
          || isOpenseaBuy() || isOpenseaAccept() || isOpenseaOrder()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
@@ -3290,6 +3290,37 @@
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />
               <span>{{ 'Sends USDG to your Lighter deposit address on-chain — you sign once with your own wallet. Trading itself is then gas-free.' | t }}</span>
+            </div>
+          </div>
+        } @else if (action.type === 'lighter_withdraw') {
+          <!-- ─────── Lighter USDG withdraw — collateral back to the user's own
+               wallet (owner-gated, agent-signed, gas-free; no on-chain tx). ── -->
+          <div class="perp" [class.proto-fields--shake]="shake()">
+            <div class="pump-panel">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'Withdraw' | t }}</span>
+                @if (lighterAvailableBalance() != null) {
+                  <span class="pump-panel__bal">{{ 'Available:' | t }} {{ lighterAvailableBalance() | number:'1.0-2' }} USDG
+                    @if (isEditable() && lighterAvailableBalance()! > 0) {
+                      <button class="pump-panel__max" type="button" (click)="setLighterWithdrawMax()">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="(+getEditParam('amount') > 0) ? getEditParam('amount') : ''"
+                       (input)="setEditParam('amount', $any($event.target).value)"
+                       [disabled]="!isEditable()" />
+                <span class="pump-token">
+                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" />
+                  <span class="pump-token__sym">USDG</span>
+                </span>
+              </div>
+            </div>
+            <div class="limit-size">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ 'Withdraws USDG from Lighter back to your own wallet — gas-free, no signature. Funds can only go to your address.' | t }}</span>
             </div>
           </div>
         } @else if (action.type === 'lighter_open') {

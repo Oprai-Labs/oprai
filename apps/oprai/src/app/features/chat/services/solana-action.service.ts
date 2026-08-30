@@ -1552,7 +1552,8 @@ export class SolanaActionService {
     if (action.type === 'lighter_deposit') {
       return this.executeLighterDeposit(action, callbacks);
     }
-    if (action.type === 'lighter_open' || action.type === 'lighter_close' || action.type === 'lighter_leverage') {
+    if (action.type === 'lighter_open' || action.type === 'lighter_close' || action.type === 'lighter_leverage'
+        || action.type === 'lighter_withdraw') {
       return this.executeLighterPerp(action, callbacks);
     }
     // Morpho Blue lending — EVM (Robinhood Chain 4663). Backend returns unsigned
@@ -2906,6 +2907,11 @@ export class SolanaActionService {
         side: String(p['side'] ?? 'long').toLowerCase(),
         baseAmount: Number(p['baseAmount'] ?? p['amount'] ?? 0),
       };
+    } else if (action.type === 'lighter_withdraw') {
+      // Withdraw USDG collateral back to the user's own wallet (owner-gated,
+      // agent-signed, gas-free — no on-chain tx to sign).
+      path = '/actions/lighter/withdraw';
+      body = { wallet: account, amount: Number(p['amount'] ?? 0) };
     } else {
       path = '/actions/lighter/leverage';
       body = { wallet: account, symbol, leverage: Number(p['leverage'] ?? 1) };

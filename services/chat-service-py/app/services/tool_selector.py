@@ -48,6 +48,7 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "lighter_leverage":         _A({"perp", "lighter"}),
     "lighter_onboard":          _A({"perp", "lighter"}),
     "lighter_deposit":          _A({"perp", "lighter"}),
+    "lighter_withdraw":         _A({"perp", "lighter", "portfolio"}),
     "jupsol_stake":             _A({"staking", "jupiter"}),
     "jupsol_unstake":           _A({"staking", "jupiter"}),
     # Jupiter data-query action types

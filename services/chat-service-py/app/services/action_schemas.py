@@ -79,6 +79,7 @@ class ActionType(str, Enum):
     # Lighter perps (Robinhood Chain domain) — zero-fee CLOB perps on EVM
     LIGHTER_ONBOARD = "lighter_onboard"
     LIGHTER_DEPOSIT = "lighter_deposit"
+    LIGHTER_WITHDRAW = "lighter_withdraw"
     LIGHTER_OPEN = "lighter_open"
     LIGHTER_CLOSE = "lighter_close"
     LIGHTER_LEVERAGE = "lighter_leverage"
@@ -865,7 +866,7 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "perp_open", "perp_close", "jlp_add", "jlp_remove",
     # Lighter perps (deposit collateral / open / close move funds; onboard +
     # leverage-change do not, so they are deliberately excluded here)
-    "lighter_deposit", "lighter_open", "lighter_close",
+    "lighter_deposit", "lighter_withdraw", "lighter_open", "lighter_close",
     # Protocol-specific lending/borrowing (direct fund movement)
     "kamino_deposit", "kamino_withdraw", "kamino_borrow", "kamino_repay",
     "kamino_multiply_open", "kamino_multiply_add", "kamino_multiply_withdraw", "kamino_multiply_close",

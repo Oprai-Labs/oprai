@@ -199,6 +199,21 @@ async def set_leverage(
     )
 
 
+async def withdraw_collateral(
+    session: AsyncSession, *, l1_address: str, amount: float,
+) -> dict:
+    """Withdraw USDG collateral from Lighter back to the user's own wallet
+    (the L1 owner — Lighter gates the destination). Agent-signed, gas-free."""
+    row, err = await _active_agent(session, l1_address)
+    if err:
+        return {"error": err}
+    agent_priv = _decrypt(row.agent_private_key_enc)
+    return await lighter_client.withdraw(
+        account_index=row.lighter_account_index, agent_private_key=agent_priv,
+        amount=amount, api_key_index=row.api_key_index,
+    )
+
+
 # ── deposit (collateral) ─────────────────────────────────────────────────────
 # Lighter's L1 deposit chain (BridgeApi.deposit_networks → the only entry) is
 # Robinhood Mainnet, chain 4663 — the SAME chain USDG lives on, so a deposit is
