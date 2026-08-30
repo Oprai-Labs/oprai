@@ -68,9 +68,19 @@ export class LighterPerpService {
    */
   async resolveEvmAddress(): Promise<string> {
     try {
-      const a = await (window as any).ethereum?.request?.({ method: 'eth_accounts' });
-      if (a?.[0]) return a[0];
-    } catch { /* not connected */ }
+      const eth = (window as any).ethereum;
+      if (eth?.request) {
+        // Some injected wallets never resolve `eth_accounts` in certain states,
+        // which would hang every caller (Morpho / Lighter / OpenSea position
+        // cards sat on "Fetching data…" forever). Cap it and fall through to the
+        // linked address so a stalled provider can't wedge the card.
+        const a = await Promise.race([
+          eth.request({ method: 'eth_accounts' }),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error('eth_accounts timeout')), 2500)),
+        ]);
+        if (a?.[0]) return a[0];
+      }
+    } catch { /* not connected / timed out — fall back to the linked address */ }
     try {
       const me = await firstValueFrom(this.account.getMe());
       return (me.identities || []).find((i) => i.type === 'evm_wallet')?.identifier || '';

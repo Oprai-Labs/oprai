@@ -33,6 +33,13 @@ Format: [ACTION:morpho_withdraw] [amount=<asset>] [target=<supply|collateral>] [
   collateral (target=collateral). max=true withdraws everything.
 - "withdraw my supply / my earnings" → target=supply.
 - "withdraw my collateral", "take my collateral back" → target=collateral.
+- **CLOSING / EXITING a position is a withdraw, not a read.** "close my position",
+  "close my supply", "exit morpho", "take everything out", "kapat" on a
+  supply-only position → `morpho_withdraw` with max=true (target=supply — this is
+  the ACTION that returns a signable card; do NOT emit `morpho_positions`, which
+  only LISTS holdings and cannot close anything). If the position also has debt,
+  it must be repaid first (`morpho_repay` max=true), then the collateral
+  withdrawn (`morpho_withdraw` target=collateral max=true).
 
 Examples:
 - "Lend 100 USDG on Morpho"
@@ -43,6 +50,8 @@ Examples:
   -> execute_action("morpho_repay", {"max": "true"})
 - "Withdraw my USDe collateral from Morpho"
   -> execute_action("morpho_withdraw", {"target": "collateral", "max": "true"})
+- "Close my Morpho position" / "close the remaining position" (supply only)
+  -> execute_action("morpho_withdraw", {"target": "supply", "max": "true"})
 
 Reads (use query_onchain — these render as cards, do NOT also narrate them in prose):
 - `morpho_markets` — list Morpho lending markets on Robinhood Chain (pair, LLTV,
