@@ -9991,9 +9991,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // stuck on "Enter an amount" at 0%. Once the live position is known, default
     // to closing ALL of it (100%) — the common intent; the user can drag down
     // to a portion. Only seed when the model gave nothing valid.
-    if (this.action?.type === 'lighter_close' && this.isEditable()) {
-      const cur = Number(this.getEditParam('baseAmount') || this.getEditParam('amount'));
-      if (!(cur > 0) && this.lighterCloseFullBase() > 0) this.setLighterCloseMax();
+    if (this.action?.type === 'lighter_close' && this.isEditable() && this.lighterCloseFullBase() > 0) {
+      const rawAmt = (this.getEditParam('baseAmount') || this.getEditParam('amount') || '').trim();
+      const cur = Number(rawAmt);
+      // A percentage intent ("close half" → closePct=50, or amount="50%") sizes
+      // against the live position; a bare number is an explicit base size; only
+      // when nothing usable was given do we default to closing all.
+      const pctParam = parseFloat(this.getEditParam('closePct') || this.getEditParam('percent') || '');
+      const pctFromAmt = rawAmt.endsWith('%') ? parseFloat(rawAmt) : NaN;
+      const pct = Number.isFinite(pctParam) ? pctParam : pctFromAmt;
+      if (Number.isFinite(pct) && pct > 0 && pct <= 100) this.setLighterClosePct(pct);
+      else if (!(cur > 0)) this.setLighterCloseMax();
     }
   }
 

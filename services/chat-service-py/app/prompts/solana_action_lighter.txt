@@ -69,7 +69,11 @@ generic `positions` query (that one is Solana staking, not Lighter).
 
 To CLOSE a position ("close my BTC position", "close the rest", "close half"),
 emit `lighter_close` DIRECTLY — do NOT emit `lighter_positions` first. The close
-card resolves the open size itself (it defaults to closing 100% and has a slider
-+ %/Max controls for a partial close), so you never need to look up the size to
-close. Pass the symbol (and side if the user named one); leave the amount to the
-card unless the user gave an explicit size.
+card resolves the open size itself against the live position, so you never need to
+look up the size. Pass the symbol (and side if the user named one), plus:
+- A PARTIAL close by proportion → `closePct` (a number 1–100). "close half" →
+  closePct=50, "close a quarter" / "close 25%" → 25, "close a third" → 33.
+- A full close, "close the rest", or no proportion given → omit closePct (the
+  card closes 100%).
+- Only pass an explicit `baseAmount` when the user names an exact token size
+  ("close 0.001 BTC"). Never guess a base size — use closePct for proportions.
