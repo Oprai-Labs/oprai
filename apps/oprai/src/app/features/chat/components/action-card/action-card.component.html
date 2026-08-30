@@ -3569,7 +3569,25 @@
           <!-- ─────── Lighter perp close — you close what's open, so market and
                side are FIXED (read-only); the only choice is how much. ─────── -->
           @if (lighterCloseReceipt(); as r) {
-            <!-- Completed close → realized-PnL receipt card. -->
+            @if (+(r.closedPct || '100') < 100) {
+              <!-- Partial close → the position is still open, so this is a light
+                   "reduced" confirmation, NOT a final PnL receipt. -->
+              <div class="perp">
+                <div class="lighter-pnl">
+                  <div class="lighter-pnl__head">
+                    @if (perpMarketLogo(r.symbol || ''); as logo) {
+                      <img [src]="logo" [alt]="r.symbol" width="22" height="22" style="border-radius:50%;flex-shrink:0" />
+                    }
+                    <span class="lighter-pnl__title">{{ r.symbol }}-PERP {{ r.side }} · {{ 'Reduced' | t }} {{ r.closedPct }}%</span>
+                  </div>
+                  <div class="lighter-pnl__rows">
+                    <div class="lighter-pnl__row"><span>{{ 'Closed' | t }}</span><span class="mono">{{ r.closedBase }} {{ r.symbol }}</span></div>
+                    <div class="lighter-pnl__row"><span>{{ 'Status' | t }}</span><span>{{ 'Position still open — PnL is realised when you close it fully' | t }}</span></div>
+                  </div>
+                </div>
+              </div>
+            } @else {
+            <!-- Full close → realized-PnL receipt card. -->
             <div class="perp">
               <div class="lighter-pnl" [class.lighter-pnl--up]="+(r.realizedPnl || '0') >= 0" [class.lighter-pnl--down]="+(r.realizedPnl || '0') < 0">
                 <div class="lighter-pnl__head">
@@ -3592,6 +3610,7 @@
                 </div>
               </div>
             </div>
+            }
           } @else {
           <div class="perp" [class.proto-fields--shake]="shake()">
 
