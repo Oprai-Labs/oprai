@@ -288,6 +288,22 @@ class ValidatorVerdict:
         return (not self.ok) and self.severity == "block"
 
 
+def _unavailable_verdict(tool_name: str) -> ValidatorVerdict:
+    """The validator was REACHABLE but returned nothing usable (blank / non-JSON /
+    wrong shape). For a value-moving action (execute_action) that is suspicious —
+    a working validator returns a verdict — so fail CLOSED. Reads (query_onchain)
+    and everything else still fail open. A full outage / missing key is handled
+    separately and stays fail-open (availability; the schema + address + WYSIWYS
+    checks and the user's own signature remain the primary defences)."""
+    if tool_name == "execute_action":
+        return ValidatorVerdict(
+            False,
+            reason="the safety check could not be completed for this action",
+            severity="block",
+        )
+    return ValidatorVerdict(True)
+
+
 async def validate_tool_call(
     user_message: str,
     tool_name: str,
@@ -377,14 +393,14 @@ async def validate_tool_call(
 
     raw = (resp.choices[0].message.content or "").strip()
     if not raw:
-        return ValidatorVerdict(True)
+        return _unavailable_verdict(tool_name)
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
         logger.debug("output_validator returned non-JSON: %r", raw[:200])
-        return ValidatorVerdict(True)
+        return _unavailable_verdict(tool_name)
     if not isinstance(verdict, dict):
-        return ValidatorVerdict(True)
+        return _unavailable_verdict(tool_name)
 
     ok = bool(verdict.get("ok", True))
     reason = str(verdict.get("reason", "") or "")
