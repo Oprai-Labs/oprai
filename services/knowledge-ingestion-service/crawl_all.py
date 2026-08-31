@@ -363,9 +363,13 @@ SOURCES: list[Source] = [
             "https://station.jup.ag/guides/limit-order/overview",
         ]}),
 
-    Source("raydium_docs", "protocols", "sitemap",
+    Source("raydium_docs", "protocols", "direct_urls",
         "https://docs.raydium.io", "raydium", "protocol_documentation", "proprietary-fair-use",
-        max_pages=300, crawl_delay=1.5, tags=["raydium","amm","clmm","defi"]),
+        max_pages=5, crawl_delay=1.0, crawl_freq="weekly",
+        tags=["raydium","amm","clmm","cpmm","pool","liquidity","swap","farm","defi"],
+        # the sitemap crawl pulled multilingual (Spanish) pages that don't retrieve
+        # for English queries; the English llms-full.txt is the complete product docs.
+        extra={"skip_classify": True, "urls": ["https://docs.raydium.io/llms-full.txt"]}),
 
     Source("raydium_litepaper", "protocols", "direct_urls",
         "https://docs.raydium.io", "raydium", "protocol_documentation", "proprietary-fair-use",
@@ -436,7 +440,7 @@ SOURCES: list[Source] = [
     # ── Other Protocols ──────────────────────────────────────────────────────
     Source("pumpfun_docs", "protocols", "sitemap",
         "https://pump-fun.gitbook.io/pump-fun-docs", "pumpfun", "protocol_documentation", "proprietary-fair-use",
-        max_pages=100, crawl_delay=2.0, tags=["pumpfun","token-launch","meme"],
+        max_pages=100, crawl_delay=2.0, tags=["pumpfun","token-launch","meme","bonding-curve","graduation"],
         extra={"sitemap_url": "https://pump-fun.gitbook.io/pump-fun-docs/sitemap.xml"}),
 
     Source("streamflow_docs", "protocols", "sitemap",
