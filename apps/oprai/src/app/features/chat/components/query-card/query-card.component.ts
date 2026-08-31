@@ -3602,6 +3602,20 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     return `https://dd.dexscreener.com/ds-data/tokens/${chain}/${addr.toLowerCase()}.png`;
   }
 
+  // Robinhood Chain (4663) tokens are on no logo CDN, so resolve the curated set
+  // to bundled/known-good icons; other addresses fall back to DexScreener.
+  private static readonly RH_POOL_LOGO: Record<string, string> = {
+    '0x5fc5360d0400a0fd4f2af552add042d716f1d168': 'assets/tokens/usdg.png', // USDG
+    '0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34': // USDe
+      'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/assets/0x4c9EDD5852cd905f086C759E8383e09bff1E68B3/logo.png',
+    '0x0bd7d308f8e1639fab988df18a8011f41eacad73': // WETH
+      'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png',
+  };
+  sushiPoolLogo(addr: string): string {
+    const a = (addr || '').toLowerCase();
+    return QueryCardComponent.RH_POOL_LOGO[a] || (a ? `https://dd.dexscreener.com/ds-data/tokens/robinhood/${a}.png` : '');
+  }
+
   // ── pools.trade launchpad feed (Robinhood) ─────────────────────────────
   uniswapLaunchesResults: UniswapLaunch[] = [];
   uniswapLaunchpads: LaunchpadOpt[] = [];   // filter chips from the feed

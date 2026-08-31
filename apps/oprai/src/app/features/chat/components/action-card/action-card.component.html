@@ -4068,8 +4068,15 @@
                aggregator). Tokens come as addresses from the LLM/pool card. ── -->
           <div class="uni-lp">
             <div class="uni-lp__head">
-              <span class="km-icon-slot uni-lp__logo">
-                <span class="km-icon km-icon--fallback">{{ sushiInSym().charAt(0) }}</span>
+              <span class="km-icon-slot uni-lp__logo uni-lp__logo--pair">
+                @if (sushiInLogo()) {
+                  <img [src]="sushiInLogo()" class="uni-lp__logo-img uni-lp__logo-img--a" alt="" (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="km-icon km-icon--fallback">{{ sushiInSym().charAt(0) }}</span>
+                }
+                @if (sushiOutLogo()) {
+                  <img [src]="sushiOutLogo()" class="uni-lp__logo-img uni-lp__logo-img--b" alt="" (error)="$any($event.target).style.display='none'" />
+                }
               </span>
               <div class="uni-lp__headtext">
                 <span class="uni-lp__pair">{{ 'Swap' | t }} {{ sushiInSym() }} → {{ sushiOutSym() }}</span>

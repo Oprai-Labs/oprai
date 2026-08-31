@@ -3329,34 +3329,58 @@
 
       <!-- SushiSwap V3 pools (Robinhood Chain) -->
       @if (query.type === 'sushi_pools') {
-        @if (sushiFetching() && sushiPoolRows.length === 0) {
-          <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading Sushi pools…' | t }}</span></div>
-        } @else if (sushiPoolRows.length === 0) {
-          <div class="empty-state"><lucide-icon name="droplets" [size]="20" /><span>{{ 'No Sushi pools found' | t }}</span></div>
-        } @else {
-          <div class="mq-list">
-            @for (p of sushiPoolRows; track p.poolAddress) {
-              <div class="mq-row">
-                <div class="mq-row__head">
-                  <div class="mq-pair">
-                    <span class="mq-pair__txt"><b>{{ p.token0Symbol || '?' }}</b><span class="mq-slash">/</span>{{ p.token1Symbol || '?' }}</span>
-                  </div>
-                  @if (p.feePct != null) { <span class="mq-lltv">{{ p.feePct }}%</span> }
-                </div>
-                <div class="mq-stats">
-                  <div class="mq-stat"><span class="mq-stat__k">{{ 'TVL' | t }}</span><span class="mq-stat__v">{{ sushiUsd(p.tvlUsd) }}</span></div>
-                  <div class="mq-stat"><span class="mq-stat__k">{{ '24h Vol' | t }}</span><span class="mq-stat__v">{{ sushiUsd(p.volume24hUsd) }}</span></div>
-                  @if (p.aprEst != null) {
-                    <div class="mq-stat"><span class="mq-stat__k">{{ 'Est. APR' | t }}</span><span class="mq-stat__v mq-up">{{ p.aprEst | number:'1.0-1' }}%</span></div>
-                  }
-                </div>
-                <div class="mq-actions">
-                  <button class="mq-btn mq-btn--lend" type="button" (click)="sushiAddLiq(p)">{{ 'Add liquidity' | t }}</button>
-                </div>
-              </div>
-            }
+        <div class="result-table">
+          <div class="result-table__header result-table__header--4col">
+            <span>{{ 'Pool' | t }}</span>
+            <span class="text-right">{{ 'TVL' | t }}</span>
+            <span class="text-right">{{ '24h Vol' | t }}</span>
+            <span></span>
           </div>
-        }
+
+          @if (sushiFetching() && sushiPoolRows.length === 0) {
+            <div class="dlmm-empty">{{ 'Loading Sushi pools…' | t }}</div>
+          }
+
+          @for (p of sushiPoolRows; track p.poolAddress) {
+            <div class="result-table__row result-table__row--4col dlmm-row">
+              <span class="km-pair">
+                <span class="km-icons">
+                  <span class="km-icon-slot">
+                    <span class="km-icon km-icon--fallback">{{ (p.token0Symbol || '?').charAt(0) }}</span>
+                    @if (sushiPoolLogo(p.token0Address); as l0) {
+                      <img class="km-icon km-icon--img" [src]="l0" [alt]="p.token0Symbol"
+                           loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="km-icon-slot km-icon-slot--debt">
+                    <span class="km-icon km-icon--fallback">{{ (p.token1Symbol || '?').charAt(0) }}</span>
+                    @if (sushiPoolLogo(p.token1Address); as l1) {
+                      <img class="km-icon km-icon--img" [src]="l1" [alt]="p.token1Symbol"
+                           loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                </span>
+                <span class="km-pair__text">
+                  <span class="km-pair__name">{{ p.token0Symbol }}/{{ p.token1Symbol }}</span>
+                  <span class="km-pair__sub">
+                    @if (p.feePct != null) { <span class="uni-ver-badge">{{ p.feePct }}%</span> }
+                    @if (p.aprEst != null) { <span class="km-pair__apr">{{ p.aprEst | number:'1.0-1' }}% APR</span> · }
+                    Robinhood
+                  </span>
+                </span>
+              </span>
+              <span class="text-right mono">{{ sushiUsd(p.tvlUsd) }}</span>
+              <span class="text-right mono">{{ sushiUsd(p.volume24hUsd) }}</span>
+              <span class="text-right">
+                <button class="km-deposit-btn" type="button" (click)="sushiAddLiq(p)">{{ 'Deposit' | t }}</button>
+              </span>
+            </div>
+          }
+
+          @if (!sushiFetching() && !error() && sushiPoolRows.length === 0) {
+            <div class="dlmm-empty">{{ 'No Sushi pools found' | t }}</div>
+          }
+        </div>
       }
 
       <!-- OpenSea NFTs (Robinhood Chain) — collections/trending grid → drill to listings -->

@@ -6942,6 +6942,11 @@
 .uni-lp__head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
 .uni-lp__logo { width: 34px; height: 34px; border-radius: 50%; overflow: hidden; flex: none; display: grid; place-items: center; background: var(--op-bg-surface-2, rgba(125,125,150,.12)); }
 .uni-lp__logo img { width: 34px; height: 34px; object-fit: cover; border-radius: 50%; }
+/* Overlapping pair icons (pay + receive) in the swap card header. */
+.uni-lp__logo--pair { position: relative; width: 46px; height: 34px; overflow: visible; background: none; }
+.uni-lp__logo-img { position: absolute; top: 0; width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: var(--op-bg-surface-1); border: 2px solid var(--op-bg-surface-1); }
+.uni-lp__logo-img--a { left: 0; z-index: 1; }
+.uni-lp__logo-img--b { left: 16px; z-index: 0; }
 .uni-lp__headtext { display: flex; flex-direction: column; min-width: 0; }
 .uni-lp__pair { font-weight: 700; font-size: .95rem; color: var(--op-text-primary); }
 .uni-lp__sub { font-size: .72rem; color: var(--op-text-secondary); }

@@ -1081,6 +1081,12 @@
   vertical-align: middle;
 }
 
+// Estimated APR chip on the Sushi pool sub-line (green, like the wallet up-tint).
+.km-pair__apr {
+  color: var(--op-success, #22c55e);
+  font-weight: 700;
+}
+
 .uni-launch-age {
   color: var(--op-text-tertiary, var(--op-text-secondary));
   font-size: 0.6875rem;
