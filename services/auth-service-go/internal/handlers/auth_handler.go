@@ -220,6 +220,14 @@ func (h *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		message = req.Message
+	} else if h.cfg.AppDomain != "" {
+		// With a domain configured, the domain-bound message is mandatory — the
+		// bare-nonce fallback is only for domain-less local dev, so a caller can't
+		// opt out of the domain check by omitting the message.
+		slog.Warn("Login verification failed: sign-in message required", "wallet", req.WalletAddress, "ip", ip)
+		h.logFailedLogin(r, req.WalletAddress, "", "Sign-in message required")
+		writeError(w, http.StatusBadRequest, "Sign-in message is required")
+		return
 	} else {
 		message = fmt.Sprintf("OPRAI login: %s", nonce)
 	}

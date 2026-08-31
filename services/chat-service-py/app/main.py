@@ -4784,7 +4784,7 @@ async def me_magic_ticket_burns(
 
 @app.get("/api/v1/memories")
 async def get_memories(
-    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+    x_user_wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
 ):
     """Return this wallet's durable memory facts (confidence >= 0.4, newest first, max 12)."""
@@ -4814,7 +4814,7 @@ async def get_memories(
 @app.delete("/api/v1/memories/{fact_type}")
 async def delete_memory(
     fact_type: str,
-    x_user_wallet: str = Header(..., alias="X-User-Wallet"),
+    x_user_wallet: str = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
 ):
     """Delete a specific memory fact for this wallet."""

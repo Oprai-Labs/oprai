@@ -235,11 +235,11 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	})
 
 	// Settings → Usage card: daily message/token counters + reset time.
-	r.With(defaultTimeout).Get("/usage", chatProxy.Usage)
+	r.With(defaultTimeout, middleware.RequireWallet).Get("/usage", chatProxy.Usage)
 
 	// Settings → Privacy: delete long-term memories. Proxied to chat-service,
 	// which forwards onto memory-service after wallet-scope authorisation.
-	r.With(defaultTimeout).Delete("/user/memories", chatProxy.DeleteUserMemories)
+	r.With(defaultTimeout, middleware.RequireWallet).Delete("/user/memories", chatProxy.DeleteUserMemories)
 
 	// Solana proxy — wallet auth required for all transaction-building routes
 	solanaProxy := handlers.NewSolanaProxy(cfg.SolanaServiceHTTP, cfg.InternalAPIKey)
@@ -334,6 +334,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	memoryProxy := handlers.NewMemoryProxy(cfg.MemoryServiceHTTP, cfg.InternalAPIKey)
 	r.Route("/memory", func(r chi.Router) {
 		r.Use(defaultTimeout)
+		r.Use(middleware.RequireWallet)
 		r.Get("/", memoryProxy.GetMemories)
 		r.Post("/", memoryProxy.StoreMemory)
 		r.Delete("/", memoryProxy.ClearMemories)
@@ -342,10 +343,11 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 	})
 	r.Route("/consent", func(r chi.Router) {
 		r.Use(defaultTimeout)
+		r.Use(middleware.RequireWallet)
 		r.Get("/", memoryProxy.GetConsent)
 		r.Put("/", memoryProxy.UpdateConsent)
 	})
-	r.With(defaultTimeout).Post("/summarize", memoryProxy.Summarize)
+	r.With(defaultTimeout, middleware.RequireWallet).Post("/summarize", memoryProxy.Summarize)
 
 	// Market data proxy — external APIs (Jupiter, DexScreener, Birdeye).
 	// RequireWallet prevents unauthenticated callers from exhausting paid API quotas
