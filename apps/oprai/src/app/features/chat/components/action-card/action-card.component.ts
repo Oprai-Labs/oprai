@@ -6230,10 +6230,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type?.startsWith('morpho_')) {
       if (!this.getEditParam('marketId').trim()) return 'Pick a market';
       const kind = this.morphoKind();
+      const bal = this.morphoWalletBal();
+      const balSym = this.morphoBalanceToken()?.symbol ?? '';
       if (kind === 'supply') {
-        if (!(Number(this.getEditParam('amount')) > 0)) return 'Enter an amount';
+        const amt = Number(this.getEditParam('amount'));
+        if (!(amt > 0)) return 'Enter an amount';
+        if (bal != null && amt > bal) return `Insufficient ${balSym} balance`;
       } else if (kind === 'borrow') {
-        if (!(Number(this.getEditParam('collateralAmount')) > 0)) return 'Add collateral';
+        const coll = Number(this.getEditParam('collateralAmount'));
+        if (!(coll > 0)) return 'Add collateral';
+        // The collateral must actually be in the wallet to post — otherwise the
+        // supplyCollateral leg reverts (transferFrom) and the wallet shows a
+        // failed-tx / no-fee estimate. Guide to a fundable amount instead.
+        if (bal != null && coll > bal) {
+          return bal > 0 ? `Only ${bal} ${balSym} available` : `You have no ${balSym} to post`;
+        }
         if (!(Number(this.getEditParam('borrowAmount')) > 0)) return 'Enter a borrow amount';
       } else if (kind === 'repay' || kind === 'withdraw') {
         if (this.getEditParam('max') !== 'true' && !(Number(this.getEditParam('amount')) > 0)) {
@@ -10142,6 +10153,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     }
     return { symbol: m.loanSymbol, address: m.loanAddress, decimals: m.loanDecimals, logo: m.loanLogo };
   }
+  /** The token whose WALLET balance the card's balance line + Max apply to. This
+   *  is NOT always the amount token: a borrow's amount is the loan asset, but the
+   *  balance-constrained input is the COLLATERAL the user must actually hold and
+   *  post. Getting this wrong showed the loan balance next to the collateral
+   *  field and let a borrow submit against collateral the wallet didn't have. */
+  morphoBalanceToken(): { symbol: string; address: string; decimals: number; logo?: string | null } | null {
+    const m = this.morphoMarket();
+    if (!m) return null;
+    if (this.morphoKind() === 'borrow') {
+      return { symbol: m.collateralSymbol, address: m.collateralAddress, decimals: m.collateralDecimals, logo: m.collateralLogo };
+    }
+    return this.morphoAmountToken();
+  }
   /** True once the current action is at "repay all" / "withdraw all". */
   morphoIsMax(): boolean { return this.getEditParam('max') === 'true'; }
 
@@ -10400,7 +10424,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } catch { /* positions optional — the card still works for sizing */ }
   }
   private async refreshMorphoBalance(): Promise<void> {
-    const tok = this.morphoAmountToken();
+    const tok = this.morphoBalanceToken();
     if (!tok?.address) { this.morphoWalletBal.set(null); return; }
     const addr = await this.resolveEvmAddress();
     if (!addr) return;
