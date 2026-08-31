@@ -2220,6 +2220,26 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   /** True when the range exceeds what one position can hold. */
   readonly meteoraBinsOverflow = computed(() => this.meteoraTotalBins() > this.METEORA_MAX_BINS);
 
+  /** One-time: seed the DLMM bin range from a chat-supplied price range so
+   *  "open a position, range $1–$2" opens with that band, not the default spread.
+   *  Needs the active bin + current price (embedded when the card is spawned from
+   *  the pools list); a no-op otherwise. */
+  private seedMeteoraRangeFromPrice(): void {
+    const t = this.action?.type ?? '';
+    if (!(t === 'meteora_open_position' || t === 'meteora_add_to_position' || t === 'meteora_add_liquidity')) return;
+    const p = this.editParams();
+    if (p['minBinId'] || p['maxBinId']) return; // bins already set (e.g. restored)
+    const minP = parseFloat(p['minPrice'] ?? '');
+    const maxP = parseFloat(p['maxPrice'] ?? '');
+    if (!(minP > 0) && !(maxP > 0)) return;
+    if (this.meteoraActiveBin() === null || this.meteoraCurrentPrice() === null) return;
+    const fallback = this.meteoraRange();
+    const minBin = minP > 0 ? this.meteoraBinAtPrice(minP) : (fallback?.minBin ?? null);
+    const maxBin = maxP > 0 ? this.meteoraBinAtPrice(maxP) : (fallback?.maxBin ?? null);
+    if (minBin === null || maxBin === null) return;
+    this.writeMeteoraBins(Math.min(minBin, maxBin), Math.max(minBin, maxBin));
+  }
+
   private writeMeteoraBins(minBin: number, maxBin: number): void {
     const active = this.meteoraActiveBin();
     this.editParams.update(ep => ({
@@ -6459,6 +6479,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnInit(): void {
     if (this.action) this.initFromAction();
+    // Meteora open/add: convert a chat-supplied price range (minPrice/maxPrice)
+    // into the bin range the card renders, so a stated range pre-fills instead of
+    // opening at the default spread.
+    if (this.action?.type?.startsWith('meteora_')) this.seedMeteoraRangeFromPrice();
     // pools.trade launch: auto-fill the X profile from the account's saved X
     // (set once in Wallets) unless the user/LLM already supplied one.
     if (this.action?.type === 'pools_launch') {
@@ -8282,6 +8306,25 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (p['pool']    && !p['poolId'])  p['poolId']  = p['pool'];
     if (p['amountX'] && !p['amountA']) p['amountA'] = p['amountX'];
     if (p['amountY'] && !p['amountB']) p['amountB'] = p['amountY'];
+    // Kamino kSwap — the prompt emits inputMint/outputMint/amount/slippageBps but
+    // the card is keyed tokenIn/tokenOut/amountIn/maxSlippageBps, so the whole
+    // card (including the swap amount) opened blank. Gated by type because
+    // `amount`/`inputMint` are ubiquitous keys other cards read directly.
+    if (this.action?.type === 'kamino_kswap') {
+      if (p['inputMint']   && !p['tokenIn'])        p['tokenIn']        = p['inputMint'];
+      if (p['outputMint']  && !p['tokenOut'])       p['tokenOut']       = p['outputMint'];
+      if (p['amount']      && !p['amountIn'])       p['amountIn']       = p['amount'];
+      if (p['slippageBps'] && !p['maxSlippageBps']) p['maxSlippageBps'] = p['slippageBps'];
+    }
+    // Relay cross_chain_swap — the prompt emits from*/to* but the Relay card reads
+    // origin*/destination*, so the chain + token chips opened blank. (relay_bridge
+    // already emits the origin*/destination* keys and needs no alias.)
+    if (this.action?.type === 'cross_chain_swap') {
+      if (p['fromChain'] && !p['originChainId'])       p['originChainId']       = p['fromChain'];
+      if (p['toChain']   && !p['destinationChainId'])  p['destinationChainId']  = p['toChain'];
+      if (p['fromToken'] && !p['originCurrency'])       p['originCurrency']      = p['fromToken'];
+      if (p['toToken']   && !p['destinationCurrency'])  p['destinationCurrency'] = p['toToken'];
+    }
     // Apply known-field sensible defaults *only when the LLM (or restored
     // executedParams) didn't already set the value*. Without this, swap /
     // LP / lend cards across Raydium / Jupiter / Orca / Meteora opened
