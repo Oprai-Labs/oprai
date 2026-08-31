@@ -570,6 +570,15 @@ async def redeem_referral(
         referrer = ref[0]
         if referrer == referee:
             raise HTTPException(status_code=400, detail="cannot refer yourself")
+        # Reject self-referral across two wallets of the SAME account (OPRAI is
+        # one-account-many-wallets, so wallet inequality alone is not enough).
+        acct_rows = (await s.execute(sa_text(
+            "SELECT wallet, account_id FROM admin_schema.v_wallet_account "
+            "WHERE wallet IN (:rr, :re)"), {"rr": referrer, "re": referee})).all()
+        accts = {row[0]: row[1] for row in acct_rows}
+        rr_acct, re_acct = accts.get(referrer), accts.get(referee)
+        if rr_acct is not None and re_acct is not None and rr_acct == re_acct:
+            raise HTTPException(status_code=400, detail="cannot refer your own account")
         created = (await s.execute(sa_text(
             "INSERT INTO analytics_schema.referrals (referee_wallet, referrer_wallet, code) "
             "VALUES (:re, :rr, :c) ON CONFLICT (referee_wallet) DO NOTHING RETURNING referee_wallet"),

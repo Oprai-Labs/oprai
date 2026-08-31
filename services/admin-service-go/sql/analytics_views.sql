@@ -153,8 +153,12 @@ WITH own AS (
                      ELSE 0.20 END
            )::bigint AS referral_points
     FROM analytics_schema.referrals rf
+    JOIN admin_schema.v_wallet_account rrwa ON rrwa.wallet = rf.referrer_wallet
+    LEFT JOIN admin_schema.v_wallet_account rewa ON rewa.wallet = rf.referee_wallet
     JOIN own o ON o.wallet = rf.referee_wallet
     LEFT JOIN referrer_tier rt ON rt.wallet = rf.referrer_wallet
+    -- Self-referral guard: no referral points across wallets of the same account.
+    WHERE rewa.account_id IS DISTINCT FROM rrwa.account_id
     GROUP BY rf.referrer_wallet, rt.tier
 )
 SELECT
@@ -190,8 +194,13 @@ WITH own AS (
                    WHEN 4 THEN 0.30 WHEN 5 THEN 0.33 WHEN 6 THEN 0.35
                    ELSE 0.20 END) AS referral_cb
     FROM analytics_schema.referrals rf
+    JOIN admin_schema.v_wallet_account rrwa ON rrwa.wallet = rf.referrer_wallet
+    LEFT JOIN admin_schema.v_wallet_account rewa ON rewa.wallet = rf.referee_wallet
     JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
     LEFT JOIN referrer_tier rt ON rt.wallet = rf.referrer_wallet
+    -- Self-referral guard (see v_account_cashback): no referral cashback across
+    -- wallets of the same account.
+    WHERE rewa.account_id IS DISTINCT FROM rrwa.account_id
     GROUP BY rf.referrer_wallet, rt.tier
 ), claimed AS (
     SELECT wallet, COALESCE(sum(amount_usd), 0) AS claimed
@@ -285,8 +294,13 @@ WITH own AS (
                    ELSE 0.20 END) AS referral_cb
     FROM analytics_schema.referrals rf
     JOIN admin_schema.v_wallet_account rwa ON rwa.wallet = rf.referrer_wallet
+    LEFT JOIN admin_schema.v_wallet_account rewa ON rewa.wallet = rf.referee_wallet
     JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
     LEFT JOIN acct_tier at ON at.account_id = rwa.account_id
+    -- Self-referral guard: a referrer earns NOTHING on trades made by a wallet
+    -- linked to the SAME account (one person referring their own second wallet).
+    -- IS DISTINCT FROM keeps legit referrals whose referee has no account row.
+    WHERE rewa.account_id IS DISTINCT FROM rwa.account_id
     GROUP BY rwa.account_id, at.tier
 ), claimed AS (
     SELECT account_id, COALESCE(sum(amount_usd), 0) AS claimed
