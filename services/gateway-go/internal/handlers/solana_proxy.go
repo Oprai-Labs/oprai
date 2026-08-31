@@ -323,6 +323,13 @@ func (p *SolanaProxy) PostSushiAddLiquidity(w http.ResponseWriter, r *http.Reque
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostSushiLiquidityQuote proxies the read-only paired-amount quote that powers
+// the dual-sided add-liquidity card's auto-fill (no tx built).
+func (p *SolanaProxy) PostSushiLiquidityQuote(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/sushi/liquidity-quote"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // OpenSea (Seaport) — full marketplace on Robinhood Chain (unsigned txs / signed orders).
 func (p *SolanaProxy) PostOpenseaBuy(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/opensea/buy"

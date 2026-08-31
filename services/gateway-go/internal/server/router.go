@@ -285,6 +285,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/morpho/withdraw", solanaProxy.PostMorphoWithdraw)
 		r.Post("/sushi/swap", solanaProxy.PostSushiSwap)
 		r.Post("/sushi/add-liquidity", solanaProxy.PostSushiAddLiquidity)
+		r.Post("/sushi/liquidity-quote", solanaProxy.PostSushiLiquidityQuote)
 		r.Post("/opensea/buy", solanaProxy.PostOpenseaBuy)
 		r.Post("/opensea/accept-offer", solanaProxy.PostOpenseaAcceptOffer)
 		r.Post("/opensea/list", solanaProxy.PostOpenseaList)
