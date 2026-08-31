@@ -252,15 +252,19 @@ func (m *MarketProxy) GetEvmPortfolio(w http.ResponseWriter, r *http.Request) {
 	ethPrice := 0.0
 	if toks, ok := out["tokens"].([]evmToken); ok {
 		for _, t := range toks {
-			if t.Native && t.PriceUsd > 0 {
+			// Only borrow the price from an ETH-native holding (eth/base/arb/opt).
+			// Native tokens ALSO include POL (Polygon) and BNB (BSC); picking the
+			// first native-with-price indiscriminately set Robinhood ETH to POL's
+			// ~$0.09 when the wallet held a little native POL/BNB.
+			if t.Native && t.PriceUsd > 0 && strings.EqualFold(t.Symbol, "ETH") {
 				ethPrice = t.PriceUsd
 				break
 			}
 		}
 	}
-	// A Robinhood-only wallet holds no mainnet ETH for Alchemy to price, so
-	// there's nothing to borrow above — fetch a live ETH/USD directly, else the
-	// wallet's Robinhood ETH + WETH would show unpriced ($0).
+	// No mainnet ETH holding to borrow from (a Robinhood-only wallet, or one that
+	// only holds POL/BNB natively) — fetch a live ETH/USD directly, else the
+	// wallet's Robinhood ETH + WETH would show unpriced ($0) or mispriced.
 	if ethPrice <= 0 {
 		ethPrice = m.ethPriceUSD(r)
 	}

@@ -380,7 +380,11 @@ export class EvmHoldingsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.account.getMe().subscribe({
+    // getMe() fires as soon as the (Solana) summary renders this component, which
+    // can beat the auth cookie/JWT settling → a transient 401 → 0 EVM wallets →
+    // the Robinhood tab shows blank until a manual refresh re-mounts. Retry the
+    // identity read a couple of times so it recovers on its own.
+    this.account.getMe().pipe(retry({ count: 3, delay: 700 })).subscribe({
       next: (me) => {
         const evmWallets = (me.identities || []).filter((i) => i.type === 'evm_wallet').map((i) => i.identifier);
         this.walletCount.set(evmWallets.length);
