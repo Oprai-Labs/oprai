@@ -11,6 +11,7 @@ import { PumpFunService } from '@core/services/market/pumpfun.service';
 import { JitoService } from '@core/services/market/jito.service';
 import { PriceFeedService } from '@core/services/market/price-feed.service';
 import { createSolanaConnection } from '@core/utils/solana-connection';
+import { assertEip712SignSafety } from '@core/utils/tx-safety-evm';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
 
@@ -2688,6 +2689,7 @@ export class SolanaActionService {
         primaryType: 'PermitSingle',
         message: q.permitData.values,
       };
+      assertEip712SignSafety(typedData, account);
       signature = await withTimeout(
         ethereum.request({ method: 'eth_signTypedData_v4', params: [account, JSON.stringify(typedData)] }),
         120_000, 'permit sign') as string;
@@ -3421,6 +3423,7 @@ export class SolanaActionService {
       await this.watchEvmReceipt(ethereum, h);
     }
     // Sign the Seaport order (EIP-712, gasless).
+    assertEip712SignSafety(typedData, account);
     const signature = await withTimeout(ethereum.request({
       method: 'eth_signTypedData_v4',
       params: [account, JSON.stringify(typedData)],
@@ -3646,6 +3649,7 @@ export class SolanaActionService {
         primaryType: 'PermitBatch',
         message: pd.values,
       };
+      assertEip712SignSafety(typedData, account);
       callbacks.onSign?.();
       const signature = await withTimeout(
         ethereum.request({ method: 'eth_signTypedData_v4', params: [account, JSON.stringify(typedData)] }),
