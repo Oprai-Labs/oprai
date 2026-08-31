@@ -4287,12 +4287,18 @@
               }
               <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Removing' | t }}</span><span class="perp-summary__v">{{ sushiRemovePct() }}%</span></div>
             </div>
-            <!-- percent chips -->
-            <div class="morpho-toggle">
-              @for (pc of [25, 50, 75, 100]; track pc) {
-                <button type="button" [class.on]="sushiRemovePct() === pc"
-                        [disabled]="!isEditable()" (click)="setSushiRemovePct(pc)">{{ pc === 100 ? ('Max' | t) : pc + '%' }}</button>
-              }
+            <!-- percent slider (drag any %) + quick chips -->
+            <div class="morpho-pct">
+              <input type="range" class="morpho-pct__range" min="1" max="100" step="1"
+                     [value]="sushiRemovePct()" [disabled]="!isEditable()"
+                     [style.background]="sushiRemoveTrackFill()"
+                     (input)="setSushiRemovePct(+$any($event.target).value)" />
+              <div class="morpho-pct__chips">
+                <button type="button" [class.on]="sushiRemovePct() === 25" [disabled]="!isEditable()" (click)="setSushiRemovePct(25)">25%</button>
+                <button type="button" [class.on]="sushiRemovePct() === 50" [disabled]="!isEditable()" (click)="setSushiRemovePct(50)">50%</button>
+                <button type="button" [class.on]="sushiRemovePct() === 75" [disabled]="!isEditable()" (click)="setSushiRemovePct(75)">75%</button>
+                <button type="button" [class.on]="sushiRemovePct() === 100" [disabled]="!isEditable()" (click)="setSushiRemovePct(100)">{{ 'Max' | t }}</button>
+              </div>
             </div>
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />

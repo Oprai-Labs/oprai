@@ -10582,8 +10582,17 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isSushiAddLiq = computed(() => this.action?.type === 'sushi_add_liquidity');
   readonly isSushiRemove = computed(() => this.action?.type === 'sushi_remove_liquidity');
   /** Remove-liquidity %: default 100 (close the whole position). */
-  sushiRemovePct(): number { return Number(this.getEditParam('percent')) || 100; }
-  setSushiRemovePct(pct: number): void { if (this.isEditable()) this.setEditParam('percent', String(pct)); }
+  sushiRemovePct(): number { const v = Number(this.getEditParam('percent')); return v > 0 ? v : 100; }
+  setSushiRemovePct(pct: number): void {
+    if (this.isEditable()) this.setEditParam('percent', String(Math.max(1, Math.min(100, Math.round(pct)))));
+  }
+  /** Prominent slider track: filled portion in brand, rest muted. */
+  sushiRemoveTrackFill(): string {
+    const p = this.sushiRemovePct();
+    const brand = 'var(--op-brand, #5b5fc7)';
+    const rest = 'var(--op-border, rgba(125,125,150,.35))';
+    return `linear-gradient(90deg, ${brand} 0%, ${brand} ${p}%, ${rest} ${p}%, ${rest} 100%)`;
+  }
 
   // swap state
   readonly sushiPayBal = signal<number | null>(null);
