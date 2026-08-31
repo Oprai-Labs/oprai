@@ -672,6 +672,8 @@ class QueryType(str, Enum):
     MORPHO_POSITIONS = "morpho_positions"
     # SushiSwap V3 pool listing (Robinhood Chain). Data card.
     SUSHI_POOLS = "sushi_pools"
+    # A wallet's SushiSwap V3 LP positions (Robinhood Chain). Data card.
+    SUSHI_POSITIONS = "sushi_positions"
     # OpenSea (Robinhood Chain) — NFT reads: browse, trending, collection detail,
     # a collection's listings / NFTs / offers / activity, one NFT, wallet NFTs.
     OPENSEA_COLLECTIONS = "opensea_collections"

@@ -496,6 +496,7 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "morpho_markets": _A({"morpho", "lending", "analysis"}),
     "morpho_positions": _A({"morpho", "lending", "portfolio"}),
     "sushi_pools": _A({"sushi", "dex", "liquidity", "analysis"}),
+    "sushi_positions": _A({"sushi", "dex", "portfolio", "liquidity"}),
     "opensea_collections": _A({"opensea", "nft", "analysis"}),
     "opensea_listings": _A({"opensea", "nft", "analysis"}),
     "opensea_trending": _A({"opensea", "nft", "trending", "analysis"}),

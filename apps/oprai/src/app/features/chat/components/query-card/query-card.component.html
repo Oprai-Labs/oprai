@@ -3395,6 +3395,42 @@
         }
       }
 
+      <!-- A wallet's SushiSwap V3 LP positions (Robinhood Chain) -->
+      @if (query.type === 'sushi_positions') {
+        @if (sushiPosFetching() && sushiPositionRows.length === 0) {
+          <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading Sushi positions…' | t }}</span></div>
+        } @else if (sushiPositionRows.length === 0) {
+          <div class="empty-state"><lucide-icon name="droplets" [size]="20" /><span>{{ 'No Sushi positions' | t }}</span></div>
+        } @else {
+          <div class="mq-list">
+            @for (p of sushiPositionRows; track p.tokenId) {
+              <div class="mq-row">
+                <div class="mq-row__head">
+                  <div class="mq-pair">
+                    <span class="mq-pair__txt"><b>{{ p.token0?.symbol || '?' }}</b><span class="mq-slash">/</span>{{ p.token1?.symbol || '?' }}</span>
+                  </div>
+                  <span class="mq-right">
+                    @if (p.feePercent != null) { <span class="mq-chainbadge">{{ p.feePercent }}%</span> }
+                    <span class="mq-hf" [class.mq-hf--risk]="!p.inRange">{{ (p.inRange ? 'In range' : 'Out of range') | t }}</span>
+                  </span>
+                </div>
+                <div class="mq-stats">
+                  <div class="mq-stat"><span class="mq-stat__k">{{ 'Value' | t }}</span><span class="mq-stat__v">{{ sushiUsd(p.valueUsd) }}</span></div>
+                  <div class="mq-stat"><span class="mq-stat__k">{{ p.token0?.symbol }}</span><span class="mq-stat__v">{{ p.token0?.amountDisplay }}</span></div>
+                  <div class="mq-stat"><span class="mq-stat__k">{{ p.token1?.symbol }}</span><span class="mq-stat__v">{{ p.token1?.amountDisplay }}</span></div>
+                  @if (p.uncollectedFeesUsd && p.uncollectedFeesUsd > 0) {
+                    <div class="mq-stat"><span class="mq-stat__k">{{ 'Fees' | t }}</span><span class="mq-stat__v mq-up">{{ sushiUsd(p.uncollectedFeesUsd) }}</span></div>
+                  }
+                </div>
+                <div class="mq-actions">
+                  <button class="mq-btn mq-btn--lend" type="button" (click)="sushiAddLiqFromPos(p)">{{ 'Add liquidity' | t }}</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+
       <!-- OpenSea NFTs (Robinhood Chain) — collections/trending grid → drill to listings -->
       @if (query.type === 'opensea_collections' || query.type === 'opensea_trending' || query.type === 'opensea_listings') {
         @if ((query.type === 'opensea_collections' || query.type === 'opensea_trending') && !openseaSelectedSlug()) {

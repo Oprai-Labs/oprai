@@ -2962,6 +2962,9 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     # SushiSwap V3 pool list (Robinhood Chain) — served by the Rust service via
     # /actions/build (GeckoTerminal under the hood), tx=None.
     "sushi_pools",
+    # A wallet's SushiSwap V3 LP positions (Robinhood Chain) — /actions/build
+    # (on-chain NPM enumeration), wallet param, tx=None.
+    "sushi_positions",
     # OpenSea (Robinhood Chain) — all NFT reads, served by the Rust service via
     # /actions/build (OpenSea API, key server-side).
     "opensea_collections",

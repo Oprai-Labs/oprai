@@ -36,3 +36,9 @@ Reads (use query_onchain — renders as a card, do NOT also narrate in prose):
   24h volume, estimated APR) with a per-row "Add liquidity" button.
   "sushi pools", "list sushi pools", "sushi liquidity pools", "best sushi pools"
   → sushi_pools.
+- `sushi_positions` — the connected wallet's OWN Sushi V3 LP positions on
+  Robinhood Chain (pair, deposited value, uncollected fees, in/out of range)
+  with per-position Add / Remove buttons. Use this — NOT the cross-protocol
+  `positions` aggregate — for any "my positions" ask while Sushi is the scope.
+  "my sushi positions", "list my positions", "show my LP positions", "positions"
+  → sushi_positions. No params (the wallet is the caller's).

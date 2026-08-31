@@ -298,6 +298,9 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     # SushiSwap V3 pool list (Robinhood Chain) — per-row TVL/APR/fee + Add-liquidity
     # button; prose can't carry that shape.
     "sushi_pools",
+    # A wallet's SushiSwap V3 LP positions — per-position pair / value / fees /
+    # in-range with Add / Remove buttons; a card, not prose.
+    "sushi_positions",
     # OpenSea (Robinhood Chain) — all NFT reads render as cards (grids, detail,
     # activity, offers). NFTs are pictures with prices — prose is the wrong shape.
     "opensea_collections",
@@ -2356,6 +2359,37 @@ async def stream_chat_response(
                 yield f"data: {json.dumps({'action': d})}\n\n"
 
             elif isinstance(validated, ValidatedQuery):
+                # Positions-scope guard. A SINGLE tagged protocol + a
+                # positions-family query that isn't THAT protocol's own read —
+                # the cross-protocol aggregate `positions`, or another protocol's
+                # `*_positions` — is remapped to the tagged protocol's positions
+                # when it has one. Tagging @SushiSwap and asking "list my
+                # positions" must show sushi_positions, not the cross-protocol
+                # aggregate. (The aggregate carries no protocol tag, so the
+                # cross-protocol check below never catches it.)
+                if _all_protocols and len(_all_protocols) == 1:
+                    _qt0 = validated.type.value
+                    _proto_pos = f"{_all_protocols[0]}_positions"
+                    if (
+                        (_qt0 == "positions" or _qt0.endswith("_positions"))
+                        and _qt0 != _proto_pos
+                        and _proto_pos in market_data.MARKET_DATA_TYPES
+                    ):
+                        try:
+                            validated = ValidatedQuery(
+                                type=QueryType(_proto_pos), params=dict(validated.params or {})
+                            )
+                            _log.info(
+                                "positions_scope_remap %s→%s active=%s",
+                                _qt0, _proto_pos, _all_protocols,
+                            )
+                            try:
+                                with open("/tmp/oprai-debug.log", "a") as _df:
+                                    _df.write(f"  POSITIONS_SCOPE_REMAP {_qt0}→{_proto_pos} active={_all_protocols}\n")
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
                 # Cross-protocol guard (see the helper defined above). When a
                 # protocol is actively scoped and the model emits a query that
                 # belongs to a DIFFERENT protocol, do not render that protocol's

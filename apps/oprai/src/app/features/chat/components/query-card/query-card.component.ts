@@ -91,6 +91,13 @@ interface SushiPoolRow {
   token0Symbol: string; token0Address: string; token0Logo?: string | null;
   token1Symbol: string; token1Address: string; token1Logo?: string | null;
 }
+interface SushiPositionRow {
+  poolAddress: string; pair: string; tokenId?: string | number;
+  feePercent?: number | null; valueUsd?: number | null;
+  uncollectedFeesUsd?: number | null; inRange?: boolean;
+  token0?: { symbol: string; address: string; amountDisplay: string };
+  token1?: { symbol: string; address: string; amountDisplay: string };
+}
 
 interface UniswapLaunch {
   tokenAddress: string;
@@ -847,6 +854,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'morpho_positions':
         return 'assets/protocols/morpho.svg';
       case 'sushi_pools':
+      case 'sushi_positions':
         return 'assets/protocols/sushi.png';
       case 'opensea_collections':
       case 'opensea_listings':
@@ -1157,6 +1165,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['morphoMarketRows'])   this.morphoMarketRows   = d['morphoMarketRows']   as MorphoMarketRow[];
     if (d['morphoPositionRows']) this.morphoPositionRows = d['morphoPositionRows'] as MorphoPositionRow[];
     if (d['sushiPoolRows'])      this.sushiPoolRows      = d['sushiPoolRows']      as SushiPoolRow[];
+    if (d['sushiPositionRows'])  this.sushiPositionRows  = d['sushiPositionRows']  as SushiPositionRow[];
     if (d['openseaCollections']) this.openseaCollections = d['openseaCollections'] as OpenseaCollectionRow[];
     if (d['openseaListings'])    this.openseaListings    = d['openseaListings']    as OpenseaListingRow[];
     if (d['openseaCollectionDetail']) this.openseaCollectionDetail = d['openseaCollectionDetail'];
@@ -1278,6 +1287,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.morphoMarketRows.length)   d['morphoMarketRows']   = this.morphoMarketRows;
     if (this.morphoPositionRows.length) d['morphoPositionRows'] = this.morphoPositionRows;
     if (this.sushiPoolRows.length)      d['sushiPoolRows']      = this.sushiPoolRows;
+    if (this.sushiPositionRows.length)  d['sushiPositionRows']  = this.sushiPositionRows;
     if (this.openseaCollections.length) d['openseaCollections'] = this.openseaCollections;
     if (this.openseaListings.length)    d['openseaListings']    = this.openseaListings;
     if (this.openseaCollectionDetail)   d['openseaCollectionDetail'] = this.openseaCollectionDetail;
@@ -3818,6 +3828,48 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
     this.useAction.emit({ type: 'sushi_add_liquidity', params, raw: `[ACTION:sushi_add_liquidity] ${JSON.stringify(params)}` });
   }
+
+  // ── A wallet's own SushiSwap V3 LP positions (Robinhood Chain) ──────────────
+  sushiPositionRows: SushiPositionRow[] = [];
+  readonly sushiPosFetching = signal(false);
+
+  private async fetchSushiPositions(): Promise<void> {
+    this.sushiPosFetching.set(true);
+    this.error.set(null);
+    // Sushi is EVM (Robinhood Chain) — positions are keyed by the linked EVM
+    // address, resolved the same way as Morpho/Lighter.
+    const evm = await this.lighterPerp.resolveEvmAddress();
+    if (!evm) {
+      this.error.set('Connect an EVM wallet to see Sushi positions');
+      this.sushiPosFetching.set(false);
+      this.loading.set(false);
+      return;
+    }
+    try {
+      const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'sushi_positions', params: { wallet: evm },
+      }).pipe(timeout(30_000)));
+      this.sushiPositionRows = Array.isArray(resp?.data?.positions) ? resp.data.positions : [];
+      this.sushiPosFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to load Sushi positions');
+      this.sushiPosFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** Open the Sushi add-liquidity card for an existing position's pool. */
+  sushiAddLiqFromPos(p: SushiPositionRow): void {
+    const params: Record<string, string> = {
+      poolAddress: p.poolAddress,
+      inputToken: p.token0?.address ?? '',
+      tokenInSymbol: p.token0?.symbol ?? '',
+      tokenOutSymbol: p.token1?.symbol ?? '',
+    };
+    this.useAction.emit({ type: 'sushi_add_liquidity', params, raw: `[ACTION:sushi_add_liquidity] ${JSON.stringify(params)}` });
+  }
   sushiUsd(v: unknown): string {
     const n = Number(v);
     if (!(n > 0)) return '$0';
@@ -4965,6 +5017,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'sushi_pools':
         await this.fetchSushiPools();
+        return;
+      case 'sushi_positions':
+        await this.fetchSushiPositions();
         return;
       case 'opensea_collections':
         await this.fetchOpenseaCollections();
