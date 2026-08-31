@@ -55,6 +55,42 @@ fn wallet_from_req(req: &HttpRequest) -> Result<String, AppError> {
         .ok_or_else(|| AppError::Unauthorized("Missing wallet".into()))
 }
 
+/// Defence-in-depth for the EVM build endpoints. When the authenticated session
+/// wallet is ITSELF an EVM (`0x`) address, the acting address in the request body
+/// must equal it — an EVM-session user can only build transactions that act as
+/// their own wallet, never someone else's. For a Solana session the gateway's
+/// `X-User-Wallet` is a base58 address (the EVM leg is a separately-linked wallet
+/// that signs), so there is nothing to bind here and this is a no-op; WYSIWYS and
+/// on-chain authorization remain the backstop for that case. The header is set by
+/// the gateway from the validated JWT (client-supplied copies are stripped), so
+/// it is a trustworthy anchor.
+fn assert_evm_actor(req: &HttpRequest, body: &serde_json::Value) -> Result<(), AppError> {
+    let auth = req
+        .headers()
+        .get("X-User-Wallet")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .trim();
+    if !auth.starts_with("0x") {
+        return Ok(()); // Solana (base58) session — no EVM actor to bind against.
+    }
+    let claimed = body
+        .get("walletAddress")
+        .or_else(|| body.get("wallet"))
+        .or_else(|| body.get("sender"))
+        .or_else(|| body.get("fulfiller"))
+        .or_else(|| body.get("offerer"))
+        .and_then(|v| v.as_str());
+    if let Some(c) = claimed {
+        if !c.trim().eq_ignore_ascii_case(auth) {
+            return Err(AppError::InvalidParams(
+                "The wallet address in this request does not match your connected wallet.".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The OPRAI account id the gateway resolved from the JWT (`X-User-Account`), if
 /// present. It ties a wallet's economics to its account so tiers/rewards pool
 /// across all the account's wallets. Absent for legacy/unauthenticated paths.
@@ -2032,10 +2068,11 @@ pub async fn post_pons_token_meta(
 /// POST /actions/pons/buy — Pons bonding-curve buy (ABI-encoded curve.buy tx).
 #[post("/pons/buy")]
 pub async fn post_pons_buy(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::pons::build_pons_buy(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2043,10 +2080,11 @@ pub async fn post_pons_buy(
 /// POST /actions/pons/sell — Pons bonding-curve sell (approve + curve.sell tx).
 #[post("/pons/sell")]
 pub async fn post_pons_sell(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::pons::build_pons_sell(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2054,10 +2092,11 @@ pub async fn post_pons_sell(
 /// POST /actions/pons/launch — create a Pons V2 token (factory.launchToken tx).
 #[post("/pons/launch")]
 pub async fn post_pons_launch(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::pons::build_pons_launch(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2066,10 +2105,11 @@ pub async fn post_pons_launch(
 /// Returns unsigned EVM txs (approve? + supply) for the user's wallet to sign.
 #[post("/morpho/supply")]
 pub async fn post_morpho_supply(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::morpho::build_lend(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2077,10 +2117,11 @@ pub async fn post_morpho_supply(
 /// POST /actions/morpho/borrow — Morpho Blue BORROW (optional supplyCollateral + borrow).
 #[post("/morpho/borrow")]
 pub async fn post_morpho_borrow(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::morpho::build_borrow(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2088,10 +2129,11 @@ pub async fn post_morpho_borrow(
 /// POST /actions/morpho/repay — Morpho Blue REPAY (partial by amount, or full via `max`).
 #[post("/morpho/repay")]
 pub async fn post_morpho_repay(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::morpho::build_repay(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2100,10 +2142,11 @@ pub async fn post_morpho_repay(
 /// (`target`="supply") or collateral (`target`="collateral"); `max` for all.
 #[post("/morpho/withdraw")]
 pub async fn post_morpho_withdraw(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::morpho::build_withdraw(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2112,10 +2155,11 @@ pub async fn post_morpho_withdraw(
 /// Returns unsigned txs (approve? to RedSnwapper + the swap call).
 #[post("/sushi/swap")]
 pub async fn post_sushi_swap(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::sushi::build_swap(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2123,10 +2167,11 @@ pub async fn post_sushi_swap(
 /// POST /actions/sushi/add-liquidity — Sushi V3 add-liquidity (NPM.mint tx).
 #[post("/sushi/add-liquidity")]
 pub async fn post_sushi_add_liquidity(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::sushi::build_add_liquidity(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2135,10 +2180,11 @@ pub async fn post_sushi_add_liquidity(
 /// Chain. Returns an unsigned tx the user's wallet signs.
 #[post("/opensea/buy")]
 pub async fn post_opensea_buy(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::opensea::build_buy(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2146,10 +2192,11 @@ pub async fn post_opensea_buy(
 /// POST /actions/opensea/accept-offer — seller fulfills a bid (unsigned tx).
 #[post("/opensea/accept-offer")]
 pub async fn post_opensea_accept_offer(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::opensea::build_accept_offer(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2157,10 +2204,11 @@ pub async fn post_opensea_accept_offer(
 /// POST /actions/opensea/list — build a Seaport LISTING order + EIP-712 typed data to sign.
 #[post("/opensea/list")]
 pub async fn post_opensea_list(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::opensea::build_list(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2168,10 +2216,11 @@ pub async fn post_opensea_list(
 /// POST /actions/opensea/make-offer — build a Seaport OFFER (WETH bid) + typed data.
 #[post("/opensea/make-offer")]
 pub async fn post_opensea_make_offer(
-    _req: HttpRequest,
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
     let result = crate::services::opensea::build_make_offer(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -2758,4 +2807,48 @@ pub async fn get_relay_swap_sources(
 ) -> Result<HttpResponse, AppError> {
     let result = relay::get_swap_sources(&state.http, query.chain_id).await?;
     Ok(HttpResponse::Ok().json(result))
+}
+
+#[cfg(test)]
+mod evm_actor_tests {
+    use super::assert_evm_actor;
+    use actix_web::test::TestRequest;
+    use serde_json::json;
+
+    const EVM: &str = "0x1111111111111111111111111111111111111111";
+    const OTHER: &str = "0x2222222222222222222222222222222222222222";
+    const SOL: &str = "So1anaBase58Wa11etAdd111111111111111111111";
+
+    fn req(wallet: &str) -> actix_web::HttpRequest {
+        TestRequest::default()
+            .insert_header(("X-User-Wallet", wallet))
+            .to_http_request()
+    }
+
+    #[test]
+    fn evm_session_matching_actor_passes() {
+        assert!(assert_evm_actor(&req(EVM), &json!({ "walletAddress": EVM })).is_ok());
+        // case-insensitive
+        assert!(assert_evm_actor(&req(EVM), &json!({ "walletAddress": EVM.to_uppercase() })).is_ok());
+    }
+
+    #[test]
+    fn evm_session_mismatched_actor_is_rejected() {
+        assert!(assert_evm_actor(&req(EVM), &json!({ "walletAddress": OTHER })).is_err());
+        assert!(assert_evm_actor(&req(EVM), &json!({ "sender": OTHER })).is_err());
+        assert!(assert_evm_actor(&req(EVM), &json!({ "offerer": OTHER })).is_err());
+    }
+
+    #[test]
+    fn evm_session_without_actor_field_passes() {
+        // Nothing to bind against → allowed (the field simply isn't in this body).
+        assert!(assert_evm_actor(&req(EVM), &json!({ "amount": "1" })).is_ok());
+    }
+
+    #[test]
+    fn solana_session_is_a_noop() {
+        // base58 session: the EVM leg is a separately-linked wallet, so a differing
+        // walletAddress must NOT be blocked.
+        assert!(assert_evm_actor(&req(SOL), &json!({ "walletAddress": OTHER })).is_ok());
+    }
 }
