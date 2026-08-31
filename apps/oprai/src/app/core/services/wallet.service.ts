@@ -404,15 +404,25 @@ export class WalletService {
   // Which EVM wallet the account is using, by its stable EIP-6963 rdns
   // (e.g. "app.phantom", "io.metamask"). Persisted so it survives reload.
   private static readonly EVM_RDNS_KEY = 'oprai-evm-rdns';
+  // The EVM address the user linked with — the account resolveEvmProvider must
+  // hand back. Guards the window.ethereum fallback from signing with the wrong
+  // account (a different injected wallet, or the right wallet on the wrong
+  // account) and spending the wrong wallet's funds.
+  private static readonly EVM_ADDR_KEY = 'oprai-evm-addr';
 
   /** Remember the EVM wallet the user authenticated / linked with, so its
    *  transactions are later signed by THAT wallet — not whatever injected
    *  `window.ethereum` (MetaMask usually wins that when several are installed,
    *  so a Phantom-EVM login would otherwise sign with MetaMask). */
-  rememberEvmWallet(rdns: string | null | undefined): void {
+  rememberEvmWallet(rdns: string | null | undefined, address?: string | null): void {
     try {
       if (rdns) localStorage.setItem(WalletService.EVM_RDNS_KEY, rdns);
+      if (address) localStorage.setItem(WalletService.EVM_ADDR_KEY, address.toLowerCase());
     } catch { /* storage disabled — resolveEvmProvider falls back */ }
+  }
+
+  private storedEvmAddress(): string | null {
+    try { return localStorage.getItem(WalletService.EVM_ADDR_KEY); } catch { return null; }
   }
 
   private storedEvmRdns(): string | null {
@@ -426,24 +436,50 @@ export class WalletService {
   async resolveEvmProvider(): Promise<EthProvider> {
     const fallback = (window as unknown as { ethereum?: EthProvider }).ethereum ?? null;
     const rdns = this.storedEvmRdns();
+    let provider: EthProvider | null = null;
     if (!rdns) {
-      if (fallback) return fallback;
+      provider = fallback;
+    } else {
+      const match = await new Promise<EthProvider | null>((resolve) => {
+        let hit: EthProvider | null = null;
+        const handler = (e: Event) => {
+          const d = (e as CustomEvent).detail as
+            | { info?: { rdns?: string }; provider?: EthProvider } | undefined;
+          if (!hit && d?.info?.rdns === rdns && d.provider) hit = d.provider;
+        };
+        window.addEventListener('eip6963:announceProvider', handler);
+        window.dispatchEvent(new Event('eip6963:requestProvider'));
+        setTimeout(() => { window.removeEventListener('eip6963:announceProvider', handler); resolve(hit); }, 350);
+      });
+      provider = match ?? fallback;
+    }
+    if (!provider) {
       throw new Error('No EVM wallet detected. Install or connect one, then try again.');
     }
-    const match = await new Promise<EthProvider | null>((resolve) => {
-      let hit: EthProvider | null = null;
-      const handler = (e: Event) => {
-        const d = (e as CustomEvent).detail as
-          | { info?: { rdns?: string }; provider?: EthProvider } | undefined;
-        if (!hit && d?.info?.rdns === rdns && d.provider) hit = d.provider;
-      };
-      window.addEventListener('eip6963:announceProvider', handler);
-      window.dispatchEvent(new Event('eip6963:requestProvider'));
-      setTimeout(() => { window.removeEventListener('eip6963:announceProvider', handler); resolve(hit); }, 350);
-    });
-    if (match) return match;
-    if (fallback) return fallback;
-    throw new Error('Your connected wallet is not available. Unlock or install it, then try again.');
+    // Guard the fallback: whatever provider we resolved must be sitting on the
+    // EVM account the user linked. Otherwise a different injected wallet (or the
+    // right wallet on a different account) would sign and spend the wrong funds.
+    await this.assertEvmAccount(provider);
+    return provider;
+  }
+
+  /** Throw if the provider's active account isn't the linked EVM address.
+   *  Fails open when nothing was linked yet or the account can't be read. */
+  private async assertEvmAccount(provider: EthProvider): Promise<void> {
+    const expected = this.storedEvmAddress();
+    if (!expected) return;
+    let active: string | undefined;
+    try {
+      const accounts = (await provider.request({ method: 'eth_requestAccounts' })) as string[];
+      active = accounts?.[0]?.toLowerCase();
+    } catch {
+      return; // couldn't read accounts — the caller's own request will surface any real fault
+    }
+    if (active && active !== expected) {
+      throw new Error(
+        'Your active EVM account is not the wallet you linked to OPRAI, so nothing was signed. Switch back to the linked account in your wallet (or re-link the current one) and try again.',
+      );
+    }
   }
 
   /**

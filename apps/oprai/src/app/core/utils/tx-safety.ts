@@ -23,10 +23,15 @@
  *      the user to approve a delegate or reassign authority, so the mere
  *      presence of one of these is a red flag.
  *
+ * It also rejects a program id loaded from a lookup table (a static-keys scan
+ * can't see behind one, and OPRAI never puts a program id there) and a
+ * `CloseAccount` whose destination isn't the connected wallet (legit wSOL
+ * unwrap returns to the owner; anything else is a drain).
+ *
  * Deliberately NOT checked here (handled elsewhere or too false-positive-prone
- * for a hard block): per-action amount ceilings (needs the displayed intent —
- * see `verifyTransferWysiwys` in solana-action.service), and `CloseAccount`
- * (legitimately used to unwrap wSOL back to the user).
+ * for a hard block): per-action amount ceilings and generic transfer recipients
+ * (need the displayed intent — see `verifyTransferWysiwys` in
+ * solana-action.service — and the wallet's own simulation preview).
  *
  * Fail-open on DECODE failure (unknown shape, malformed bytes): a decode bug
  * must never brick signing. But a positive UNSAFE finding is a hard throw.
@@ -46,6 +51,11 @@ const FORBIDDEN_TOKEN_IX: Record<number, string> = {
   13: 'approval', // ApproveChecked
 };
 
+/** SPL-Token CloseAccount discriminator. Legit for unwrapping wSOL back to the
+ * owner, but its destination is attacker-controllable, so we allow it ONLY when
+ * the rent/lamports go back to the connected wallet. */
+const CLOSE_ACCOUNT_IX = 9;
+
 /** Thrown when a transaction fails a WYSIWYS invariant — surfaced to the user. */
 export class WysiwysError extends Error {
   constructor(message: string) {
@@ -54,9 +64,21 @@ export class WysiwysError extends Error {
   }
 }
 
+interface DecodedIx {
+  /** Resolved program id, or '' when it is loaded from a lookup table (which a
+   * legitimate OPRAI transaction never does — program ids live in static keys). */
+  programId: string;
+  programIdFromLut: boolean;
+  discriminator: number | null;
+  /** For a CloseAccount instruction, the destination that receives the rent /
+   * wrapped lamports (accounts[1]); null if not a close or unresolvable. */
+  closeDest: string | null;
+  closeDestFromLut: boolean;
+}
+
 interface DecodedTx {
   feePayer: string | null;
-  instructions: Array<{ programId: string; discriminator: number | null }>;
+  instructions: DecodedIx[];
 }
 
 function firstDataByte(data: unknown): number | null {
@@ -78,29 +100,45 @@ function decode(tx: any): DecodedTx | null {
   // VersionedTransaction: has `.message.staticAccountKeys`
   if (tx?.message && Array.isArray(tx.message.staticAccountKeys)) {
     const keys = tx.message.staticAccountKeys as Array<{ toBase58(): string }>;
+    const n = keys.length; // indices >= n are loaded from a lookup table
     const feePayer = keys[0]?.toBase58() ?? null;
     const compiled = (tx.message.compiledInstructions ?? []) as Array<{
       programIdIndex: number;
+      accountKeyIndexes?: number[];
       data: unknown;
     }>;
-    const instructions = compiled
-      .map((ci) => ({
-        programId: keys[ci.programIdIndex]?.toBase58() ?? '',
+    const instructions: DecodedIx[] = compiled.map((ci) => {
+      const pidFromLut = ci.programIdIndex >= n;
+      const destIdx = ci.accountKeyIndexes?.[1];
+      const destFromLut = typeof destIdx === 'number' && destIdx >= n;
+      return {
+        programId: pidFromLut ? '' : (keys[ci.programIdIndex]?.toBase58() ?? ''),
+        programIdFromLut: pidFromLut,
         discriminator: firstDataByte(ci.data),
-      }))
-      .filter((i) => i.programId);
+        closeDest:
+          typeof destIdx === 'number' && !destFromLut ? (keys[destIdx]?.toBase58() ?? null) : null,
+        closeDestFromLut: destFromLut,
+      };
+    });
     return { feePayer, instructions };
   }
-  // Legacy Transaction: has `.instructions` array
+  // Legacy Transaction: has `.instructions` array (no lookup tables)
   if (Array.isArray(tx?.instructions)) {
     const feePayer =
       tx.feePayer?.toBase58?.() ?? tx.signatures?.[0]?.publicKey?.toBase58?.() ?? null;
-    const instructions = (tx.instructions as Array<{ programId?: { toBase58(): string }; data?: unknown }>)
-      .map((ix) => ({
-        programId: ix.programId?.toBase58?.() ?? '',
-        discriminator: firstDataByte(ix.data),
-      }))
-      .filter((i) => i.programId);
+    const instructions: DecodedIx[] = (
+      tx.instructions as Array<{
+        programId?: { toBase58(): string };
+        keys?: Array<{ pubkey?: { toBase58(): string } }>;
+        data?: unknown;
+      }>
+    ).map((ix) => ({
+      programId: ix.programId?.toBase58?.() ?? '',
+      programIdFromLut: false,
+      discriminator: firstDataByte(ix.data),
+      closeDest: ix.keys?.[1]?.pubkey?.toBase58?.() ?? null,
+      closeDestFromLut: false,
+    }));
     return { feePayer, instructions };
   }
   return null;
@@ -134,10 +172,38 @@ export function assertTxSignSafety(tx: unknown, ownerBase58: string | null): voi
     );
   }
 
-  // 2. No instruction that hands your token authority to someone else.
   for (const ix of decoded.instructions) {
+    // 2. A program invoked through a lookup table can hide a token Approve /
+    // SetAuthority / CloseAccount from a static-keys scan. Legitimate OPRAI
+    // transactions always carry their program ids in the static keys, so a
+    // lookup-table program id is itself the red flag.
+    if (ix.programIdFromLut) {
+      console.error('[wysiwys] program id loaded from a lookup table');
+      throw new WysiwysError(
+        'This transaction hides a program behind a lookup table, which OPRAI never does, so it was not signed. If you expected this action, please report it.',
+      );
+    }
+
     if (ix.programId !== TOKEN_PROGRAM && ix.programId !== TOKEN_2022_PROGRAM) continue;
     if (ix.discriminator == null) continue;
+
+    // 3. CloseAccount is legitimate for unwrapping wSOL — but ONLY when the
+    // rent/lamports return to the connected wallet. A close whose destination is
+    // someone else (or hidden in a lookup table) is a drain.
+    if (ix.discriminator === CLOSE_ACCOUNT_IX) {
+      if (ix.closeDestFromLut || (ix.closeDest && ix.closeDest !== ownerBase58)) {
+        console.error('[wysiwys] close-account to non-owner destination', {
+          dest: ix.closeDest,
+          fromLut: ix.closeDestFromLut,
+          owner: ownerBase58,
+        });
+        throw new WysiwysError(
+          'This transaction would close a token account and send its balance to a different wallet, so it was not signed. If you expected this action, please report it.',
+        );
+      }
+      continue;
+    }
+
     const kind = FORBIDDEN_TOKEN_IX[ix.discriminator];
     if (kind) {
       console.error('[wysiwys] forbidden token instruction', { discriminator: ix.discriminator, kind });

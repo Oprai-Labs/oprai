@@ -776,7 +776,7 @@ export class WalletsComponent implements OnInit, OnDestroy {
       this.identities.set(res.identities || []);
       // Remember this wallet's identity so its bridges/swaps sign with IT, not
       // whatever owns window.ethereum (MetaMask usually wins that).
-      this.wallet.rememberEvmWallet(entry.rdns);
+      this.wallet.rememberEvmWallet(entry.rdns, address);
       this.evmModalOpen.set(false);
       this.linkConsent.set(null);
       this.flash(res.alreadyLinked ? `That ${entry.name} wallet is already on your account.` : `${entry.name} permanently linked to your account.`, true);
