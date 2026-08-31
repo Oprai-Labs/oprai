@@ -144,11 +144,11 @@ SOURCES: list[Source] = [
         tags=["morpho","lending","borrow","vaults","markets","multichain","ltv"],
         extra={"sitemap_url": "https://docs.morpho.org/sitemap.xml"}),
 
-    Source("sushi_docs", "protocols", "sitemap",
+    Source("sushi_docs", "protocols", "direct_urls",
         "https://docs.sushi.com", "sushiswap", "protocol_documentation", "proprietary-fair-use",
-        max_pages=150, crawl_delay=1.2, crawl_freq="weekly",
-        tags=["sushi","sushiswap","amm","swap","v3","concentrated-liquidity"],
-        extra={"sitemap_url": "https://docs.sushi.com/sitemap.xml"}),
+        max_pages=5, crawl_delay=1.0, crawl_freq="weekly",
+        tags=["sushi","sushiswap","amm","swap","v3","concentrated-liquidity","routeprocessor","liquidity"],
+        extra={"skip_classify": True, "urls": ["https://docs.sushi.com/llms-full.txt"]}),
 
     Source("opensea_docs", "protocols", "direct_urls",
         "https://docs.opensea.io", "opensea", "protocol_documentation", "proprietary-fair-use",
@@ -287,11 +287,11 @@ SOURCES: list[Source] = [
             "https://docs.opensea.io/reference/get_token_groups"
         ]}),
 
-    Source("lighter_docs", "protocols", "sitemap",
+    Source("lighter_docs", "protocols", "direct_urls",
         "https://docs.lighter.xyz", "lighter", "protocol_documentation", "proprietary-fair-use",
-        max_pages=120, crawl_delay=1.2, crawl_freq="weekly",
-        tags=["lighter","perps","orderbook","robinhood-chain","non-custodial"],
-        extra={"sitemap_url": "https://docs.lighter.xyz/sitemap-pages.xml"}),
+        max_pages=5, crawl_delay=1.0, crawl_freq="weekly",
+        tags=["lighter","perps","orderbook","robinhood-chain","non-custodial","deposit","positions","funding"],
+        extra={"skip_classify": True, "urls": ["https://docs.lighter.xyz/llms-full.txt"]}),
 
     Source("relay_docs", "protocols", "sitemap",
         "https://docs.relay.link", "relay", "protocol_documentation", "proprietary-fair-use",
