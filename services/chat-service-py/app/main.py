@@ -3270,6 +3270,40 @@ async def send_message(
 # ---------------------------------------------------------------------------
 # SSE Streaming endpoint
 # ---------------------------------------------------------------------------
+async def _with_heartbeat(
+    inner: AsyncGenerator[str, None], interval: float = 15.0
+) -> AsyncGenerator[str, None]:
+    """Interleave SSE comment heartbeats while the inner generator is silent.
+
+    The response can go many seconds without a chunk — intent classification,
+    tool selection, extended-thinking latency, and slow tool chains all happen
+    before the first token. The browser SSE client aborts after 60s of silence
+    (api.service.ts), so a long-but-healthy turn was being cancelled and shown
+    as "ask again". An SSE comment line (`: hb`) is ignored by the client's
+    data-only parser but still arrives as bytes, resetting its idle timer — so
+    heartbeats keep the connection alive without polluting the message stream.
+    """
+    ait = inner.__aiter__()
+    pending: asyncio.Task[str] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(ait.__anext__())
+            try:
+                chunk = await asyncio.wait_for(asyncio.shield(pending), interval)
+            except asyncio.TimeoutError:
+                yield ": hb\n\n"
+                continue
+            except StopAsyncIteration:
+                pending = None
+                return
+            pending = None
+            yield chunk
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+
+
 @app.post("/messages/stream")
 async def stream_message(
     body: StreamMessageRequest,
@@ -3331,7 +3365,7 @@ async def stream_message(
                 raise
 
     return StreamingResponse(
-        event_generator(),
+        _with_heartbeat(event_generator()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -3533,7 +3567,7 @@ async def edit_message_stream(
                 return
 
     return StreamingResponse(
-        event_generator(),
+        _with_heartbeat(event_generator()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
