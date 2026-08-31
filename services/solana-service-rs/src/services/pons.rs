@@ -324,6 +324,10 @@ fn enc_u256(v: u128) -> String {
 fn enc_addr(a: &str) -> String {
     format!("{:0>64}", a.trim_start_matches("0x").to_lowercase())
 }
+/// A well-formed EVM address: `0x` + 40 hex digits.
+fn is_evm_addr(a: &str) -> bool {
+    a.len() == 42 && a.starts_with("0x") && a[2..].bytes().all(|b| b.is_ascii_hexdigit())
+}
 /// Decimal string / hex → u128 (amounts fit u128; reserves ≤ ~1e27 < 2^90).
 fn to_u128(s: &str) -> u128 {
     let s = s.trim();
@@ -427,7 +431,14 @@ async fn pons_v1_meta(http: &reqwest::Client, rpc: &str, token: &str) -> Result<
 /// card already consumes. Body: {tokenAddress|curve, walletAddress, amountWei, slippagePct}.
 pub async fn build_pons_buy(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
     let rpc = rpc().ok_or_else(|| AppError::Internal("no Robinhood RPC".into()))?;
-    let wallet = body.get("walletAddress").and_then(|v| v.as_str()).unwrap_or(NATIVE);
+    // The recipient is baked into the buy calldata — require a well-formed EVM
+    // address so a missing/garbled value can't send the purchase to the zero
+    // address or a junk recipient.
+    let wallet = body
+        .get("walletAddress")
+        .and_then(|v| v.as_str())
+        .filter(|s| is_evm_addr(s))
+        .ok_or_else(|| AppError::InvalidParams("pons: walletAddress required".into()))?;
     let slippage = body.get("slippagePct").and_then(|v| v.as_f64()).unwrap_or(15.0).clamp(0.5, 90.0);
     let quote_in = to_u128(body.get("amountWei").and_then(|v| v.as_str()).unwrap_or("0"));
     if quote_in == 0 {
@@ -481,7 +492,12 @@ pub async fn build_pons_buy(http: &reqwest::Client, body: &Value) -> Result<Valu
 /// Body: {tokenAddress|curve, walletAddress, amountInWei (token base units), slippagePct}.
 pub async fn build_pons_sell(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
     let rpc = rpc().ok_or_else(|| AppError::Internal("no Robinhood RPC".into()))?;
-    let wallet = body.get("walletAddress").and_then(|v| v.as_str()).unwrap_or(NATIVE);
+    // Recipient is baked into the sell calldata — require a well-formed address.
+    let wallet = body
+        .get("walletAddress")
+        .and_then(|v| v.as_str())
+        .filter(|s| is_evm_addr(s))
+        .ok_or_else(|| AppError::InvalidParams("pons: walletAddress required".into()))?;
     let slippage = body.get("slippagePct").and_then(|v| v.as_f64()).unwrap_or(15.0).clamp(0.5, 90.0);
     let tokens_in = to_u128(body.get("amountInWei").and_then(|v| v.as_str()).unwrap_or("0"));
     if tokens_in == 0 {
@@ -789,4 +805,25 @@ pub async fn build_pons_launches(
         is_cross_chain: false,
         data: Some(json!({ "chain": "robinhood", "chainName": "Robinhood", "launches": rows })),
     })
+}
+
+#[cfg(test)]
+mod addr_validation_tests {
+    use super::is_evm_addr;
+
+    #[test]
+    fn accepts_well_formed_evm_address() {
+        assert!(is_evm_addr("0x1E0049783F008A0085193E00003D00cd54003c71"));
+        assert!(is_evm_addr("0x0000000000000000000000000000000000000000"));
+    }
+
+    #[test]
+    fn rejects_malformed_addresses() {
+        assert!(!is_evm_addr(""), "empty");
+        assert!(!is_evm_addr("0x123"), "too short");
+        assert!(!is_evm_addr("1E0049783F008A0085193E00003D00cd54003c71"), "no 0x prefix");
+        assert!(!is_evm_addr("0xZZ0049783F008A0085193E00003D00cd54003c71"), "non-hex");
+        assert!(!is_evm_addr("0x1E0049783F008A0085193E00003D00cd54003c7100"), "too long");
+        assert!(!is_evm_addr("NATIVE"), "keyword");
+    }
 }

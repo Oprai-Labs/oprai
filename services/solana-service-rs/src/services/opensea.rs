@@ -59,6 +59,13 @@ async fn os_get(http: &reqwest::Client, path: &str) -> Result<Value, AppError> {
 // ── ABI helpers (buy calldata) ───────────────────────────────────────────────
 fn w_u128(v: u128) -> String { format!("{v:064x}") }
 fn w_addr(a: &str) -> String { format!("{:0>64}", a.trim_start_matches("0x").to_lowercase()) }
+
+/// ERC-20 `approve(spender, amount)` calldata: selector + 32-byte spender +
+/// 32-byte amount. The amount is an EXACT value (e.g. the bid), never an
+/// unbounded `u128::MAX` allowance.
+fn erc20_approve_calldata(spender: &str, amount_wei: u128) -> String {
+    format!("095ea7b3{}{}", w_addr(spender), format!("{amount_wei:064x}"))
+}
 fn b32(s: &str) -> String { format!("{:0>64}", s.trim_start_matches("0x").to_lowercase()) }
 /// Decimal (or 0x-hex) string → a 256-bit big-endian hex word (handles values
 /// beyond u128 — salts and token ids can exceed it).
@@ -659,8 +666,10 @@ pub async fn build_make_offer(http: &reqwest::Client, body: &Value) -> Result<Va
     });
     let mut resp = order_response(parameters, &slug);
     // WETH approve to the conduit's Conduit contract is required to pull the bid
-    // on acceptance. Approve the canonical OpenSea conduit spender.
-    let approve = format!("095ea7b3{}{}", w_addr("0x1E0049783F008A0085193E00003D00cd54003c71"), format!("{:064x}", u128::MAX));
+    // on acceptance. Approve the canonical OpenSea conduit spender for EXACTLY the
+    // bid amount (not an unbounded allowance), so a future conduit compromise
+    // can't pull more than this one offer's WETH.
+    let approve = erc20_approve_calldata("0x1E0049783F008A0085193E00003D00cd54003c71", price_wei);
     if let Some(o) = resp.as_object_mut() {
         o.insert("wethApprove".into(), json!({ "to": SUSHI_WETH, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
         o.insert("offerCurrency".into(), Value::from(SUSHI_WETH));
@@ -782,4 +791,37 @@ fn encode_fulfill_basic_order(p: &Value, suffix: &str) -> Result<String, AppErro
 
     // args = offset(0x20) + tuple(head+tail); calldata = selector + args + suffix.
     Ok(format!("0x00000000{}{head}{tail}{suffix}", w_u128(0x20)))
+}
+
+#[cfg(test)]
+mod approve_bound_tests {
+    use super::erc20_approve_calldata;
+
+    const CONDUIT: &str = "0x1E0049783F008A0085193E00003D00cd54003c71";
+
+    #[test]
+    fn approve_encodes_exact_bid_not_unbounded() {
+        let bid: u128 = 1_500_000_000_000_000_000; // 1.5 WETH
+        let cd = erc20_approve_calldata(CONDUIT, bid);
+        assert!(cd.starts_with("095ea7b3"), "ERC-20 approve selector");
+        assert_eq!(cd.len(), 8 + 64 + 64, "selector + spender word + amount word");
+        // amount is the trailing 32-byte word
+        let amount_word = &cd[cd.len() - 64..];
+        assert_eq!(
+            u128::from_str_radix(amount_word.trim_start_matches('0'), 16).unwrap(),
+            bid,
+            "approved amount must equal the bid"
+        );
+        // and NOT the old unbounded u128::MAX (…ffff… low 128 bits)
+        let unbounded = format!("{:064x}", u128::MAX);
+        assert_ne!(amount_word, unbounded, "must not be an unbounded allowance");
+    }
+
+    #[test]
+    fn spender_is_the_conduit() {
+        let cd = erc20_approve_calldata(CONDUIT, 1);
+        // spender word = first 32 bytes after the selector, right-aligned address
+        let spender_word = &cd[8..8 + 64];
+        assert!(spender_word.ends_with(&CONDUIT.trim_start_matches("0x").to_lowercase()));
+    }
 }
