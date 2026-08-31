@@ -3341,7 +3341,7 @@
             <div class="dlmm-empty">{{ 'Loading Sushi pools…' | t }}</div>
           }
 
-          @for (p of sushiPoolRows; track p.poolAddress) {
+          @for (p of pagedSushiPools; track p.poolAddress) {
             <div class="result-table__row result-table__row--4col dlmm-row">
               <span class="km-pair">
                 <span class="km-icons">
@@ -3381,6 +3381,18 @@
             <div class="dlmm-empty">{{ 'No Sushi pools found' | t }}</div>
           }
         </div>
+
+        @if (sushiTotalPages > 1) {
+          <div class="balance-pagination">
+            <button class="balance-page-btn" (click)="sushiPrevPage()" [disabled]="sushiPoolsPage === 0">
+              <lucide-icon name="chevron-left" [size]="13" />
+            </button>
+            <span class="balance-page-label">{{ sushiPoolsPage + 1 }} / {{ sushiTotalPages }}</span>
+            <button class="balance-page-btn" (click)="sushiNextPage()" [disabled]="sushiPoolsPage === sushiTotalPages - 1">
+              <lucide-icon name="chevron-right" [size]="13" />
+            </button>
+          </div>
+        }
       }
 
       <!-- OpenSea NFTs (Robinhood Chain) — collections/trending grid → drill to listings -->

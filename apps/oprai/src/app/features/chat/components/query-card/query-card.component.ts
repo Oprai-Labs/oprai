@@ -3773,6 +3773,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   sushiPoolRows: SushiPoolRow[] = [];
   readonly sushiFetching = signal(false);
 
+  // Pagination — same shape/page-size as the Uniswap pool list.
+  readonly SUSHI_PAGE_SIZE = 10;
+  sushiPoolsPage = 0;
+  get sushiTotalPages(): number {
+    return Math.max(1, Math.ceil(this.sushiPoolRows.length / this.SUSHI_PAGE_SIZE));
+  }
+  get pagedSushiPools(): SushiPoolRow[] {
+    const page = Math.min(this.sushiPoolsPage, this.sushiTotalPages - 1);
+    return this.sushiPoolRows.slice(page * this.SUSHI_PAGE_SIZE, (page + 1) * this.SUSHI_PAGE_SIZE);
+  }
+  sushiNextPage(): void { if (this.sushiPoolsPage < this.sushiTotalPages - 1) this.sushiPoolsPage++; }
+  sushiPrevPage(): void { if (this.sushiPoolsPage > 0) this.sushiPoolsPage--; }
+
   private async fetchSushiPools(): Promise<void> {
     this.sushiFetching.set(true);
     this.error.set(null);
