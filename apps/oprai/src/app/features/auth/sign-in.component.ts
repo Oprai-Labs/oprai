@@ -25,11 +25,8 @@ import { TPipe } from '@core/i18n';
 
       <!-- Left: brand hero -->
       <section class="signin-hero">
-        <div class="signin-rings" aria-hidden="true"></div>
         <div class="signin-glow" aria-hidden="true"></div>
-        <div class="signin-mark-wrap">
-          <img class="signin-mark" src="oprai_main_icon.svg" alt="" />
-        </div>
+        <img class="signin-mark" src="oprai_main_icon.svg" alt="" />
         <div class="signin-hero-copy">
           <span class="signin-badge">{{ 'OPRAI · AI DeFi Copilot' | t }}</span>
           <h2 class="signin-hero-title">{{ 'Chat your way through on-chain finance' | t }}</h2>
@@ -77,26 +74,14 @@ import { TPipe } from '@core/i18n';
       position:relative; flex:1.1; display:flex; align-items:center; justify-content:center;
       border-right:1px solid rgba(255,255,255,.06); overflow:hidden; min-width:0;
     }
-    .signin-rings {
-      position:absolute; inset:-20%; z-index:0;
-      background:repeating-radial-gradient(circle at 50% 46%,
-        transparent 0 78px, rgba(255,255,255,.045) 78px 79px);
-      -webkit-mask-image:radial-gradient(circle at 50% 46%, #000 30%, transparent 72%);
-      mask-image:radial-gradient(circle at 50% 46%, #000 30%, transparent 72%);
-    }
     .signin-glow {
-      position:absolute; z-index:0; width:520px; height:520px; left:50%; top:46%;
-      transform:translate(-50%,-50%); border-radius:50%; filter:blur(80px); opacity:.28;
+      position:absolute; z-index:0; width:560px; height:560px; left:50%; top:46%;
+      transform:translate(-50%,-50%); border-radius:50%; filter:blur(90px); opacity:.30;
       background:radial-gradient(circle, #5b5fc7 0%, #06b6d4 55%, transparent 72%);
     }
-    .signin-mark-wrap {
-      position:relative; z-index:1; display:grid; place-items:center;
-      width:150px; height:150px; border-radius:50%;
-      background:radial-gradient(circle at 50% 40%, rgba(91,95,199,.22), transparent 70%);
-    }
     .signin-mark {
-      width:88px; height:88px; filter:brightness(0) invert(1)
-        drop-shadow(0 0 26px rgba(91,95,199,.55));
+      position:relative; z-index:1; width:min(240px, 34vw); height:auto;
+      filter:brightness(0) invert(1) drop-shadow(0 0 40px rgba(91,95,199,.5));
     }
     .signin-hero-copy {
       position:absolute; left:44px; right:44px; bottom:44px; z-index:1; max-width:520px;
