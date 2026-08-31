@@ -10241,16 +10241,29 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   setMorphoAmount(key: string, v: string): void {
     if (!this.isEditable()) return;
     if (this.getEditParam('max') === 'true') this.setEditParam('max', '');
-    // Typing a borrow amount by hand cancels the "borrow at Max" tracking.
-    if (key === 'borrowAmount') this.setEditParam('borrowMaxed', '');
+    // A borrow amount typed by hand: opt out of Max-tracking and never let it
+    // exceed the safe max the collateral supports (so the field stays enterable
+    // at any normal value, but the ceiling is enforced).
+    if (key === 'borrowAmount') {
+      this.setEditParam('borrowMaxed', '');
+      const max = this.morphoMaxBorrow();
+      const n = Number(v);
+      if (max != null && Number.isFinite(n) && n > max) {
+        const dec = Math.min(6, this.morphoMarket()?.loanDecimals ?? 6);
+        const factor = 10 ** dec;
+        v = String(Math.floor(max * factor) / factor);
+      }
+      this.setEditParam(key, v);
+      return;
+    }
     this.setEditParam(key, v);
     if (key === 'collateralAmount') this.syncMorphoBorrowToCollateral();
   }
 
-  /** Keep the borrow amount consistent with the collateral. By default the
-   *  borrow auto-fills to the safe max the collateral supports (and re-tracks as
-   *  the collateral changes); once the user types their own amount it's preserved
-   *  but clamped so it can never exceed what the collateral supports. */
+  /** Keep the borrow amount valid as the collateral changes. The field is NOT
+   *  auto-filled — the user enters their own amount — but a borrow taken via the
+   *  Max button re-pins to the new max, and any amount that would now exceed the
+   *  collateral's safe max is clamped down. */
   private syncMorphoBorrowToCollateral(): void {
     if (this.morphoKind() !== 'borrow') return;
     const max = this.morphoMaxBorrow();
@@ -10258,15 +10271,11 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const dec = Math.min(6, this.morphoMarket()?.loanDecimals ?? 6);
     const factor = 10 ** dec;
     const fmt = (n: number) => String(Math.floor(n * factor) / factor);
-    const raw = this.getEditParam('borrowAmount');
-    const cur = Number(raw);
-    const isEmpty = !raw || !(cur > 0);
-    // Auto-fill an untouched field, or keep a Max'd borrow pinned to the max.
-    if (isEmpty || this.getEditParam('borrowMaxed') === 'true') {
+    if (this.getEditParam('borrowMaxed') === 'true') {
       this.setEditParam('borrowAmount', fmt(max));
-      this.setEditParam('borrowMaxed', 'true');
       return;
     }
+    const cur = Number(this.getEditParam('borrowAmount'));
     if (Number.isFinite(cur) && cur > max) this.setEditParam('borrowAmount', fmt(max));
   }
   /** Max = wallet balance for spend-side actions (lend, borrow-collateral);
