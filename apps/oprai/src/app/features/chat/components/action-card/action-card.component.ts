@@ -3356,6 +3356,31 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (key === this.relayEvmBalanceKey) return;
     this.relayEvmBalanceKey = key;
 
+    // Robinhood Chain (4663): read the balance from our own RPC endpoint
+    // (server-side, chain 4663) rather than the wallet provider. The provider
+    // read only works when the wallet is already ON Robinhood — most wallets
+    // aren't, so the balance never showed. Our RPC always reads the right chain;
+    // the sign step switches the network. Other chains keep the provider read.
+    if (chain === 4663) {
+      try {
+        const isNative = /^0x0{40}$/.test(token);
+        const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance',
+          isNative ? { address: addr } : { address: addr, token }));
+        const bal = Number(r?.balance ?? r?.balanceEth);
+        this.relayEvmBalance.set(Number.isFinite(bal) ? bal : null);
+        this.relayEvmSymbol.set(this.relayTokenDisplay('originCurrency')?.symbol ?? '');
+      } catch {
+        this.relayEvmBalance.set(null);
+      }
+      // Still flag a wrong-network wallet so the Switch prompt can offer to fix
+      // it before signing (best-effort — the balance already showed regardless).
+      try {
+        const p = this.currentEvmProvider();
+        this.relayEvmChainMismatch.set(p ? Number(await p.request({ method: 'eth_chainId' })) !== chain : false);
+      } catch { this.relayEvmChainMismatch.set(false); }
+      return;
+    }
+
     const provider = this.currentEvmProvider();
     if (!provider) return;
     try {
