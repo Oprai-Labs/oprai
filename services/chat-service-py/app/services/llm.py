@@ -813,12 +813,20 @@ def _anthropic_split_system(messages: list[dict[str, str]]) -> tuple[list[dict],
         role = m["role"]
         if role not in ("user", "assistant"):
             role = "user"
-        non_system.append({"role": role, "content": m.get("content", "")})
+        content = m.get("content", "")
+        # Anthropic rejects a text content block that is empty or whitespace-only
+        # ("text content blocks must contain non-whitespace text") — one empty
+        # assistant turn in history (a prior turn that produced no text) 400'd the
+        # WHOLE next request ("something went wrong"). Substitute a minimal
+        # placeholder so the turn is kept and role alternation stays intact.
+        if not (isinstance(content, str) and content.strip()):
+            content = "(no response)"
+        non_system.append({"role": role, "content": content})
     # Anthropic requires the first message to be from "user". If callers handed
     # us only system prompts (no real turn yet), inject a noop user prompt to
-    # keep the API happy.
+    # keep the API happy (non-whitespace — a bare space is itself rejected).
     if not non_system:
-        non_system.append({"role": "user", "content": " "})
+        non_system.append({"role": "user", "content": "(start)"})
     return system_blocks, non_system
 
 

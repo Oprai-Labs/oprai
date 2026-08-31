@@ -1198,9 +1198,13 @@ async def _resolve_tier_daily_token_cap(wallet: str) -> int | None:
             row = (
                 await s.execute(
                     text(
+                        # MAX(): v_user_tier can return >1 row for a wallet (multiple
+                        # linked identities) — a bare scalar subquery then threw
+                        # CardinalityViolationError. Highest tier the wallet qualifies
+                        # for wins; NULL (no row) falls back to tier 1 via COALESCE.
                         "SELECT tc.daily_token_limit FROM analytics_schema.tier_config tc "
                         "WHERE tc.tier = COALESCE("
-                        "(SELECT tier FROM admin_schema.v_user_tier WHERE wallet = :w), 1)"
+                        "(SELECT MAX(tier) FROM admin_schema.v_user_tier WHERE wallet = :w), 1)"
                     ),
                     {"w": wallet},
                 )

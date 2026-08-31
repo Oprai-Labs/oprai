@@ -190,9 +190,16 @@ fn norm_token(t: &str) -> String {
         || s.eq_ignore_ascii_case(ZERO)
         || s.eq_ignore_ascii_case(NATIVE_SENTINEL)
     {
-        NATIVE_SENTINEL.to_string()
-    } else {
-        s.to_lowercase()
+        return NATIVE_SENTINEL.to_string();
+    }
+    // Resolve the well-known Robinhood-Chain symbols so the LLM (and the card)
+    // can pass a ticker instead of hunting for the address — "swap USDG to USDe
+    // on Sushi" should just work. Anything else is assumed to be an address.
+    match s.to_lowercase().as_str() {
+        "usdg" => "0x5fc5360d0400a0fd4f2af552add042d716f1d168".to_string(),
+        "usde" => "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34".to_string(),
+        "weth" | "weth.e" => SUSHI_WETH.to_string(),
+        other => other.to_string(),
     }
 }
 fn is_native(t: &str) -> bool {

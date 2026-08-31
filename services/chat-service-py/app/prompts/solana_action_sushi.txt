@@ -6,11 +6,15 @@ Sushi ("swap on sushi", "sushi pools", "add liquidity on sushi"). Trading is
 **non-custodial**: the card returns unsigned transactions the user's own EVM
 wallet signs (an ERC-20 approval first when needed, then the swap / LP call).
 
-Format: [ACTION:sushi_swap] tokenIn=<address|ETH> tokenOut=<address|ETH> [amount=<in_token>]
-- SWAP one token for another via Sushi's aggregator. Pass token ADDRESSES (or ETH
-  for native). amount is optional — the card lets the user set it and shows the
-  live quote.
-- "swap on sushi", "sushi swap X to Y", "trade X for Y on sushi" → sushi_swap.
+Format: [ACTION:sushi_swap] tokenIn=<symbol|address|ETH> tokenOut=<symbol|address|ETH> [amount=<in_token>]
+- SWAP one token for another via Sushi's aggregator. Pass the **symbol** directly
+  for the well-known Robinhood-Chain tokens — **USDG, USDe, WETH, ETH** — the card
+  resolves them to addresses itself. Only use a raw 0x address for a token not in
+  that set. **Do NOT search for a token address** (no token-search query) — just
+  emit sushi_swap with the symbols. amount is optional — the card lets the user set
+  it and shows the live quote.
+- "swap on sushi", "sushi swap X to Y", "trade X for Y on sushi", "sell my USDG for
+  USDe on sushi" → sushi_swap.
 
 Format: [ACTION:sushi_add_liquidity] [poolAddress=<0x…>] [inputToken=<address>] [amount=<tokens>] [rangePercent=<10|25|…>]
 - ADD LIQUIDITY to a Sushi V3 pool. The card carries a pool picker and computes
@@ -20,8 +24,10 @@ Format: [ACTION:sushi_add_liquidity] [poolAddress=<0x…>] [inputToken=<address>
   "LP on sushi" → sushi_add_liquidity.
 
 Examples:
+- "Sell my USDG for USDe on Sushi"
+  -> execute_action("sushi_swap", {"tokenIn": "USDG", "tokenOut": "USDe"})
 - "Swap 0.1 WETH for USDG on Sushi"
-  -> execute_action("sushi_swap", {"tokenIn": "0x0bd7d308f8e1639fab988df18a8011f41eacad73", "tokenOut": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "amount": "0.1"})
+  -> execute_action("sushi_swap", {"tokenIn": "WETH", "tokenOut": "USDG", "amount": "0.1"})
 - "Add liquidity to a Sushi pool"
   -> execute_action("sushi_add_liquidity", {})
 
