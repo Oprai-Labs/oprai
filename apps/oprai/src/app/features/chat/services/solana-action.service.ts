@@ -14,6 +14,8 @@ import { createSolanaConnection } from '@core/utils/solana-connection';
 import { assertEip712SignSafety } from '@core/utils/tx-safety-evm';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { splTransferDestinations, mainSplTransfer, type SplTransferDest } from '@core/utils/spl-transfer';
 
 export interface ValidatorInfo {
   voteAccount: string;
@@ -2197,7 +2199,7 @@ export class SolanaActionService {
     // otherwise a swapped-out tx could redirect the funds. Fails OPEN on anything
     // it can't cleanly decode (SPL/ATA, unusual shapes) so it never blocks a
     // legitimate action; it only stops a clear redirection.
-    this.verifyTransferWysiwys(deserializedTx, isVersioned, action, web3);
+    await this.verifyTransferWysiwys(deserializedTx, isVersioned, action, web3, connection);
 
     // The final step of a sequential action was built before the earlier steps
     // ran, so its blockhash is as old as their confirmations — refresh it here
@@ -5391,21 +5393,25 @@ export class SolanaActionService {
    * Fails OPEN: any decode uncertainty proceeds, so it never blocks a legit tx —
    * it only stops a clear fund-redirection.
    */
-  private verifyTransferWysiwys(
+  private async verifyTransferWysiwys(
     tx: VersionedTransaction | Transaction,
     isVersioned: boolean,
     action: { type: string; params: Record<string, any> },
     web3: any,
-  ): void {
+    connection: any,
+  ): Promise<void> {
     if (action.type !== 'transfer') return;
     const intended = String(
       action.params?.['to'] ?? action.params?.['recipient'] ?? action.params?.['destination'] ?? '',
     ).trim();
     if (!intended) return; // nothing to check against → fail-open
-    // SPL token transfers go to the recipient's associated token account, not the
-    // wallet address, so the wallet won't appear as a destination — skip those.
+    // SPL token transfers land in the recipient's token account, not their wallet,
+    // so verify that account is OWNED by the displayed recipient (separate path).
     const token = String(action.params?.['token'] ?? '').trim().toUpperCase();
-    if (token && token !== 'SOL') return;
+    if (token && token !== 'SOL') {
+      await this.verifySplTransferRecipient(tx, isVersioned, action, intended, connection);
+      return;
+    }
 
     let dests: { to: string; lamports: bigint }[];
     try {
@@ -5458,6 +5464,67 @@ export class SolanaActionService {
       }
     }
     return out;
+  }
+
+  /**
+   * WYSIWYS for an SPL-token transfer: the token account receiving the transfer
+   * must belong to the recipient the card displayed — otherwise a swapped-out tx
+   * could redirect the tokens to an attacker's account. Fails OPEN on anything it
+   * can't cleanly resolve (undecodable tx, unknown mint + uncreated destination,
+   * RPC failure) so it never blocks a legitimate transfer; it only stops a clear
+   * redirection to a token account owned by someone else.
+   */
+  private async verifySplTransferRecipient(
+    tx: VersionedTransaction | Transaction,
+    isVersioned: boolean,
+    action: { type: string; params: Record<string, any> },
+    intended: string,
+    connection: any,
+  ): Promise<void> {
+    let dests: SplTransferDest[];
+    try {
+      dests = splTransferDestinations(tx, isVersioned);
+    } catch {
+      return; // couldn't decode → fail-open
+    }
+    // The recipient gets the bulk; any other token transfer is a smaller fee leg.
+    const main = mainSplTransfer(dests);
+    if (!main) return; // no SPL transfer found → fail-open
+
+    // 1. Fast path (no RPC): if the mint is known, the destination must be the
+    //    recipient's canonical associated token account (Token or Token-2022).
+    const mintStr =
+      main.mint ??
+      [action.params?.['mint'], action.params?.['token']]
+        .map((v) => String(v ?? '').trim())
+        .find((v) => v.length >= 32 && v.length <= 44 && !v.includes(' '));
+    if (mintStr) {
+      try {
+        const rcpt = new PublicKey(intended);
+        const mint = new PublicKey(mintStr);
+        const ata = getAssociatedTokenAddressSync(mint, rcpt, true).toBase58();
+        const ata22 = getAssociatedTokenAddressSync(mint, rcpt, true, TOKEN_2022_PROGRAM_ID).toBase58();
+        if (main.dest === ata || main.dest === ata22) return; // recipient's own ATA → OK
+      } catch {
+        /* fall through to the authoritative owner check */
+      }
+    }
+
+    // 2. Authoritative: the destination token account's OWNER must be the
+    //    recipient. Catches a non-canonical account the derivation can't match.
+    let ownerMismatch = false;
+    try {
+      const info = await connection.getParsedAccountInfo(new PublicKey(main.dest));
+      const owner = info?.value?.data?.parsed?.info?.owner as string | undefined;
+      ownerMismatch = !!owner && owner !== intended;
+    } catch {
+      return; // RPC / parse failure → fail-open, never block a legit transfer
+    }
+    if (ownerMismatch) {
+      throw new Error(
+        'Bu işlem gösterilen alıcıya gitmiyor — güvenlik için imzalanmadı. Lütfen tekrar deneyin.',
+      );
+    }
   }
 
   private base64ToUint8Array(base64: string): Uint8Array {
