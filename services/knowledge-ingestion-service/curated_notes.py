@@ -148,6 +148,95 @@ If you provide liquidity and the two assets' prices diverge, you end up with les
 ## Rates and MEV
 **APR** is the simple annual rate; **APY** compounds it. **MEV** (maximal extractable value) is value bots extract by reordering or inserting transactions (e.g. sandwich attacks) — a reason slippage settings and private routing matter.
 """),
+
+ # ── trading / analysis education (neutral, educational — NOT financial advice) ──
+ "technical_analysis": ("Technical analysis — reading price charts", """
+# Technical analysis (TA) — reading price charts
+
+Technical analysis studies past **price and volume** to estimate probabilities for future moves. It is a lens, not a crystal ball — this is education, **not financial advice**, and in crypto (thin, volatile, manipulable markets) indicators can fail.
+
+## Candlesticks
+Each candle shows four prices for a period: **open, high, low, close**. The **body** is open→close (green/up if close>open, red/down otherwise); the thin **wicks** are the high and low. Common single/multi-candle shapes people watch: **doji** (indecision), **hammer** (rejection of lower prices), **engulfing** (a large candle swallowing the previous one, a possible reversal).
+
+## Trend, support and resistance
+An **uptrend** makes higher highs and higher lows; a **downtrend** the reverse; sideways = range. **Support** is a price floor where buyers have stepped in before; **resistance** is a ceiling where sellers appeared. Broken support often flips to resistance and vice-versa.
+
+## Indicators
+- **Moving averages (MA)** — the average price over N periods; **SMA** is simple, **EMA** weights recent prices more. The 50 and 200 MAs are widely watched; a shorter MA crossing above a longer one is a "golden cross" (bullish by convention), below is a "death cross".
+- **RSI** (Relative Strength Index, 0–100) — momentum; conventionally <30 is called "oversold" and >70 "overbought", but strong trends can stay extreme for a long time.
+- **MACD** — the relationship between two EMAs; used to read momentum shifts and crossovers.
+- **Volume** — confirms moves; a breakout on high volume is taken more seriously than one on low volume.
+
+## Timeframes & caveats
+Higher timeframes (4h, 1D) are generally more reliable than 1m. TA is **probabilistic**: indicators lag, patterns fail, and no signal guarantees an outcome. Combine it with fundamentals and risk management, never bet more than you can lose.
+"""),
+ "fundamental_analysis": ("Fundamental analysis — valuing a crypto token", """
+# Fundamental analysis (FA) — is a token's value justified?
+
+Fundamental analysis judges a token from its **supply, usage, and team** rather than its chart. Education, **not financial advice**.
+
+## Valuation: market cap vs FDV
+- **Market cap** = price × **circulating** supply — what the market currently values the float at.
+- **FDV** (fully diluted valuation) = price × **total/max** supply — the value if every token were in circulation.
+- A large gap (FDV ≫ market cap) means most tokens are **not yet circulating** — future unlocks/emissions can add sell pressure and dilute holders. A "low market cap" that hides a huge FDV is a common trap.
+
+## Tokenomics
+- **Supply**: circulating / total / max; is it fixed or inflationary?
+- **Emissions / inflation**: new tokens minted over time (e.g. LP or staking rewards) dilute holders unless demand grows faster.
+- **Vesting & unlocks**: team/investor allocations that unlock on a schedule — a **cliff** unlock can dump large supply at once; check the unlock calendar.
+- **Allocation**: how much went to team, investors, treasury, community — heavy insider allocation is a risk.
+
+## Usage & value capture
+- **TVL** (total value locked), active users, and **volume** show real usage.
+- **Protocol revenue / fees** — does the protocol earn real money, and does the token capture any of it ("real yield" vs pure emissions)? A mcap-to-fees ratio is a rough "P/S".
+- **Holder distribution** — concentration among a few whales is fragile.
+- **Utility & moat** — what does the token actually do (governance, fees, staking, collateral), and can competitors copy it?
+
+## Caveat
+Narratives and hype move crypto short-term; fundamentals matter more over time. FA informs, it does not decide — do your own research.
+"""),
+ "risk_management": ("Risk management and trading discipline", """
+# Risk management and trading discipline
+
+The single biggest difference between surviving and blowing up is **risk management**, not picking winners. This is education, **not financial advice**.
+
+## Core rules
+- **Only invest what you can afford to lose.** Crypto is high-risk and can go to zero.
+- **Position sizing** — risk only a small fraction of your capital on any single trade/token, so no one loss is fatal.
+- **Stop-loss** — decide your exit *before* you enter; a plan removes emotion. Weigh **risk/reward**: risking $1 to make $3 (1:3) needs to be right far less often than 1:1.
+- **Don't over-leverage** — leverage multiplies gains AND losses, and a small adverse move can **liquidate** the whole position.
+- **Diversify** — don't put everything in one token or one chain.
+- **Take profits** — unrealized gains are not real until you exit.
+
+## Psychology (the quiet account-killers)
+- **FOMO** (chasing a pump), **revenge trading** (over-sizing to win back a loss), and **confirmation bias** (only reading bullish takes) destroy more accounts than bad analysis.
+
+## Security is risk management too
+Self-custody your keys, verify contract addresses from official sources, check a token for honeypot/rug signals before buying, and never sign a transaction you don't understand.
+"""),
+ "defi_advanced": ("DeFi in depth — yield, staking, stablecoins, bridges, oracles", """
+# DeFi in depth
+
+## Where yield comes from
+Real DeFi yield has sources: **trading fees** (to liquidity providers), **lending interest** (from borrowers), **staking rewards** (for securing a chain), and **incentive emissions** (a protocol printing its own token to attract liquidity). "**Real yield**" is paid from actual fees/revenue; emission yield can evaporate and dilute you — always ask *where the yield comes from*.
+
+## Staking and liquid staking
+- **Native staking** locks a token to secure the network for rewards (illiquid while staked).
+- **Liquid staking** gives you a tradeable receipt token — **LSTs** like mSOL (Marinade), JitoSOL (Jito), JupSOL, or Sanctum's — so you earn staking yield and can still use the token in DeFi.
+- **Restaking / LRTs** reuse staked assets to secure additional services for extra yield and extra risk.
+
+## Stablecoins (not all equal)
+- **Fiat-backed** (USDC, USDT, USDG) — a company holds reserves; risk is trust/regulation/de-peg.
+- **Crypto-collateralized** (e.g. DAI) — over-collateralized by crypto; risk is collateral crashes.
+- **Algorithmic** — maintain the peg with mechanisms/other tokens; historically the riskiest (some have collapsed to zero).
+
+## Infrastructure & risks
+- **Bridges** move assets between chains; they are a top hack target — prefer well-audited routes (OPRAI uses Relay on EVM).
+- **Oracles** feed off-chain prices on-chain; a manipulated oracle can drain a lending market.
+- **Smart-contract risk** — bugs/exploits; prefer audited, battle-tested protocols.
+- **Delta-neutral / looping** — hedged or leveraged-loop strategies that chase yield while trying to limit price exposure; they add liquidation and complexity risk.
+- **Governance** — token-holders vote on parameters; concentrated voting power is a centralization risk.
+"""),
 }
 
 TAGS = {
@@ -158,6 +247,10 @@ TAGS = {
  "robinhood_chain": ["robinhood-chain","chain-4663","usdg","weth","ecosystem"],
  "security": ["security","honeypot","rug","scam","risk","safety"],
  "defi_education": ["defi","education","amm","impermanent-loss","slippage","liquidation","perps","apy"],
+ "technical_analysis": ["technical-analysis","ta","chart","candlestick","rsi","macd","moving-average","trading"],
+ "fundamental_analysis": ["fundamental-analysis","fa","tokenomics","market-cap","fdv","unlocks","tvl","valuation"],
+ "risk_management": ["risk-management","position-sizing","stop-loss","leverage","psychology","trading"],
+ "defi_advanced": ["defi","yield","staking","lst","restaking","stablecoin","bridge","oracle","governance"],
 }
 
 
