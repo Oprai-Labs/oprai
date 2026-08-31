@@ -2,9 +2,7 @@
 
 <img src="packages/media/oprai_banner.svg" alt="OPRAI" width="820">
 
-| 🟣 &nbsp; $OPRAI · Contract Address · Robinhood Chain &nbsp; 🟣 |
-| :---: |
-| **`0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac`** |
+**CA:** `0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac`
 
 ### Talk to your wallet.
 
