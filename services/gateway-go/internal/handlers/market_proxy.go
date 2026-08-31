@@ -2145,6 +2145,13 @@ func rpcMethodBlocked(body []byte) string {
 		}
 		reqs = []map[string]json.RawMessage{one}
 	}
+	// Batch element cap: one accepted HTTP request must not fan out to an
+	// unbounded number of upstream (metered) sub-calls. The 1 MB body limit still
+	// admits hundreds of cheap calls, so bound the count too.
+	const maxRPCBatch = 50
+	if len(reqs) > maxRPCBatch {
+		return fmt.Sprintf("batch of %d calls exceeds the %d-call limit", len(reqs), maxRPCBatch)
+	}
 	for _, req := range reqs {
 		var method string
 		if raw, ok := req["method"]; ok {
