@@ -46,6 +46,8 @@ const SEL_APPROVE: &str = "095ea7b3";
 const SEL_ALLOWANCE: &str = "0xdd62ed3e";
 const SEL_DECIMALS: &str = "0x313ce567";
 const SEL_MINT: &str = "88316456"; // mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))
+const SEL_DECREASE: &str = "0c49ccbe"; // decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))
+const SEL_COLLECT: &str = "fc6f7865"; // collect((uint256,address,uint128,uint128))
                                    // V3 pool view selectors
 const SEL_SLOT0: &str = "0x3850c7bd"; // slot0()->(sqrtPriceX96, tick, ...)
 const SEL_FEE: &str = "0xddca3f43"; // fee()
@@ -785,6 +787,78 @@ pub async fn quote_add_liquidity(http: &reqwest::Client, body: &Value) -> Result
         "tickUpper": tu,
         "token0": { "address": p.token0, "amountBaseUnits": amount0.to_string(), "decimals": dec0 },
         "token1": { "address": p.token1, "amountBaseUnits": amount1.to_string(), "decimals": dec1 },
+    }))
+}
+
+/// Build a Sushi V3 remove-liquidity: decreaseLiquidity(pct of the position's
+/// current liquidity) + collect (sweep the freed tokens + owed fees to the
+/// wallet). Body: {tokenId, walletAddress, percent?(1-100, default 100)}. Two
+/// txs — decrease must confirm before collect. amountMin=0 (you're withdrawing
+/// your own tokens; the split follows the live price).
+pub async fn build_remove_liquidity(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
+    let rpc = rpc();
+    let wallet = body
+        .get("walletAddress")
+        .and_then(|v| v.as_str())
+        .filter(|s| s.starts_with("0x") && s.len() == 42)
+        .ok_or_else(|| AppError::InvalidParams("sushi: walletAddress required".into()))?;
+    let token_id = body
+        .get("tokenId")
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::InvalidParams("sushi: tokenId required".into()))?;
+    let tid = to_u128(&token_id);
+    let percent = body
+        .get("percent")
+        .and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .unwrap_or(100.0)
+        .clamp(1.0, 100.0);
+
+    // Current liquidity is word 7 of positions(tokenId).
+    let pos = eth_call(http, &rpc, SUSHI_V3_NPM, &format!("{SEL_POSITIONS}{}", w_u128(tid))).await?;
+    let liquidity = word_u128(&pos, 7);
+    if liquidity == 0 {
+        return Err(AppError::InvalidParams(
+            "sushi: this position has no liquidity to remove".into(),
+        ));
+    }
+    let remove_liq = (((liquidity as f64) * (percent / 100.0)) as u128)
+        .max(1)
+        .min(liquidity);
+
+    let deadline = 1_900_000_000u128; // year 2030; the card is short-lived.
+    let dec_data = format!(
+        "{SEL_DECREASE}{}{}{}{}{}",
+        w_u128(tid),
+        w_u128(remove_liq),
+        w_u128(0), // amount0Min
+        w_u128(0), // amount1Min
+        w_u128(deadline),
+    );
+    // collect everything the decrease frees, plus any owed fees, to the wallet.
+    let col_data = format!(
+        "{SEL_COLLECT}{}{}{}{}",
+        w_u128(tid),
+        w_addr(wallet),
+        w_u128(u128::MAX), // amount0Max
+        w_u128(u128::MAX), // amount1Max
+    );
+    let txs = vec![
+        json!({ "to": SUSHI_V3_NPM, "data": format!("0x{dec_data}"), "value": "0", "chainId": CHAIN }),
+        json!({ "to": SUSHI_V3_NPM, "data": format!("0x{col_data}"), "value": "0", "chainId": CHAIN }),
+    ];
+    Ok(json!({
+        "transactions": txs,
+        "chainId": CHAIN,
+        "tokenId": token_id,
+        "percent": percent,
     }))
 }
 

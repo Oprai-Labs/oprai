@@ -3870,6 +3870,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     };
     this.useAction.emit({ type: 'sushi_add_liquidity', params, raw: `[ACTION:sushi_add_liquidity] ${JSON.stringify(params)}` });
   }
+
+  /** Open the Sushi remove-liquidity card for a position. */
+  sushiRemoveLiqFromPos(p: SushiPositionRow): void {
+    const params: Record<string, string> = {
+      tokenId: String(p.tokenId ?? ''),
+      poolAddress: p.poolAddress,
+      tokenInSymbol: p.token0?.symbol ?? '',
+      tokenOutSymbol: p.token1?.symbol ?? '',
+      valueUsd: String(p.valueUsd ?? ''),
+      percent: '100',
+    };
+    this.useAction.emit({ type: 'sushi_remove_liquidity', params, raw: `[ACTION:sushi_remove_liquidity] ${JSON.stringify(params)}` });
+  }
   sushiUsd(v: unknown): string {
     const n = Number(v);
     if (!(n > 0)) return '$0';

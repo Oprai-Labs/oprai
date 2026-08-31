@@ -3423,7 +3423,8 @@
                   }
                 </div>
                 <div class="mq-actions">
-                  <button class="mq-btn mq-btn--lend" type="button" (click)="sushiAddLiqFromPos(p)">{{ 'Add liquidity' | t }}</button>
+                  <button class="mq-btn mq-btn--lend" type="button" (click)="sushiAddLiqFromPos(p)">{{ 'Add' | t }}</button>
+                  <button class="mq-btn mq-btn--borrow" type="button" (click)="sushiRemoveLiqFromPos(p)">{{ 'Remove' | t }}</button>
                 </div>
               </div>
             }

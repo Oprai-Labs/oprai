@@ -267,6 +267,7 @@ function getActionLabel(action: ParsedAction): string {
     morpho_repay: 'Repay (Morpho)', morpho_withdraw: 'Withdraw (Morpho)',
     // SushiSwap (Robinhood Chain)
     sushi_swap: 'Swap (Sushi)', sushi_add_liquidity: 'Add Liquidity (Sushi)',
+    sushi_remove_liquidity: 'Remove Liquidity (Sushi)',
     // OpenSea (Robinhood Chain)
     opensea_buy: 'Buy NFT (OpenSea)',
     jupsol_stake: 'Stake for jupSOL', jupsol_unstake: 'Unstake jupSOL',
@@ -10579,6 +10580,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isSushiAction = computed(() => (this.action?.type ?? '').startsWith('sushi_'));
   readonly isSushiSwap = computed(() => this.action?.type === 'sushi_swap');
   readonly isSushiAddLiq = computed(() => this.action?.type === 'sushi_add_liquidity');
+  readonly isSushiRemove = computed(() => this.action?.type === 'sushi_remove_liquidity');
+  /** Remove-liquidity %: default 100 (close the whole position). */
+  sushiRemovePct(): number { return Number(this.getEditParam('percent')) || 100; }
+  setSushiRemovePct(pct: number): void { if (this.isEditable()) this.setEditParam('percent', String(pct)); }
 
   // swap state
   readonly sushiPayBal = signal<number | null>(null);
@@ -10660,10 +10665,12 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
         if (amt && +amt > 0) this.queueSushiQuote();
       });
       void this.refreshSushiPayBalance();
-    } else {
+    } else if (this.isSushiAddLiq()) {
       void this.refreshSushiPools();
       if (this.getEditParam('poolAddress')) void this.refreshSushiLpBalances();
     }
+    // sushi_remove_liquidity needs no prefetch — tokenId + percent are all the
+    // build requires; the backend reads the position's current liquidity.
   }
 
   private async resolveSushiSwapDecimals(): Promise<void> {

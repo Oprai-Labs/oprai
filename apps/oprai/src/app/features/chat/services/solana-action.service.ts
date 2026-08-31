@@ -1567,7 +1567,7 @@ export class SolanaActionService {
     }
     // SushiSwap — EVM (Robinhood Chain 4663). Swap + V3 add-liquidity; backend
     // returns unsigned txs (approval? + the call). Route out before the Solana guard.
-    if (action.type === 'sushi_swap' || action.type === 'sushi_add_liquidity') {
+    if (action.type === 'sushi_swap' || action.type === 'sushi_add_liquidity' || action.type === 'sushi_remove_liquidity') {
       return this.executeSushi(action, callbacks);
     }
     // OpenSea NFT marketplace — EVM (Robinhood Chain 4663). Buy/accept-offer are
@@ -3465,6 +3465,7 @@ export class SolanaActionService {
     const p = action.params;
     const chainId = 4663;
     const isSwap = action.type === 'sushi_swap';
+    const isRemove = action.type === 'sushi_remove_liquidity';
 
     const ethereum = await this.walletService.resolveEvmProvider();
     if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to use Sushi on Robinhood Chain.');
@@ -3500,6 +3501,9 @@ export class SolanaActionService {
       reqBody['tokenOut'] = String(p['tokenOut'] ?? '');
       fwd('amount'); fwd('amountBaseUnits'); fwd('slippagePct');
       endpoint = '/actions/sushi/swap';
+    } else if (isRemove) {
+      fwd('tokenId'); fwd('percent');
+      endpoint = '/actions/sushi/remove-liquidity';
     } else {
       fwd('poolAddress'); fwd('inputToken'); fwd('amount'); fwd('amountBaseUnits');
       fwd('rangePercent'); fwd('slippagePct');
@@ -3511,7 +3515,7 @@ export class SolanaActionService {
     if (txs.length === 0) throw new Error('Sushi: no transaction was returned.');
 
     callbacks.onSign?.();
-    const verb = isSwap ? 'swap' : 'add liquidity';
+    const verb = isSwap ? 'swap' : isRemove ? 'remove liquidity' : 'add liquidity';
     let lastHash = '';
     for (let i = 0; i < txs.length; i++) {
       const tx = txs[i];

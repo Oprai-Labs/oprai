@@ -2225,6 +2225,20 @@ pub async fn post_sushi_liquidity_quote(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/sushi/remove-liquidity — Sushi V3 remove-liquidity (decrease +
+/// collect) for a position NFT. Returns unsigned txs. Body: {tokenId,
+/// walletAddress, percent?}.
+#[post("/sushi/remove-liquidity")]
+pub async fn post_sushi_remove_liquidity(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
+    let result = crate::services::sushi::build_remove_liquidity(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/opensea/buy — fulfill an OpenSea listing (Seaport) on Robinhood
 /// Chain. Returns an unsigned tx the user's wallet signs.
 #[post("/opensea/buy")]

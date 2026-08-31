@@ -330,6 +330,13 @@ func (p *SolanaProxy) PostSushiLiquidityQuote(w http.ResponseWriter, r *http.Req
 	p.proxy.ServeHTTP(w, r)
 }
 
+// PostSushiRemoveLiquidity proxies the Sushi V3 remove-liquidity build (decrease
+// + collect) — unsigned EVM txs.
+func (p *SolanaProxy) PostSushiRemoveLiquidity(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/sushi/remove-liquidity"
+	p.proxy.ServeHTTP(w, r)
+}
+
 // OpenSea (Seaport) — full marketplace on Robinhood Chain (unsigned txs / signed orders).
 func (p *SolanaProxy) PostOpenseaBuy(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/opensea/buy"
