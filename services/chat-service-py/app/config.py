@@ -125,9 +125,10 @@ class Settings(BaseSettings):
     MAGIC_EDEN_API_KEY: str = ""
 
     # Lighter perps (Robinhood Chain domain). The agent-key store is encrypted
-    # at rest with this key (urlsafe-base64, 32 bytes). If unset, a key is
-    # derived deterministically from OPRAI_JWT_SECRET so the feature works
-    # without extra config — but a dedicated key is strongly preferred in prod.
+    # at rest with this key (Fernet: urlsafe-base64, 32 bytes). REQUIRED — it
+    # must be its own dedicated secret, distinct from OPRAI_JWT_SECRET; the code
+    # fails closed if it is unset rather than reusing the JWT secret. Generate
+    # with `Fernet.generate_key()`.
     OPRAI_LIGHTER_ENC_KEY: str = ""
 
     # CORS: comma-separated list of allowed origins.

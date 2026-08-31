@@ -10,6 +10,7 @@ is configured.
 
 import logging
 import os
+import secrets
 from concurrent import futures
 
 import grpc
@@ -23,6 +24,68 @@ from app.services.summary import SummaryService
 from app.services.vector import VectorService
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Auth interceptor ─────────────────────────────────────────────────────────
+
+
+class _InternalAuthInterceptor(grpc_aio.ServerInterceptor):
+    """Require the shared internal API key on EVERY gRPC call.
+
+    The memory servicers below (vector Store/Search/**Delete**, consent
+    Get/Update) are implemented but not yet registered. They must NOT become
+    reachable by every container on the docker network the moment someone
+    uncomments the registration lines, so the interceptor is wired in NOW —
+    mirroring the chat-service HTTP `require_auth` constant-time internal-key
+    check. Fail-closed: an unset key denies all calls. The only current gRPC
+    "client" is the gateway health check (``conn.GetState()``, no RPC method),
+    so requiring the key breaks no legitimate caller.
+    """
+
+    def __init__(self, expected_key: str) -> None:
+        self._expected = expected_key
+
+    def _authed(self, metadata) -> bool:
+        key = dict(metadata or ()).get("x-internal-api-key")
+        return bool(self._expected) and bool(key) and secrets.compare_digest(key, self._expected)
+
+    async def intercept_service(self, continuation, handler_call_details):
+        handler = await continuation(handler_call_details)
+        if handler is None:
+            return handler
+
+        authed = self._authed
+
+        if handler.unary_unary is not None:
+            inner = handler.unary_unary
+
+            async def _uu(request, context):
+                if not authed(context.invocation_metadata()):
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "internal api key required")
+                return await inner(request, context)
+
+            return grpc.unary_unary_rpc_method_handler(
+                _uu,
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+
+        if handler.unary_stream is not None:
+            inner_stream = handler.unary_stream
+
+            async def _us(request, context):
+                if not authed(context.invocation_metadata()):
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "internal api key required")
+                async for resp in inner_stream(request, context):
+                    yield resp
+
+            return grpc.unary_stream_rpc_method_handler(
+                _us,
+                request_deserializer=handler.request_deserializer,
+                response_serializer=handler.response_serializer,
+            )
+
+        return handler
 
 
 class MemoryServicer:
@@ -136,6 +199,7 @@ async def start_grpc_server() -> grpc_aio.Server:
     """
     server = grpc_aio.server(
         futures.ThreadPoolExecutor(max_workers=10),
+        interceptors=[_InternalAuthInterceptor(settings.OPRAI_INTERNAL_API_KEY)],
         options=[
             ("grpc.max_send_message_length", 50 * 1024 * 1024),
             ("grpc.max_receive_message_length", 50 * 1024 * 1024),
@@ -146,6 +210,9 @@ async def start_grpc_server() -> grpc_aio.Server:
     #   memory_pb2_grpc.add_MemoryServiceServicer_to_server(MemoryServicer(), server)
     #   memory_pb2_grpc.add_ConsentServiceServicer_to_server(ConsentServicer(), server)
     #   memory_pb2_grpc.add_SummaryServiceServicer_to_server(SummaryServicer(), server)
+    # The _InternalAuthInterceptor above is ALREADY wired, so the moment these
+    # servicers are registered they are auth-gated (X-Internal-Api-Key required)
+    # — do not remove it when enabling them.
 
     # Bind to loopback only — same reasoning as chat-service: macOS's
     # ephemeral port range (49152+) overlaps these service ports, so any

@@ -259,11 +259,20 @@ pub async fn build_swap(http: &reqwest::Client, body: &Value) -> Result<Value, A
         return Err(AppError::InvalidParams("sushi: amount required".into()));
     }
 
-    let url = format!(
-        "{SWAP_API}?tokenIn={token_in}&tokenOut={token_out}&amount={amount}&maxSlippage={max_slippage}&sender={wallet}"
-    );
+    // Build the query with reqwest's serializer so every value is
+    // percent-encoded — a token/sender string containing `&` or `=` cannot
+    // inject or override other query params (the base host stays fixed).
+    let amount_s = amount.to_string();
+    let slippage_s = format!("{max_slippage}");
     let resp = http
-        .get(&url)
+        .get(SWAP_API)
+        .query(&[
+            ("tokenIn", token_in.as_str()),
+            ("tokenOut", token_out.as_str()),
+            ("amount", amount_s.as_str()),
+            ("maxSlippage", slippage_s.as_str()),
+            ("sender", wallet),
+        ])
         .timeout(std::time::Duration::from_secs(20))
         .send()
         .await

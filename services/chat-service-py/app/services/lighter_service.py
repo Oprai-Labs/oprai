@@ -14,8 +14,6 @@ Security model (see also lighter_account.py / lighter_client.py):
 """
 from __future__ import annotations
 
-import base64
-import hashlib
 import logging
 
 from sqlalchemy import select
@@ -34,10 +32,19 @@ def _fernet():
 
     key = (settings.OPRAI_LIGHTER_ENC_KEY or "").strip()
     if not key:
-        # Deterministic fallback so the feature works without extra config.
-        secret = (settings.OPRAI_JWT_SECRET or "oprai-lighter").encode()
-        key = base64.urlsafe_b64encode(hashlib.sha256(secret).digest()).decode()
-        log.warning("OPRAI_LIGHTER_ENC_KEY unset — deriving agent-key cipher from JWT secret")
+        # No silent fallback. The agent-key cipher must be its OWN secret, never
+        # derived from the JWT signing secret: the JWT secret lives in several
+        # services and on every request path, so reusing it collapses two trust
+        # domains — a DB dump plus the (widely-present) JWT secret would decrypt
+        # every user's agent key. Encryption-at-rest is only meaningful when this
+        # key's exposure surface is narrower than the data it protects, so require
+        # a dedicated one and fail closed if it is missing.
+        raise RuntimeError(
+            "OPRAI_LIGHTER_ENC_KEY is not set. Generate a dedicated key with "
+            '`python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"` and set it in the environment '
+            "(distinct from OPRAI_JWT_SECRET) before using Lighter perps."
+        )
     return Fernet(key.encode() if isinstance(key, str) else key)
 
 
