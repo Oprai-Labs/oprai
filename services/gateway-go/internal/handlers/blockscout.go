@@ -1,12 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/big"
 	"net/http"
-	"strconv"
+	"os"
 	"strings"
 )
 
@@ -65,59 +66,117 @@ type blockscoutTokenBalance struct {
 	} `json:"token"`
 }
 
-// fetchRobinhoodTokens returns the wallet's native + ERC-20 holdings on Robinhood
-// Chain as evmToken rows, plus their non-spam USD total.
-func (m *MarketProxy) fetchRobinhoodTokens(r *http.Request, address string) ([]evmToken, float64) {
-	tokens := make([]evmToken, 0, 8)
+// Robinhood JSON-RPC. Blockscout's REST API Cloudflare-blocks datacenter IPs
+// (403 from the server), so balances came back empty and the chat never saw a
+// user's Robinhood holdings. The chain's JSON-RPC node is NOT blocked, so read
+// balances there instead: native via eth_getBalance, ERC-20 via balanceOf over a
+// curated list (Alchemy doesn't index 4663, so there's no enumeration API — the
+// tokens that matter on Robinhood are few and known).
+const robinhoodRPCDefault = "https://rpc.mainnet.chain.robinhood.com"
+
+func robinhoodRPCURL() string {
+	if v := strings.TrimSpace(os.Getenv("ROBINHOOD_RPC")); v != "" {
+		return v
+	}
+	return robinhoodRPCDefault
+}
+
+// robinhoodRPC makes one JSON-RPC call and returns the `result` string.
+func (m *MarketProxy) robinhoodRPC(r *http.Request, method string, params []any) (string, bool) {
+	reqBody, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+	if err != nil {
+		return "", false
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, robinhoodRPCURL(), bytes.NewReader(reqBody))
+	if err != nil {
+		return "", false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Warn("robinhood rpc error", "method", method, "error", err)
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("robinhood rpc non-200", "method", method, "status", resp.StatusCode)
+		return "", false
+	}
+	var out struct {
+		Result string `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || out.Error != nil {
+		return "", false
+	}
+	return out.Result, true
+}
+
+// hexToFloat scales a 0x-hex quantity by 10^decimals.
+func hexToFloat(hexStr string, decimals int) float64 {
+	hexStr = strings.TrimPrefix(strings.TrimSpace(hexStr), "0x")
+	if hexStr == "" {
+		return 0
+	}
+	bal, ok := new(big.Int).SetString(hexStr, 16)
+	if !ok || bal.Sign() == 0 {
+		return 0
+	}
+	denom := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
+	f := new(big.Float).Quo(new(big.Float).SetInt(bal), denom)
+	v, _ := f.Float64()
+	return v
+}
+
+// fetchRobinhoodTokens returns the wallet's native + curated ERC-20 holdings on
+// Robinhood Chain (via JSON-RPC), plus their USD total. `ethPrice` is the live
+// mainnet ETH price (passed in from the Alchemy portfolio) — Robinhood ETH is the
+// bridged same asset. USDG/USDe are dollar-pegged, so priced at $1.
+func (m *MarketProxy) fetchRobinhoodTokens(r *http.Request, address string, ethPrice float64) ([]evmToken, float64) {
+	tokens := make([]evmToken, 0, 4)
 	var totalUsd float64
 
-	// Native ETH balance + its USD price.
-	if addr := m.blockscoutAddress(r, address); addr != nil {
-		amt := bigStrToFloat(addr.CoinBalance, 18)
-		if amt > 0 {
-			price := parseFloat(addr.ExchangeRate)
-			val := amt * price
+	if res, ok := m.robinhoodRPC(r, "eth_getBalance", []any{address, "latest"}); ok {
+		if amt := hexToFloat(res, 18); amt > 0 {
+			val := amt * ethPrice
 			totalUsd += val
 			tokens = append(tokens, evmToken{
 				Chain: robinhoodChain, Network: robinhoodChain, Address: "native",
 				Symbol: robinhoodNativeSymbol, Name: robinhoodNativeName, Decimals: 18,
 				Logo: tokenLogo(robinhoodChain, "", true),
-				UIAmount: amt, PriceUsd: price, ValueUsd: val, Native: true, Spam: false,
+				UIAmount: amt, PriceUsd: ethPrice, ValueUsd: val, Native: true,
 			})
 		}
 	}
 
-	// ERC-20 balances (with metadata + exchange_rate from Blockscout).
-	var balances []blockscoutTokenBalance
-	if !m.blockscoutGet(r, fmt.Sprintf("/addresses/%s/token-balances", address), &balances) {
-		return tokens, totalUsd
+	padded := "000000000000000000000000" + strings.ToLower(strings.TrimPrefix(address, "0x"))
+	curated := []struct {
+		symbol, name, addr string
+		decimals           int
+		price              float64
+	}{
+		{"USDG", "Global Dollar", "0x5fc5360d0400a0fd4f2af552add042d716f1d168", 6, 1.0},
+		{"USDe", "Ethena USDe", "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34", 18, 1.0},
+		{"WETH", "Wrapped Ether", "0x0bd7d308f8e1639fab988df18a8011f41eacad73", 18, ethPrice},
 	}
-	for _, b := range balances {
-		if b.Token.Type != "" && b.Token.Type != "ERC-20" {
-			continue // NFTs handled separately
+	for _, t := range curated {
+		res, ok := m.robinhoodRPC(r, "eth_call", []any{map[string]string{"to": t.addr, "data": "0x70a08231" + padded}, "latest"})
+		if !ok {
+			continue
 		}
-		decimals := 18
-		if d, err := strconv.Atoi(strings.TrimSpace(b.Token.Decimals)); err == nil && d >= 0 && d <= 36 {
-			decimals = d
-		}
-		amt := bigStrToFloat(b.Value, decimals)
+		amt := hexToFloat(res, t.decimals)
 		if amt <= 0 {
 			continue
 		}
-		price := parseFloat(b.Token.ExchangeRate)
-		val := amt * price
-		spam := looksSpam(b.Token.Symbol, b.Token.Name, false, price)
-		if !spam {
-			totalUsd += val
-		}
-		logo := b.Token.IconURL
-		if logo == "" {
-			logo = tokenLogo(robinhoodChain, b.Token.AddressHash, false)
-		}
+		val := amt * t.price
+		totalUsd += val
 		tokens = append(tokens, evmToken{
-			Chain: robinhoodChain, Network: robinhoodChain, Address: b.Token.AddressHash,
-			Symbol: b.Token.Symbol, Name: b.Token.Name, Decimals: decimals, Logo: logo,
-			UIAmount: amt, PriceUsd: price, ValueUsd: val, Native: false, Spam: spam,
+			Chain: robinhoodChain, Network: robinhoodChain, Address: t.addr,
+			Symbol: t.symbol, Name: t.name, Decimals: t.decimals,
+			Logo: tokenLogo(robinhoodChain, t.addr, false),
+			UIAmount: amt, PriceUsd: t.price, ValueUsd: val, Native: false,
 		})
 	}
 	return tokens, totalUsd

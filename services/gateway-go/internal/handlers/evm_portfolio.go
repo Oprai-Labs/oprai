@@ -246,9 +246,19 @@ func (m *MarketProxy) GetEvmPortfolio(w http.ResponseWriter, r *http.Request) {
 
 	out := normalizeEVMPortfolio(address, &parsed)
 
-	// Robinhood Chain is not indexed by Alchemy — read it from its Blockscout and
-	// merge into the same multichain response. A miss returns nothing, never fails.
-	if rhTokens, rhUsd := m.fetchRobinhoodTokens(r, address); len(rhTokens) > 0 {
+	// Robinhood Chain is not indexed by Alchemy — read it over JSON-RPC and merge
+	// into the same multichain response. A miss returns nothing, never fails.
+	// Reuse the live mainnet ETH price for Robinhood's (bridged, same) ETH.
+	ethPrice := 0.0
+	if toks, ok := out["tokens"].([]evmToken); ok {
+		for _, t := range toks {
+			if t.Native && t.PriceUsd > 0 {
+				ethPrice = t.PriceUsd
+				break
+			}
+		}
+	}
+	if rhTokens, rhUsd := m.fetchRobinhoodTokens(r, address, ethPrice); len(rhTokens) > 0 {
 		if toks, ok := out["tokens"].([]evmToken); ok {
 			toks = append(toks, rhTokens...)
 			sort.SliceStable(toks, func(i, j int) bool { return toks[i].ValueUsd > toks[j].ValueUsd })
