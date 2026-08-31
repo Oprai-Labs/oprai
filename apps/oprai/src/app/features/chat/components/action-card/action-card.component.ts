@@ -38,7 +38,7 @@ import { firstValueFrom, timeout } from 'rxjs';
 import { createSolanaConnection } from '@core/utils/solana-connection';
 import { PublicKey } from '@solana/web3.js';
 import { sanitizeErrorMessage, ACTION_MIN_AMOUNT } from '@core/utils/error-messages';
-import { TPipe } from '@core/i18n';
+import { TPipe, TranslateService } from '@core/i18n';
 
 const ACTION_RESULTS_KEY = 'oprai-action-results';
 
@@ -142,6 +142,25 @@ const EVM_EXPLORERS: Record<number, string> = {
   324: 'https://explorer.zksync.io',
   42220: 'https://celoscan.io',
   4663: 'https://robinhoodchain.blockscout.com',
+};
+
+/** Display name of each chain's explorer — so a timed-out/failed message names
+ * the RIGHT scanner (an EVM tx never belongs to Solscan). */
+const EVM_EXPLORER_NAMES: Record<number, string> = {
+  1: 'Etherscan',
+  8453: 'Basescan',
+  42161: 'Arbiscan',
+  10: 'Optimistic Etherscan',
+  137: 'Polygonscan',
+  56: 'BscScan',
+  43114: 'Snowscan',
+  81457: 'Blastscan',
+  130: 'Uniscan',
+  7777777: 'Zora Explorer',
+  59144: 'Lineascan',
+  324: 'zkSync Explorer',
+  42220: 'Celoscan',
+  4663: 'Robinhood Explorer',
 };
 
 /** One Morpho Blue market on Robinhood Chain (from /actions/build morpho_markets). */
@@ -1210,6 +1229,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private readonly magicEden = inject(MagicEdenService);
   private readonly tokenRegistry = inject(TokenRegistryService);
   private readonly previewService = inject(TransactionPreviewService);
+  private readonly i18n = inject(TranslateService);
   private readonly swapService = inject(JupiterSwapService);
   private readonly rollbackService = inject(RollbackService);
   private readonly intentParser = inject(IntentParserService);
@@ -6101,6 +6121,37 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // Blockscout); the tx hash is on the ORIGIN chain. Solana → Solscan.
     const base = EVM_EXPLORERS[this.explorerChainId()];
     return base ? `${base}/tx/${s}` : `https://solscan.io/tx/${s}`;
+  }
+  /** The explorer's display NAME for this tx's chain — for user-facing messages
+   *  ("open {explorer}"), so an EVM tx never tells the user to open Solscan. */
+  get explorerName(): string {
+    return EVM_EXPLORER_NAMES[this.explorerChainId()] ?? 'Solscan';
+  }
+  /** True when this action's tx lives on an EVM chain (not Solana). */
+  private isEvmTx(): boolean { return this.explorerChainId() > 0; }
+
+  /** Check an EVM tx receipt via the wallet provider. Solana's signature-status
+   *  poll is meaningless for an EVM hash (the chain has never heard of it), so
+   *  EVM cards re-check here instead. */
+  private async checkEvmReceipt(hash: string): Promise<'confirmed' | 'failed' | 'pending'> {
+    try {
+      const p = this.currentEvmProvider();
+      if (!p) return 'pending';
+      const r = await p.request({ method: 'eth_getTransactionReceipt', params: [hash] }) as { status?: string } | null;
+      if (!r) return 'pending';
+      const st = String(r.status ?? '').toLowerCase();
+      if (st === '0x0' || st === '0') return 'failed';
+      // A receipt with success status, or any receipt on a pre-status chain, means mined.
+      return 'confirmed';
+    } catch { return 'pending'; }
+  }
+
+  /** The confirmation-timeout message, naming the correct explorer for the chain. */
+  private timedOutMessage(): string {
+    return this.i18n.t(
+      'Confirmation timed out. The transaction may still land — open {explorer} or click Re-check.',
+      { explorer: this.explorerName },
+    );
   }
 
   /** The chain a completed tx belongs to, so its link opens in that chain's
@@ -12077,7 +12128,29 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!sig) {
       if (finalCheck) {
         this.status.set('error');
-        this.errorMessage.set('Confirmation timed out. The transaction may still land — open Solscan or click Re-check.');
+        this.errorMessage.set(this.timedOutMessage());
+      }
+      return;
+    }
+    // EVM tx: ask the EVM chain, not Solana (Solana has never heard of the hash,
+    // and it would call that silence a timeout with a "Solscan" message).
+    if (this.isEvmTx()) {
+      const res = await this.checkEvmReceipt(sig);
+      if (res === 'confirmed') {
+        this.stopSubmittedTick();
+        this.status.set('confirmed');
+        this.persistResult({ status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: this.lastSubmittedParams ?? this.action.params, swapView: this.lastSwapView ?? undefined });
+        return;
+      }
+      if (res === 'failed') {
+        this.stopSubmittedTick();
+        this.status.set('error');
+        this.errorMessage.set('Transaction failed on-chain. See explorer for details.');
+        return;
+      }
+      if (finalCheck) {
+        this.status.set('error');
+        this.errorMessage.set(this.timedOutMessage());
       }
       return;
     }
@@ -12100,7 +12173,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     } catch { /* RPC blip — try again on the next 3s tick */ }
     if (finalCheck) {
       this.status.set('error');
-      this.errorMessage.set('Confirmation timed out. The transaction may still land — open Solscan or click Re-check.');
+      this.errorMessage.set(this.timedOutMessage());
     }
   }
 
@@ -12119,6 +12192,21 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (!sig || this.recheckInProgress()) return;
     this.recheckInProgress.set(true);
     try {
+      // EVM tx → check the EVM receipt; Solana getSignatureStatus can't see it.
+      if (this.isEvmTx()) {
+        const res = await this.checkEvmReceipt(sig);
+        if (res === 'confirmed') {
+          this.stopSubmittedTick();
+          this.status.set('confirmed');
+          this.persistResult({ status: 'confirmed', txSignature: sig, errorMessage: null, executedParams: this.lastSubmittedParams ?? this.action.params, swapView: this.lastSwapView ?? undefined });
+        } else if (res === 'failed') {
+          this.stopSubmittedTick();
+          this.status.set('error');
+          this.errorMessage.set('Transaction failed on-chain. See explorer for details.');
+        }
+        // else: still pending — leave UI as-is.
+        return;
+      }
       const conn = createSolanaConnection('confirmed');
       const status = await conn.getSignatureStatus(sig, { searchTransactionHistory: true });
       const value = status.value;

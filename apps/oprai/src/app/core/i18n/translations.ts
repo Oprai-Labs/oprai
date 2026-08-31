@@ -959,7 +959,7 @@ export const TR: Record<string, string> = {
   'RISK': 'RİSK',
 
   // ── Hatalar ve uyarılar (servislerden gelir, şablonda `| t` ile basılır) ────
-  'Confirmation timed out. The transaction may still land — open Solscan or click Re-check.': 'Onay zaman aşımına uğradı. İşlem yine de gerçekleşebilir — Solscan\'i açın ya da Yeniden kontrol et\'e tıklayın.',
+  'Confirmation timed out. The transaction may still land — open {explorer} or click Re-check.': 'Onay zaman aşımına uğradı. İşlem yine de gerçekleşebilir — {explorer} üzerinde açın ya da Yeniden kontrol et\'e tıklayın.',
   'Connect your wallet to open this conversation.': 'Bu konuşmayı açmak için cüzdanınızı bağlayın.',
   'Connect your wallet to see balances': 'Bakiyeleri görmek için cüzdanınızı bağlayın',
   'Connect your wallet to see lending positions': 'Borç verme pozisyonlarını görmek için cüzdanınızı bağlayın',
