@@ -2573,3 +2573,23 @@ $sk-sidebar-width: 260px;
   color: var(--op-loss);
   line-height: 1.4;
 }
+
+/* Boot splash — shown only while the cookie session is being restored, before
+   the sign-in gate vs. app decision. Prevents a sign-in flash for returning users. */
+.app-boot {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--op-bg-surface-0, var(--op-bg, #0c0c10));
+}
+.app-boot-mark {
+  width: 56px;
+  height: 56px;
+  opacity: 0.9;
+  animation: app-boot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes app-boot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.96); }
+  50%      { opacity: 0.9;  transform: scale(1); }
+}

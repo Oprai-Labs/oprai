@@ -18,6 +18,7 @@ import { PositionMonitorService } from '@core/services/position-monitor.service'
 import { SpendingLimitService } from '@core/services/spending-limit.service';
 import { ApiService } from '@core/services/api.service';
 import { TPipe } from '@core/i18n';
+import { SignInComponent } from '@features/auth/sign-in.component';
 
 export type SettingsTab = 'account' | 'appearance' | 'behavior' | 'data' | 'memory';
 
@@ -35,7 +36,7 @@ interface SearchResult {
   imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, FormsModule,
     LucideAngularModule, WalletButtonComponent, TruncateAddressPipe,
     LiquidationAlertBannerComponent, RiskWarningDialogComponent,
-    MessageListComponent, TPipe],
+    MessageListComponent, TPipe, SignInComponent],
   templateUrl: './main-layout.component.html',
   styleUrl: './main-layout.component.scss',
 })
@@ -389,6 +390,11 @@ export class MainLayoutComponent implements OnDestroy {
   private sessionsLoaded = false;
 
   constructor() {
+    // Kick off the cookie-based session restore on app load so the sign-in gate
+    // resolves (and never flashes for a returning, still-restoring user). The
+    // chat route isn't auth-guarded, so nothing else would trigger it here.
+    void this.authService.whenAuthReady();
+
     effect(() => {
       const authenticated = this.authService.isAuthenticated();
       // Load once per authenticated session. The list is no longer wiped by a

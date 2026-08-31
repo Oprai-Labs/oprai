@@ -58,6 +58,11 @@ export class AuthService {
   })();
   private readonly _user = signal<AuthUser | null>(null);
   private readonly _authenticating = signal(false);
+  // True once the first cookie-based session restore has resolved (success or
+  // fail). The sign-in gate keys on this so it never flashes the sign-in screen
+  // while a valid session is still being restored on reload.
+  private readonly _sessionRestored = signal(false);
+  readonly sessionRestored = this._sessionRestored.asReadonly();
 
   /**
    * Fires on logout — cancels any in-flight authenticate() observable.
@@ -298,6 +303,10 @@ export class AuthService {
       if (!opts?.preserveSessionsOnFail) {
         this.sessionStorage.setWallet(null);
       }
+    } finally {
+      // The first restore attempt has resolved (either way) — the sign-in gate
+      // can now decide without flashing on a valid, still-restoring session.
+      this._sessionRestored.set(true);
     }
   }
 

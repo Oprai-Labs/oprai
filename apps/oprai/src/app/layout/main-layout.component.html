@@ -1,3 +1,11 @@
+@if (!authService.sessionRestored()) {
+  <!-- Booting: the cookie session is still restoring. A neutral splash avoids
+       flashing the sign-in screen at a returning, already-signed-in user. -->
+  <div class="app-boot"><img src="oprai_main_icon.svg" [attr.alt]="'OPRAI' | t" class="app-boot-mark" /></div>
+} @else if (!authService.isAuthenticated()) {
+  <!-- No wallet session → the sign-in / sign-up gate stands in for the whole app. -->
+  <app-sign-in />
+} @else {
 <div class="app-layout" [class.incognito]="incognitoMode()">
   <!-- Sidebar -->
   <aside class="layout-sidebar" [class.open]="sidebarOpen()">
@@ -1122,3 +1130,4 @@
     </button>
   }
 </nav>
+}
