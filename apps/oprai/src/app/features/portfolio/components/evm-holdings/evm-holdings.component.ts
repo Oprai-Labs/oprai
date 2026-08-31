@@ -581,7 +581,7 @@ export class EvmHoldingsComponent implements OnInit {
         chain: p.chain || 'robinhood',
         protocol: 'SushiSwap',
         protocolId: 'sushi',
-        logo: 'assets/protocols/sushi.svg',
+        logo: 'assets/protocols/sushi.png',
         category: 'liquidity-pool',
         label: `${p.pair} V3${p.inRange ? '' : ' · out of range'}`,
         balanceUsd: Number(p.valueUsd) || 0,

@@ -120,7 +120,7 @@ const PROTOCOL_CONFIGS: Record<string, ProtocolConfig> = {
   pons:      { name: 'Pons',       icon: 'assets/protocols/pons.png',             accent: '#1a2740', accentBg: 'rgba(26,39,64,0.12)' },
   lighter:   { name: 'Lighter',    icon: 'assets/protocols/lighter.png?v=2',          accent: '#00E5A0', accentBg: 'rgba(0,229,160,0.12)' },
   morpho:    { name: 'Morpho',     icon: 'assets/protocols/morpho.svg',          accent: '#2470FF', accentBg: 'rgba(36,112,255,0.12)' },
-  sushi:     { name: 'SushiSwap',  icon: 'assets/protocols/sushi.svg',           accent: '#FA52A0', accentBg: 'rgba(250,82,160,0.12)' },
+  sushi:     { name: 'SushiSwap',  icon: 'assets/protocols/sushi.png',           accent: '#FA52A0', accentBg: 'rgba(250,82,160,0.12)' },
   opensea:   { name: 'OpenSea',    icon: 'assets/protocols/opensea.svg',         accent: '#2081E2', accentBg: 'rgba(32,129,226,0.12)' },
   default:   { name: 'Solana',     icon: '/assets/coins/sol.svg', accent: '#9945FF', accentBg: 'rgba(153,69,255,0.10)' },
 };

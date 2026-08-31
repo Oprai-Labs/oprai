@@ -846,7 +846,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'morpho_positions':
         return 'assets/protocols/morpho.svg';
       case 'sushi_pools':
-        return 'assets/protocols/sushi.svg';
+        return 'assets/protocols/sushi.png';
       case 'opensea_collections':
       case 'opensea_listings':
       case 'opensea_trending':
