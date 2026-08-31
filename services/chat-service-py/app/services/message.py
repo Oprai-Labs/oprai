@@ -1097,6 +1097,25 @@ def _sanitize_user_input(content: str, wallet: str = "unknown") -> str:
     return _INJECTION_BLOCK_RE.sub(_escape_block, content)
 
 
+def _sanitize_assistant_output(content: str) -> str:
+    """Neutralise `[ACTION|QUERY|CLARIFY:` block syntax in the MODEL's OUTPUT text.
+
+    Symmetric to _sanitize_user_input, and for the same reason: the frontend
+    parses these blocks out of assistant text into signable cards. The model is
+    instructed to emit actions ONLY via structured tool calls (which travel on a
+    separate, validated metadata channel), so any such block in its prose is a
+    leak or an echo of injected on-chain data (a hostile token name / memo /
+    NFT title read back inside <untrusted>). Escaping it here — before the text is
+    streamed and before it is persisted — keeps it from ever becoming a card,
+    while legit action cards are unaffected. Without this, an injected block could
+    round-trip through history (parseHistory) and render a fund-moving card that
+    bypassed both server-side validators.
+    """
+    if not content:
+        return content
+    return _INJECTION_BLOCK_RE.sub(lambda m: f"⌊{m.group(1)}⌋:", content)
+
+
 async def _build_recent_context_from_db(db, session_id: str) -> str:
     """
     Pull the last 4 turns (2 user+assistant pairs) from the chat-message table
@@ -2095,6 +2114,7 @@ async def stream_chat_response(
                             )
                             _full_text = _scrubbed_p
                     if _full_text:
+                        _full_text = _sanitize_assistant_output(_full_text)
                         collected_text_chunks.append(_full_text)
                         yield f"data: {json.dumps({'delta': _full_text})}\n\n"
 
@@ -2677,6 +2697,7 @@ async def stream_chat_response(
                                 )
                                 _fu_buffer = [scrubbed_p] if scrubbed_p else []
                         for _txt in _fu_buffer:
+                            _txt = _sanitize_assistant_output(_txt)
                             collected_text_chunks.append(_txt)
                             yield f"data: {json.dumps({'delta': _txt})}\n\n"
                     # The followup may emit:
@@ -3033,6 +3054,7 @@ async def stream_chat_response(
                                 )
                                 _fu_buffer = [scrubbed_p] if scrubbed_p else []
                         for _txt in _fu_buffer:
+                            _txt = _sanitize_assistant_output(_txt)
                             collected_text_chunks.append(_txt)
                             yield f"data: {json.dumps({'delta': _txt})}\n\n"
                     # ── Validate + stream tool calls emitted in the followup ──
@@ -3666,7 +3688,10 @@ async def stream_chat_response(
             session_id=uuid.UUID(session_id),
             wallet_address=wallet,
             role="assistant",
-            content=full_response,
+            # Escape any [ACTION|QUERY|CLARIFY:…] syntax the model emitted as TEXT
+            # (a leak/injection echo) so parseHistory can never rebuild a signable
+            # card from it. Legit cards live in metadata, not this text.
+            content=_sanitize_assistant_output(full_response),
             metadata_=assistant_metadata if assistant_metadata else None,
         )
         db.add(assistant_msg)
