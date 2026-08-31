@@ -156,6 +156,9 @@
                         @for (token of pos.tokens; track token.symbol) {
                           <span class="token-amount">
                             {{ token.amount | number:'1.4-4' }} {{ token.symbol }}
+                            @if (token.kind) {
+                              <span class="token-kind" [attr.data-kind]="token.kind">{{ token.kind | t }}</span>
+                            }
                           </span>
                         }
                       </div>
@@ -172,7 +175,16 @@
                     @if (sectionHasApy(section)) {
                       <td class="col-apy">
                         @if (pos.apy != null) {
-                          <span class="apy-amount">{{ pos.apy | number:'1.2-2' }}% APY</span>
+                          @if (section.category === 'borrowing') {
+                            <!-- Borrow APY is a cost, not yield — show it as a
+                                 positive rate labelled "borrow" (a bare "-4.19%"
+                                 read like a broken value / green negative). -->
+                            <span class="apy-amount apy-cost" [title]="'Borrow cost' | t">
+                              {{ (pos.apy < 0 ? -pos.apy : pos.apy) | number:'1.2-2' }}% {{ 'borrow' | t }}
+                            </span>
+                          } @else {
+                            <span class="apy-amount">{{ pos.apy | number:'1.2-2' }}% APY</span>
+                          }
                         } @else {
                           <span class="no-data">--</span>
                         }

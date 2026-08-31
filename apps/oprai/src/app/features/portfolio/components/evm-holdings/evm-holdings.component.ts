@@ -363,7 +363,12 @@ export class EvmHoldingsComponent implements OnInit {
       }
       pp.positions.push({
         label: `${p.label}${p.chain ? ' · ' + p.chain : ''}`,
-        tokens: (p.tokens || []).map((t) => ({ symbol: t.symbol, amount: t.amount, logoUri: t.logo || null })),
+        tokens: (p.tokens || []).map((t) => ({
+          symbol: t.symbol, amount: t.amount, logoUri: t.logo || null,
+          // Label the leg (collateral / borrowed) only for lending/borrowing —
+          // for an LP or perp the type means something else and would just be noise.
+          kind: (category === 'borrowing' || category === 'lending') ? t.type : undefined,
+        })),
         totalUsdValue: p.balanceUsd,
         metadata: p.healthFactor != null ? { healthFactor: p.healthFactor } : {},
         apy: p.apy ?? null,
@@ -554,7 +559,7 @@ export class EvmHoldingsComponent implements OnInit {
               apy: p.borrowApy != null ? -Number(p.borrowApy) * 100 : null, // borrow APY is a cost
               healthFactor: p.healthFactor != null ? Number(p.healthFactor) : null,
               tokens: [
-                { symbol: p.collateralSymbol, type: 'supplied', amount: (Number(p.collateral) || 0) / 10 ** collDec, logo: p.collateralLogo || undefined },
+                { symbol: p.collateralSymbol, type: 'collateral', amount: (Number(p.collateral) || 0) / 10 ** collDec, logo: p.collateralLogo || undefined },
                 { symbol: p.loanSymbol, type: 'borrowed', amount: (Number(p.borrowAssets) || 0) / 10 ** loanDec, logo: p.loanLogo || undefined },
               ],
             });

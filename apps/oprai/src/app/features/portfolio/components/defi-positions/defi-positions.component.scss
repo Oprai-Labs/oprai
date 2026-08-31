@@ -206,6 +206,11 @@
   color: var(--op-gain);
   font-weight: 600;
   font-size: 12px;
+
+  // Borrow APY is a cost — red, not the green yield colour.
+  &.apy-cost {
+    color: var(--op-loss, #ef4444);
+  }
 }
 
 .pnl-amount {
@@ -245,6 +250,31 @@
   font-family: var(--op-font-mono);
   font-size: 13px;
   color: var(--op-text-primary);
+}
+
+// Per-leg label (collateral / borrowed) so a borrow position names which token
+// is posted and which is owed.
+.token-kind {
+  margin-left: 6px;
+  font-family: var(--op-font-body);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  color: var(--op-text-secondary);
+  background: var(--op-bg-surface-2, rgba(125, 125, 150, 0.12));
+  vertical-align: middle;
+
+  &[data-kind='borrowed'] {
+    color: var(--op-loss, #ef4444);
+    background: color-mix(in srgb, var(--op-loss, #ef4444) 12%, transparent);
+  }
+  &[data-kind='collateral'] {
+    color: var(--op-gain);
+    background: color-mix(in srgb, var(--op-gain) 12%, transparent);
+  }
 }
 
 .validator-link {

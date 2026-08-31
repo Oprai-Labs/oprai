@@ -21,6 +21,7 @@ import type {
   PortfolioTab,
   LoadingState,
   TransactionType,
+  JupiterToken,
 } from '../models/portfolio.models';
 import type { HeliusParsedTransaction } from '../models/helius.models';
 
@@ -180,20 +181,27 @@ export class PortfolioService {
       // (vs. a caught error that would otherwise masquerade as a genuine zero
       // balance). getBalance gets one silent retry — a single transient RPC
       // blip shouldn't wipe the wallet total to $0.
-      const balanceOutcome = await this.fetchWithRetry(
-        () => this.solanaRpc.getBalance(walletAddress),
-        0,
-      );
-      const [tokensOutcome, stakeAccounts, signatures] = await Promise.all([
+      // Balance, token accounts and stake accounts are the wallet's ground truth
+      // and gate the first paint — fetch them together. getBalance used to be
+      // awaited on its own, serialising one extra round-trip before the rest.
+      const [balanceOutcome, tokensOutcome, stakeAccounts] = await Promise.all([
+        this.fetchWithRetry(() => this.solanaRpc.getBalance(walletAddress), 0),
         this.solanaRpc
           .getTokenAccounts(walletAddress)
           .then((value) => ({ ok: true, value }))
           .catch(() => ({ ok: false, value: [] as Awaited<ReturnType<typeof this.solanaRpc.getTokenAccounts>> })),
         this.solanaRpc.getStakeAccounts(walletAddress).catch(() => []),
-        this.solanaRpc
-          .getRecentSignatures(walletAddress, PortfolioService.HISTORY_PAGE_SIZE)
-          .catch(() => []),
       ]);
+      // Recent signatures feed ONLY the History tab (hidden on the default
+      // Portfolio view), so they must not sit on the first-paint path. Warm them
+      // — and the enhanced-history cache — in the background instead.
+      this.solanaRpc
+        .getRecentSignatures(walletAddress, PortfolioService.HISTORY_PAGE_SIZE)
+        .then((sigs) => {
+          this._recentTransactions.set(sigs);
+          this.preloadEnhancedHistory(walletAddress, sigs).catch(() => {});
+        })
+        .catch(() => {});
       const balanceLamports = balanceOutcome.value;
       const rawTokens = tokensOutcome.value;
       // Both wallet reads failed → this load carries no trustworthy wallet
@@ -395,7 +403,13 @@ export class PortfolioService {
         .map((t) => t.mint);
 
       if (stillMissing.length > 0) {
-        const extraMeta = await this.priceService.getTokensMetadata(stillMissing);
+        // Bound the backfill so a slow Jupiter token API can't stall first paint.
+        // Unresolved mints fall through to the registry pass below (which fires an
+        // async resolve that warms the next render), so a timeout is not data loss.
+        const extraMeta = await Promise.race([
+          this.priceService.getTokensMetadata(stillMissing).catch(() => new Map<string, JupiterToken>()),
+          new Promise<Map<string, JupiterToken>>((resolve) => setTimeout(() => resolve(new Map()), 2_500)),
+        ]);
         for (const token of rawEnhanced) {
           const meta = extraMeta.get(token.mint);
           if (meta) {
@@ -439,7 +453,13 @@ export class PortfolioService {
         .map(t => t.mint);
 
       if (heliusMissing.length > 0) {
-        const assetMeta = await this.heliusService.getAssetBatch(heliusMissing);
+        // Same bound as the Jupiter backfill above — never let a slow on-chain
+        // metadata read hold up the first token paint.
+        type HeliusMeta = { name: string; symbol: string; logoUri: string | null };
+        const assetMeta = await Promise.race([
+          this.heliusService.getAssetBatch(heliusMissing).catch(() => new Map<string, HeliusMeta>()),
+          new Promise<Map<string, HeliusMeta>>((resolve) => setTimeout(() => resolve(new Map()), 2_500)),
+        ]);
         for (const token of rawEnhanced) {
           const meta = assetMeta.get(token.mint);
           if (!meta) continue;
@@ -588,9 +608,12 @@ export class PortfolioService {
       // with the protocol stream below; defaults to 7.0% (recent epoch
       // baseline) if the RPC misbehaves so we never render "—" for a
       // position the user actively earns on.
-      const nativeStakeApy = await this.solanaRpc
-        .getNativeStakingApr()
-        .catch(() => 7.0);
+      // Only worth a round-trip when the wallet actually has native stake — most
+      // don't. 7.0% is the recent-epoch baseline fallback either way, so a wallet
+      // with no stake positions skips the call entirely (off the first-paint path).
+      const nativeStakeApy = stakePositions.length > 0
+        ? await this.solanaRpc.getNativeStakingApr().catch(() => 7.0)
+        : 7.0;
       if (stakePositions.length > 0) {
         const stakingUsd = solPrice !== null ? totalStakedSol * solPrice : 0;
         accumulated.push({
@@ -721,11 +744,9 @@ export class PortfolioService {
       // whole-page skeleton and let the content render in one shot.
       this._positionsSettled.set(true);
 
-      this._recentTransactions.set(signatures);
       this._loadingState.set('loaded');
-
-      // Pre-load enhanced history using already-fetched signatures (avoid duplicate RPC call)
-      this.preloadEnhancedHistory(walletAddress, signatures).catch(() => {});
+      // Recent transactions + enhanced-history cache are warmed in the background
+      // (kicked off at the top of the load), off the first-paint path.
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to load portfolio';

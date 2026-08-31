@@ -177,7 +177,10 @@ export interface PositionItem {
   // whose protocol API didn't surface one — the path that finally lets
   // Jupiter Lend / Orca / Raydium CLMM / Streamflow show real dollar values
   // in the portfolio total.
-  tokens: Array<{ symbol: string; amount: number; logoUri: string | null; mint?: string }>;
+  // `kind` labels a leg in a multi-token position so the Tokens column can say
+  // which side is collateral vs borrowed (e.g. a Morpho borrow). Optional — most
+  // positions leave it unset and render the amount alone.
+  tokens: Array<{ symbol: string; amount: number; logoUri: string | null; mint?: string; kind?: string }>;
   totalUsdValue: number | null;
   metadata: Record<string, string | number | null>;
   // First-class fields surfaced as their own columns in defi-positions.
