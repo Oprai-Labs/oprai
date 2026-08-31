@@ -146,7 +146,7 @@ WITH own AS (
     FROM solana_schema.wallet_economics_rollup r
 ), refpts AS (
     SELECT rf.referrer_wallet AS wallet,
-           floor(sum(o.own_points) *
+           floor(sum(COALESCE(txe.notional_usd, 0)) *
                  CASE COALESCE(rt.tier, 1)
                      WHEN 1 THEN 0.20 WHEN 2 THEN 0.25 WHEN 3 THEN 0.30
                      WHEN 4 THEN 0.35 WHEN 5 THEN 0.40 WHEN 6 THEN 0.50
@@ -155,7 +155,9 @@ WITH own AS (
     FROM analytics_schema.referrals rf
     JOIN admin_schema.v_wallet_account rrwa ON rrwa.wallet = rf.referrer_wallet
     LEFT JOIN admin_schema.v_wallet_account rewa ON rewa.wallet = rf.referee_wallet
-    JOIN own o ON o.wallet = rf.referee_wallet
+    -- Only volume the referee traded AFTER the referral was created (forward-looking).
+    LEFT JOIN solana_schema.tx_economics txe
+           ON txe.user_wallet = rf.referee_wallet AND txe.created_at > rf.created_at
     LEFT JOIN referrer_tier rt ON rt.wallet = rf.referrer_wallet
     -- Self-referral guard: no referral points across wallets of the same account.
     WHERE rewa.account_id IS DISTINCT FROM rrwa.account_id
@@ -188,7 +190,7 @@ WITH own AS (
     FROM solana_schema.wallet_economics_rollup r
 ), refcb AS (
     SELECT rf.referrer_wallet AS wallet,
-           sum(COALESCE(re.lifetime_fee_usd, 0) *
+           sum(COALESCE(txe.fee_usd, 0) *
                CASE COALESCE(rt.tier, 1)
                    WHEN 1 THEN 0.20 WHEN 2 THEN 0.24 WHEN 3 THEN 0.27
                    WHEN 4 THEN 0.30 WHEN 5 THEN 0.33 WHEN 6 THEN 0.35
@@ -196,10 +198,13 @@ WITH own AS (
     FROM analytics_schema.referrals rf
     JOIN admin_schema.v_wallet_account rrwa ON rrwa.wallet = rf.referrer_wallet
     LEFT JOIN admin_schema.v_wallet_account rewa ON rewa.wallet = rf.referee_wallet
-    JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
+    -- Only fees the referee accrued AFTER the referral was created (forward-looking,
+    -- never retroactive over their whole history). tx_economics is per-trade +
+    -- timestamped; its fee_usd totals match wallet_economics_rollup.lifetime_fee_usd.
+    LEFT JOIN solana_schema.tx_economics txe
+           ON txe.user_wallet = rf.referee_wallet AND txe.created_at > rf.created_at
     LEFT JOIN referrer_tier rt ON rt.wallet = rf.referrer_wallet
-    -- Self-referral guard (see v_account_cashback): no referral cashback across
-    -- wallets of the same account.
+    -- Self-referral guard: no referral cashback across wallets of the same account.
     WHERE rewa.account_id IS DISTINCT FROM rrwa.account_id
     GROUP BY rf.referrer_wallet, rt.tier
 ), claimed AS (
@@ -287,7 +292,7 @@ WITH own AS (
     SELECT account_id, tier FROM admin_schema.v_account_tier
 ), refcb AS (
     SELECT rwa.account_id AS account_id,
-           sum(COALESCE(re.lifetime_fee_usd, 0) *
+           sum(COALESCE(txe.fee_usd, 0) *
                CASE COALESCE(at.tier, 1)
                    WHEN 1 THEN 0.20 WHEN 2 THEN 0.24 WHEN 3 THEN 0.27
                    WHEN 4 THEN 0.30 WHEN 5 THEN 0.33 WHEN 6 THEN 0.35
@@ -295,7 +300,11 @@ WITH own AS (
     FROM analytics_schema.referrals rf
     JOIN admin_schema.v_wallet_account rwa ON rwa.wallet = rf.referrer_wallet
     LEFT JOIN admin_schema.v_wallet_account rewa ON rewa.wallet = rf.referee_wallet
-    JOIN solana_schema.wallet_economics_rollup re ON re.user_wallet = rf.referee_wallet
+    -- Only fees the referee accrued AFTER the referral was created (forward-looking,
+    -- never retroactive over their whole history). tx_economics is per-trade +
+    -- timestamped; its fee_usd totals match wallet_economics_rollup.lifetime_fee_usd.
+    LEFT JOIN solana_schema.tx_economics txe
+           ON txe.user_wallet = rf.referee_wallet AND txe.created_at > rf.created_at
     LEFT JOIN acct_tier at ON at.account_id = rwa.account_id
     -- Self-referral guard: a referrer earns NOTHING on trades made by a wallet
     -- linked to the SAME account (one person referring their own second wallet).
