@@ -5084,7 +5084,13 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     // never sees "Connect your wallet".
     const explicitEvmAddr = resolvedParam && /^0x[0-9a-fA-F]{40}$/.test(resolvedParam) ? resolvedParam : null;
     const evmAddrs = explicitEvmAddr ? [explicitEvmAddr] : await this.resolveEvmAddresses();
-    const wantsEvm = this.isEvmNativeToken(tokenParam) || !!explicitEvmAddr || (!solWallet && evmAddrs.length > 0);
+    // A specific token that doesn't resolve to a Solana mint (USDG, USDe and the
+    // other Robinhood/EVM assets) is an EVM balance question even for a
+    // Solana-primary user — otherwise it fell to the Solana path and reported
+    // "you don't hold any" for a token the wallet holds on Robinhood/EVM.
+    const tokenIsEvmOnly = !!tokenParam && !wantsAll && !this.tryResolveToMint(tokenParam);
+    const wantsEvm = this.isEvmNativeToken(tokenParam) || tokenIsEvmOnly
+      || !!explicitEvmAddr || (!solWallet && evmAddrs.length > 0);
     if (wantsEvm && evmAddrs.length > 0) {
       try {
         this.balanceResults = await this.fetchEvmBalances(evmAddrs, wantsAll ? null : tokenParam!);
