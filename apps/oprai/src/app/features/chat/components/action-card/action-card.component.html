@@ -3483,7 +3483,7 @@
               </div>
               <div class="pump-panel__row">
                 <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
-                       [value]="getEditParam('collateralUsd')"
+                       [value]="lighterCollateralInput()"
                        (input)="setLighterCollateralUsd($any($event.target).value)"
                        [disabled]="!isEditable()" />
                 <span class="pump-token">

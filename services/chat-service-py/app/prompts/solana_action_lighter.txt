@@ -25,19 +25,26 @@ If the user is not onboarded, emit `lighter_onboard`. If they have no collateral
 emit `lighter_deposit`. Otherwise emit the trade directly — the account card and
 the trade card surface any missing step to the user.
 
-Collateral and PnL are in **USDG** (Robinhood-Chain quote asset). Size is in **base units** (shares/contracts of
-the symbol), NOT dollars. The trade card lets the user set the exact size and
-leverage, so `amount` may be omitted in the action block when the user did not
-give a number — but always pass `symbol` and `side`.
+Collateral and PnL are in **USDG** (Robinhood-Chain quote asset). The trade card
+is **collateral-based**: the user commits a USDG **collateral** amount and a
+**leverage**, and the card derives the position size (size = collateral ×
+leverage). So when the user gives a number, pass it as **`collateralUsd`** (the
+USDG margin) — this is the field the card fills. Always pass `symbol` and `side`;
+pass `collateralUsd` and/or `leverage` **whenever the user states them** so the
+card opens pre-filled instead of blank. Omit them only when the user gave no
+number (the card then prompts).
 
-Format: [ACTION:lighter_open] symbol=<TICKER> side=<long|short> [amount=<base_units>] [leverage=<1-100>]
+- A dollar / margin figure ("$50", "with 50 USDG", "50 collateral") → `collateralUsd`.
+- A leverage ("3x", "5x", "10x leverage") → `leverage`.
+
+Format: [ACTION:lighter_open] symbol=<TICKER> side=<long|short> [collateralUsd=<usdg>] [leverage=<1-100>]
 Examples:
 - "Long NVDA on Lighter 3x"
   -> execute_action("lighter_open", {"symbol": "NVDA", "side": "long", "leverage": "3"})
-- "Open a 5x short on TSLA, 10 shares"
-  -> execute_action("lighter_open", {"symbol": "TSLA", "side": "short", "amount": "10", "leverage": "5"})
-- "Buy 0.5 BTC perp on Lighter"
-  -> execute_action("lighter_open", {"symbol": "BTC", "side": "long", "amount": "0.5"})
+- "Open a 5x short on TSLA with $40"
+  -> execute_action("lighter_open", {"symbol": "TSLA", "side": "short", "collateralUsd": "40", "leverage": "5"})
+- "Long BTC on Lighter, 100 USDG at 10x"
+  -> execute_action("lighter_open", {"symbol": "BTC", "side": "long", "collateralUsd": "100", "leverage": "10"})
 
 Format: [ACTION:lighter_close] symbol=<TICKER> side=<long|short> [amount=<base_units>]
 - `side` is the side of the position being CLOSED (a long is closed by selling).

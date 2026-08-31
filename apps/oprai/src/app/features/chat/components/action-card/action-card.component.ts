@@ -10704,6 +10704,15 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
   setLighterSide(s: 'long' | 'short'): void { if (this.isEditable()) this.setEditParam('side', s); }
 
+  /** Raw string for the collateral input — reads whichever collateral-ish key
+   *  the LLM filled (collateralUsd / collateralAmount / sizeUsd) so a chat-
+   *  supplied value auto-fills the field instead of opening blank. */
+  lighterCollateralInput(): string {
+    return this.getEditParam('collateralUsd')
+      || this.getEditParam('collateralAmount')
+      || this.getEditParam('sizeUsd')
+      || '';
+  }
   /** Collateral value in USD (entered directly — no token price needed). */
   lighterCollateralUsd(): number | null {
     const v = parseFloat(this.getEditParam('collateralUsd') || this.getEditParam('collateralAmount') || this.getEditParam('sizeUsd'));
