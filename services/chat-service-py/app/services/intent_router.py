@@ -341,6 +341,10 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   lighter      — Lighter zero-fee order-book PERPS on Robinhood Chain. Both
                  crypto perps (BTC/ETH/SOL…) AND stock perps (NVDA, TSLA, AAPL,
                  MSFT…). Emit for "Lighter", or a perp on a STOCK ticker.
+  sushi        — SushiSwap DEX on Robinhood Chain (EVM): swaps + V3 liquidity.
+  uniswap      — Uniswap DEX on EVM chains incl. Robinhood: swaps + LP.
+  morpho       — Morpho Blue lending on Robinhood Chain (USDG supply / borrow).
+  opensea      — OpenSea NFT marketplace on Robinhood Chain.
 
 Detection rules:
 - The user often names a venue or product without naming the protocol — map
@@ -349,6 +353,12 @@ Detection rules:
   magic_eden; "jupSOL" → jupiter; "mSOL" → marinade; "jitoSOL" → jito.
   Those token mappings hold when the TOKEN is the subject ("convert my SOL to
   mSOL"). They do not override an in-flight flow — see the next rule.
+- USDG, USDe, WETH and other Robinhood-Chain / EVM tokens (and 0x… addresses) are
+  NOT Solana assets. A SWAP or trade BETWEEN them — "sell my USDG for USDe", "swap
+  USDG to USDe", "trade USDe for WETH" — is an EVM DEX swap → "sushi" (SushiSwap on
+  Robinhood Chain), NEVER the Solana jupiter swap. (Lending/borrowing USDG →
+  "morpho"; a perp quoted in USDG → "lighter".) This holds even mid-conversation
+  after a Morpho/Lighter turn: a bare "swap USDG→USDe" is a Sushi swap.
 - Leverage / perp / short / long → "jupiter" by DEFAULT, never Kamino. A
   leveraged long/short on SOL/ETH/BTC, "open a perp", "2x short SOL", and any
   "max leverage / how much can I open" question maps to "jupiter"
