@@ -168,7 +168,8 @@ interface MorphoPosition {
 interface SushiPool {
   poolAddress: string; name: string; feePct?: number | null;
   tvlUsd?: number | null; volume24hUsd?: number | null; aprEst?: number | null;
-  token0Symbol: string; token0Address: string; token1Symbol: string; token1Address: string;
+  token0Symbol: string; token0Address: string; token0Logo?: string | null;
+  token1Symbol: string; token1Address: string; token1Logo?: string | null;
 }
 
 function getProtocolKey(action: ParsedAction): string {
@@ -10535,11 +10536,18 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   private sushiInDec = 18;
   private sushiOutDec = 18;
   private _sushiQuoteTimer: ReturnType<typeof setTimeout> | null = null;
-  // add-liquidity state
+  // add-liquidity state — dual-sided (Meteora-style): both legs shown, editing
+  // one auto-fills the other from the pool price + selected range.
   readonly sushiPools = signal<SushiPool[]>([]);
   readonly sushiPoolPickerOpen = signal(false);
   readonly sushiPoolSearch = signal('');
-  readonly sushiLpBal = signal<number | null>(null);
+  readonly sushiLpBal = signal<number | null>(null); // legacy (kept; unused by dual UI)
+  readonly sushiLpAmt0 = signal<string>('');   // token0 field value
+  readonly sushiLpAmt1 = signal<string>('');   // token1 field value
+  readonly sushiLpBal0 = signal<number | null>(null);
+  readonly sushiLpBal1 = signal<number | null>(null);
+  readonly sushiLpQuoting = signal(false);
+  private _sushiLpQuoteTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly SUSHI_KNOWN: Record<string, { sym: string; dec: number; logo?: string }> = {
     '0x0bd7d308f8e1639fab988df18a8011f41eacad73': { sym: 'WETH', dec: 18, logo: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png' },
@@ -10603,7 +10611,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       void this.refreshSushiPayBalance();
     } else {
       void this.refreshSushiPools();
-      if (this.getEditParam('poolAddress')) void this.refreshSushiLpBalance();
+      if (this.getEditParam('poolAddress')) void this.refreshSushiLpBalances();
     }
   }
 
@@ -10686,43 +10694,115 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (ps.length) {
         this.sushiPools.set(ps);
         if (!this.getEditParam('poolAddress')) this.selectSushiPool(ps[0]);
-        else void this.refreshSushiLpBalance();
+        else void this.refreshSushiLpBalances();
       }
     } catch { /* retry on demand */ }
   }
   selectSushiPool(p: SushiPool): void {
     if (!this.isEditable()) return;
     this.setEditParam('poolAddress', p.poolAddress);
-    // Default the deposit side to the pool's non-stable / token0 leg.
-    if (!this.getEditParam('inputToken')) this.setEditParam('inputToken', p.token0Address);
-    this.sushiPoolPickerOpen.set(false);
-    this.sushiLpBal.set(null);
-    void this.refreshSushiLpBalance();
-  }
-  setSushiLpInput(addr: string): void {
-    if (!this.isEditable()) return;
-    this.setEditParam('inputToken', addr);
+    // Default the driving side to token0, clear both amounts + balances.
+    this.setEditParam('inputToken', p.token0Address);
     this.setEditParam('amount', '');
-    this.sushiLpBal.set(null);
-    void this.refreshSushiLpBalance();
+    this.sushiLpAmt0.set('');
+    this.sushiLpAmt1.set('');
+    this.sushiLpBal0.set(null);
+    this.sushiLpBal1.set(null);
+    this.sushiPoolPickerOpen.set(false);
+    void this.refreshSushiLpBalances();
   }
-  setSushiLpRange(pct: string): void { if (this.isEditable()) this.setEditParam('rangePercent', pct); }
-  setSushiLpAmount(v: string): void { if (this.isEditable()) this.setEditParam('amount', v); }
-  setSushiLpMax(): void {
-    const b = this.sushiLpBal();
-    if (b != null && b > 0 && this.isEditable()) this.setEditParam('amount', String(+b.toFixed(8)));
+  setSushiLpRange(pct: string): void {
+    if (!this.isEditable()) return;
+    this.setEditParam('rangePercent', pct);
+    // The ratio between the two legs depends on the range → re-quote.
+    this.queueSushiLpQuote();
   }
-  private async refreshSushiLpBalance(): Promise<void> {
-    const tok = this.getEditParam('inputToken');
-    const addr = await this.resolveEvmAddress();
-    if (!addr || !tok) { this.sushiLpBal.set(null); return; }
+  /** Which pool leg (0/1) an address is. */
+  private sushiLegOf(addr: string): 0 | 1 | null {
+    const p = this.sushiPool();
+    if (!p) return null;
+    const a = (addr || '').toLowerCase();
+    if (a === p.token0Address.toLowerCase()) return 0;
+    if (a === p.token1Address.toLowerCase()) return 1;
+    return null;
+  }
+  /** User typed into one leg → it becomes the driver; quote fills the other. */
+  onSushiLpAmount(leg: 0 | 1, v: string): void {
+    if (!this.isEditable()) return;
+    const p = this.sushiPool();
+    if (!p) return;
+    const tok = leg === 0 ? p.token0Address : p.token1Address;
+    (leg === 0 ? this.sushiLpAmt0 : this.sushiLpAmt1).set(v);
+    this.setEditParam('inputToken', tok);
+    this.setEditParam('amount', v);
+    this.queueSushiLpQuote();
+  }
+  setSushiLpMax(leg: 0 | 1): void {
+    const b = leg === 0 ? this.sushiLpBal0() : this.sushiLpBal1();
+    if (b != null && b > 0 && this.isEditable()) this.onSushiLpAmount(leg, String(+b.toFixed(8)));
+  }
+  private queueSushiLpQuote(): void {
+    if (this._sushiLpQuoteTimer) clearTimeout(this._sushiLpQuoteTimer);
+    const amt = this.getEditParam('amount');
+    if (!amt || !(+amt > 0)) {
+      // Empty driver → clear the derived side.
+      const drv = this.sushiLegOf(this.getEditParam('inputToken'));
+      if (drv === 0) this.sushiLpAmt1.set('');
+      else if (drv === 1) this.sushiLpAmt0.set('');
+      return;
+    }
+    this._sushiLpQuoteTimer = setTimeout(() => void this.fetchSushiLpQuote(), 400);
+  }
+  private async fetchSushiLpQuote(): Promise<void> {
+    const pool = this.getEditParam('poolAddress');
+    const input = this.getEditParam('inputToken');
+    const amt = this.getEditParam('amount');
+    const drv = this.sushiLegOf(input);
+    if (!pool || !input || drv == null || !amt || !(+amt > 0)) return;
+    this.sushiLpQuoting.set(true);
     try {
-      const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token: tok }));
-      const bal = Number(r?.balance ?? r?.balanceEth);
-      this.sushiLpBal.set(Number.isFinite(bal) ? bal : null);
-    } catch { this.sushiLpBal.set(null); }
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/sushi/liquidity-quote', {
+        poolAddress: pool, inputToken: input, amount: amt,
+        ...(this.getEditParam('rangePercent') ? { rangePercent: this.getEditParam('rangePercent') } : {}),
+      }));
+      const human = (t: any): string => {
+        const base = Number(t?.amountBaseUnits); const dec = Number(t?.decimals);
+        if (!Number.isFinite(base) || !Number.isFinite(dec)) return '';
+        const v = base / Math.pow(10, dec);
+        return v > 0 ? String(+v.toFixed(8)) : '0';
+      };
+      // Fill only the DERIVED side so the field the user is editing isn't disturbed.
+      if (drv === 0) this.sushiLpAmt1.set(human(r?.token1));
+      else this.sushiLpAmt0.set(human(r?.token0));
+    } catch {
+      if (drv === 0) this.sushiLpAmt1.set('');
+      else this.sushiLpAmt0.set('');
+    }
+    this.sushiLpQuoting.set(false);
   }
-  /** Symbol for the LP input-token toggle. */
+  private async refreshSushiLpBalances(): Promise<void> {
+    const p = this.sushiPool();
+    const addr = await this.resolveEvmAddress();
+    if (!addr || !p) { this.sushiLpBal0.set(null); this.sushiLpBal1.set(null); return; }
+    const read = async (token: string): Promise<number | null> => {
+      try {
+        const r = await firstValueFrom(this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token }));
+        const bal = Number(r?.balance ?? r?.balanceEth);
+        return Number.isFinite(bal) ? bal : null;
+      } catch { return null; }
+    };
+    this.sushiLpBal0.set(await read(p.token0Address));
+    this.sushiLpBal1.set(await read(p.token1Address));
+  }
+  /** Coin icon for a pool leg (feed logo → curated map → ETH mark). */
+  sushiLpLogo(leg: 0 | 1): string {
+    const p = this.sushiPool();
+    if (!p) return '';
+    const feed = leg === 0 ? p.token0Logo : p.token1Logo;
+    if (feed) return feed;
+    return this.sushiLogoOf(leg === 0 ? p.token0Address : p.token1Address);
+  }
+  /** Symbol for a pool leg. */
   sushiLpSym(addr: string): string {
     const p = this.sushiPool();
     if (p && addr.toLowerCase() === p.token0Address.toLowerCase()) return p.token0Symbol || 'Token 0';

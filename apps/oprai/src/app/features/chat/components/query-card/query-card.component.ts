@@ -88,7 +88,8 @@ interface OpenseaListingRow {
 interface SushiPoolRow {
   poolAddress: string; name: string; feePct?: number | null;
   tvlUsd?: number | null; volume24hUsd?: number | null; aprEst?: number | null;
-  token0Symbol: string; token0Address: string; token1Symbol: string; token1Address: string;
+  token0Symbol: string; token0Address: string; token0Logo?: string | null;
+  token1Symbol: string; token1Address: string; token1Logo?: string | null;
 }
 
 interface UniswapLaunch {
@@ -3611,7 +3612,10 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     '0x0bd7d308f8e1639fab988df18a8011f41eacad73': // WETH
       'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png',
   };
-  sushiPoolLogo(addr: string): string {
+  /** Pool token icon: the pool feed's own image_url (only source for launchpad
+   *  coins) → curated Robinhood map → DexScreener. */
+  sushiPoolLogo(addr: string, feedLogo?: string | null): string {
+    if (feedLogo) return feedLogo;
     const a = (addr || '').toLowerCase();
     return QueryCardComponent.RH_POOL_LOGO[a] || (a ? `https://dd.dexscreener.com/ds-data/tokens/robinhood/${a}.png` : '');
   }

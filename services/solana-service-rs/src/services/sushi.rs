@@ -370,8 +370,10 @@ pub async fn fetch_pools(http: &reqwest::Client, limit: usize, search: Option<&s
         Err(_) => return vec![],
     };
 
-    // Build id→{symbol,address} from included tokens.
-    let mut tok: std::collections::HashMap<String, (String, String)> =
+    // Build id→{symbol,address,logo} from included tokens. GeckoTerminal carries
+    // an `image_url` per token — the only logo source for Robinhood launchpad
+    // coins, which aren't on any CDN.
+    let mut tok: std::collections::HashMap<String, (String, String, String)> =
         std::collections::HashMap::new();
     if let Some(inc) = body.get("included").and_then(|v| v.as_array()) {
         for it in inc {
@@ -390,8 +392,14 @@ pub async fn fetch_pools(http: &reqwest::Client, limit: usize, search: Option<&s
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let logo = it
+                .pointer("/attributes/image_url")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty() && *s != "missing.png")
+                .unwrap_or("")
+                .to_string();
             if !id.is_empty() {
-                tok.insert(id, (sym, addr));
+                tok.insert(id, (sym, addr, logo));
             }
         }
     }
@@ -421,7 +429,7 @@ pub async fn fetch_pools(http: &reqwest::Client, limit: usize, search: Option<&s
 
 fn shape_pool(
     p: &Value,
-    tok: &std::collections::HashMap<String, (String, String)>,
+    tok: &std::collections::HashMap<String, (String, String, String)>,
 ) -> Option<Value> {
     let a = p.get("attributes")?;
     let address = a.get("address").and_then(|v| v.as_str())?.to_string();
@@ -449,8 +457,8 @@ fn shape_pool(
         .pointer("/relationships/quote_token/data/id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let (base_sym, base_addr) = tok.get(base_id).cloned().unwrap_or_default();
-    let (quote_sym, quote_addr) = tok.get(quote_id).cloned().unwrap_or_default();
+    let (base_sym, base_addr, base_logo) = tok.get(base_id).cloned().unwrap_or_default();
+    let (quote_sym, quote_addr, quote_logo) = tok.get(quote_id).cloned().unwrap_or_default();
     Some(json!({
         "poolAddress": address,
         "name": name,
@@ -460,8 +468,10 @@ fn shape_pool(
         "aprEst": apr,
         "token0Symbol": base_sym,
         "token0Address": base_addr,
+        "token0Logo": base_logo,
         "token1Symbol": quote_sym,
         "token1Address": quote_addr,
+        "token1Logo": quote_logo,
         "dex": "sushiswap-v3",
         "chain": "robinhood",
     }))
@@ -690,6 +700,80 @@ pub async fn build_add_liquidity(http: &reqwest::Client, body: &Value) -> Result
         "chainId": CHAIN,
         "poolAddress": pool,
         "fee": p.fee,
+        "tickLower": tl,
+        "tickUpper": tu,
+        "token0": { "address": p.token0, "amountBaseUnits": amount0.to_string(), "decimals": dec0 },
+        "token1": { "address": p.token1, "amountBaseUnits": amount1.to_string(), "decimals": dec1 },
+    }))
+}
+
+/// Quote the paired deposit amounts for a Sushi V3 add-liquidity WITHOUT building
+/// a tx — powers the dual-sided card's auto-fill (enter one side → the other is
+/// derived from the pool price + selected range, exactly as `build_add_liquidity`
+/// would). Body: {poolAddress, inputToken, amount, rangePercent?}. Returns both
+/// legs' amounts in base units (the card divides by decimals for display).
+pub async fn quote_add_liquidity(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
+    let rpc = rpc();
+    let pool = body
+        .get("poolAddress")
+        .and_then(|v| v.as_str())
+        .filter(|s| s.starts_with("0x") && s.len() == 42)
+        .ok_or_else(|| AppError::InvalidParams("sushi: poolAddress required".into()))?;
+    let input = body
+        .get("inputToken")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if input.len() != 42 {
+        return Err(AppError::InvalidParams("sushi: inputToken required".into()));
+    }
+    let range_percent = body.get("rangePercent").and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    });
+    let p = read_pool(http, &rpc, pool).await?;
+    if !input.eq_ignore_ascii_case(&p.token0) && !input.eq_ignore_ascii_case(&p.token1) {
+        return Err(AppError::InvalidParams(
+            "sushi: input token is not in this pool".into(),
+        ));
+    }
+    let dec_in = token_decimals(http, &rpc, &input).await;
+    let dec0 = token_decimals(http, &rpc, &p.token0).await;
+    let dec1 = token_decimals(http, &rpc, &p.token1).await;
+    let human = body
+        .get("amount")
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_f64().map(|f| format!("{f}")))
+        })
+        .unwrap_or_default();
+    let amount_in = parse_scaled(human.trim(), dec_in);
+    if amount_in == 0 {
+        return Ok(json!({
+            "poolAddress": pool,
+            "token0": { "address": p.token0, "amountBaseUnits": "0", "decimals": dec0 },
+            "token1": { "address": p.token1, "amountBaseUnits": "0", "decimals": dec1 },
+        }));
+    }
+    let (tl, tu) = tick_bounds(p.tick, p.tick_spacing, range_percent);
+    let sqrt_a = tick_to_sqrt(tl);
+    let sqrt_b = tick_to_sqrt(tu);
+    let sqrt_p = p.sqrt_price_x96 / 2f64.powi(96);
+    let sqrt_p = sqrt_p.clamp(sqrt_a * 1.000001, sqrt_b * 0.999999);
+    let input_is_0 = input.eq_ignore_ascii_case(&p.token0);
+    let a_in = amount_in as f64;
+    let (amount0, amount1) = if input_is_0 {
+        let l = a_in * (sqrt_p * sqrt_b) / (sqrt_b - sqrt_p);
+        (a_in, l * (sqrt_p - sqrt_a))
+    } else {
+        let l = a_in / (sqrt_p - sqrt_a);
+        (l * (sqrt_b - sqrt_p) / (sqrt_p * sqrt_b), a_in)
+    };
+    let amount0 = amount0.max(0.0) as u128;
+    let amount1 = amount1.max(0.0) as u128;
+    Ok(json!({
+        "poolAddress": pool,
         "tickLower": tl,
         "tickUpper": tu,
         "token0": { "address": p.token0, "amountBaseUnits": amount0.to_string(), "decimals": dec0 },

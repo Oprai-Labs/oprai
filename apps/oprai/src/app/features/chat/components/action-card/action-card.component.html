@@ -4138,8 +4138,15 @@
           @let sp = sushiPool();
           <div class="uni-lp">
             <div class="uni-lp__head">
-              <span class="km-icon-slot uni-lp__logo">
-                <span class="km-icon km-icon--fallback">S</span>
+              <span class="km-icon-slot uni-lp__logo uni-lp__logo--pair">
+                @if (sp && sushiLpLogo(0)) {
+                  <img [src]="sushiLpLogo(0)" class="uni-lp__logo-img uni-lp__logo-img--a" alt="" (error)="$any($event.target).style.display='none'" />
+                } @else {
+                  <span class="km-icon km-icon--fallback">S</span>
+                }
+                @if (sp && sushiLpLogo(1)) {
+                  <img [src]="sushiLpLogo(1)" class="uni-lp__logo-img uni-lp__logo-img--b" alt="" (error)="$any($event.target).style.display='none'" />
+                }
               </span>
               <div class="uni-lp__headtext">
                 <span class="uni-lp__pair">{{ 'Add liquidity' | t }} @if (sp) { · {{ sp.token0Symbol }} / {{ sp.token1Symbol }} }</span>
@@ -4184,29 +4191,61 @@
             </div>
 
             @if (sp) {
-              <!-- deposit side toggle -->
-              <div class="morpho-toggle">
-                <button type="button" [class.on]="getEditParam('inputToken').toLowerCase() === sp.token0Address.toLowerCase()"
-                        [disabled]="!isEditable()" (click)="setSushiLpInput(sp.token0Address)">{{ sp.token0Symbol }}</button>
-                <button type="button" [class.on]="getEditParam('inputToken').toLowerCase() === sp.token1Address.toLowerCase()"
-                        [disabled]="!isEditable()" (click)="setSushiLpInput(sp.token1Address)">{{ sp.token1Symbol }}</button>
-              </div>
-              <div class="pump-panel" [class.proto-fields--shake]="shake()">
-                <div class="pump-panel__top">
-                  <span class="pump-panel__label">{{ 'You deposit' | t }}</span>
-                  @if (sushiLpBal() != null) {
-                    <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ sushiLpBal() | number:'1.0-4' }}
-                      @if (isEditable() && sushiLpBal()! > 0) {
-                        <button class="pump-panel__max" type="button" (click)="setSushiLpMax()">{{ 'Max' | t }}</button>
+              <!-- Dual-sided deposit (Meteora-style): type one leg, the other
+                   auto-fills from the pool price + range. -->
+              <div class="pump-swap">
+                <div class="pump-panel" [class.proto-fields--shake]="shake()">
+                  <div class="pump-panel__top">
+                    <span class="pump-panel__label">{{ 'You deposit' | t }}</span>
+                    @if (sushiLpBal0() != null) {
+                      <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ sushiLpBal0() | number:'1.0-4' }}
+                        @if (isEditable() && sushiLpBal0()! > 0) {
+                          <button class="pump-panel__max" type="button" (click)="setSushiLpMax(0)">{{ 'Max' | t }}</button>
+                        }
+                      </span>
+                    }
+                  </div>
+                  <div class="pump-panel__row">
+                    <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                           [value]="sushiLpAmt0()" [disabled]="!isEditable()"
+                           (input)="onSushiLpAmount(0, $any($event.target).value)" />
+                    <div class="pump-token">
+                      @if (sushiLpLogo(0)) {
+                        <img [src]="sushiLpLogo(0)" class="pump-token__icon" alt="" (error)="$any($event.target).style.display='none'" />
+                      } @else {
+                        <span class="pump-token__icon pump-token__icon--ph">{{ (sp.token0Symbol || '?').charAt(0) }}</span>
                       }
-                    </span>
-                  }
+                      <span class="pump-token__sym">{{ sp.token0Symbol }}</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="pump-panel__row">
-                  <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
-                         [value]="getEditParam('amount')" [disabled]="!isEditable()"
-                         (input)="setSushiLpAmount($any($event.target).value)" />
-                  <div class="pump-token"><span class="pump-token__sym">{{ sushiLpSym(getEditParam('inputToken')) }}</span></div>
+                <div class="pump-swap__arrow" aria-hidden="true"><lucide-icon name="plus" [size]="16" /></div>
+                <div class="pump-panel">
+                  <div class="pump-panel__top">
+                    <span class="pump-panel__label">{{ 'And' | t }}
+                      @if (sushiLpQuoting()) { <span class="pump-panel__refresh"><lucide-icon name="refresh-cw" [size]="10" /></span> }
+                    </span>
+                    @if (sushiLpBal1() != null) {
+                      <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ sushiLpBal1() | number:'1.0-4' }}
+                        @if (isEditable() && sushiLpBal1()! > 0) {
+                          <button class="pump-panel__max" type="button" (click)="setSushiLpMax(1)">{{ 'Max' | t }}</button>
+                        }
+                      </span>
+                    }
+                  </div>
+                  <div class="pump-panel__row">
+                    <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                           [value]="sushiLpAmt1()" [disabled]="!isEditable()"
+                           (input)="onSushiLpAmount(1, $any($event.target).value)" />
+                    <div class="pump-token">
+                      @if (sushiLpLogo(1)) {
+                        <img [src]="sushiLpLogo(1)" class="pump-token__icon" alt="" (error)="$any($event.target).style.display='none'" />
+                      } @else {
+                        <span class="pump-token__icon pump-token__icon--ph">{{ (sp.token1Symbol || '?').charAt(0) }}</span>
+                      }
+                      <span class="pump-token__sym">{{ sp.token1Symbol }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <!-- range -->

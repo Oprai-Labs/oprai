@@ -3347,14 +3347,14 @@
                 <span class="km-icons">
                   <span class="km-icon-slot">
                     <span class="km-icon km-icon--fallback">{{ (p.token0Symbol || '?').charAt(0) }}</span>
-                    @if (sushiPoolLogo(p.token0Address); as l0) {
+                    @if (sushiPoolLogo(p.token0Address, p.token0Logo); as l0) {
                       <img class="km-icon km-icon--img" [src]="l0" [alt]="p.token0Symbol"
                            loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
                     }
                   </span>
                   <span class="km-icon-slot km-icon-slot--debt">
                     <span class="km-icon km-icon--fallback">{{ (p.token1Symbol || '?').charAt(0) }}</span>
-                    @if (sushiPoolLogo(p.token1Address); as l1) {
+                    @if (sushiPoolLogo(p.token1Address, p.token1Logo); as l1) {
                       <img class="km-icon km-icon--img" [src]="l1" [alt]="p.token1Symbol"
                            loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
                     }

@@ -2211,6 +2211,20 @@ pub async fn post_sushi_add_liquidity(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/sushi/liquidity-quote — paired deposit amounts for a Sushi V3
+/// add-liquidity, WITHOUT building a tx. Read-only (no wallet), so the dual-sided
+/// card can auto-fill the other leg as the user types. Body: {poolAddress,
+/// inputToken, amount, rangePercent?}.
+#[post("/sushi/liquidity-quote")]
+pub async fn post_sushi_liquidity_quote(
+    _req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    let result = crate::services::sushi::quote_add_liquidity(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/opensea/buy — fulfill an OpenSea listing (Seaport) on Robinhood
 /// Chain. Returns an unsigned tx the user's wallet signs.
 #[post("/opensea/buy")]
