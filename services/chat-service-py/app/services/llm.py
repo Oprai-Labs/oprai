@@ -753,12 +753,12 @@ def _anthropic_thinking_kwargs(model: str, thinking: bool = False) -> dict:
         t in m for t in
         ("sonnet-5", "opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "fable-5", "mythos-5")
     )
-    if thinking:
-        # Extended thinking, capped to leave room for the visible answer. Only
-        # if max_tokens can accommodate it; otherwise fall back to default.
-        budget = min(10_000, settings.OPRAI_GPT_MAX_TOKENS - 4_000)
-        if budget >= 1_024:
-            return {"thinking": {"type": "enabled", "budget_tokens": budget}}
+    if thinking and thinks_by_default:
+        # Sonnet 5+ control thinking via ADAPTIVE mode + output_config.effort — the
+        # older `{"type":"enabled","budget_tokens":…}` form is rejected by these
+        # models ("not supported for this model"). "high" effort makes the model
+        # reason harder (and spend more output/reasoning tokens against the quota).
+        return {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}}
     return {"thinking": {"type": "disabled"}} if thinks_by_default else {}
 
 
