@@ -597,10 +597,17 @@ pub async fn build_add_liquidity(http: &reqwest::Client, body: &Value) -> Result
             "sushi: inputToken (which token to deposit) required".into(),
         ));
     }
+    // Default 8% (not 1%): the desired amount0/amount1 are computed here in f64
+    // V3 math, which differs from the NonfungiblePositionManager's exact integer
+    // math by ~1-5% near the tick boundaries. A 1% min tripped the contract's
+    // "Price slippage check" and reverted the mint (the wallet then couldn't
+    // estimate gas — "network fee unavailable"). On a mint the unused amount is
+    // refunded, so a generous min only affects how much liquidity is accepted,
+    // never how much is spent — 8% clears the imprecision with margin for drift.
     let slippage = body
         .get("slippagePct")
         .and_then(|v| v.as_f64())
-        .unwrap_or(1.0)
+        .unwrap_or(8.0)
         .clamp(0.1, 50.0);
     let range_percent = body.get("rangePercent").and_then(|v| {
         v.as_f64()
