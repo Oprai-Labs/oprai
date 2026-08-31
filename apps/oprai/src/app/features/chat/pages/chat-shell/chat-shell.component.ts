@@ -457,6 +457,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
   onSendMessage(event: SendEvent | string): void {
     const content = typeof event === 'string' ? event : event.content;
     const protocols = typeof event === 'string' ? [] : (event.protocols ?? []);
+    const thinking = typeof event === 'string' ? false : !!event.thinking;
     if (!content.trim() || this.streaming()) return;
     this.lastFailedContent.set(null);
     this._lastSentContent = content;
@@ -519,7 +520,7 @@ export class ChatShellComponent implements OnInit, OnDestroy {
       this.chatApi.sendMessageStream(
         resolvedSessionId, content,
         attachments.length > 0 ? attachments : undefined,
-        false,
+        thinking,
         protocols.length > 0 ? protocols : undefined,
       ),
       content,

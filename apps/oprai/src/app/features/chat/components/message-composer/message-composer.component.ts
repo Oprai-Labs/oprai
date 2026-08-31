@@ -27,6 +27,10 @@ export interface AttachedFile {
 export interface SendEvent {
   content: string;
   protocols: string[];
+  /** Extended-reasoning mode: the backend runs the model at higher effort (and
+   *  it consumes more of the wallet's token quota). Driven by the "Thinking" chip.
+   *  Optional so callers that build a plain {content, protocols} still type-check. */
+  thinking?: boolean;
 }
 
 export interface CapInfo {
@@ -317,6 +321,7 @@ export class MessageComposerComponent implements AfterViewInit {
     this.send.emit({
       content: trimmed,
       protocols: this.selectedProtocols().map(p => p.id),
+      thinking: this.activeMode() === 'thinking',
     });
     this.message = '';
     this.attachedFiles.set([]);

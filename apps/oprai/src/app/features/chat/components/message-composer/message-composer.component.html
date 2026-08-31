@@ -78,9 +78,9 @@
   <!-- Bottom toolbar -->
   <div class="composer-toolbar">
 
-    <!-- "+" menu. Only the file-upload entries (photos & files / Google Drive)
-         are removed — file upload isn't part of this product. Add to project,
-         Web Research and Thinking stay. -->
+    <!-- "+" menu. File upload, Add-to-project and Web Research are hidden for now;
+         only Thinking is live. Toggling it runs the model at higher reasoning
+         effort (and uses more of the wallet's token quota). -->
     <div class="plus-menu-anchor">
       <button
         class="composer-attach-btn"
@@ -95,31 +95,11 @@
       @if (plusMenuOpen()) {
         <div class="plus-menu-backdrop" (click)="closePlusMenu()"></div>
         <div class="plus-menu">
-          <div class="plus-menu-item plus-menu-item--has-sub">
-            <lucide-icon name="folder-plus" [size]="16" />
-            <span>{{ 'Add to project' | t }}</span>
-            <lucide-icon class="plus-menu-chevron" name="chevron-right" [size]="14" />
-            <!-- Submenu -->
-            <div class="plus-submenu">
-              <div class="plus-submenu-search">
-                <lucide-icon name="search" [size]="14" />
-                <input type="text" [attr.placeholder]="'Search projects...' | t" class="plus-submenu-input" />
-              </div>
-              <div class="plus-submenu-list">
-                <div class="plus-submenu-empty">{{ 'No projects yet' | t }}</div>
-              </div>
-            </div>
-          </div>
-          <div class="plus-menu-divider"></div>
-          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" [attr.title]="'Coming soon' | t">
-            <lucide-icon name="globe" [size]="16" />
-            <span>{{ 'Web Research' | t }}</span>
-            <span class="plus-menu-soon">{{ 'Soon' | t }}</span>
-          </button>
-          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" [attr.title]="'Coming soon' | t">
+          <button class="plus-menu-item" [class.plus-menu-item--on]="activeMode() === 'thinking'"
+                  type="button" (click)="toggleThinking()">
             <lucide-icon name="lightbulb" [size]="16" />
             <span>{{ 'Thinking' | t }}</span>
-            <span class="plus-menu-soon">{{ 'Soon' | t }}</span>
+            @if (activeMode() === 'thinking') { <span class="plus-menu-on-dot" aria-hidden="true"></span> }
           </button>
         </div>
       }

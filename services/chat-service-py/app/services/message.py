@@ -1220,6 +1220,7 @@ async def stream_chat_response(
     attachments: list[dict] | None = None,
     protocols: list[str] | None = None,
     extra_user_metadata: dict | None = None,
+    thinking: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Save user message, stream LLM response via SSE, then persist assistant reply.
 
@@ -1982,7 +1983,7 @@ async def stream_chat_response(
                 pre_tool_buffer: list[str] = []
                 pre_tool_thinking_buffer: list[str] = []
 
-                async for event in llm.astream_with_tools(model_messages, tools, tool_choice=tool_choice_mode):
+                async for event in llm.astream_with_tools(model_messages, tools, tool_choice=tool_choice_mode, thinking=thinking):
                     kind = event[0]
 
                     if kind == "tool_call":

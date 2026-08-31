@@ -3322,6 +3322,7 @@ async def stream_message(
                     is_first_message=is_first_message,
                     attachments=attachments,
                     protocols=body.protocols,
+                    thinking=body.thinking,
                 ):
                     yield chunk
                 await stream_db.commit()

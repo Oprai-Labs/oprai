@@ -531,3 +531,11 @@
     opacity: 1;
   }
 }
+
+/* Thinking toggle — active state in the + menu. */
+.plus-menu-item--on { color: var(--op-brand, #5b5fc7); font-weight: 600; }
+.plus-menu-on-dot {
+  margin-left: auto;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--op-brand, #5b5fc7);
+}

@@ -131,6 +131,7 @@ class LLMService:
         messages: list[dict[str, str]],
         tools: list[dict],
         tool_choice: str = "auto",
+        thinking: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream with function calling.
@@ -150,11 +151,11 @@ class LLMService:
         Supports OpenAI (Chat Completions + Responses API) and Anthropic Messages.
         """
         if self._provider == "anthropic":
-            async for event in self._astream_anthropic_with_tools(messages, tools, tool_choice):
+            async for event in self._astream_anthropic_with_tools(messages, tools, tool_choice, thinking):
                 yield event
             return
         if self._use_responses_api:
-            async for event in self._astream_responses_with_tools(messages, tools, tool_choice):
+            async for event in self._astream_responses_with_tools(messages, tools, tool_choice, thinking):
                 yield event
             return
 
@@ -204,6 +205,7 @@ class LLMService:
         *,
         stream: bool,
         tools: list[dict] | None = None,
+        effort: str | None = None,
     ) -> dict:
         """Build keyword arguments for openai.responses.create()."""
         system_msgs = [m for m in messages if m.get("role") == "system"]
@@ -220,7 +222,7 @@ class LLMService:
                 "verbosity": "medium",
             },
             "reasoning": {
-                "effort": settings.OPRAI_GPT_REASONING_EFFORT,
+                "effort": effort or settings.OPRAI_GPT_REASONING_EFFORT,
                 "summary": "concise",
             },
             "tools": responses_tools,
@@ -284,6 +286,7 @@ class LLMService:
         messages: list[dict[str, str]],
         tools: list[dict],
         tool_choice: str = "auto",
+        thinking: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream Responses API with tool calling support.
@@ -295,7 +298,11 @@ class LLMService:
         Tool-call JSON / Harmony channel markers that leak into the text channel
         are filtered out so they never reach the user.
         """
-        kwargs = self._build_responses_kwargs(messages, stream=True, tools=tools)
+        # Thinking toggle → run the reasoning model at "high" effort (default
+        # otherwise). More reasoning tokens = better answers + more quota spent.
+        kwargs = self._build_responses_kwargs(
+            messages, stream=True, tools=tools, effort="high" if thinking else None,
+        )
         # Override the default "auto" baked in by _build_responses_kwargs when
         # the caller wants to force a tool call. "required" makes the model
         # emit at least one function_call item — used for action/query intents
@@ -557,6 +564,7 @@ class LLMService:
         messages: list[dict[str, str]],
         tools: list[dict],
         tool_choice: str = "auto",
+        thinking: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Tool-calling stream via Anthropic Messages API.
 
@@ -589,12 +597,15 @@ class LLMService:
             "max_tokens": settings.OPRAI_GPT_MAX_TOKENS,
             "system": system_blocks,
             "messages": non_system,
-            **_anthropic_thinking_kwargs(self._model),
+            **_anthropic_thinking_kwargs(self._model, thinking),
         }
         if tool_choice == "none" or not anthropic_tools:
             # No tools at all — Claude can't call anything regardless.
             pass
-        elif tool_choice == "required":
+        elif tool_choice == "required" and not thinking:
+            # Extended thinking is incompatible with tool_choice:{type:"any"}, so a
+            # "required" turn with Thinking on falls through to "auto" below. Sonnet 5
+            # isn't tool-avoidant (that was Haiku), so auto is fine here.
             stream_kwargs["tools"] = anthropic_tools
             # disable_parallel_tool_use=False keeps Claude's parallel-call
             # behaviour intact while still forcing at least one call.
@@ -719,22 +730,35 @@ def _to_langchain(
 # through `_strip_tool_call_leakage` on the off chance Claude ever writes
 # tool-name vocabulary in prose, but in practice it never does.
 
-def _anthropic_thinking_kwargs(model: str) -> dict:
+def _anthropic_thinking_kwargs(model: str, thinking: bool = False) -> dict:
     """Thinking config for an Anthropic responder call, keyed off the model.
 
     Newer Claude models (Sonnet 5, Opus 4.6/4.7/4.8, Sonnet 4.6, Fable 5)
     enable *adaptive thinking by DEFAULT* when the `thinking` param is omitted.
-    For an interactive chat responder that is pure overhead — it adds latency
-    and burns extra output tokens (which count against the per-chat token cap)
-    for reasoning the streaming path never surfaces. Explicitly disable it on
-    those models. Older models (Haiku 4.5 and earlier) already default to no
-    thinking and may reject an explicit `{"type": "disabled"}`, so send nothing.
+    For an ordinary interactive chat responder that is pure overhead — it adds
+    latency and burns extra output tokens for reasoning the streaming path never
+    surfaces — so it is explicitly disabled below.
+
+    When the user turns on the "Thinking" toggle (`thinking=True`), enable
+    EXTENDED thinking with a generous budget instead: the model reasons harder
+    (better answers on complex turns) and the extra reasoning tokens count against
+    the wallet's token quota, which is exactly the trade the toggle makes. The
+    budget must stay under max_tokens; keep ~4K of headroom for the visible reply.
+
+    Older models (Haiku 4.5 and earlier) already default to no thinking and may
+    reject an explicit `{"type": "disabled"}`, so send nothing.
     """
     m = model.lower()
     thinks_by_default = any(
         t in m for t in
         ("sonnet-5", "opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "fable-5", "mythos-5")
     )
+    if thinking:
+        # Extended thinking, capped to leave room for the visible answer. Only
+        # if max_tokens can accommodate it; otherwise fall back to default.
+        budget = min(10_000, settings.OPRAI_GPT_MAX_TOKENS - 4_000)
+        if budget >= 1_024:
+            return {"thinking": {"type": "enabled", "budget_tokens": budget}}
     return {"thinking": {"type": "disabled"}} if thinks_by_default else {}
 
 
