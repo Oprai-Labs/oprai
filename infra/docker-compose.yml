@@ -340,6 +340,9 @@ services:
       # admin row still carries a known-weak password (e.g. admin123).
       NODE_ENV: production
       OPRAI_ADMIN_JWT_SECRET: ${OPRAI_ADMIN_JWT_SECRET:?OPRAI_ADMIN_JWT_SECRET is required}
+      # Engages the /metrics internal-key gate (internalKeyGate skips the check
+      # when this is empty). /metrics is loopback-only, but gate it for parity.
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:-}
       ADMIN_CORS_ORIGIN: ${ADMIN_CORS_ORIGIN:-http://localhost:3200}
       DATABASE_URL: postgresql://admin_app:${ADMIN_DB_PASS:?ADMIN_DB_PASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
     healthcheck:
