@@ -10737,10 +10737,52 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     this.setEditParam('amount', v);
     this.queueSushiLpQuote();
   }
-  setSushiLpMax(leg: 0 | 1): void {
-    const b = leg === 0 ? this.sushiLpBal0() : this.sushiLpBal1();
-    if (b != null && b > 0 && this.isEditable()) this.onSushiLpAmount(leg, String(+b.toFixed(8)));
+  /** Max that fits BOTH balances: maxing one leg may need more of the other than
+   *  the wallet holds, so fall back to maxing the limiting leg instead. Without
+   *  this, "Max WETH" asked for more USDG than the wallet had and the mint
+   *  reverted at signing ("network fee unavailable" in the wallet). */
+  async setSushiLpMax(leg: 0 | 1): Promise<void> {
+    if (!this.isEditable()) return;
+    const bal = leg === 0 ? this.sushiLpBal0() : this.sushiLpBal1();
+    const otherBal = leg === 0 ? this.sushiLpBal1() : this.sushiLpBal0();
+    if (bal == null || !(bal > 0)) return;
+    const otherNeeded = await this.quoteOtherAmount(leg, +bal.toFixed(8));
+    if (otherNeeded == null || otherBal == null || otherNeeded <= otherBal) {
+      // This leg is the limiting one (or the other balance is unknown) → max it.
+      this.onSushiLpAmount(leg, String(+bal.toFixed(8)));
+    } else {
+      // The paired leg can't cover it → the OTHER leg is limiting; max that side.
+      this.onSushiLpAmount((leg === 0 ? 1 : 0) as 0 | 1, String(+otherBal.toFixed(8)));
+    }
   }
+
+  /** One-off quote: how much of the OTHER leg a given input amount needs. */
+  private async quoteOtherAmount(leg: 0 | 1, amount: number): Promise<number | null> {
+    const p = this.sushiPool();
+    const pool = this.getEditParam('poolAddress');
+    if (!p || !pool || !(amount > 0)) return null;
+    try {
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/sushi/liquidity-quote', {
+        poolAddress: pool,
+        inputToken: leg === 0 ? p.token0Address : p.token1Address,
+        amount: String(amount),
+        ...(this.getEditParam('rangePercent') ? { rangePercent: this.getEditParam('rangePercent') } : {}),
+      }));
+      const other = leg === 0 ? r?.token1 : r?.token0;
+      const base = Number(other?.amountBaseUnits); const dec = Number(other?.decimals);
+      if (!Number.isFinite(base) || !Number.isFinite(dec)) return null;
+      return base / Math.pow(10, dec);
+    } catch { return null; }
+  }
+
+  /** True when either leg's amount exceeds the wallet's balance for that token —
+   *  the mint would revert, so the CTA is gated and a warning shown. */
+  readonly sushiLpInsufficient = computed(() => {
+    const a0 = Number(this.sushiLpAmt0()); const a1 = Number(this.sushiLpAmt1());
+    const b0 = this.sushiLpBal0(); const b1 = this.sushiLpBal1();
+    const over = (a: number, b: number | null) => Number.isFinite(a) && a > 0 && b != null && a > b + 1e-9;
+    return over(a0, b0) || over(a1, b1);
+  });
   private queueSushiLpQuote(): void {
     if (this._sushiLpQuoteTimer) clearTimeout(this._sushiLpQuoteTimer);
     const amt = this.getEditParam('amount');
