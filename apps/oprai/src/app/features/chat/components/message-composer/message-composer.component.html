@@ -78,58 +78,10 @@
   <!-- Bottom toolbar -->
   <div class="composer-toolbar">
 
-    <!-- Plus button with menu -->
-    <div class="plus-menu-anchor">
-      <button
-        class="composer-attach-btn"
-        [disabled]="disabled || chatLimitReached"
-        type="button"
-        [attr.aria-label]="'Attach file' | t"
-        (click)="togglePlusMenu()"
-      >
-        <lucide-icon name="plus" [size]="18" />
-      </button>
-
-      @if (plusMenuOpen()) {
-        <div class="plus-menu-backdrop" (click)="closePlusMenu()"></div>
-        <div class="plus-menu">
-          <button class="plus-menu-item" (click)="onAddFiles()">
-            <lucide-icon name="paperclip" [size]="16" />
-            <span>{{ 'Add photos & files' | t }}</span>
-          </button>
-          <button class="plus-menu-item" (click)="onAddFromDrive()">
-            <lucide-icon name="hard-drive" [size]="16" />
-            <span>{{ 'Add from Google Drive' | t }}</span>
-          </button>
-          <div class="plus-menu-item plus-menu-item--has-sub">
-            <lucide-icon name="folder-plus" [size]="16" />
-            <span>{{ 'Add to project' | t }}</span>
-            <lucide-icon class="plus-menu-chevron" name="chevron-right" [size]="14" />
-            <!-- Submenu -->
-            <div class="plus-submenu">
-              <div class="plus-submenu-search">
-                <lucide-icon name="search" [size]="14" />
-                <input type="text" [attr.placeholder]="'Search projects...' | t" class="plus-submenu-input" />
-              </div>
-              <div class="plus-submenu-list">
-                <div class="plus-submenu-empty">{{ 'No projects yet' | t }}</div>
-              </div>
-            </div>
-          </div>
-          <div class="plus-menu-divider"></div>
-          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" [attr.title]="'Coming soon' | t">
-            <lucide-icon name="globe" [size]="16" />
-            <span>{{ 'Web Research' | t }}</span>
-            <span class="plus-menu-soon">{{ 'Soon' | t }}</span>
-          </button>
-          <button class="plus-menu-item plus-menu-item--soon" disabled aria-disabled="true" [attr.title]="'Coming soon' | t">
-            <lucide-icon name="lightbulb" [size]="16" />
-            <span>{{ 'Thinking' | t }}</span>
-            <span class="plus-menu-soon">{{ 'Soon' | t }}</span>
-          </button>
-        </div>
-      }
-    </div>
+    <!-- The "+" attachment menu was removed: file upload / Google Drive / projects
+         aren't part of this product, and Web Research / Thinking were placeholders.
+         Re-add a real control here when one ships (e.g. Thinking with a token
+         multiplier surfaced to the user). -->
 
     <!-- Active mode chip -->
     @if (activeMode() && !chatLimitReached) {

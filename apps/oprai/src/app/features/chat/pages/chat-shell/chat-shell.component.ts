@@ -433,12 +433,17 @@ export class ChatShellComponent implements OnInit, OnDestroy {
    * DID act succeeded), so a new user landing on a blank screen is the moment
    * to lose them. These one-tap starters name concrete things OPRAI can do —
    * one zero-risk read first (portfolio) to build trust, then the two actions
-   * users complete most (swap, stake). Strings are English i18n keys (`| t`).
+   * users complete most. Strings are English i18n keys (`| t`).
+   *
+   * Robinhood Chain is the product's home, so the concrete examples name what's
+   * distinctive there — an ETH→USDG swap and USDG yield — rather than Solana's
+   * SOL/Jito, which read as "this is a Solana app". Portfolio stays first (a
+   * zero-risk read to build trust); "What can OPRAI do?" stays as the explainer.
    */
   readonly starterPrompts: ReadonlyArray<{ icon: string; text: string }> = [
     { icon: 'wallet', text: 'Show my portfolio' },
-    { icon: 'arrow-right-left', text: 'Swap 1 SOL to USDC' },
-    { icon: 'coins', text: 'Stake 1 SOL with Jito' },
+    { icon: 'arrow-right-left', text: 'Swap ETH to USDG' },
+    { icon: 'coins', text: 'Earn yield on USDG' },
     { icon: 'sparkles', text: 'What can OPRAI do?' },
   ];
 
