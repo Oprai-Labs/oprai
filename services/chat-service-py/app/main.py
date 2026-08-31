@@ -4328,7 +4328,7 @@ async def get_tracked_whales(
 
         service = get_whale_service()
         wtype = WhaleType(whale_type) if whale_type else None
-        whales = await service.get_whales(wtype, active_only)
+        whales = await service.get_whales(_wallet, wtype, active_only)
 
         return {
             "success": True,
@@ -4353,6 +4353,7 @@ async def add_whale(
 
         service = get_whale_service()
         whale = await service.add_whale(
+            wallet,
             address=body.address,
             name=body.name,
             whale_type=WhaleType(body.whale_type),
@@ -4380,7 +4381,7 @@ async def remove_whale(
         from app.services.whale_tracking import get_whale_service
 
         service = get_whale_service()
-        success = await service.remove_whale(address)
+        success = await service.remove_whale(wallet, address)
 
         return {
             "success": success,

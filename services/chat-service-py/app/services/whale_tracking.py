@@ -11,6 +11,7 @@ API for whale wallet tracking and smart money monitoring:
 This wraps the opraios/core/advanced_alerts.py functionality for the backend API.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -272,56 +273,71 @@ class WhaleTrackingService:
 
     async def get_whales(
         self,
+        wallet: str,
         whale_type: WhaleType | None = None,
         active_only: bool = True,
     ) -> list[WhaleInfo]:
         """
-        Get list of tracked whales.
+        Get the caller's whale watchlist: the curated KNOWN_WHALES baseline that
+        every user sees, plus THIS wallet's own tracked whales.
 
         Args:
+            wallet: the authenticated owner — watchlists are per-user (Redis
+                key ``whale:tracked:<wallet>``), so no user sees or affects
+                another user's additions.
             whale_type: Filter by whale type
             active_only: Only return active whales
-
-        Returns:
-            List of WhaleInfo objects
         """
         whales = []
 
+        # curated baseline (read-only, shared by all users)
         for address, info in self.KNOWN_WHALES.items():
             wtype = WhaleType(info["type"])
-
-            # Filter by type
             if whale_type and wtype != whale_type:
                 continue
-
-            whale = WhaleInfo(
+            whales.append(WhaleInfo(
                 address=address,
                 name=info["name"],
                 whale_type=wtype,
                 tags=info.get("tags", []),
-            )
-            whales.append(whale)
+            ))
+
+        # this user's own tracked whales
+        try:
+            r = await self._get_redis()
+            raw = await r.hgetall(self.WHALES_CACHE_KEY + wallet)
+            for _addr, blob in (raw or {}).items():
+                if isinstance(blob, bytes):
+                    blob = blob.decode()
+                d = json.loads(blob)
+                wt = WhaleType(d.get("whale_type", WhaleType.UNKNOWN.value))
+                if whale_type and wt != whale_type:
+                    continue
+                if active_only and not d.get("is_active", True):
+                    continue
+                whales.append(WhaleInfo(
+                    address=d["address"],
+                    name=d.get("name", ""),
+                    whale_type=wt,
+                    description=d.get("description"),
+                    tags=d.get("tags", []),
+                    is_active=d.get("is_active", True),
+                ))
+        except Exception:
+            logger.warning("whale watchlist read failed", exc_info=True)
 
         return whales
 
     async def add_whale(
         self,
+        wallet: str,
         address: str,
         name: str,
         whale_type: WhaleType = WhaleType.UNKNOWN,
         tags: list[str] | None = None,
     ) -> WhaleInfo:
         """
-        Add a new whale to track.
-
-        Args:
-            address: Whale wallet address
-            name: Display name
-            whale_type: Type of whale
-            tags: Optional tags
-
-        Returns:
-            Created WhaleInfo
+        Add a whale to THIS wallet's own watchlist (persisted per-user in Redis).
         """
         whale = WhaleInfo(
             address=address,
@@ -329,26 +345,26 @@ class WhaleTrackingService:
             whale_type=whale_type,
             tags=tags or [],
         )
-
-        # In production, this would save to database
-        logger.info(f"Added whale: {name} ({address})")
-
+        try:
+            r = await self._get_redis()
+            await r.hset(self.WHALES_CACHE_KEY + wallet, address, json.dumps(whale.to_dict()))
+            logger.info("Added whale to watchlist", extra={"wallet": wallet, "address": address})
+        except Exception:
+            logger.error("whale watchlist add failed", exc_info=True)
         return whale
 
-    async def remove_whale(self, address: str) -> bool:
+    async def remove_whale(self, wallet: str, address: str) -> bool:
         """
-        Remove a whale from tracking.
-
-        Args:
-            address: Whale address
-
-        Returns:
-            True if successful
+        Remove a whale from THIS wallet's own watchlist. The curated KNOWN_WHALES
+        baseline is shared and cannot be removed by a user.
         """
-        if address in self.KNOWN_WHALES:
-            logger.info(f"Removed whale: {address}")
-            return True
-        return False
+        try:
+            r = await self._get_redis()
+            removed = await r.hdel(self.WHALES_CACHE_KEY + wallet, address)
+            return bool(removed)
+        except Exception:
+            logger.error("whale watchlist remove failed", exc_info=True)
+            return False
 
     async def get_whale_activity(
         self,
