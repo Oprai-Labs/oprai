@@ -1099,8 +1099,20 @@ def _is_solana_address(v: str) -> bool:
     return bool(_SOLANA_ADDR_RE.match(v))
 
 
+# Robinhood-Chain / EVM token symbols the LLM may pass on EVM actions (sushi/
+# uniswap/kamino kSwap). They aren't Solana mints, so they must be accepted as
+# valid token refs alongside an 0x address — otherwise a "swap USDG→USDe" was
+# dropped at param validation.
+_EVM_TOKEN_SYMBOLS: frozenset[str] = frozenset({"USDG", "USDE", "WETH", "ETH", "WBTC", "CBBTC"})
+
+
 def _is_token_ref(v: str) -> bool:
-    return v.upper() in _KNOWN_SYMBOLS or _is_solana_address(v)
+    return (
+        v.upper() in _KNOWN_SYMBOLS
+        or v.upper() in _EVM_TOKEN_SYMBOLS
+        or _is_solana_address(v)
+        or bool(_EVM_ADDR_RE.match(v))
+    )
 
 
 def validate_action_params(
