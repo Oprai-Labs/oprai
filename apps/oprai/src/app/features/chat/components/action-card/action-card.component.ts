@@ -6224,6 +6224,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.action?.type === 'lighter_leverage') {
       if (!this.lighterSymbol()) return 'Pick a market';
     }
+    // Morpho: never submit an incomplete card (the backend 400 surfaced as a
+    // cryptic "Something went wrong"). Gate the CTA on the amount each action
+    // actually needs, so the button says exactly what's missing instead.
+    if (this.action?.type?.startsWith('morpho_')) {
+      if (!this.getEditParam('marketId').trim()) return 'Pick a market';
+      const kind = this.morphoKind();
+      if (kind === 'supply') {
+        if (!(Number(this.getEditParam('amount')) > 0)) return 'Enter an amount';
+      } else if (kind === 'borrow') {
+        if (!(Number(this.getEditParam('collateralAmount')) > 0)) return 'Add collateral';
+        if (!(Number(this.getEditParam('borrowAmount')) > 0)) return 'Enter a borrow amount';
+      } else if (kind === 'repay' || kind === 'withdraw') {
+        if (this.getEditParam('max') !== 'true' && !(Number(this.getEditParam('amount')) > 0)) {
+          return 'Enter an amount';
+        }
+      }
+    }
     return null;
   });
 
