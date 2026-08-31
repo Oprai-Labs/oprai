@@ -1458,6 +1458,33 @@ pub(crate) async fn eth_call(http: &reqwest::Client, rpc: &str, to: &str, data: 
         .ok_or_else(|| AppError::Internal(format!("EVM RPC error: {}", v.get("error").map(|e| e.to_string()).unwrap_or_default())))
 }
 
+/// The `from` (sender) of an on-chain EVM transaction, via
+/// `eth_getTransactionByHash`. Returns None if the tx isn't found (e.g. a
+/// fabricated hash), the chain is unknown, or the RPC is unreachable — callers
+/// treat "unknown depositor" conservatively (don't book a fee against it).
+pub(crate) async fn eth_tx_from(
+    http: &reqwest::Client,
+    chain_id: u64,
+    tx_hash: &str,
+) -> Option<String> {
+    let rpc = alchemy_rpc(chain_id)?;
+    let body = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionByHash", "params": [tx_hash],
+    });
+    let resp = http
+        .post(&rpc)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .ok()?;
+    let v: Value = resp.json().await.ok()?;
+    v.pointer("/result/from")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 fn hex_to_u64(hex: &str) -> u64 {
     u64::from_str_radix(hex.trim_start_matches("0x").trim_start_matches('0'), 16).unwrap_or(0)
 }

@@ -102,6 +102,25 @@ fn account_from_req(req: &HttpRequest) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Decide whose economics a recorded EVM swap belongs to. `depositor` is the
+/// protocol-authoritative payer (e.g. Relay's `user`); `caller` is the wallet
+/// that hit the record endpoint. Book under the depositor so a caller can NEVER
+/// misattribute another wallet's swap to itself, and pool into the caller's
+/// account only when the caller IS that depositor (solana-service can't resolve
+/// wallet→account across schemas, so a linked wallet's account_id backfills
+/// later). A missing depositor falls back to the caller (prior behaviour).
+fn evm_record_identity(
+    depositor: Option<&str>,
+    caller: &str,
+    caller_account: Option<String>,
+) -> (String, Option<String>) {
+    match depositor.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) if d.eq_ignore_ascii_case(caller) => (d.to_string(), caller_account),
+        Some(d) => (d.to_string(), None),
+        None => (caller.to_string(), caller_account),
+    }
+}
+
 /// The trader's cashback tier percent, from their POOLED (fee-paying) volume
 /// across all their wallets/chains. Used to split a Relay app fee at collection
 /// into the cashback pool vs the profit wallet, so the pool self-funds with
@@ -1785,6 +1804,22 @@ pub async fn post_relay_record(
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
 
+    // Ownership: book the economics under the swap's ACTUAL depositor (Relay's
+    // authoritative `user`), never blindly under whoever called this endpoint.
+    // Otherwise anyone could POST another user's requestId and steal that swap's
+    // volume + cashback under their own account (idempotent on tx hash, so the
+    // first recorder wins). Pool into the caller's account ONLY when the caller
+    // IS the depositor; for a linked-wallet the account_id backfills later
+    // (solana-service can't resolve wallet→account across schemas here).
+    let depositor = r
+        .pointer("/user")
+        .or_else(|| r.pointer("/data/metadata/sender"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|s| !s.is_empty());
+    let (record_wallet, record_account) =
+        evm_record_identity(depositor.as_deref(), &wallet, account);
+
     let Some(chain_key) = relay::chain_key_for_id(origin_chain) else {
         return not_recorded("unsupported chain");
     };
@@ -1812,8 +1847,8 @@ pub async fn post_relay_record(
 
     match crate::db::economics::record_evm_confirmed(
         &state.pool,
-        wallet.clone(),
-        account,
+        record_wallet.clone(),
+        record_account,
         chain_key.to_string(),
         tx_hash,
         "relay".to_string(),
@@ -1828,7 +1863,7 @@ pub async fn post_relay_record(
     {
         Ok(id) => {
             tracing::info!(
-                action = "relay_record", user_wallet = %wallet, chain = %chain_key,
+                action = "relay_record", user_wallet = %record_wallet, caller = %wallet, chain = %chain_key,
                 request_id = %request_id, notional_usd, fee_usd, fee_bps,
                 "EVM swap economics recorded"
             );
@@ -2393,10 +2428,21 @@ pub async fn post_uniswap_record(
     };
     let fee_usd = notional_usd * (fee_bps as f64) / 10_000.0;
 
+    // Verify the tx on-chain and book under its ACTUAL sender (not the client's
+    // word), so a caller can't fabricate a hash or record someone else's swap
+    // under their own account. A fee is only ever booked against a real,
+    // verified transaction — if we can't confirm the sender, we refuse to charge
+    // one (matters once Uniswap fee-taking is enabled).
+    let depositor = crate::services::uniswap::eth_tx_from(&state.http, body.chain_id, &tx_hash).await;
+    if fee_bps > 0 && depositor.is_none() {
+        return not_recorded("transaction could not be verified on-chain");
+    }
+    let (record_wallet, record_account) = evm_record_identity(depositor.as_deref(), &wallet, account);
+
     match crate::db::economics::record_evm_confirmed(
         &state.pool,
-        wallet.clone(),
-        account,
+        record_wallet.clone(),
+        record_account,
         chain_key.to_string(),
         tx_hash.clone(),
         "uniswap".to_string(),
@@ -2410,7 +2456,7 @@ pub async fn post_uniswap_record(
     .await
     {
         Ok(id) => {
-            tracing::info!(action = "uniswap_record", user_wallet = %wallet, chain = %chain_key, tx = %tx_hash, notional_usd, fee_usd, "Uniswap swap economics recorded");
+            tracing::info!(action = "uniswap_record", user_wallet = %record_wallet, caller = %wallet, chain = %chain_key, tx = %tx_hash, notional_usd, fee_usd, "Uniswap swap economics recorded");
             Ok(HttpResponse::Ok().json(serde_json::json!({
                 "recorded": true, "transactionId": id, "chain": chain_key,
                 "notionalUsd": notional_usd, "feeUsd": fee_usd, "feeBps": fee_bps
@@ -2850,5 +2896,43 @@ mod evm_actor_tests {
         // base58 session: the EVM leg is a separately-linked wallet, so a differing
         // walletAddress must NOT be blocked.
         assert!(assert_evm_actor(&req(SOL), &json!({ "walletAddress": OTHER })).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod evm_record_identity_tests {
+    use super::evm_record_identity;
+
+    const CALLER: &str = "0x1111111111111111111111111111111111111111";
+    const VICTIM: &str = "0x2222222222222222222222222222222222222222";
+
+    #[test]
+    fn caller_is_the_depositor_pools_into_their_account() {
+        let (w, a) = evm_record_identity(Some(CALLER), CALLER, Some("acct-7".into()));
+        assert_eq!(w, CALLER);
+        assert_eq!(a.as_deref(), Some("acct-7"));
+        // case-insensitive
+        let (w2, a2) = evm_record_identity(Some(&CALLER.to_uppercase()), CALLER, Some("acct-7".into()));
+        assert_eq!(w2, CALLER.to_uppercase());
+        assert_eq!(a2.as_deref(), Some("acct-7"));
+    }
+
+    #[test]
+    fn recording_someone_elses_swap_credits_them_not_the_caller() {
+        // Attacker (CALLER) records VICTIM's requestId → booked under VICTIM, and
+        // NOT pooled into the attacker's account. Attacker gains nothing.
+        let (w, a) = evm_record_identity(Some(VICTIM), CALLER, Some("attacker-acct".into()));
+        assert_eq!(w, VICTIM, "must book under the real depositor");
+        assert_eq!(a, None, "must NOT pool a foreign swap into the caller's account");
+    }
+
+    #[test]
+    fn missing_depositor_falls_back_to_caller() {
+        let (w, a) = evm_record_identity(None, CALLER, Some("acct-7".into()));
+        assert_eq!(w, CALLER);
+        assert_eq!(a.as_deref(), Some("acct-7"));
+        // empty string is treated as missing
+        let (w2, _) = evm_record_identity(Some("  "), CALLER, None);
+        assert_eq!(w2, CALLER);
     }
 }
