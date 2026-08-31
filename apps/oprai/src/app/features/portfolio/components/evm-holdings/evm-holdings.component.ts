@@ -2,8 +2,7 @@ import { ChangeDetectionStrategy, Component, Input, OnInit, computed, inject, si
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
 import { forkJoin, of, from } from 'rxjs';
-import { catchError, map, timeout } from 'rxjs/operators';
-import { HttpClient } from '@angular/common/http';
+import { catchError, map, timeout, retry } from 'rxjs/operators';
 import { AccountService } from '../../../../core/services/account.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { EvmPortfolioService, EvmToken, EvmPosition, EvmTx, EvmNft } from '../../services/evm-portfolio.service';
@@ -138,8 +137,8 @@ function categoryFor(label: string): ProtocolCategory {
                   <span class="tok-name">
                     <span class="tok-logo" [style.--cc]="chainColor(t.chain)">
                       <span class="tok-logo-txt">{{ (t.symbol || '?').slice(0,3) }}</span>
-                      @if (t.logo || dexLogo(t)) {
-                        <img class="tok-logo-img" [src]="t.logo || dexLogo(t)" [alt]="t.symbol" (error)="onTokenLogoErr($event, t)" />
+                      @if (tokenLogo(t)) {
+                        <img class="tok-logo-img" [src]="tokenLogo(t)" [alt]="t.symbol" (error)="onTokenLogoErr($event, t)" />
                       }
                       <span class="tok-chain-dot" [style.background]="chainColor(t.chain)" [title]="t.chain"></span>
                     </span>
@@ -276,7 +275,6 @@ export class EvmHoldingsComponent implements OnInit {
   private evm = inject(EvmPortfolioService);
   private api = inject(ApiService);
   private lighterPerp = inject(LighterPerpService);
-  private http = inject(HttpClient);
 
   loading = signal(true);
   walletCount = signal(0);
@@ -393,8 +391,12 @@ export class EvmHoldingsComponent implements OnInit {
           perWallet: forkJoin(
             evmWallets.map((addr) =>
               forkJoin({
-                portfolio: this.evm.getPortfolio(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, tokens: [] }))),
-                positions: this.evm.getPositions(addr).pipe(catchError(() => of({ address: addr, totalUsd: 0, positions: [] }))),
+                // Retry once on a transient failure (a burst 429 from the
+                // portfolio's fan-out, or a mid-auth 401) before falling back to
+                // empty — a single hiccup was rendering the whole wallet as "$0.00
+                // / no balances" even though the holdings were there.
+                portfolio: this.evm.getPortfolio(addr).pipe(retry({ count: 1, delay: 600 }), catchError(() => of({ address: addr, totalUsd: 0, tokens: [] }))),
+                positions: this.evm.getPositions(addr).pipe(retry({ count: 1, delay: 600 }), catchError(() => of({ address: addr, totalUsd: 0, positions: [] }))),
                 transactions: this.evm.getTransactions(addr).pipe(catchError(() => of({ address: addr, transactions: [] }))),
                 nfts: this.evm.getNfts(addr).pipe(catchError(() => of({ address: addr, nfts: [] }))),
               }),
@@ -417,13 +419,13 @@ export class EvmHoldingsComponent implements OnInit {
           // OpenSea NFTs on Robinhood Chain (chain 4663) — Alchemy doesn't index
           // it, so pull the wallet's NFTs from OpenSea and fold into the gallery.
           openseaNfts: forkJoin(evmWallets.map((a) => this.openseaNfts$(a))).pipe(map((r) => r.flat())),
-          // Robinhood Chain (4663) token balances — Moralis/Alchemy don't index
-          // it, so the wallet's loose ETH/USDG there is invisible. Pull it
-          // ourselves so the total isn't just protocol positions.
-          rhTokens: this.robinhoodTokens$(evmWallets[0]),
+          // NOTE: Robinhood Chain (4663) wallet tokens are NOT fetched here — the
+          // gateway `/portfolio/evm` endpoint already reads them over our full
+          // node and merges them into `portfolio.tokens` (blockscout.go). Fetching
+          // them a second time here produced duplicate ETH/USDG rows.
         })
-          .pipe(map(({ perWallet, uniswap, lighter, morpho, sushi, openseaNfts, rhTokens }) => ({
-            tokens: [...rhTokens, ...perWallet.flatMap((r) => r.portfolio.tokens || [])].sort((a, b) => b.valueUsd - a.valueUsd),
+          .pipe(map(({ perWallet, uniswap, lighter, morpho, sushi, openseaNfts }) => ({
+            tokens: [...perWallet.flatMap((r) => r.portfolio.tokens || [])].sort((a, b) => b.valueUsd - a.valueUsd),
             positions: [...uniswap, ...lighter, ...morpho, ...sushi, ...perWallet.flatMap((r) => r.positions.positions || [])].sort((a, b) => b.balanceUsd - a.balanceUsd),
             txs: perWallet.flatMap((r) => r.transactions.transactions || []).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, 25),
             nfts: [...perWallet.flatMap((r) => r.nfts.nfts || []), ...openseaNfts],
@@ -461,41 +463,6 @@ export class EvmHoldingsComponent implements OnInit {
         unclaimedUsd: 0,
         tokens: [{ symbol: p.market, type: p.side, amount: Number(p.baseAmount) || 0, logo: undefined }],
       }))),
-    );
-  }
-
-  /** Robinhood Chain (4663) wallet balances — native ETH + USDG — which the
-   *  EVM data provider doesn't index. Priced (ETH via CoinGecko, USDG = $1) so
-   *  they count toward the chain total like any other token holding. */
-  private robinhoodTokens$(addr: string | undefined) {
-    if (!addr) return of([] as EvmToken[]);
-    const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168';
-    const bal$ = (token?: string) => this.api
-      .post<{ balance?: string | number }>('/actions/uniswap/eth-balance', token ? { address: addr, token } : { address: addr })
-      .pipe(catchError(() => of({ balance: 0 })));
-    const ethUsd$ = this.http
-      .get<Record<string, { usd: number }>>('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
-      .pipe(map((r) => Number(r?.['ethereum']?.usd) || 0), catchError(() => of(0)));
-    return forkJoin({ eth: bal$(), usdg: bal$(USDG), ethUsd: ethUsd$ }).pipe(
-      // A hung Robinhood RPC or CoinGecko call must never stall the whole
-      // page — forkJoin only emits once every source completes, so cap it.
-      timeout(7000),
-      map(({ eth, usdg, ethUsd }): EvmToken[] => {
-        const out: EvmToken[] = [];
-        const ethBal = Number(eth?.balance) || 0;
-        if (ethBal > 0) out.push({
-          chain: 'robinhood', network: 'robinhood', address: 'native', symbol: 'ETH', name: 'Ethereum',
-          decimals: 18, logo: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png',
-          uiAmount: ethBal, priceUsd: ethUsd, valueUsd: ethBal * ethUsd, native: true,
-        });
-        const usdgBal = Number(usdg?.balance) || 0;
-        if (usdgBal > 0) out.push({
-          chain: 'robinhood', network: 'robinhood', address: USDG, symbol: 'USDG', name: 'Global Dollar',
-          decimals: 6, logo: 'assets/tokens/usdg.png', uiAmount: usdgBal, priceUsd: 1, valueUsd: usdgBal, native: false,
-        });
-        return out;
-      }),
-      catchError(() => of([] as EvmToken[])),
     );
   }
 
@@ -642,10 +609,35 @@ export class EvmHoldingsComponent implements OnInit {
     return `https://dd.dexscreener.com/ds-data/tokens/${t.chain}/${t.address.toLowerCase()}.png`;
   }
 
-  /** Logo fallback cascade: Trust Wallet → DexScreener → text badge (the img is
-   *  hidden and the symbol underneath shows through). */
+  // Robinhood Chain (4663) tokens aren't on any logo CDN (Trust Wallet has no
+  // 4663 folder, DexScreener doesn't index it), so the gateway returns an empty
+  // logo for them. Resolve the curated set to bundled/known-good icons here.
+  private static readonly RH_LOGO: Record<string, string> = {
+    '0x5fc5360d0400a0fd4f2af552add042d716f1d168': 'assets/tokens/usdg.png', // USDG
+    '0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34': // USDe — Ethena mainnet logo
+      'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/assets/0x4c9EDD5852cd905f086C759E8383e09bff1E68B3/logo.png',
+    '0x0bd7d308f8e1639fab988df18a8011f41eacad73': // WETH → the ETH mark
+      'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png',
+  };
+
+  /** Best logo for a token: the provider's own → curated Robinhood map → the ETH
+   *  mark for native/robinhood ETH → DexScreener. Empty ⇒ the text badge shows. */
+  tokenLogo(t: EvmToken): string {
+    if (t.logo) return t.logo;
+    const known = EvmHoldingsComponent.RH_LOGO[(t.address || '').toLowerCase()];
+    if (known) return known;
+    if ((t.native || t.address === 'native') && (t.symbol || '').toUpperCase() === 'ETH') {
+      return 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png';
+    }
+    return this.dexLogo(t);
+  }
+
+  /** Logo fallback cascade: primary → curated/DexScreener → text badge (the img
+   *  is hidden and the symbol underneath shows through). */
   onTokenLogoErr(ev: Event, t: EvmToken): void {
     const img = ev.target as HTMLImageElement;
+    const known = EvmHoldingsComponent.RH_LOGO[(t.address || '').toLowerCase()];
+    if (known && img.src !== known && !img.src.endsWith(known)) { img.src = known; return; }
     const dex = this.dexLogo(t);
     if (dex && img.src !== dex) { img.src = dex; return; }
     img.style.display = 'none';

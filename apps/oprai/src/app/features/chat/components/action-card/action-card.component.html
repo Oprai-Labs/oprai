@@ -4092,7 +4092,14 @@
                   <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
                          [value]="getEditParam('amount')" [disabled]="!isEditable()"
                          (input)="setSushiSwapAmount($any($event.target).value)" />
-                  <div class="pump-token"><span class="pump-token__sym">{{ sushiInSym() }}</span></div>
+                  <div class="pump-token">
+                    @if (sushiInLogo()) {
+                      <img [src]="sushiInLogo()" class="pump-token__icon" alt="" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="pump-token__icon pump-token__icon--ph">{{ (sushiInSym() || '?').charAt(0) }}</span>
+                    }
+                    <span class="pump-token__sym">{{ sushiInSym() }}</span>
+                  </div>
                 </div>
               </div>
               <div class="pump-swap__arrow" aria-hidden="true"><lucide-icon name="arrow-down" [size]="16" /></div>
@@ -4106,7 +4113,14 @@
                     @if (sushiQuoteOut()) { ≈ {{ sushiQuoteOut() }} }
                     @else { <span class="pump-panel__ph">—</span> }
                   </span>
-                  <div class="pump-token"><span class="pump-token__sym">{{ sushiOutSym() }}</span></div>
+                  <div class="pump-token">
+                    @if (sushiOutLogo()) {
+                      <img [src]="sushiOutLogo()" class="pump-token__icon" alt="" (error)="$any($event.target).style.display='none'" />
+                    } @else {
+                      <span class="pump-token__icon pump-token__icon--ph">{{ (sushiOutSym() || '?').charAt(0) }}</span>
+                    }
+                    <span class="pump-token__sym">{{ sushiOutSym() }}</span>
+                  </div>
                 </div>
               </div>
             </div>

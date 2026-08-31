@@ -258,6 +258,12 @@ func (m *MarketProxy) GetEvmPortfolio(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// A Robinhood-only wallet holds no mainnet ETH for Alchemy to price, so
+	// there's nothing to borrow above — fetch a live ETH/USD directly, else the
+	// wallet's Robinhood ETH + WETH would show unpriced ($0).
+	if ethPrice <= 0 {
+		ethPrice = m.ethPriceUSD(r)
+	}
 	if rhTokens, rhUsd := m.fetchRobinhoodTokens(r, address, ethPrice); len(rhTokens) > 0 {
 		if toks, ok := out["tokens"].([]evmToken); ok {
 			toks = append(toks, rhTokens...)
@@ -278,6 +284,40 @@ func (m *MarketProxy) GetEvmPortfolio(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(body)
+}
+
+// ethPriceUSD returns a live ETH/USD price, cached 60s. Used to price Robinhood
+// Chain ETH/WETH when the Alchemy multichain response carried no mainnet ETH to
+// borrow a price from (a Robinhood-only wallet).
+func (m *MarketProxy) ethPriceUSD(r *http.Request) float64 {
+	const ck = "eth-price-usd"
+	if cached, ok := m.cache.Get(ck); ok {
+		return parseFloat(string(cached))
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		"https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", nil)
+	if err != nil {
+		return 0
+	}
+	resp, err := m.client.Do(req)
+	if err != nil {
+		slog.Warn("eth price fetch error", "error", err)
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	var parsed struct {
+		Ethereum struct {
+			USD float64 `json:"usd"`
+		} `json:"ethereum"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil || parsed.Ethereum.USD <= 0 {
+		return 0
+	}
+	m.cache.Set(ck, []byte(fmt.Sprintf("%g", parsed.Ethereum.USD)), 60*time.Second)
+	return parsed.Ethereum.USD
 }
 
 func normalizeEVMPortfolio(address string, parsed *alchemyTokensResponse) map[string]any {

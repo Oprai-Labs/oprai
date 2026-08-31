@@ -8316,6 +8316,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       if (p['amount']      && !p['amountIn'])       p['amountIn']       = p['amount'];
       if (p['slippageBps'] && !p['maxSlippageBps']) p['maxSlippageBps'] = p['slippageBps'];
     }
+    // SushiSwap (Robinhood Chain) — the LLM emits tokenIn/tokenOut (and the
+    // add-liquidity pair) as SYMBOLS. Resolve the known Robinhood symbols to 0x
+    // addresses so the pay-balance probe, decimals, coin icons and the swap build
+    // all work; keep the original symbol as a display hint. Native "eth" is left
+    // as-is (the balance + build paths read it as the chain's native coin).
+    if (this.action?.type === 'sushi_swap' || this.action?.type === 'sushi_add_liquidity') {
+      for (const k of ['tokenIn', 'tokenOut', 'tokenA', 'tokenB']) {
+        const v = (p[k] ?? '').trim();
+        if (!v || v.startsWith('0x')) continue;
+        const addr = ActionCardComponent.SUSHI_SYMBOL_ADDR[v.toLowerCase()];
+        if (addr) { if (!p[k + 'Symbol']) p[k + 'Symbol'] = v; p[k] = addr; }
+      }
+    }
     // Relay cross_chain_swap — the prompt emits from*/to* but the Relay card reads
     // origin*/destination*, so the chain + token chips opened blank. (relay_bridge
     // already emits the origin*/destination* keys and needs no alias.)
@@ -10528,10 +10541,20 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly sushiPoolSearch = signal('');
   readonly sushiLpBal = signal<number | null>(null);
 
-  private readonly SUSHI_KNOWN: Record<string, { sym: string; dec: number }> = {
-    '0x0bd7d308f8e1639fab988df18a8011f41eacad73': { sym: 'WETH', dec: 18 },
-    '0x5fc5360d0400a0fd4f2af552add042d716f1d168': { sym: 'USDG', dec: 6 },
+  private readonly SUSHI_KNOWN: Record<string, { sym: string; dec: number; logo?: string }> = {
+    '0x0bd7d308f8e1639fab988df18a8011f41eacad73': { sym: 'WETH', dec: 18, logo: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png' },
+    '0x5fc5360d0400a0fd4f2af552add042d716f1d168': { sym: 'USDG', dec: 6, logo: 'assets/tokens/usdg.png' },
+    '0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34': { sym: 'USDe', dec: 18, logo: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/assets/0x4c9EDD5852cd905f086C759E8383e09bff1E68B3/logo.png' },
   };
+  // Chat-provided token references arrive as SYMBOLS ("USDG", "USDe", "ETH"), but
+  // the card needs a 0x address for the balance probe, decimals, icons and the
+  // swap build. Resolve the curated Robinhood set here (native ETH stays "eth").
+  private static readonly SUSHI_SYMBOL_ADDR: Record<string, string> = {
+    usdg: '0x5fc5360d0400a0fd4f2af552add042d716f1d168',
+    usde: '0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34',
+    weth: '0x0bd7d308f8e1639fab988df18a8011f41eacad73',
+  };
+  private readonly ETH_LOGO = 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png';
   /** Display symbol for a token address (known map → LLM hint → short address). */
   private sushiSymOf(addr: string, hint: string): string {
     const a = (addr || '').toLowerCase().trim();
@@ -10540,8 +10563,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (hint) return hint;
     return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
   }
+  /** Coin icon for a token address (known map → ETH mark for native). '' ⇒ badge. */
+  private sushiLogoOf(addr: string): string {
+    const a = (addr || '').toLowerCase().trim();
+    if (!a || a === 'eth' || a === 'native') return this.ETH_LOGO;
+    return this.SUSHI_KNOWN[a]?.logo ?? '';
+  }
   sushiInSym(): string { return this.sushiSymOf(this.getEditParam('tokenIn'), this.getEditParam('tokenInSymbol')); }
   sushiOutSym(): string { return this.sushiSymOf(this.getEditParam('tokenOut'), this.getEditParam('tokenOutSymbol')); }
+  sushiInLogo(): string { return this.sushiLogoOf(this.getEditParam('tokenIn')); }
+  sushiOutLogo(): string { return this.sushiLogoOf(this.getEditParam('tokenOut')); }
 
   sushiPool(): SushiPool | null {
     const a = this.getEditParam('poolAddress').toLowerCase();
