@@ -379,6 +379,16 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "analytics",
 })
 
+# EVM position cards that self-fetch from the user's LINKED EVM wallet. The chat
+# passes the Solana `wallet`, so a server-side read of these returns empty on the
+# wrong chain — feed the model a neutral note instead of that empty result so it
+# never narrates "no positions" over a card that shows some.
+_EVM_POSITION_CARDS: frozenset[str] = frozenset({
+    "sushi_positions",
+    "morpho_positions",
+    "lighter_positions",
+})
+
 # Cap each persisted summary so chat history doesn't balloon: only the first
 # `_QUERY_CARD_SUMMARY_ROWS` rows of a list are kept, with key fields only.
 _QUERY_CARD_SUMMARY_ROWS = 5
@@ -2465,6 +2475,25 @@ async def stream_chat_response(
                         if _is_pool_listing_query(validated.type.value):
                             pool_listing_this_turn = True
                         yield f"data: {json.dumps({'query': d})}\n\n"
+                    # EVM position cards self-fetch from the user's LINKED EVM
+                    # wallet. The `wallet` here is the Solana address (wrong
+                    # chain), so a server-side read returns empty and the model
+                    # would narrate "no positions" OVER a card that shows some —
+                    # a direct contradiction. Feed a neutral note and skip the
+                    # (wrong-wallet) fetch; the card is the source of truth.
+                    if validated.type.value in _EVM_POSITION_CARDS:
+                        market_data_results.append((validated.type.value, params_dict, {
+                            "_card_self_fetch": True,
+                            "note": (
+                                "This renders as a live card that loads the user's own "
+                                "positions from their linked EVM wallet. Do NOT state "
+                                "whether any exist, and do NOT give counts, values, or "
+                                "say the wallet is empty — write ONE short sentence "
+                                "introducing the card (e.g. 'Here are your SushiSwap "
+                                "positions below.'). The card is the source of truth."
+                            ),
+                        }))
+                        continue
                     _log.info(
                         "market_data_query query_type=%s wallet=%s session=%s",
                         validated.type.value, wallet[:16] + "…", session_id,
