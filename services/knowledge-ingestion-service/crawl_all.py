@@ -113,6 +113,30 @@ class Source:
     crawl_freq: Literal["hourly", "daily", "weekly", "monthly"] = "weekly"
 
 SOURCES: list[Source] = [
+    Source("magiceden_docs", "protocols", "direct_urls",
+        "https://docs.magiceden.io", "magic_eden", "protocol_documentation", "proprietary-fair-use",
+        max_pages=20, crawl_delay=0.8, crawl_freq="weekly",
+        tags=["magiceden","magic-eden","nft","marketplace","solana","evm","listings","bids"],
+        extra={"skip_classify": True, "urls": [
+            "https://docs.magiceden.io/docs/wallet-docs.md",
+            "https://docs.magiceden.io/recipes/sol-bid-on-an-individual-nft.md",
+            "https://docs.magiceden.io/recipes/sol-list-an-nft.md",
+            "https://docs.magiceden.io/recipes/sol-place-collection-bid-from-escrow.md",
+            "https://docs.magiceden.io/reference/evm-api-keys.md",
+            "https://docs.magiceden.io/reference/evm-api-overview.md",
+            "https://docs.magiceden.io/reference/mmm.md",
+            "https://docs.magiceden.io/reference/solana-api-keys.md"
+        ]}),
+
+    Source("pons_docs", "protocols", "direct_urls",
+        "https://docs.ponsfamily.com", "pons", "protocol_documentation", "proprietary-fair-use",
+        max_pages=10, crawl_delay=1.0, crawl_freq="weekly",
+        tags=["pons","launchpad","robinhood-chain","bonding-curve","noncustodial","weth"],
+        extra={"urls": [
+            "https://docs.ponsfamily.com",
+            "https://docs.ponsfamily.com/v2"
+        ]}),
+
     # ── Recently-added protocols (EVM / multichain) ─────────────────────────
     Source("morpho_docs", "protocols", "sitemap",
         "https://docs.morpho.org", "morpho", "protocol_documentation", "proprietary-fair-use",
@@ -2497,6 +2521,22 @@ def sparse_vector(text: str) -> tuple[list[int], list[float]]:
     return list(tf.keys()), [float(v) for v in tf.values()]
 
 # ── HTML → Text ───────────────────────────────────────────────────────────────
+def page_to_text(resp, url: str, excerpt_only: bool = False) -> str:
+    """Convert a fetched page to clean text. Markdown/plain responses (e.g. a docs
+    platform's `.md` variant, or an `llms.txt`) are ALREADY clean text — running
+    them through readability's html_to_text zeroes them out, so pass them through
+    (stripping any YAML frontmatter). Everything else goes through html_to_text."""
+    ct = (resp.headers.get("content-type") or "").lower()
+    if url.endswith(".md") or "markdown" in ct or "text/plain" in ct:
+        t = resp.text
+        if t.startswith("---"):
+            end = t.find("\n---", 3)
+            if end != -1:
+                t = t[end + 4:]
+        return t.strip()
+    return html_to_text(resp.text, base_url=url, excerpt_only=excerpt_only)
+
+
 def html_to_text(html: str, base_url: str = "", excerpt_only: bool = False) -> str:
     try:
         from readability import Document
@@ -3094,7 +3134,7 @@ async def process_sitemap(
                 return
 
             STATS.pages_crawled += 1
-            text = html_to_text(resp.text, base_url=url, excerpt_only=source.excerpt_only)
+            text = page_to_text(resp, url, excerpt_only=source.excerpt_only)
             if len(text) < 50:
                 return
 
@@ -3303,7 +3343,7 @@ async def process_direct_urls(
         resp = await safe_get(client, url, delay=source.crawl_delay)
         if not resp:
             return
-        text = html_to_text(resp.text, base_url=url, excerpt_only=source.excerpt_only)
+        text = page_to_text(resp, url, excerpt_only=source.excerpt_only)
         if len(text) < 50:
             return
 
@@ -3316,11 +3356,17 @@ async def process_direct_urls(
             return
 
         title = _extract_title(resp.text)
-        clf = await classify_page(anthropic, title, text, url)
-        if not clf.keep:
-            STATS.pages_skipped += 1
-            log.debug("[%s] SKIP: %s", source.id, url)
-            return
+        if source.extra.get("skip_classify"):
+            # force-keep: for a source whose useful pages are how-to/recipe guides
+            # the classifier wrongly drops as "code tutorials" (e.g. Magic Eden).
+            clf = ClassifyResult(keep=True, tags=[], summary="",
+                                 section_anchors=[{"label": "Overview", "anchor": ""}])
+        else:
+            clf = await classify_page(anthropic, title, text, url)
+            if not clf.keep:
+                STATS.pages_skipped += 1
+                log.debug("[%s] SKIP: %s", source.id, url)
+                return
 
         merged_tags = list(dict.fromkeys(source.tags + clf.tags))
         chunks = chunk_text(text, doc_id, clf.section_anchors)
