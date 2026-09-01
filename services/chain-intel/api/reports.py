@@ -44,16 +44,22 @@ async def _router_launchpad(t: str) -> str | None:
     sent to — covers launchpads without an on-chain registry (Noxa, LONG). Returns
     None when the token wasn't launched through a router we recognise. Fails open."""
     try:
-        r = await ch.one(f"SELECT creation_tx FROM rh.contracts FINAL WHERE address='{t}'")
+        r = await ch.one(f"SELECT creation_tx, creation_block FROM rh.contracts FINAL WHERE address='{t}'")
         ctx = (r or {}).get("creation_tx")
+        cblk = (r or {}).get("creation_block")
         if not ctx:
             m = await ch.one(
-                f"SELECT tx_hash FROM rh.token_transfers WHERE token='{t}' "
+                f"SELECT tx_hash, block_number FROM rh.token_transfers WHERE token='{t}' "
                 f"AND from_addr='{_ZERO}' ORDER BY block_number ASC LIMIT 1")
             ctx = (m or {}).get("tx_hash")
+            cblk = (m or {}).get("block_number")
         if not ctx:
             return None
-        tx = await ch.one(f"SELECT to_addr FROM rh.transactions WHERE hash='{ctx}'")
+        # `transactions` is sorted by block_number, NOT hash — a bare `WHERE hash=`
+        # full-scans 515M rows (~2.7s idle, 20s+ under load). Constrain by the known
+        # creation block so it's a PK-range scan (~ms).
+        blk = f" AND block_number={int(cblk)}" if cblk else ""
+        tx = await ch.one(f"SELECT to_addr FROM rh.transactions WHERE hash='{ctx}'{blk}")
         return _LAUNCHPAD_ROUTERS.get(((tx or {}).get("to_addr") or "").lower())
     except Exception:
         return None
