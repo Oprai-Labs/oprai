@@ -47,6 +47,7 @@ build-python: ## Install Python dependencies (chat, memory, knowledge-ingestion)
 	cd services/chat-service-py && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 	cd services/memory-service-py && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 	cd services/knowledge-ingestion-service && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+	cd services/oprai-tg-bot && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 build-angular: ## Build Angular frontend
 	cd apps/oprai && npm install && npx ng build --configuration production
@@ -160,6 +161,7 @@ migrate: ## Run ALL database migrations (schema DDL + Alembic)
 	psql "$(DATABASE_URL)" -f services/chat-service-py/sql/schema.sql
 	psql "$(DATABASE_URL)" -f services/memory-service-py/sql/schema.sql
 	psql "$(DATABASE_URL)" -f services/solana-service-rs/migrations/001_create_schema.sql
+	psql "$(DATABASE_URL)" -f services/oprai-tg-bot/sql/schema.sql
 	psql "$(DATABASE_URL)" -f agent-platform/migrations/001_initial_schema.sql
 	psql "$(DATABASE_URL)" -f agent-platform/migrations/002_subscriptions.sql
 	@echo "==> Running Alembic migrations (chat-service-py + memory-service-py)..."

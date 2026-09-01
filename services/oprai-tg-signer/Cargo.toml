@@ -1,0 +1,36 @@
+[package]
+name = "oprai-tg-signer"
+version = "0.1.0"
+edition = "2021"
+description = "OPRAI Telegram bot custodial signer — isolated key custody + signing"
+license = "MIT"
+
+[[bin]]
+name = "oprai-tg-signer"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+actix-web = "4"
+actix-rt = "2"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Config / logging / errors
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+# ── Added in 0.3 (custody + signing) — kept commented so 0.1 compiles fast ──
+# solana-sdk = "2"                 # ed25519 signing
+# alloy-signer-local = "0.3"       # secp256k1 (EVM) signing
+# alloy-primitives = "0.8"
+# vaultrs = "0.7"                   # Vault Transit encrypt/decrypt
+# zeroize = "1"                     # wipe key material from memory after signing
+# sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
