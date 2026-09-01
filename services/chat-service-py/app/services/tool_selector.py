@@ -606,7 +606,7 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     # SushiSwap on Robinhood Chain — swap + pools + add-liquidity.
     "sushi":       _A({"sushi"}),
     # OpenSea NFT marketplace on Robinhood Chain — browse + buy.
-    "opensea":     _A({"opensea", "nft"}),
+    "opensea":     _A({"opensea"}),
     "relay":       _A({"relay"}),
     "native_stake":_A({"native_stake", "staking"}),
     # Lighter perps — its own tag so lighter_open/close/leverage surface when
@@ -624,7 +624,10 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
 # `native_stake` maps to {native_stake, staking}, so "staking" would otherwise
 # leak in and wrongly gate cross-cutting tools like `yield` / `top_validators`.
 _CATEGORY_TAGS: frozenset[str] = frozenset(
-    {"always", "core", "analysis", "portfolio", "price", "dex", "lending", "staking"}
+    # "nft" is a CROSS-PROTOCOL category (Magic Eden, Tensor, OpenSea all carry it)
+    # — it must NOT act as a protocol-identity tag, or tagging one NFT venue would
+    # pull in every other venue's NFT tools (opensea tag was leaking me_* tools).
+    {"always", "core", "analysis", "portfolio", "price", "dex", "lending", "staking", "nft"}
 )
 PROTOCOL_TAGS: frozenset[str] = frozenset().union(*PROTOCOL_TO_TAGS.values()) - _CATEGORY_TAGS
 
