@@ -2654,6 +2654,11 @@ async def rh_token_analysis(token: str) -> dict:
     )
     res = res if isinstance(res, dict) else {}
     md = md if isinstance(md, dict) else {}
+    # Not a Robinhood-Chain token (our index is Robinhood-only) — return the explicit
+    # not_found as-is. Do NOT prepend DexScreener market data: a price for a token
+    # that lives on another chain would read as if we had analysed it here.
+    if res.get("status") and res.get("status") != "ok":
+        return res
     # Prepend market KPIs (price / market cap / liquidity / 24h volume) — the index
     # carries none. Pre-formatted strings so they render regardless of KPI fmt.
     if md and isinstance(res.get("kpis"), list):

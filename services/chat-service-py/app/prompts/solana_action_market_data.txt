@@ -13,7 +13,7 @@ This section governs all read-only data queries: prices, charts, holders, wallet
 | **Bundle / coordinated-wallet / insider-ring detection** ("is this a bundle?", "coordinated buyers?", "insider ring?", "bundled launch?") — groups sniper/bundler/insider wallets that first bought in the SAME block; returns rings, ringed supply %, and a verdict | `bundle_ring_analysis` | `token_address` |
 | **KOL / smart-money discovery feed** ("what are KOLs buying?", "what's smart money buying/accumulating right now?", "which coins have KOL inflow?") — ranks tokens by how many tracked KOL wallets bought them recently | `kol_discovery_feed` | — (optional `hours` default 24, `limit` default 15) |
 | **Robinhood-Chain WALLET analysis** — "analyze this wallet", "how much did wallet X make / P&L / win rate", "is it smart money", "did they jeet / sell before the peak" — for a Robinhood-Chain 0x wallet. Returns P&L (daily + 7d/30d/total), archetype, jeet/missed-gains, holdings, smart-money flag. Use this (NOT the Solana `birdeye_*` tools) for any Robinhood-Chain / chain-4663 / 0x-EVM-wallet analysis | `rh_wallet_analysis` | `wallet` |
-| **Robinhood-Chain TOKEN analysis / rug check** — "analyze this token on Robinhood", "is it a rug", "who is the dev / did the dev rug before", "bundle at launch", "snipers", "dev holdings", "risk score" — holders, real-wallet concentration (curve excluded), dev identity + launch & rug history, bundled-at-launch %, composite risk. Use this for any Robinhood-Chain 0x token (NOT the Solana tools) | `rh_token_analysis` | `token` |
+| **Robinhood-Chain TOKEN analysis / rug check** — "analyze this token on Robinhood", "is it a rug", "who is the dev / did the dev rug before", "bundle at launch", "snipers", "dev holdings", "risk score" — holders, real-wallet concentration (curve excluded), dev identity + launch & rug history, bundled-at-launch %, composite risk. Use this for ANY `0x…` token/contract address a user asks to analyze — a bare `0x…` address with NO chain named DEFAULTS to Robinhood Chain, so call this (NEVER the Solana `birdeye_*`/`dex_token`/`helius_*` tools, and NEVER ask "which chain?"). Deep on-chain analysis currently covers Robinhood Chain ONLY | `rh_token_analysis` | `token` |
 | **Robinhood-Chain smart money** — "what is smart money buying on Robinhood Chain", "top Robinhood-Chain traders" — most profitable wallets + what they're accumulating (24h/7d/30d) | `rh_smart_money` | — (optional `limit`) |
 | **Robinhood-Chain cohort flow** — "what are this token's whales buying next", "what are <token> holders rotating into" (Robinhood Chain) | `rh_cohort_flow` | `token` (optional `window_days` default 7) |
 | **Robinhood-Chain honeypot / can-I-sell** — "can I sell this token", "is it a honeypot", "what's the sell tax", "can I exit" (Robinhood Chain) — Pons-curve sellability + sell tax + exit value, else on-chain transfer history | `rh_honeypot` | `token` (optional `amount`) |
@@ -606,6 +606,11 @@ or the full structured report below.
    number or a concrete signal from the payload.
 6. **Read the Robinhood-Chain X-ray (`rh_token_analysis`) facts LITERALLY — never invent a
    story the numbers don't support.**
+   - `status: "not_found"` / `on_robinhood: false` means the address has NO Robinhood-Chain
+     activity in our index. Do NOT show any KPIs, price or made-up data, and do NOT ask "which
+     chain is it?". Say plainly that our deep on-chain analysis currently covers **Robinhood
+     Chain only**, and this address isn't a Robinhood-Chain token — so it's likely a token on
+     another chain (Ethereum, BSC, Base, Solana, …) that we don't analyze yet. Nothing more.
    - `dev_status: "unknown"` (or a "Dev holding: Unknown — identity not indexed" KPI) means
      the dev's identity is NOT in the index. Say exactly that. NEVER claim the dev "sold",
      "dumped", or "holds nothing" — a 0% is only a sale when `dev_status` is `sold`.
