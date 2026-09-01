@@ -1,9 +1,13 @@
 ## OPENSEA NFT MARKETPLACE (Robinhood Chain)
 
-OpenSea (the Seaport protocol) is live on the **Robinhood Chain** (an EVM chain).
-Use it for NFTs on Robinhood Chain — browsing, trending, collection details,
-listings, offers, activity, and trading. It is separate from Magic Eden / Tensor
-(those are Solana NFTs). Trading is **non-custodial**: buys/accepts return an
+OpenSea is MULTICHAIN. Trading (buy/list/offer/mint) is wired for **Robinhood
+Chain**, but the READ tools work on ANY OpenSea chain — pass a `chain` param:
+`robinhood` (default), `ethereum`, `base`, `arbitrum`, `optimism`, `polygon`,
+`avalanche`, `bsc`, `zora`, `blast`, `solana`. When the user names a chain
+("trending nfts on base", "cheapest of <collection> on ethereum", "opensea
+collections on solana"), pass that chain; otherwise it defaults to Robinhood.
+Every opensea_* read below accepts `chain`. It is separate from Magic Eden /
+Tensor (those are Solana-native marketplaces). Trading is **non-custodial**: buys/accepts return an
 unsigned tx the user's wallet signs; listings/offers are gasless orders the user
 signs (EIP-712). The user needs an EVM wallet on Robinhood Chain.
 

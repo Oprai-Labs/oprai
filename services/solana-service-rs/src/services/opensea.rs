@@ -21,6 +21,47 @@ use uuid::Uuid;
 const OPENSEA_API: &str = "https://api.opensea.io/api/v2";
 const CHAIN: u64 = 4663;
 const CHAIN_SLUG: &str = "robinhood";
+
+/// Map a user/LLM chain name to OpenSea's chain slug. OpenSea is multichain, so
+/// reads work on any of these; default is Robinhood (OPRAI's home chain).
+fn os_chain(input: &str) -> String {
+    let lc = input.trim().to_lowercase();
+    let mapped = match lc.as_str() {
+        "" | "robinhood" | "robinhoodchain" | "robinhood chain" | "4663" => "robinhood",
+        "eth" | "ethereum" | "mainnet" | "1" => "ethereum",
+        "base" | "8453" => "base",
+        "arbitrum" | "arb" | "42161" => "arbitrum",
+        "optimism" | "op" | "10" => "optimism",
+        "polygon" | "matic" | "137" => "matic",
+        "avalanche" | "avax" | "43114" => "avalanche",
+        "bnb" | "bsc" | "bnb chain" | "56" => "bsc",
+        "zora" | "7777777" => "zora",
+        "blast" | "81457" => "blast",
+        "sei" => "sei",
+        "solana" | "sol" => "solana",
+        _ => return lc, // unknown → pass the lowercased name through to OpenSea
+    };
+    mapped.to_string()
+}
+
+/// Display name for a chain slug (for the card header + response).
+fn os_chain_name(slug: &str) -> &'static str {
+    match slug {
+        "robinhood" => "Robinhood",
+        "ethereum" => "Ethereum",
+        "base" => "Base",
+        "arbitrum" => "Arbitrum",
+        "optimism" => "Optimism",
+        "matic" => "Polygon",
+        "avalanche" => "Avalanche",
+        "bsc" => "BNB Chain",
+        "zora" => "Zora",
+        "blast" => "Blast",
+        "sei" => "Sei",
+        "solana" => "Solana",
+        _ => "OpenSea",
+    }
+}
 const ZERO: &str = "0x0000000000000000000000000000000000000000";
 /// Seaport 1.6 — canonical address, verified deployed on 4663.
 pub const SEAPORT: &str = "0x0000000000000068F116a894984e2DB1123eB395";
@@ -99,11 +140,13 @@ pub struct OpenseaCollectionsParams {
     pub limit: Option<usize>,
     #[serde(default, alias = "search", alias = "q")]
     pub query: Option<String>,
+    #[serde(default)]
+    pub chain: String,
 }
 
 /// List NFT collections on Robinhood Chain.
-pub async fn fetch_collections(http: &reqwest::Client, limit: usize, search: Option<&str>) -> Result<Vec<Value>, AppError> {
-    let body = os_get(http, &format!("/collections?chain={CHAIN_SLUG}&limit=100&order_by=market_cap")).await?;
+pub async fn fetch_collections(http: &reqwest::Client, limit: usize, search: Option<&str>, chain: &str) -> Result<Vec<Value>, AppError> {
+    let body = os_get(http, &format!("/collections?chain={chain}&limit=100&order_by=market_cap")).await?;
     let items = body.get("collections").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let ql = search.map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
     let mut rows: Vec<Value> = items.iter().filter_map(|c| {
@@ -121,7 +164,7 @@ pub async fn fetch_collections(http: &reqwest::Client, limit: usize, search: Opt
             "description": c.get("description").cloned().unwrap_or(Value::Null),
             "contract": contract,
             "url": c.get("opensea_url").cloned().unwrap_or(Value::Null),
-            "chain": CHAIN_SLUG,
+            "chain": chain,
         }))
     }).collect();
     rows.truncate(limit);
@@ -178,7 +221,7 @@ async fn enrich_collection_stats(http: &reqwest::Client, rows: &mut [Value]) {
 }
 
 /// Active listings in a collection, enriched with each NFT's name/image.
-pub async fn fetch_listings(http: &reqwest::Client, slug: &str, limit: usize) -> Result<Vec<Value>, AppError> {
+pub async fn fetch_listings(http: &reqwest::Client, slug: &str, limit: usize, chain: &str) -> Result<Vec<Value>, AppError> {
     // Pull a wider page than we show, so "cheapest" is the cheapest of many, not
     // of whatever arbitrary order the API returned first.
     let body = os_get(http, &format!("/listings/collection/{slug}/all?limit=50")).await?;
@@ -192,7 +235,7 @@ pub async fn fetch_listings(http: &reqwest::Client, slug: &str, limit: usize) ->
     });
     raws.truncate(limit.clamp(1, 50));
     // Enrich name/image per NFT (best-effort, concurrent).
-    let futs = raws.into_iter().map(|r| enrich_listing(http, r));
+    let futs = raws.into_iter().map(|r| enrich_listing(http, r, chain));
     Ok(join_all(futs).await)
 }
 
@@ -220,11 +263,11 @@ fn shape_listing(l: &Value) -> Option<Value> {
     }))
 }
 
-async fn enrich_listing(http: &reqwest::Client, mut row: Value) -> Value {
+async fn enrich_listing(http: &reqwest::Client, mut row: Value, chain: &str) -> Value {
     let token = row.get("token").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let id = row.get("tokenId").and_then(|v| v.as_str()).unwrap_or("").to_string();
     if token.is_empty() || id.is_empty() { return row; }
-    if let Ok(v) = os_get(http, &format!("/chain/{CHAIN_SLUG}/contract/{token}/nfts/{id}")).await {
+    if let Ok(v) = os_get(http, &format!("/chain/{chain}/contract/{token}/nfts/{id}")).await {
         let nft = v.get("nft").unwrap_or(&Value::Null);
         let name = nft.get("name").and_then(|x| x.as_str()).filter(|s| !s.is_empty())
             .map(|s| s.to_string()).unwrap_or_else(|| format!("#{id}"));
@@ -243,12 +286,13 @@ async fn enrich_listing(http: &reqwest::Client, mut row: Value) -> Value {
 pub async fn build_collections(http: &reqwest::Client, params: &OpenseaCollectionsParams) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(24).clamp(1, 60);
     let search = params.query.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let rows = fetch_collections(http, limit, search).await.unwrap_or_default();
+    let ch = os_chain(&params.chain);
+    let rows = fetch_collections(http, limit, search, &ch).await.unwrap_or_default();
     let description = match search {
         Some(q) => format!("{} OpenSea collections match “{q}” on Robinhood Chain.", rows.len()),
         None => format!("OpenSea collections — {} on Robinhood Chain.", rows.len()),
     };
-    Ok(read_envelope("opensea_collections", description, json!({ "collections": rows })))
+    Ok(read_envelope("opensea_collections", description, json!({ "collections": rows, "chain": ch })))
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -257,16 +301,18 @@ pub struct OpenseaListingsParams {
     pub slug: String,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub chain: String,
 }
 
 /// Turn a user-supplied collection reference into an OpenSea slug. Users (and the
 /// LLM) routinely paste a 0x CONTRACT address; OpenSea's slug-keyed endpoints
 /// (listings, offers, activity, nfts, stats) return NOTHING for a raw address, so
 /// look the slug up from the contract first. A plain slug passes through.
-async fn resolve_slug(http: &reqwest::Client, input: &str) -> String {
+async fn resolve_slug(http: &reqwest::Client, input: &str, chain: &str) -> String {
     let input = input.trim();
     if input.starts_with("0x") && input.len() == 42 {
-        if let Ok(v) = os_get(http, &format!("/chain/{CHAIN_SLUG}/contract/{input}")).await {
+        if let Ok(v) = os_get(http, &format!("/chain/{chain}/contract/{input}")).await {
             if let Some(sl) = v.get("collection").and_then(|c| c.as_str()).filter(|s| !s.is_empty()) {
                 return sl.to_string();
             }
@@ -276,24 +322,27 @@ async fn resolve_slug(http: &reqwest::Client, input: &str) -> String {
 }
 
 pub async fn build_listings(http: &reqwest::Client, params: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = resolve_slug(http, &params.slug).await;
+    let ch = os_chain(&params.chain);
+    let slug = resolve_slug(http, &params.slug, &ch).await;
     let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let limit = params.limit.unwrap_or(24).clamp(1, 40);
-    let rows = fetch_listings(http, slug, limit).await.unwrap_or_default();
+    let rows = fetch_listings(http, slug, limit, &ch).await.unwrap_or_default();
     let description = if rows.is_empty() {
         format!("No active OpenSea listings in {slug} on Robinhood Chain.")
     } else {
         format!("{} OpenSea listing(s) in {slug} on Robinhood Chain.", rows.len())
     };
-    Ok(read_envelope("opensea_listings", description, json!({ "slug": slug, "listings": rows })))
+    Ok(read_envelope("opensea_listings", description, json!({ "slug": slug, "listings": rows, "chain": ch })))
 }
 
 fn read_envelope(action_type: &str, description: String, data: Value) -> BuildResponse {
     let mut d = data;
     if let Some(o) = d.as_object_mut() {
-        o.insert("chain".into(), Value::from(CHAIN_SLUG));
-        o.insert("chainName".into(), Value::from("Robinhood"));
+        // The build fn sets `chain` to the queried slug; default to Robinhood.
+        let slug = o.get("chain").and_then(|v| v.as_str()).unwrap_or(CHAIN_SLUG).to_string();
+        o.insert("chain".into(), Value::from(slug.clone()));
+        o.insert("chainName".into(), Value::from(os_chain_name(&slug)));
     }
     BuildResponse {
         preview: ActionPreview {
@@ -318,7 +367,8 @@ fn read_envelope(action_type: &str, description: String, data: Value) -> BuildRe
 /// Trending collections — ordered by 7-day volume.
 pub async fn build_trending(http: &reqwest::Client, params: &OpenseaCollectionsParams) -> Result<BuildResponse, AppError> {
     let limit = params.limit.unwrap_or(40).clamp(1, 60);
-    let body = os_get(http, &format!("/collections?chain={CHAIN_SLUG}&order_by=seven_day_volume&limit=100")).await?;
+    let ch = os_chain(&params.chain);
+    let body = os_get(http, &format!("/collections?chain={ch}&order_by=seven_day_volume&limit=100")).await?;
     let items = body.get("collections").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let mut rows: Vec<Value> = items.iter().filter_map(|c| {
         let slug = s(c, "collection");
@@ -329,23 +379,26 @@ pub async fn build_trending(http: &reqwest::Client, params: &OpenseaCollectionsP
             "image": c.get("image_url").cloned().unwrap_or(Value::Null),
             "description": c.get("description").cloned().unwrap_or(Value::Null),
             "contract": c.pointer("/contracts/0/address").and_then(|v| v.as_str()).unwrap_or(""),
-            "chain": CHAIN_SLUG,
+            "chain": ch.as_str(),
         }))
     }).collect();
     rows.truncate(limit);
     enrich_collection_stats(http, &mut rows).await;
-    Ok(read_envelope("opensea_trending", format!("Trending OpenSea collections — {} on Robinhood Chain.", rows.len()), json!({ "collections": rows, "trending": true })))
+    Ok(read_envelope("opensea_trending", format!("Trending OpenSea collections — {} on {}.", rows.len(), os_chain_name(&ch)), json!({ "collections": rows, "trending": true, "chain": ch })))
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct OpenseaCollectionParams {
     #[serde(alias = "collection", alias = "collectionSlug")]
     pub slug: String,
+    #[serde(default)]
+    pub chain: String,
 }
 
 /// Collection detail + live stats (floor, volume, owners, supply, fees).
 pub async fn build_collection(http: &reqwest::Client, p: &OpenseaCollectionParams) -> Result<BuildResponse, AppError> {
-    let slug = resolve_slug(http, &p.slug).await;
+    let ch = os_chain(&p.chain);
+    let slug = resolve_slug(http, &p.slug, &ch).await;
     let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let url_detail = format!("/collections/{slug}");
@@ -375,9 +428,9 @@ pub async fn build_collection(http: &reqwest::Client, p: &OpenseaCollectionParam
         "sales": total.and_then(|t| t.get("sales")).cloned().unwrap_or(Value::Null),
         "numOwners": total.and_then(|t| t.get("num_owners")).cloned().unwrap_or(Value::Null),
         "intervals": intervals,
-        "chain": CHAIN_SLUG,
+        "chain": ch.clone(),
     });
-    Ok(read_envelope("opensea_collection", format!("{slug} — OpenSea collection on Robinhood Chain."), json!({ "collection": row })))
+    Ok(read_envelope("opensea_collection", format!("{slug} — OpenSea collection on {}.", os_chain_name(&ch)), json!({ "collection": row, "chain": ch })))
 }
 
 // ── PRIMARY MINT (OpenSea SeaDrop v1 — canonical, deployed on Robinhood 4663) ──
@@ -560,13 +613,14 @@ pub async fn build_mint(http: &reqwest::Client, body: &Value) -> Result<Value, A
 
 /// NFTs in a collection (browse — includes traits/image).
 pub async fn build_nfts(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = resolve_slug(http, &p.slug).await;
+    let ch = os_chain(&p.chain);
+    let slug = resolve_slug(http, &p.slug, &ch).await;
     let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let limit = p.limit.unwrap_or(30).clamp(1, 50);
     let body = os_get(http, &format!("/collection/{slug}/nfts?limit={limit}")).await?;
     let rows: Vec<Value> = body.get("nfts").and_then(|v| v.as_array()).map(|a| a.iter().map(shape_nft).collect()).unwrap_or_default();
-    Ok(read_envelope("opensea_nfts", format!("{} NFTs in {slug}.", rows.len()), json!({ "slug": slug, "nfts": rows })))
+    Ok(read_envelope("opensea_nfts", format!("{} NFTs in {slug}.", rows.len()), json!({ "slug": slug, "nfts": rows, "chain": ch })))
 }
 
 fn shape_nft(n: &Value) -> Value {
@@ -587,6 +641,8 @@ pub struct OpenseaNftParams {
     pub token: String,
     #[serde(alias = "tokenId", alias = "identifier")]
     pub token_id: String,
+    #[serde(default)]
+    pub chain: String,
 }
 
 /// One NFT's detail + its best listing + best offer.
@@ -594,23 +650,25 @@ pub async fn build_nft(http: &reqwest::Client, p: &OpenseaNftParams) -> Result<B
     let token = p.token.trim();
     let id = p.token_id.trim();
     if !token.starts_with("0x") || id.is_empty() { return Err(AppError::InvalidParams("opensea: contract + tokenId required".into())); }
-    let nft = os_get(http, &format!("/chain/{CHAIN_SLUG}/contract/{token}/nfts/{id}")).await?;
+    let ch = os_chain(&p.chain);
+    let nft = os_get(http, &format!("/chain/{ch}/contract/{token}/nfts/{id}")).await?;
     let mut row = shape_nft(nft.get("nft").unwrap_or(&Value::Null));
     if let Some(o) = row.as_object_mut() {
         o.insert("description".into(), nft.pointer("/nft/description").cloned().unwrap_or(Value::Null));
         o.insert("owners".into(), nft.pointer("/nft/owners").cloned().unwrap_or(Value::Null));
     }
-    Ok(read_envelope("opensea_nft", format!("NFT #{id}."), json!({ "nft": row })))
+    Ok(read_envelope("opensea_nft", format!("NFT #{id}."), json!({ "nft": row, "chain": ch })))
 }
 
 /// Collection offers (bids), highest first.
 pub async fn build_offers(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = resolve_slug(http, &p.slug).await;
+    let ch = os_chain(&p.chain);
+    let slug = resolve_slug(http, &p.slug, &ch).await;
     let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let body = os_get(http, &format!("/offers/collection/{slug}")).await?;
     let rows: Vec<Value> = body.get("offers").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(shape_offer).collect()).unwrap_or_default();
-    Ok(read_envelope("opensea_offers", format!("{} offer(s) on {slug}.", rows.len()), json!({ "slug": slug, "offers": rows })))
+    Ok(read_envelope("opensea_offers", format!("{} offer(s) on {slug}.", rows.len()), json!({ "slug": slug, "offers": rows, "chain": ch })))
 }
 
 fn shape_offer(o: &Value) -> Option<Value> {
@@ -629,13 +687,14 @@ fn shape_offer(o: &Value) -> Option<Value> {
 
 /// Recent collection activity (sales).
 pub async fn build_events(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = resolve_slug(http, &p.slug).await;
+    let ch = os_chain(&p.chain);
+    let slug = resolve_slug(http, &p.slug, &ch).await;
     let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let limit = p.limit.unwrap_or(20).clamp(1, 40);
     let body = os_get(http, &format!("/events/collection/{slug}?event_type=sale&limit={limit}")).await?;
     let rows: Vec<Value> = body.get("asset_events").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(shape_event).collect()).unwrap_or_default();
-    Ok(read_envelope("opensea_activity", format!("{} recent sale(s) in {slug}.", rows.len()), json!({ "slug": slug, "events": rows })))
+    Ok(read_envelope("opensea_activity", format!("{} recent sale(s) in {slug}.", rows.len()), json!({ "slug": slug, "events": rows, "chain": ch })))
 }
 
 fn shape_event(e: &Value) -> Option<Value> {
@@ -662,6 +721,8 @@ pub struct OpenseaWalletParams {
     pub wallet: String,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub chain: String,
 }
 
 /// A wallet's NFTs on Robinhood Chain (to list/sell from).
@@ -669,9 +730,10 @@ pub async fn build_wallet_nfts(http: &reqwest::Client, p: &OpenseaWalletParams) 
     let w = p.wallet.trim().to_lowercase();
     if !(w.starts_with("0x") && w.len() == 42) { return Err(AppError::InvalidParams("opensea: wallet address required".into())); }
     let limit = p.limit.unwrap_or(40).clamp(1, 50);
-    let body = os_get(http, &format!("/chain/{CHAIN_SLUG}/account/{w}/nfts?limit={limit}")).await?;
+    let ch = os_chain(&p.chain);
+    let body = os_get(http, &format!("/chain/{ch}/account/{w}/nfts?limit={limit}")).await?;
     let rows: Vec<Value> = body.get("nfts").and_then(|v| v.as_array()).map(|a| a.iter().map(shape_nft).collect()).unwrap_or_default();
-    Ok(read_envelope("opensea_wallet_nfts", format!("{} NFT(s) held on Robinhood Chain.", rows.len()), json!({ "wallet": w, "nfts": rows })))
+    Ok(read_envelope("opensea_wallet_nfts", format!("{} NFT(s) held on Robinhood Chain.", rows.len()), json!({ "wallet": w, "nfts": rows, "chain": ch })))
 }
 
 // ── Buy (fulfill a listing) ──────────────────────────────────────────────────

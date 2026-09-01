@@ -582,6 +582,7 @@ pub async fn post_build(
         .unwrap_or(crate::services::opensea::OpenseaCollectionsParams {
             limit: None,
             query: None,
+            chain: String::new(),
         });
         let resp = crate::services::opensea::build_collections(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
@@ -601,6 +602,7 @@ pub async fn post_build(
         .unwrap_or(crate::services::opensea::OpenseaCollectionsParams {
             limit: None,
             query: None,
+            chain: String::new(),
         });
         let resp = crate::services::opensea::build_trending(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));

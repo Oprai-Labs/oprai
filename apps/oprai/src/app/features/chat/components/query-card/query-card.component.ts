@@ -3916,13 +3916,17 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   openseaNextPage(): void { if (this.openseaPage < this.openseaTotalPages - 1) this.openseaPage++; }
   openseaPrevPage(): void { if (this.openseaPage > 0) this.openseaPage--; }
 
+  /** The chain in play for OpenSea (from the query, or the drilled collection). */
+  private openseaDrillChain = '';
+  private openseaChain(): string { return this.openseaDrillChain || String(this.query.params?.['chain'] ?? ''); }
+
   private async fetchOpenseaCollections(): Promise<void> {
     this.openseaFetching.set(true);
     this.error.set(null);
     try {
       const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
         type: 'opensea_collections',
-        params: { ...(this.query.params?.['query'] ? { query: String(this.query.params['query']) } : {}), limit: 48 },
+        params: { ...(this.query.params?.['query'] ? { query: String(this.query.params['query']) } : {}), ...(this.openseaChain() ? { chain: this.openseaChain() } : {}), limit: 48 },
       }).pipe(timeout(30_000)));
       this.openseaCollections = Array.isArray(resp?.data?.collections) ? resp.data.collections : [];
       this.openseaFetching.set(false);
@@ -3939,7 +3943,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.error.set(null);
     try {
       const resp = await firstValueFrom(this.api.post<any>('/actions/build', {
-        type: 'opensea_listings', params: { slug, limit: 30 },
+        type: 'opensea_listings', params: { slug, ...(this.openseaChain() ? { chain: this.openseaChain() } : {}), limit: 30 },
       }).pipe(timeout(30_000)));
       this.openseaListings = Array.isArray(resp?.data?.listings) ? resp.data.listings : [];
       this.openseaFetching.set(false);
@@ -3953,6 +3957,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
   /** Drill into a collection's listings inside the same card. */
   openOpenseaCollection(c: OpenseaCollectionRow): void {
+    this.openseaDrillChain = (c as any).chain || this.openseaDrillChain;
     this.openseaSelectedSlug.set(c.slug);
     this.openseaSelectedName.set(c.name || c.slug);
     this.openseaListings = [];
@@ -4021,7 +4026,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   private async fetchOpenseaTrending(): Promise<void> {
     this.openseaFetching.set(true); this.error.set(null);
     try {
-      const r = await firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_trending', params: { limit: 48 } }).pipe(timeout(30_000)));
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_trending', params: { ...(this.openseaChain() ? { chain: this.openseaChain() } : {}), limit: 48 } }).pipe(timeout(30_000)));
       this.openseaCollections = Array.isArray(r?.data?.collections) ? r.data.collections : [];
       this.openseaFetching.set(false); this.loading.set(false); this.persistSnapshot();
     } catch { this.error.set('Failed to load trending collections'); this.openseaFetching.set(false); this.loading.set(false); }
@@ -4031,8 +4036,8 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     this.openseaSelectedSlug.set(slug);
     try {
       const [det, ls] = await Promise.all([
-        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_collection', params: { slug } }).pipe(timeout(30_000))),
-        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_listings', params: { slug, limit: 24 } }).pipe(timeout(30_000))),
+        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_collection', params: { slug, ...(this.openseaChain() ? { chain: this.openseaChain() } : {}) } }).pipe(timeout(30_000))),
+        firstValueFrom(this.api.post<any>('/actions/build', { type: 'opensea_listings', params: { slug, ...(this.openseaChain() ? { chain: this.openseaChain() } : {}), limit: 24 } }).pipe(timeout(30_000))),
       ]);
       this.openseaCollectionDetail = det?.data?.collection ?? null;
       this.openseaSelectedName.set(this.openseaCollectionDetail?.name || slug);
