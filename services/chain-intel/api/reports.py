@@ -22,6 +22,21 @@ _LAUNCHPAD_ROUTERS = {
     "0x22e99278308b393ea1260859b181ad7e78f5eeed": "LONG",
 }
 _ZERO = "0x0000000000000000000000000000000000000000"
+_DEAD = "0x000000000000000000000000000000000000dead"
+
+
+def _usd(v: float) -> str:
+    """Compact USD string ($1.9M / $204.2K / $980) for KPI display."""
+    v = float(v or 0)
+    s = "-" if v < 0 else ""
+    a = abs(v)
+    if a >= 1e9:
+        return f"{s}${a/1e9:.2f}B"
+    if a >= 1e6:
+        return f"{s}${a/1e6:.2f}M"
+    if a >= 1e3:
+        return f"{s}${a/1e3:.1f}K"
+    return f"{s}${a:.0f}"
 
 
 async def _router_launchpad(t: str) -> str | None:
@@ -179,6 +194,33 @@ async def token_report(token: str) -> dict:
             INNER JOIN rh.smart_wallets sw ON tt.to_addr=sw.wallet
             WHERE tt.token='{t}' AND tt.kind='erc20'""") or 0
 
+    # Smart-money DOLLAR flow: how much these profitable wallets BOUGHT vs SOLD of
+    # this token in USD (each transfer valued at its price via an ASOF join to the
+    # price series). Net > 0 = accumulation, < 0 = distribution. Holder count / share
+    # alone can't tell "smart money is loading up" from "smart money is cashing out".
+    smart_bought_usd = smart_sold_usd = 0.0
+    smart_sellers = 0
+    if smart_holders and await ch.table_exists("token_prices"):
+        sf = await ch.one(f"""
+          SELECT sumIf(usd, side='in') AS bought, sumIf(usd, side='out') AS sold,
+                 uniqExactIf(w, side='out') AS sellers
+          FROM (
+            SELECT x.amt/1e18 * p.price_usd AS usd, x.side AS side, x.w AS w
+            FROM (
+              SELECT tt.token AS tok, tt.timestamp AS ts, toFloat64(tt.value) AS amt,
+                     if(sw.wallet=tt.to_addr,'in','out') AS side,
+                     if(sw.wallet=tt.to_addr, tt.to_addr, tt.from_addr) AS w
+              FROM rh.token_transfers tt
+              INNER JOIN rh.smart_wallets sw ON (sw.wallet=tt.to_addr OR sw.wallet=tt.from_addr)
+              WHERE tt.token='{t}' AND tt.kind='erc20'
+            ) x
+            ASOF INNER JOIN rh.token_prices p ON p.token=x.tok AND p.timestamp <= x.ts
+          )""")
+        smart_bought_usd = round(float(sf.get("bought") or 0), 2)
+        smart_sold_usd = round(float(sf.get("sold") or 0), 2)
+        smart_sellers = int(sf.get("sellers") or 0)
+    smart_net_usd = round(smart_bought_usd - smart_sold_usd, 2)
+
     # dev behaviour: does the launcher still hold, or did they dump? + how much of
     # supply was grabbed in the LAUNCH block (the classic bundle/insider snipe).
     # total minted (= total supply) is the honest denominator for dev / bundle %.
@@ -189,6 +231,7 @@ async def token_report(token: str) -> dict:
         dev_bal = await ch.scalar(
             f"SELECT sumIf(toFloat64(value), to_addr='{dev}') - sumIf(toFloat64(value), from_addr='{dev}') {base}") or 0
         dev_holding_pct = round(min(100.0, max(0.0, 100 * float(dev_bal) / minted)), 1) if minted else 0.0
+
     launch_bundle_pct, launch_buyers = 0.0, 0
     fb = overview.get("first_block")
     if fb and minted:
@@ -268,6 +311,32 @@ async def token_report(token: str) -> dict:
         dev_recv = await ch.scalar(f"SELECT sumIf(toFloat64(value), to_addr='{dev}') {base}") or 0
         dev_status = "sold" if float(dev_recv) > 0 else "never_held"
 
+    # Dev DISPOSAL detail — "still holds X%" alone hides a dev who quietly spread
+    # supply across fresh wallets. For a REAL creator (not a launchpad relayer),
+    # classify what left the dev wallet and WHERE: sold into the pool (a contract),
+    # moved to other WALLETS (distribution / OTC / sock-puppets), or burned. Computed
+    # on the FINAL dev address (pools.trade's real creator when known).
+    dev_moved_to_wallets_pct = dev_sold_to_pool_pct = dev_burned_pct = 0.0
+    dev_out_wallets = 0
+    if dev and minted and not dev_is_launchpad:
+        outs = await ch.q(
+            f"SELECT to_addr, sum(toFloat64(value)) AS v {base} AND from_addr='{dev}' GROUP BY to_addr")
+        if outs:
+            out_contracts = await node.contract_addresses([r["to_addr"] for r in outs])
+            to_pool = to_wallets = to_burn = 0.0
+            for r in outs:
+                a, v = r["to_addr"], float(r.get("v") or 0)
+                if a in (_ZERO, _DEAD):
+                    to_burn += v
+                elif a in out_contracts:
+                    to_pool += v
+                else:
+                    to_wallets += v
+                    dev_out_wallets += 1
+            dev_moved_to_wallets_pct = round(100 * to_wallets / minted, 2)
+            dev_sold_to_pool_pct = round(100 * to_pool / minted, 2)
+            dev_burned_pct = round(100 * to_burn / minted, 2)
+
     # A launch BUNDLE is a COORDINATED grab: a large share taken at launch by
     # MULTIPLE wallets. A single launch-block buyer is just the deployer/LP holding
     # supply at block 0 — not a bundle. Guard against reading the latter as the former.
@@ -305,6 +374,16 @@ async def token_report(token: str) -> dict:
             {"label": "Launch-block buyers", "value": launch_buyers},
             {"label": "Smart-money holders", "value": smart_holders},
             {"label": "Smart-money supply", "value": smart_holding_pct, "fmt": "%"},
+            *([{"label": "Smart-money bought", "value": _usd(smart_bought_usd)},
+               {"label": "Smart-money sold", "value": _usd(smart_sold_usd)},
+               {"label": "Smart-money net", "value": _usd(smart_net_usd)}]
+              if (smart_bought_usd or smart_sold_usd) else []),
+            *([{"label": "Dev moved to other wallets", "value": dev_moved_to_wallets_pct, "fmt": "%"}]
+              if dev_moved_to_wallets_pct > 0 else []),
+            *([{"label": "Dev sold into pool", "value": dev_sold_to_pool_pct, "fmt": "%"}]
+              if dev_sold_to_pool_pct > 0 else []),
+            *([{"label": "Dev burned", "value": dev_burned_pct, "fmt": "%"}]
+              if dev_burned_pct > 0 else []),
             {"label": "Risk score", "value": risk, "fmt": "/100", "flag": risk_label},
         ],
         "charts": [
@@ -341,11 +420,19 @@ async def token_report(token: str) -> dict:
             "dev_is_launchpad": dev_is_launchpad, "launchpad": launchpad,
             "launchpad_creator_known": bool(pt and pt_creator),
             "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
-            "dev_holding_pct": dev_holding_pct, "launch_bundle_pct": launch_bundle_pct,
+            "dev_holding_pct": dev_holding_pct,
+            "dev_moved_to_wallets_pct": dev_moved_to_wallets_pct,
+            "dev_sold_to_pool_pct": dev_sold_to_pool_pct,
+            "dev_burned_pct": dev_burned_pct, "dev_out_wallets": dev_out_wallets,
+            "launch_bundle_pct": launch_bundle_pct,
             "launch_block_buyers": launch_buyers,
             "launch_bundle_signal": launch_bundle_signal,
             "smart_money_holders": smart_holders,
             "smart_money_holding_pct": smart_holding_pct,
+            "smart_money_bought_usd": smart_bought_usd,
+            "smart_money_sold_usd": smart_sold_usd,
+            "smart_money_net_usd": smart_net_usd,
+            "smart_money_sellers": smart_sellers,
             "risk_score": risk, "risk_label": risk_label,
         },
     }
