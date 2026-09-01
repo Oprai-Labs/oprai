@@ -65,6 +65,19 @@ async def token_report(token: str) -> dict:
                max(timestamp) AS last_ts, uniqExact(tx_hash) AS txs,
                dateDiff('day', min(timestamp), max(timestamp)) AS age_days {base}""")
 
+    # Our index is Robinhood-Chain ONLY. Zero indexed transfers => this address has
+    # no Robinhood-Chain activity — it's a token on another chain (Ethereum/BSC/…) or
+    # an invalid address. Say so explicitly rather than returning an all-zero report
+    # that reads as a real (dead) token. The caller/LLM surfaces "Robinhood only".
+    if not overview or int(overview.get("transfers") or 0) == 0:
+        return {
+            "subject": {"type": "token", "address": t},
+            "status": "not_found",
+            "reason": "No Robinhood-Chain activity is indexed for this address. Our "
+                      "deep on-chain analysis currently covers Robinhood Chain only.",
+            "facts": {"on_robinhood": False},
+        }
+
     # full net-balance holder set (one pass), reused for concentration + whales
     holders = await ch.q(f"""
         SELECT holder, sum(net) AS bal FROM (
