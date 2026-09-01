@@ -27,10 +27,22 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 
-# ── Added in 0.3 (custody + signing) — kept commented so 0.1 compiles fast ──
-# solana-sdk = "2"                 # ed25519 signing
-# alloy-signer-local = "0.3"       # secp256k1 (EVM) signing
-# alloy-primitives = "0.8"
-# vaultrs = "0.7"                   # Vault Transit encrypt/decrypt
-# zeroize = "1"                     # wipe key material from memory after signing
-# sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+# ── Custody + signing (0.3) ─────────────────────────────────────────────────
+# Solana keys/signing are ed25519 over base58 addresses — ed25519-dalek + bs58
+# gives us keygen + message signing (and later tx signing, since a Solana tx
+# signature is just ed25519 over the serialized message) WITHOUT pulling the
+# heavy solana-sdk crate tree.
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+bs58 = "0.5"
+# EVM signing (secp256k1 + EIP-191 personal_sign + address derivation).
+alloy-signer = "0.8"
+alloy-signer-local = "0.8"
+alloy-primitives = "0.8"
+# Vault Transit is called over plain HTTP (encrypt/decrypt) — no need for a
+# full Vault client crate.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# Key material handling.
+rand = "0.8"
+zeroize = "1"
+base64 = "0.22"
+hex = "0.4"

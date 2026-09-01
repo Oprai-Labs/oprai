@@ -99,6 +99,14 @@ dev-infra: ## Start infrastructure only (Postgres, Redis, Qdrant)
 dev-stop: ## Stop infrastructure
 	docker compose -f docker-compose.infra.yml down
 
+vault-init: ## Enable Vault transit + create the tg-signer key (dev Vault must be up)
+	@echo "==> Enabling Vault transit engine + creating oprai-tg-keys (dev)..."
+	docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$${VAULT_DEV_TOKEN:-oprai-dev-root} \
+		oprai-vault vault secrets enable transit 2>/dev/null || echo "   transit already enabled"
+	docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$${VAULT_DEV_TOKEN:-oprai-dev-root} \
+		oprai-vault vault write -f transit/keys/oprai-tg-keys
+	@echo "==> Vault transit ready."
+
 dev-all: dev-infra ## Start infra + all polyglot services in one terminal (requires honcho)
 	@echo "Waiting for infrastructure..."
 	@until docker exec $(DB_CONTAINER) pg_isready -U $(DB_USER) > /dev/null 2>&1; do sleep 1; done

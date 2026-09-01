@@ -50,6 +50,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # Vault (Transit engine) — envelope encryption for the Telegram bot's
+  # custodial keys. DEV MODE: in-memory, auto-unsealed, fixed root token — for
+  # LOCAL DEV ONLY. Keys do not persist across restarts (test wallets only).
+  # Prod runs a real, persistent, sealed Vault with a scoped token.
+  # After `up`, run `make vault-init` to enable transit + create the key.
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: oprai-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_TOKEN:-oprai-dev-root}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "127.0.0.1:8200:8200"
+    command: server -dev
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres-data:
   qdrant-storage:
