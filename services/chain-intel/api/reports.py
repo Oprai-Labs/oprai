@@ -353,6 +353,16 @@ async def token_report(token: str) -> dict:
     risk = round(min(100, risk))
     risk_label = "HIGH" if risk >= 60 else "MEDIUM" if risk >= 30 else "LOW"
 
+    # For a launchpad-relayed token there is NO identifiable dev wallet, so "dev holds
+    # 0%" / "dev burned 0%" would be a false statement about a wallet we never found
+    # (and reads as contradicting the token's real, protocol-driven burn). Null these
+    # out so nothing downstream reports a dev holding or disposal figure — the only
+    # dev fact is dev_status=via_launchpad + the launchpad name.
+    if dev_is_launchpad:
+        dev_holding_pct = None
+        dev_moved_to_wallets_pct = dev_sold_to_pool_pct = dev_burned_pct = None
+        dev_out_wallets = None
+
     return {
         "subject": {"type": "token", "address": t},
         "status": "ok",
@@ -379,11 +389,11 @@ async def token_report(token: str) -> dict:
                {"label": "Smart-money net", "value": _usd(smart_net_usd)}]
               if (smart_bought_usd or smart_sold_usd) else []),
             *([{"label": "Dev moved to other wallets", "value": dev_moved_to_wallets_pct, "fmt": "%"}]
-              if dev_moved_to_wallets_pct > 0 else []),
+              if (dev_moved_to_wallets_pct or 0) > 0 else []),
             *([{"label": "Dev sold into pool", "value": dev_sold_to_pool_pct, "fmt": "%"}]
-              if dev_sold_to_pool_pct > 0 else []),
+              if (dev_sold_to_pool_pct or 0) > 0 else []),
             *([{"label": "Dev burned", "value": dev_burned_pct, "fmt": "%"}]
-              if dev_burned_pct > 0 else []),
+              if (dev_burned_pct or 0) > 0 else []),
             {"label": "Risk score", "value": risk, "fmt": "/100", "flag": risk_label},
         ],
         "charts": [
