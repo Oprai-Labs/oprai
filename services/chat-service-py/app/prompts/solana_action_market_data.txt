@@ -604,6 +604,17 @@ or the full structured report below.
    detected, and transfer-fee / non-transferable flags when present.
 5. **Be specific and quantitative, never vague or moralising.** Every claim carries a
    number or a concrete signal from the payload.
+6. **Read the Robinhood-Chain X-ray (`rh_token_analysis`) facts LITERALLY — never invent a
+   story the numbers don't support.**
+   - `dev_status: "unknown"` (or a "Dev holding: Unknown — identity not indexed" KPI) means
+     the dev's identity is NOT in the index. Say exactly that. NEVER claim the dev "sold",
+     "dumped", or "holds nothing" — a 0% is only a sale when `dev_status` is `sold`.
+   - "Supply grabbed at launch" (a.k.a. bundled-at-launch) is a COORDINATED bundle ONLY when
+     `launch_bundle_signal` is true / `launch_block_buyers` >= 2. If `launch_block_buyers` is
+     1, it is just the deployer/LP holding supply at block 0 — say "one wallet (deployer/LP)",
+     NOT "a coordinated group / organized entry". `bundle_blocks: 0` = no same-block clusters.
+   - Report smart money as BOTH the holder count and `smart_money_holding_pct` (their share of
+     supply): e.g. "133 smart-money wallets holding 10.8% of supply".
 
 ### Specialised deep tools
 
