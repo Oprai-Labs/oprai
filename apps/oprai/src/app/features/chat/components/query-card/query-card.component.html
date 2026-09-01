@@ -3441,14 +3441,33 @@
           } @else if (openseaCollections.length === 0) {
             <div class="empty-state"><lucide-icon name="image" [size]="20" /><span>{{ 'No OpenSea collections found' | t }}</span></div>
           } @else {
-            <div class="os-grid">
+            <!-- Same card standard as Magic Eden: art + name + Floor/Vol/Owners
+                 stats + a way in (me-grid / me-coll design system). -->
+            <div class="me-grid">
               @for (c of openseaCollections; track c.slug) {
-                <button type="button" class="os-coll" (click)="openOpenseaCollection(c)">
-                  <div class="os-coll__img">
-                    @if (c.image) { <img [src]="c.image" [alt]="c.name" loading="lazy" (error)="$any($event.target).style.visibility='hidden'" /> }
-                    @else { <div class="os-coll__ph"><lucide-icon name="image" [size]="18" /></div> }
-                  </div>
-                  <span class="os-coll__name">{{ c.name }}</span>
+                <button type="button" class="me-coll" (click)="openOpenseaCollection(c)">
+                  <span class="me-coll__art">
+                    <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
+                    @if (c.image) {
+                      <img [src]="c.image" [alt]="c.name" loading="lazy" decoding="async"
+                           (error)="$any($event.target).style.display='none'" />
+                    }
+                  </span>
+                  <span class="me-coll__body">
+                    <span class="me-coll__name">{{ c.name }}</span>
+                    <span class="me-coll__stats">
+                      @if (c.floorPrice != null) {
+                        <span class="me-stat"><span class="me-stat__k">{{ 'Floor' | t }}</span> {{ c.floorPrice | number:'1.0-4' }} {{ c.floorSymbol || 'ETH' }}</span>
+                      }
+                      @if (c.volume != null && c.volume > 0) {
+                        <span class="me-stat"><span class="me-stat__k">{{ 'Vol' | t }}</span> {{ c.volume | number:'1.0-1' }}</span>
+                      }
+                      @if (c.numOwners) {
+                        <span class="me-stat"><span class="me-stat__k">{{ 'Owners' | t }}</span> {{ c.numOwners }}</span>
+                      }
+                    </span>
+                  </span>
+                  <lucide-icon name="arrow-right" [size]="14" class="me-coll__go" />
                 </button>
               }
             </div>

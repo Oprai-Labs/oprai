@@ -122,7 +122,47 @@ pub async fn fetch_collections(http: &reqwest::Client, limit: usize, search: Opt
         }))
     }).collect();
     rows.truncate(limit);
+    enrich_collection_stats(http, &mut rows).await;
     Ok(rows)
+}
+
+/// Fetch live floor / volume / owners for each row (by slug) concurrently and
+/// merge them in, so an OpenSea collection card shows the SAME Floor/Vol stats
+/// as the Magic Eden cards (one `/stats` call per collection, fanned out).
+async fn enrich_collection_stats(http: &reqwest::Client, rows: &mut [Value]) {
+    let slugs: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.get("slug").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+    let futs = slugs.into_iter().map(|sl| {
+        let http = http.clone();
+        async move {
+            let st = os_get(&http, &format!("/collections/{sl}/stats")).await.ok();
+            let total = st.as_ref().and_then(|s| s.get("total"));
+            (
+                sl,
+                total.and_then(|t| t.get("floor_price")).cloned().unwrap_or(Value::Null),
+                total.and_then(|t| t.get("floor_price_symbol")).cloned().unwrap_or(Value::Null),
+                total.and_then(|t| t.get("volume")).cloned().unwrap_or(Value::Null),
+                total.and_then(|t| t.get("num_owners")).cloned().unwrap_or(Value::Null),
+            )
+        }
+    });
+    let map: std::collections::HashMap<String, (Value, Value, Value, Value)> = join_all(futs)
+        .await
+        .into_iter()
+        .map(|(sl, f, fs, v, o)| (sl, (f, fs, v, o)))
+        .collect();
+    for r in rows.iter_mut() {
+        if let Some(sl) = r.get("slug").and_then(|v| v.as_str()).map(String::from) {
+            if let Some((f, fs, v, o)) = map.get(&sl) {
+                r["floorPrice"] = f.clone();
+                r["floorSymbol"] = fs.clone();
+                r["volume"] = v.clone();
+                r["numOwners"] = o.clone();
+            }
+        }
+    }
 }
 
 /// Active listings in a collection, enriched with each NFT's name/image.
@@ -255,6 +295,7 @@ pub async fn build_trending(http: &reqwest::Client, params: &OpenseaCollectionsP
         }))
     }).collect();
     rows.truncate(limit);
+    enrich_collection_stats(http, &mut rows).await;
     Ok(read_envelope("opensea_trending", format!("Trending OpenSea collections — {} on Robinhood Chain.", rows.len()), json!({ "collections": rows, "trending": true })))
 }
 
