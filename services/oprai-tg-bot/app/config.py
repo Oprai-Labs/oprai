@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # builds the SIWS/SIWE sign-in message with this as the first-line domain.
     OPRAI_TG_APP_DOMAIN: str = ""
 
+    # ── Read-only RPC (balances) ─────────────────────────────────────────────
+    # The gateway's /rpc proxy is browser-origin-gated, so for read-only balance
+    # the bot (a trusted backend) queries the chain RPC directly, like the
+    # gateway does. Actions still go through the gateway with the on-behalf JWT.
+    SOLANA_RPC: str = "https://api.mainnet-beta.solana.com"
+    # Optional EVM RPC for native-balance reads (e.g. Robinhood Chain). Empty =
+    # EVM balance reported as unavailable until configured.
+    OPRAI_TG_EVM_RPC: str = ""
+
     # ── Database (tg_schema) ─────────────────────────────────────────────────
     # Plain asyncpg DSN (NOT the SQLAlchemy "+asyncpg" form). _pg_dsn() strips
     # a "+asyncpg" suffix if one is inherited from a shared DATABASE_URL.
