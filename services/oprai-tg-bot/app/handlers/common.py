@@ -14,6 +14,7 @@ from aiogram.types import Message
 
 from app.db import audit, upsert_tg_user
 from app.logging_config import log
+from app.services import linking
 
 router = Router(name="common")
 
@@ -44,10 +45,30 @@ async def start_with_token(message: Message, command: CommandObject) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     token = (command.args or "").strip()
-    # 0.7 will consume `token` against tg_link_tokens and bind linked_account_id.
-    await audit(user.id, "start_deeplink", {"token_present": bool(token)})
-    log.info("start_deeplink", telegram_id=user.id, token_present=bool(token))
-    await message.answer(WELCOME)
+    account_id = await linking.consume_link_token(token, user.id) if token else None
+    await audit(
+        user.id,
+        "start_deeplink",
+        {"token_present": bool(token), "linked": account_id is not None},
+    )
+    log.info(
+        "start_deeplink",
+        telegram_id=user.id,
+        token_present=bool(token),
+        linked=account_id is not None,
+    )
+    if account_id:
+        await message.answer(
+            "✅ <b>Account linked.</b> Your Telegram is now connected to your "
+            "OPRAI account — same wallets, same history.\n\n" + WELCOME
+        )
+    elif token:
+        await message.answer(
+            "⚠️ That link is invalid or expired. Generate a fresh one from the "
+            "OPRAI app, then tap it again.\n\n" + WELCOME
+        )
+    else:
+        await message.answer(WELCOME)
 
 
 @router.message(CommandStart())
