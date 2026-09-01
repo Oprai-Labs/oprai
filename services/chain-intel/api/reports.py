@@ -11,6 +11,38 @@ from __future__ import annotations
 from . import ch, node
 from .ch import addr, USDG
 
+# Robinhood-Chain launchpads whose tokens are identified by the ROUTER their launch
+# tx was sent to. Unlike Pons (which exposes an on-chain getLaunchedToken registry)
+# these have no per-token registry — but every one of their launches is a tx to the
+# same router contract, so the launch tx's `to` names the launchpad. Verified by
+# launch volume through each router (Noxa 58k+, LONG 11k+ distinct mints). Address
+# (lowercase) -> launchpad name. Add a row per launchpad once its router is known.
+_LAUNCHPAD_ROUTERS = {
+    "0xd9ec2db5f3d1b236843925949fe5bd8a3836fccb": "Noxa",
+    "0x22e99278308b393ea1260859b181ad7e78f5eeed": "LONG",
+}
+_ZERO = "0x0000000000000000000000000000000000000000"
+
+
+async def _router_launchpad(t: str) -> str | None:
+    """Name the launchpad by the router the token's CREATION (or first-mint) tx was
+    sent to — covers launchpads without an on-chain registry (Noxa, LONG). Returns
+    None when the token wasn't launched through a router we recognise. Fails open."""
+    try:
+        r = await ch.one(f"SELECT creation_tx FROM rh.contracts FINAL WHERE address='{t}'")
+        ctx = (r or {}).get("creation_tx")
+        if not ctx:
+            m = await ch.one(
+                f"SELECT tx_hash FROM rh.token_transfers WHERE token='{t}' "
+                f"AND from_addr='{_ZERO}' ORDER BY block_number ASC LIMIT 1")
+            ctx = (m or {}).get("tx_hash")
+        if not ctx:
+            return None
+        tx = await ch.one(f"SELECT to_addr FROM rh.transactions WHERE hash='{ctx}'")
+        return _LAUNCHPAD_ROUTERS.get(((tx or {}).get("to_addr") or "").lower())
+    except Exception:
+        return None
+
 
 async def token_report(token: str) -> dict:
     """Comprehensive token X-ray: overview, holder distribution + concentration,
@@ -178,6 +210,7 @@ async def token_report(token: str) -> dict:
     #     the launchpad name AND the real creator EOA, so we can still report that
     #     creator's ACTUAL holding rather than hiding behind the launchpad.
     onchain_lp = await node.detect_launchpad(t)          # e.g. "Pons", else None
+    router_lp = await _router_launchpad(t)               # e.g. "Noxa"/"LONG", else None
     pt = await node.pools_trade_launch(t)                # {'launchpad','creator'} | None
     pt_creator = (pt or {}).get("creator")
 
@@ -194,7 +227,7 @@ async def token_report(token: str) -> dict:
         # On-chain launchpad (Pons/…) or a "dev" credited with 100s+ launches — a
         # shared factory relayer, NOT this token's individual creator. Its aggregate
         # launch/rug counts belong to the launchpad, not this project — drop them.
-        launchpad = onchain_lp or (pt["launchpad"] if pt else None)
+        launchpad = onchain_lp or router_lp or (pt["launchpad"] if pt else None)
         dev_is_launchpad = launchpad is not None or dev_tokens > 100
         if dev_is_launchpad:
             dev_tokens, dev_rugs = 0, 0
