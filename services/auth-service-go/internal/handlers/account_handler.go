@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,12 +23,41 @@ type AccountHandler struct {
 	queries          *db.Queries
 	nonceService     *services.NonceService
 	telegramBotToken string
+	botUsername      string
 }
 
-// NewAccountHandler creates a new AccountHandler. telegramBotToken may be empty
-// (Telegram linking then reports "not configured").
-func NewAccountHandler(queries *db.Queries, nonceService *services.NonceService, telegramBotToken string) *AccountHandler {
-	return &AccountHandler{queries: queries, nonceService: nonceService, telegramBotToken: telegramBotToken}
+// NewAccountHandler creates a new AccountHandler. telegramBotToken/botUsername
+// may be empty (Telegram linking then reports "not configured").
+func NewAccountHandler(queries *db.Queries, nonceService *services.NonceService, telegramBotToken, botUsername string) *AccountHandler {
+	return &AccountHandler{queries: queries, nonceService: nonceService, telegramBotToken: telegramBotToken, botUsername: botUsername}
+}
+
+// HandleTelegramDeeplink handles POST /account/link/telegram/deeplink — mint a
+// single-use deep-link the caller opens to bind their Telegram to this account.
+func (h *AccountHandler) HandleTelegramDeeplink(w http.ResponseWriter, r *http.Request) {
+	accountID, _ := h.resolveAccount(w, r)
+	if accountID == "" {
+		return // resolveAccount already wrote the error
+	}
+	if h.botUsername == "" {
+		writeError(w, http.StatusServiceUnavailable, "Telegram linking is not configured")
+		return
+	}
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not generate link")
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf)
+	if err := h.queries.CreateTelegramLinkToken(r.Context(), accountID, token, 15); err != nil {
+		slog.Error("create telegram link token", "err", err)
+		writeError(w, http.StatusInternalServerError, "Could not create link")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"token":    token,
+		"deepLink": fmt.Sprintf("https://t.me/%s?start=%s", h.botUsername, token),
+	})
 }
 
 // resolveAccount returns the caller's account id (users.id) from their
