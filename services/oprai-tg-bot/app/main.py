@@ -15,13 +15,14 @@ from aiogram.enums import ParseMode
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import common
+from app.handlers import common, wallet
 from app.logging_config import configure_logging, log
 
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
     dp.include_router(common.router)
+    dp.include_router(wallet.router)
     return dp
 
 
