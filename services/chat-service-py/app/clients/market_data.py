@@ -727,6 +727,13 @@ async def token_deep_analysis(address: str, chain: str = "solana") -> dict:
     Present this instead of a plain price/mcap readout when the user asks for a
     detailed / deep / GMGN-style analysis, or 'is there smart money / snipers /
     bundlers / KOLs'."""
+    # A 0x… address is an EVM (Robinhood-Chain) token, NOT Solana. The Birdeye/
+    # Helius fan-out below is Solana-only, so it would return all-zeros and then
+    # present that as "no activity + a confidence score" — a dangerous false
+    # negative (a token doing $30M/day read as dead). EVM/Robinhood tokens have
+    # their own on-chain X-ray on our index; route there instead.
+    if address.strip().lower().startswith("0x"):
+        return await rh_token_analysis(address.strip())
     _labels = ["sniper", "bundler", "insider", "dev"]
     _res = await asyncio.gather(
         birdeye_token_overview(address, chain),
