@@ -2592,7 +2592,6 @@ async def rh_wallet_analysis(wallet: str) -> dict:
     return await _chain_intel(f"/wallet/{wallet}")
 
 
-@query_tool(required=["token"], tags={"analysis"})
 def _fmt_usd(v: float, is_price: bool = False) -> str:
     if is_price:
         return (f"${v:.8f}".rstrip("0").rstrip(".")) if v < 1 else f"${v:,.4f}"
@@ -2639,6 +2638,7 @@ async def _dexscreener_evm_market(token: str) -> dict:
     }
 
 
+@query_tool(required=["token"], tags={"analysis"})
 async def rh_token_analysis(token: str) -> dict:
     """Robinhood-Chain token X-ray from our own index: holders, REAL-wallet
     concentration (bonding-curve/AMM excluded), whales, snipers (still-holding vs
