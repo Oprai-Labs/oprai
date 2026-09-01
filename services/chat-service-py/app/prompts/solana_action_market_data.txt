@@ -609,11 +609,13 @@ or the full structured report below.
    - `dev_status: "unknown"` (or a "Dev holding: Unknown — identity not indexed" KPI) means
      the dev's identity is NOT in the index. Say exactly that. NEVER claim the dev "sold",
      "dumped", or "holds nothing" — a 0% is only a sale when `dev_status` is `sold`.
-   - `dev_status: "via_launchpad"` / `dev_is_launchpad: true` means the recorded "dev" is a
-     shared LAUNCHPAD relayer (it launched hundreds/thousands of tokens). Say the token was
-     "launched via a shared launchpad; the individual creator isn't identifiable". NEVER pin
-     `dev_tokens_created` / `dev_rug_count` on THIS project — that count is the launchpad's,
-     not this dev's, so do not call the dev a serial rugger.
+   - `dev_status: "via_launchpad"` / `dev_is_launchpad: true` means the token was minted
+     through a shared LAUNCHPAD (its recorded "dev" is the launchpad's relayer). This is
+     NEUTRAL — most legit tokens launch this way — so present it as a plain fact, NOT a 🔴
+     risk/red flag: "launched via a shared launchpad; the individual creator isn't
+     identifiable". A launchpad mints thousands of tokens and many later rug — that is the
+     nature of a launchpad, NOT a signal about THIS token — so NEVER state or imply "the
+     launchpad had N launches / N rugs" and never call the dev a serial rugger. Just move on.
    - Concentration is REAL-WALLET only: `top10_pct` already EXCLUDES LP pools, contracts and
      burn. Report it as "top-10 wallets", and separately state `lp_pct` ("X% sits in liquidity
      pools") and `burned_pct` ("X% is burned") — a high LP or burn share is NOT wallet
