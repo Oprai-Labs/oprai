@@ -41,13 +41,25 @@ async def token_report(token: str) -> dict:
         ) WHERE holder NOT IN ('0x','0x0000000000000000000000000000000000000000',
                                '0x000000000000000000000000000000000000dead','{curve}')
         GROUP BY holder HAVING bal > 0 ORDER BY bal DESC LIMIT 500""")
-    supply = sum(float(h["bal"]) for h in holders) or 1.0
-    def pct_of(n):  # concentration of top-n holders
-        return round(100.0 * sum(float(h["bal"]) for h in holders[:n]) / supply, 1)
+    supply = sum(float(h["bal"]) for h in holders) or 1.0  # circulating (non-burn), incl LP pools
+    # Drop CONTRACTS (LP pools, routers) from WALLET concentration — a pool holding
+    # liquidity is not a whale hoarding supply, and counting it inflates the figure
+    # badly (e.g. a 25%-of-supply LP read as "top wallet"). Classify on-chain.
+    contract_holders = await node.contract_addresses([h["holder"] for h in holders[:40]])
+    wallets = [h for h in holders if h["holder"] not in contract_holders]
+    lp_pct = round(100.0 * sum(float(h["bal"]) for h in holders if h["holder"] in contract_holders) / supply, 1)
+    def pct_of(n):  # concentration of the top-n real WALLETS (contracts / LP excluded)
+        return round(100.0 * sum(float(h["bal"]) for h in wallets[:n]) / supply, 1)
     top10_pct, top20_pct, top50_pct = pct_of(10), pct_of(20), pct_of(50)
-    whales = sum(1 for h in holders if float(h["bal"]) / supply > 0.01)  # >1% holders
+    whales = sum(1 for h in wallets if float(h["bal"]) / supply > 0.01)  # >1% real-wallet holders
     top_holders = [{"holder": h["holder"], "balance": float(h["bal"]) / 1e18,
-                    "pct": round(100 * float(h["bal"]) / supply, 2)} for h in holders[:20]]
+                    "pct": round(100 * float(h["bal"]) / supply, 2)} for h in wallets[:20]]
+    # burned supply (held by the dead address) — a deflationary signal, shown explicitly
+    # instead of silently dropped, so a big burn isn't mistaken for hidden concentration.
+    dead_bal = max(0.0, float(await ch.scalar(f"""
+        SELECT sumIf(toFloat64(value), to_addr='0x000000000000000000000000000000000000dead')
+             - sumIf(toFloat64(value), from_addr='0x000000000000000000000000000000000000dead') {base}""") or 0))
+    burned_pct = round(100.0 * dead_bal / (supply + dead_bal), 1) if (supply + dead_bal) else 0.0
 
     # snipers: earliest buyers + whether they STILL hold (dumped = paperhand/exit).
     # ClickHouse has no correlated subqueries → LEFT JOIN buys vs sells.
@@ -153,11 +165,18 @@ async def token_report(token: str) -> dict:
             WHERE tt.token='{t}' AND tt.kind='erc20'""") or 0
         smart_holding_pct = round(min(100.0, max(0.0, 100 * float(sb) / minted)), 1)
 
+    # A "dev" credited with 100s+ launches is a shared LAUNCHPAD/factory relayer
+    # (every launch's tx.from is the same hot wallet), NOT this token's individual
+    # creator — so its token/rug totals must NOT be pinned on this project.
+    dev_is_launchpad = dev_tokens > 100
+
     # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
-    # from "dev holds none" (holding / sold / never held). Never report a sale we
-    # can't see.
+    # or "launched via a shared launchpad" from "dev holds none" (holding / sold /
+    # never held). Never report a sale — or a rug history — we can't attribute.
     if not dev:
         dev_status = "unknown"          # identity not in the index — NOT "sold"
+    elif dev_is_launchpad:
+        dev_status = "via_launchpad"    # tx.from is a launchpad relayer, not the creator
     elif dev_holding_pct > 0:
         dev_status = "holding"
     else:
@@ -176,7 +195,7 @@ async def token_report(token: str) -> dict:
     risk += min(15, sniper_dump_rate * 0.15)            # sniper dump
     risk += min(15, launch_bundle_pct * 0.3)            # supply grabbed at launch
     risk += 8 if dev_holding_pct > 20 else 0            # dev still holds a lot (dump risk)
-    risk += 12 if (dev_rugs and dev_rugs > 0) else 0    # dev rug history
+    risk += 12 if (dev_rugs and dev_rugs > 0 and not dev_is_launchpad) else 0  # dev rug history (not a launchpad's)
     risk = round(min(100, risk))
     risk_label = "HIGH" if risk >= 60 else "MEDIUM" if risk >= 30 else "LOW"
 
@@ -186,12 +205,16 @@ async def token_report(token: str) -> dict:
         "kpis": [
             {"label": "Holders", "value": overview.get("holders")},
             {"label": "Age (days)", "value": overview.get("age_days")},
-            {"label": "Top-10 concentration", "value": top10_pct, "fmt": "%"},
+            {"label": "Top-10 wallet concentration", "value": top10_pct, "fmt": "%"},
+            {"label": "In LP pools", "value": lp_pct, "fmt": "%"},
+            {"label": "Burned", "value": burned_pct, "fmt": "%"},
             {"label": "Whales (>1%)", "value": whales},
             {"label": "Bundle blocks", "value": bundle_blocks},
             {"label": "Sniper dump rate", "value": sniper_dump_rate, "fmt": "%"},
             ({"label": "Dev holding", "value": "Unknown — identity not indexed"}
              if dev_status == "unknown"
+             else {"label": "Dev holding", "value": f"Launched via shared launchpad ({dev_tokens} launches) — individual creator not identified"}
+             if dev_status == "via_launchpad"
              else {"label": "Dev holding", "value": dev_holding_pct, "fmt": "%"}),
             {"label": "Supply grabbed at launch", "value": launch_bundle_pct, "fmt": "%"},
             {"label": "Launch-block buyers", "value": launch_buyers},
@@ -223,11 +246,14 @@ async def token_report(token: str) -> dict:
             "holders": overview.get("holders"), "transfers": overview.get("transfers"),
             "age_days": overview.get("age_days"), "first_seen": overview.get("first_ts"),
             "top10_pct": top10_pct, "top20_pct": top20_pct, "top50_pct": top50_pct,
+            "concentration_excludes": "burn + LP pools + contracts",
+            "lp_pct": lp_pct, "burned_pct": burned_pct,
             "whales_over_1pct": whales, "bundle_blocks": bundle_blocks,
             "bundle_signal": bundle_blocks > 0, "max_same_block_buyers": bundle_first,
             "sniper_count": len(snipers), "sniper_dump_rate": sniper_dump_rate,
             "developer": dev, "dev_identity_source": dev_src,
             "dev_known": bool(dev), "dev_status": dev_status,
+            "dev_is_launchpad": dev_is_launchpad,
             "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
             "dev_holding_pct": dev_holding_pct, "launch_bundle_pct": launch_bundle_pct,
             "launch_block_buyers": launch_buyers,
