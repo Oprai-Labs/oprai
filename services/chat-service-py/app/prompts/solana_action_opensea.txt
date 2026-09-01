@@ -35,7 +35,10 @@ Routing: "opensea collections/nfts" → opensea_collections; "trending nfts",
 "top nft collections" → opensea_trending; "floor of <c>", "<c> stats/volume" →
 opensea_collection; "what's for sale in <c>", "cheapest <c>" → opensea_listings;
 "offers/bids on <c>" → opensea_offers; "recent sales in <c>", "<c> activity" →
-opensea_activity; "my nfts" → opensea_wallet_nfts (wallet="self").
+opensea_activity; "my nfts" / "list my nfts" / "the nfts I hold" →
+opensea_wallet_nfts (wallet="self"). NEVER answer "my nfts" with the generic
+`portfolio` tool — that returns only the Solana wallet and misses the user's
+EVM / Robinhood OpenSea NFTs. opensea_wallet_nfts spans every chain they hold on.
 
 Actions:
 Format: [ACTION:opensea_buy] orderHash=<0x…> [protocolAddress=<0x…>]

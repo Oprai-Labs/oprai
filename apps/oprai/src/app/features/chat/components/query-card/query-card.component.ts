@@ -5116,7 +5116,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         await this.fetchOpenseaSimple('opensea_activity', 'openseaActivityRows', 'events', { slug: String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''), limit: 25 });
         return;
       case 'opensea_wallet_nfts':
-        await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: await this.lighterPerp.resolveEvmAddress() ?? 'self', limit: 40 });
+        await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: (await this.lighterPerp.resolveEvmAddress()) || 'self', solWallet: this.walletService.publicKey()?.toString() ?? '', limit: 40 });
         return;
       case 'opensea_nft':
         await this.fetchOpenseaNft();

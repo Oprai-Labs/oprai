@@ -2411,6 +2411,44 @@ async def stream_chat_response(
                 yield f"data: {json.dumps({'action': d})}\n\n"
 
             elif isinstance(validated, ValidatedQuery):
+                # NFT-wallet scope guard. When a SINGLE NFT marketplace is tagged
+                # (@OpenSea / @Magic Eden / @Tensor) and the model reaches for the
+                # cross-cutting Solana `portfolio` tool — which is always in the
+                # enum and returns only the Solana wallet's holdings — remap to
+                # that venue's own wallet-NFTs read. Symptom this fixes: tagging
+                # @OpenSea and asking "list my nfts" returned the Solana portfolio
+                # (Trenchors + Meteora Position NFT) and never the user's EVM /
+                # Robinhood OpenSea NFTs. The venue's *_wallet_nfts card resolves
+                # the right chain(s) + EVM address itself.
+                _NFT_VENUE_WALLET = {
+                    "opensea": "opensea_wallet_nfts",
+                    "magic_eden": "me_wallet_nfts",
+                    "tensor": "tensor_wallet_nfts",
+                }
+                if (
+                    _all_protocols
+                    and len(_all_protocols) == 1
+                    and _all_protocols[0] in _NFT_VENUE_WALLET
+                    and validated.type.value == "portfolio"
+                ):
+                    _nft_target = _NFT_VENUE_WALLET[_all_protocols[0]]
+                    if _nft_target in market_data.MARKET_DATA_TYPES:
+                        try:
+                            validated = ValidatedQuery(
+                                type=QueryType(_nft_target),
+                                params={"wallet": "self"},
+                            )
+                            _log.info(
+                                "nft_wallet_scope_remap portfolio→%s active=%s",
+                                _nft_target, _all_protocols,
+                            )
+                            try:
+                                with open("/tmp/oprai-debug.log", "a") as _df:
+                                    _df.write(f"  NFT_WALLET_SCOPE_REMAP portfolio→{_nft_target} active={_all_protocols}\n")
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
                 # Positions-scope guard. A SINGLE tagged protocol + a
                 # positions-family query that isn't THAT protocol's own read —
                 # the cross-protocol aggregate `positions`, or another protocol's

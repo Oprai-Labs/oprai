@@ -749,26 +749,50 @@ pub struct OpenseaWalletParams {
     pub limit: Option<usize>,
     #[serde(default)]
     pub chain: String,
+    // The caller's Solana address, so "my nfts" spans OpenSea's Solana chain
+    // too (the user's EVM `wallet` can't hold Solana NFTs). Best-effort.
+    #[serde(default, alias = "solWallet")]
+    pub sol_wallet: Option<String>,
 }
 
 /// A wallet's OpenSea NFTs. With no chain named, aggregate across the wallet's
 /// EVM chains (so the user sees their FULL OpenSea holdings, not just Robinhood);
 /// a named chain narrows to that one. Each row carries its chain.
 pub async fn build_wallet_nfts(http: &reqwest::Client, p: &OpenseaWalletParams) -> Result<BuildResponse, AppError> {
-    let w = p.wallet.trim().to_lowercase();
-    if !(w.starts_with("0x") && w.len() == 42) { return Err(AppError::InvalidParams("opensea: wallet address required".into())); }
+    let evm = p.wallet.trim().to_lowercase();
+    let evm_ok = evm.starts_with("0x") && evm.len() == 42;
+    let sol = p.sol_wallet.as_deref().unwrap_or("").trim().to_string();
+    let sol_ok = !sol.is_empty() && !sol.starts_with("0x") && (32..=44).contains(&sol.len());
     let limit = p.limit.unwrap_or(30).clamp(1, 50);
-    let chains: Vec<String> = if p.chain.trim().is_empty() {
-        ["robinhood", "ethereum", "base", "arbitrum", "optimism", "matic"]
-            .iter().map(|s| s.to_string()).collect()
+
+    // Build (chain, owner) targets. A named chain narrows to one (Solana uses the
+    // Solana address, every other chain the EVM one). With no chain named,
+    // aggregate the wallet's EVM chains PLUS Solana — so "my nfts" returns the
+    // user's FULL OpenSea holdings across every chain they actually hold on,
+    // not just one side.
+    let mut targets: Vec<(String, String)> = Vec::new();
+    if !p.chain.trim().is_empty() {
+        let ch = os_chain(&p.chain);
+        let owner = if ch == "solana" { sol.clone() } else { evm.clone() };
+        if !owner.is_empty() { targets.push((ch, owner)); }
     } else {
-        vec![os_chain(&p.chain)]
-    };
-    // Fetch each chain concurrently; tag every NFT with the chain it's on.
-    let futs = chains.iter().map(|ch| {
-        let http = http.clone(); let w = w.clone(); let ch = ch.clone();
+        if evm_ok {
+            for ch in ["robinhood", "ethereum", "base", "arbitrum", "optimism", "matic"] {
+                targets.push((ch.to_string(), evm.clone()));
+            }
+        }
+        if sol_ok {
+            targets.push(("solana".to_string(), sol.clone()));
+        }
+    }
+    if targets.is_empty() {
+        return Err(AppError::InvalidParams("opensea: a wallet address is required".into()));
+    }
+    // Fetch each (chain, owner) concurrently; tag every NFT with the chain it's on.
+    let futs = targets.iter().map(|(ch, owner)| {
+        let http = http.clone(); let ch = ch.clone(); let owner = owner.clone();
         async move {
-            let body = os_get(&http, &format!("/chain/{ch}/account/{w}/nfts?limit={limit}")).await.ok();
+            let body = os_get(&http, &format!("/chain/{ch}/account/{owner}/nfts?limit={limit}")).await.ok();
             let mut out: Vec<Value> = Vec::new();
             if let Some(a) = body.as_ref().and_then(|b| b.get("nfts")).and_then(|v| v.as_array()) {
                 for n in a {
@@ -784,13 +808,15 @@ pub async fn build_wallet_nfts(http: &reqwest::Client, p: &OpenseaWalletParams) 
         }
     });
     let rows: Vec<Value> = join_all(futs).await.into_iter().flatten().collect();
-    let primary = if chains.len() == 1 { chains[0].clone() } else { CHAIN_SLUG.to_string() };
-    let desc = if chains.len() == 1 {
+    let single = targets.len() == 1;
+    let primary = if single { targets[0].0.clone() } else { CHAIN_SLUG.to_string() };
+    let desc = if single {
         format!("{} NFT(s) held on {}.", rows.len(), os_chain_name(&primary))
     } else {
         format!("{} NFT(s) across your OpenSea chains.", rows.len())
     };
-    Ok(read_envelope("opensea_wallet_nfts", desc, json!({ "wallet": w, "nfts": rows, "chain": primary })))
+    let wallet_echo = if evm_ok { evm } else { sol };
+    Ok(read_envelope("opensea_wallet_nfts", desc, json!({ "wallet": wallet_echo, "nfts": rows, "chain": primary })))
 }
 
 // ── Buy (fulfill a listing) ──────────────────────────────────────────────────
