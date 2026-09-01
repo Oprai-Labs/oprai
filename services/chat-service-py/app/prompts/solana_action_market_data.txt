@@ -639,6 +639,14 @@ or the full structured report below.
      creator isn't identifiable". A launchpad mints thousands of tokens and many later rug — that is the
      nature of a launchpad, NOT a signal about THIS token — so NEVER state or imply "the
      launchpad had N launches / N rugs" and never call the dev a serial rugger. Just move on.
+     CRITICAL for via_launchpad: there is NO identifiable dev wallet, so do NOT report a dev
+     holding % and do NOT list dev disposal (moved-to-wallets / sold-to-pool / burned) — those
+     facts are null. NEVER write "dev holds 0%" or "dev burned 0%": that is a false claim about a
+     wallet we never found, and it looks like it contradicts the token's real burn. The token's
+     overall `burned_pct` is PROTOCOL / launch-mechanic burn (e.g. unsold curve supply), NOT the
+     dev — attribute it that way ("41.6% of supply is burned by the launch mechanics"), never to
+     the dev. The ONLY dev sentence is "launched via <launchpad>; the individual creator isn't
+     identifiable".
    - The `launchpad` fact names WHICH launchpad, and different launchpads are distinguished:
      "Pons", "pools.trade", or "a shared launchpad" when unnamed — use the exact name, never
      substitute one for another. When `launchpad_creator_known: true` (currently pools.trade
