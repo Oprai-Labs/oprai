@@ -617,6 +617,13 @@ or the full structured report below.
      creator isn't identifiable". A launchpad mints thousands of tokens and many later rug — that is the
      nature of a launchpad, NOT a signal about THIS token — so NEVER state or imply "the
      launchpad had N launches / N rugs" and never call the dev a serial rugger. Just move on.
+   - The `launchpad` fact names WHICH launchpad, and different launchpads are distinguished:
+     "Pons", "pools.trade", or "a shared launchpad" when unnamed — use the exact name, never
+     substitute one for another. When `launchpad_creator_known: true` (currently pools.trade
+     launches), the `developer` field is the token's REAL individual creator EOA — NOT a
+     relayer — so `dev_status` (holding / sold / never_held) and `dev_holding_pct` are that
+     real creator's, and you report them normally (e.g. "the creator has sold their allocation").
+     Still name the launchpad as neutral context ("launched on pools.trade"); it is not a flag.
    - Concentration is REAL-WALLET only: `top10_pct` already EXCLUDES LP pools, contracts and
      burn. Report it as "top-10 wallets", and separately state `lp_pct` ("X% sits in liquidity
      pools") and `burned_pct` ("X% is burned") — a high LP or burn share is NOT wallet
