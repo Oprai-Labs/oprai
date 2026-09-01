@@ -628,6 +628,18 @@ _BARE_DURATION_RE = re.compile(r"^\d{1,4}[dhwm]$")
 # matching this on its own line is leakage.
 _DOTTED_DISPATCH_RE = re.compile(r"^[a-z][a-z0-9_]{4,40}\.[A-Za-z0-9_.\-]{2,50}\d+[dhwm]?$")
 
+# A bare 0x…40-hex address is unambiguously an EVM (Robinhood-Chain) address —
+# Solana never uses this format. Used to route token/wallet ANALYSIS of such an
+# address to the Robinhood tools (rh_*) and away from the Solana analysis tools
+# (birdeye_*/helius_*/dex_*/gmgn), which would fail on it and make the model report
+# "couldn't fetch data — which chain is it?" instead of running the analysis.
+_BARE_EVM_ADDR_RE = re.compile(r"0x[0-9a-fA-F]{40}\b")
+# Solana-only analysis query_types (take a Solana mint/wallet; error on a 0x addr).
+_SOLANA_ANALYSIS_PREFIXES = ("birdeye_", "helius_", "dex_", "gmgn", "jup_")
+_SOLANA_ANALYSIS_EXACT = frozenset({
+    "bundle_ring_analysis", "kol_discovery_feed", "holders_robust", "tvl_robust",
+})
+
 
 def _clean_delta(text: str) -> str:
     """Single pipeline for all text-stream post-processing."""
@@ -1864,6 +1876,35 @@ async def stream_chat_response(
 
     tools = ToolSelector().build(_all_protocols)
     tools = filter_tools_by_intent(tools, intent_for_filter)
+
+    # Deterministic EVM/Robinhood analysis routing. A bare 0x…40-hex address is
+    # unambiguously EVM (Robinhood is our only analysed EVM chain) — never Solana.
+    # The offered enum otherwise carries ~100 tools including the Solana analysis
+    # tools (birdeye_*/helius_*/dex_*), which fail on a 0x address; the model then
+    # either calls one and reports "couldn't fetch data / which chain?" or, when the
+    # turn was classified "advice" (tool_choice=auto), answers from general knowledge
+    # without calling anything. When the turn targets a 0x address and isn't an
+    # action (swap/buy), drop the Solana analysis tools so the Robinhood tools
+    # (rh_token_analysis + token_deep_analysis, which routes 0x→rh) are what remain,
+    # and force a tool call so the model can't hedge.
+    if _BARE_EVM_ADDR_RE.search(user_content or "") and intent_result.intent != "action":
+        for _tool in tools:
+            _fn = _tool.get("function", {})
+            if _fn.get("name") != "query_onchain":
+                continue
+            _qt = _fn.get("parameters", {}).get("properties", {}).get("query_type", {})
+            _enum = _qt.get("enum") or []
+            _kept = [
+                q for q in _enum
+                if not q.startswith(_SOLANA_ANALYSIS_PREFIXES) and q not in _SOLANA_ANALYSIS_EXACT
+            ]
+            if _kept and len(_kept) < len(_enum):
+                _qt["enum"] = _kept
+                _log.info("evm-addr turn: narrowed query enum %d→%d (dropped Solana analysis tools)",
+                          len(_enum), len(_kept))
+        if intent_result.intent != "query":
+            import dataclasses as _dc_evm
+            intent_result = _dc_evm.replace(intent_result, intent="query")
 
     # Cross-protocol query guard.
     #
