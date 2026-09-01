@@ -609,6 +609,15 @@ or the full structured report below.
    - `dev_status: "unknown"` (or a "Dev holding: Unknown — identity not indexed" KPI) means
      the dev's identity is NOT in the index. Say exactly that. NEVER claim the dev "sold",
      "dumped", or "holds nothing" — a 0% is only a sale when `dev_status` is `sold`.
+   - `dev_status: "via_launchpad"` / `dev_is_launchpad: true` means the recorded "dev" is a
+     shared LAUNCHPAD relayer (it launched hundreds/thousands of tokens). Say the token was
+     "launched via a shared launchpad; the individual creator isn't identifiable". NEVER pin
+     `dev_tokens_created` / `dev_rug_count` on THIS project — that count is the launchpad's,
+     not this dev's, so do not call the dev a serial rugger.
+   - Concentration is REAL-WALLET only: `top10_pct` already EXCLUDES LP pools, contracts and
+     burn. Report it as "top-10 wallets", and separately state `lp_pct` ("X% sits in liquidity
+     pools") and `burned_pct` ("X% is burned") — a high LP or burn share is NOT wallet
+     concentration and is usually neutral/positive. Never describe LP or burn as "a whale".
    - "Supply grabbed at launch" (a.k.a. bundled-at-launch) is a COORDINATED bundle ONLY when
      `launch_bundle_signal` is true / `launch_block_buyers` >= 2. If `launch_block_buyers` is
      1, it is just the deployer/LP holding supply at block 0 — say "one wallet (deployer/LP)",
