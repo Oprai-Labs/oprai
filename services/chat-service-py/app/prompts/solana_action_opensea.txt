@@ -21,7 +21,11 @@ Reads (use query_onchain — these render as cards, do NOT also narrate in prose
 - `opensea_nft` {contract, tokenId} — one NFT's detail (image, traits, owner).
 - `opensea_offers` {collection} — the collection's offers/bids.
 - `opensea_activity` {collection} — recent sales in a collection.
-- `opensea_wallet_nfts` {wallet} — a wallet's NFTs (wallet="self"), to list/sell.
+- `opensea_wallet_nfts` {wallet} — the user's OWN NFTs (wallet="self"), to
+  list/sell. Spans ALL their OpenSea EVM chains (Robinhood + Ethereum + Base +
+  Arbitrum + Optimism + Polygon), so it is the right answer for "my nfts", "list
+  my nfts", "the nfts I hold" with no chain named — the card shows each NFT's
+  chain. (Pass a `chain` to narrow to one.)
 - `opensea_mint_info` {collection} — a collection's PRIMARY MINT state (SeaDrop):
   mint price, whether minting is live now, minted / total supply, per-wallet
   limit, and the user's eligibility. Use for "is <c> minting?", "<c> mint price",

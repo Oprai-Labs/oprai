@@ -397,6 +397,10 @@ Detection rules:
   floor, listings, browsing — emit "opensea", NEVER "magic_eden"/"tensor". Use
   "magic_eden" only for Solana NFTs. "trending nfts on robinhood" → opensea;
   "trending nfts on solana" → magic_eden.
+- A user's OWN NFT holdings — "my nfts", "list my nfts", "nfts I hold/own", "the
+  nfts in my wallet" (in ANY language) with no chain named — → "opensea". OpenSea
+  is multichain and spans all the user's EVM chains, so it is the right default
+  for "show my nfts"; do NOT route a bare "my nfts" to a Solana-only NFT tool.
 - Leverage / perp / short / long → "jupiter" by DEFAULT, never Kamino. A
   leveraged long/short on SOL/ETH/BTC, "open a perp", "2x short SOL", and any
   "max leverage / how much can I open" question maps to "jupiter"

@@ -751,15 +751,46 @@ pub struct OpenseaWalletParams {
     pub chain: String,
 }
 
-/// A wallet's NFTs on Robinhood Chain (to list/sell from).
+/// A wallet's OpenSea NFTs. With no chain named, aggregate across the wallet's
+/// EVM chains (so the user sees their FULL OpenSea holdings, not just Robinhood);
+/// a named chain narrows to that one. Each row carries its chain.
 pub async fn build_wallet_nfts(http: &reqwest::Client, p: &OpenseaWalletParams) -> Result<BuildResponse, AppError> {
     let w = p.wallet.trim().to_lowercase();
     if !(w.starts_with("0x") && w.len() == 42) { return Err(AppError::InvalidParams("opensea: wallet address required".into())); }
-    let limit = p.limit.unwrap_or(40).clamp(1, 50);
-    let ch = os_chain(&p.chain);
-    let body = os_get(http, &format!("/chain/{ch}/account/{w}/nfts?limit={limit}")).await?;
-    let rows: Vec<Value> = body.get("nfts").and_then(|v| v.as_array()).map(|a| a.iter().map(shape_nft).collect()).unwrap_or_default();
-    Ok(read_envelope("opensea_wallet_nfts", format!("{} NFT(s) held on Robinhood Chain.", rows.len()), json!({ "wallet": w, "nfts": rows, "chain": ch })))
+    let limit = p.limit.unwrap_or(30).clamp(1, 50);
+    let chains: Vec<String> = if p.chain.trim().is_empty() {
+        ["robinhood", "ethereum", "base", "arbitrum", "optimism", "matic"]
+            .iter().map(|s| s.to_string()).collect()
+    } else {
+        vec![os_chain(&p.chain)]
+    };
+    // Fetch each chain concurrently; tag every NFT with the chain it's on.
+    let futs = chains.iter().map(|ch| {
+        let http = http.clone(); let w = w.clone(); let ch = ch.clone();
+        async move {
+            let body = os_get(&http, &format!("/chain/{ch}/account/{w}/nfts?limit={limit}")).await.ok();
+            let mut out: Vec<Value> = Vec::new();
+            if let Some(a) = body.as_ref().and_then(|b| b.get("nfts")).and_then(|v| v.as_array()) {
+                for n in a {
+                    let mut row = shape_nft(n);
+                    if let Some(o) = row.as_object_mut() {
+                        o.insert("chain".into(), Value::from(ch.clone()));
+                        o.insert("chainName".into(), Value::from(os_chain_name(&ch)));
+                    }
+                    out.push(row);
+                }
+            }
+            out
+        }
+    });
+    let rows: Vec<Value> = join_all(futs).await.into_iter().flatten().collect();
+    let primary = if chains.len() == 1 { chains[0].clone() } else { CHAIN_SLUG.to_string() };
+    let desc = if chains.len() == 1 {
+        format!("{} NFT(s) held on {}.", rows.len(), os_chain_name(&primary))
+    } else {
+        format!("{} NFT(s) across your OpenSea chains.", rows.len())
+    };
+    Ok(read_envelope("opensea_wallet_nfts", desc, json!({ "wallet": w, "nfts": rows, "chain": primary })))
 }
 
 // ── Buy (fulfill a listing) ──────────────────────────────────────────────────

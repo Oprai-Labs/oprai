@@ -3686,7 +3686,7 @@
         @if (openseaFetching() && openseaWalletNfts.length === 0) {
           <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Loading your NFTs…' | t }}</span></div>
         } @else if (openseaWalletNfts.length === 0) {
-          <div class="empty-state"><lucide-icon name="wallet" [size]="20" /><span>{{ 'No NFTs on Robinhood Chain' | t }}</span></div>
+          <div class="empty-state"><lucide-icon name="wallet" [size]="20" /><span>{{ 'No NFTs found in your OpenSea wallet' | t }}</span></div>
         } @else {
           <div class="os-grid">
             @for (n of openseaWalletNfts; track $index) {
@@ -3694,12 +3694,17 @@
                 <div class="os-nft__img">
                   @if (n.image) { <img [src]="n.image" [alt]="n.name" loading="lazy" (error)="$any($event.target).style.visibility='hidden'" /> }
                   @else { <div class="os-coll__ph"><lucide-icon name="image" [size]="18" /></div> }
+                  @if (n.chainName) { <span class="os-nft__chain">{{ n.chainName }}</span> }
                 </div>
                 <span class="os-nft__name">{{ n.name || ('#' + n.identifier) }}</span>
                 <div class="mq-actions">
                   <!-- These are the user's OWN NFTs — you list them for sale; you
-                       don't bid on your own NFT (Offer belongs on others' NFTs). -->
-                  <button class="mq-btn mq-btn--lend" type="button" (click)="openseaList(n)">{{ 'List for sale' | t }}</button>
+                       don't bid on your own NFT (Offer belongs on others' NFTs).
+                       Listing is wired for Robinhood Chain; other chains show
+                       the holding but List opens once multichain trading lands. -->
+                  @if (!n.chain || n.chain === 'robinhood') {
+                    <button class="mq-btn mq-btn--lend" type="button" (click)="openseaList(n)">{{ 'List for sale' | t }}</button>
+                  }
                 </div>
               </div>
             }
