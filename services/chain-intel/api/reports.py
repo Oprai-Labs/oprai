@@ -170,11 +170,35 @@ async def token_report(token: str) -> dict:
     # creator. Its aggregate launch/rug counts belong to the LAUNCHPAD, not this
     # token — how many tokens a launchpad has minted or how many later rugged is not
     # a signal about THIS project, so drop those numbers entirely (don't surface them).
-    launchpad = await node.detect_launchpad(t)          # e.g. "Pons", else None
-    dev_is_launchpad = launchpad is not None or dev_tokens > 100
-    if dev_is_launchpad:
-        dev_tokens, dev_rugs = 0, 0
-    launchpad = launchpad or ("a shared launchpad" if dev_is_launchpad else None)
+    # Launchpad attribution — two COMPLEMENTARY sources, each named specifically so
+    # a Pons token, a pools.trade token and a Noxa/LONG token read differently:
+    #   • on-chain factory (Pons, …) — the launcher is a shared relayer, so the
+    #     individual creator is NOT recoverable on-chain; name the launchpad only.
+    #   • pools.trade tRPC — for ITS OWN bonding-curve / CCA launches it exposes both
+    #     the launchpad name AND the real creator EOA, so we can still report that
+    #     creator's ACTUAL holding rather than hiding behind the launchpad.
+    onchain_lp = await node.detect_launchpad(t)          # e.g. "Pons", else None
+    pt = await node.pools_trade_launch(t)                # {'launchpad','creator'} | None
+    pt_creator = (pt or {}).get("creator")
+
+    if pt and pt_creator:
+        # pools.trade launch with a KNOWN creator — treat that EOA as the dev, drop
+        # any shared-relayer launch/rug stats, and report its real holding.
+        launchpad, dev_src, dev_tokens, dev_rugs = pt["launchpad"], "pools.trade", 0, 0
+        dev = pt_creator
+        dev_bal = await ch.scalar(
+            f"SELECT sumIf(toFloat64(value), to_addr='{dev}') - sumIf(toFloat64(value), from_addr='{dev}') {base}") or 0
+        dev_holding_pct = round(min(100.0, max(0.0, 100 * float(dev_bal) / minted)), 1) if minted else 0.0
+        dev_is_launchpad = False
+    else:
+        # On-chain launchpad (Pons/…) or a "dev" credited with 100s+ launches — a
+        # shared factory relayer, NOT this token's individual creator. Its aggregate
+        # launch/rug counts belong to the launchpad, not this project — drop them.
+        launchpad = onchain_lp or (pt["launchpad"] if pt else None)
+        dev_is_launchpad = launchpad is not None or dev_tokens > 100
+        if dev_is_launchpad:
+            dev_tokens, dev_rugs = 0, 0
+        launchpad = launchpad or ("a shared launchpad" if dev_is_launchpad else None)
 
     # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
     # or "launched via a shared launchpad" from "dev holds none" (holding / sold /
@@ -260,6 +284,7 @@ async def token_report(token: str) -> dict:
             "developer": dev, "dev_identity_source": dev_src,
             "dev_known": bool(dev), "dev_status": dev_status,
             "dev_is_launchpad": dev_is_launchpad, "launchpad": launchpad,
+            "launchpad_creator_known": bool(pt and pt_creator),
             "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
             "dev_holding_pct": dev_holding_pct, "launch_bundle_pct": launch_bundle_pct,
             "launch_block_buyers": launch_buyers,

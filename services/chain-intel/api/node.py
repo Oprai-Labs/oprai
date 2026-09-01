@@ -1,10 +1,16 @@
 """Node RPC helper — eth_call the Robinhood-Chain full node for live curve/pool
 state (honeypot / exit checks). The API is attached to the node's docker network."""
 from __future__ import annotations
+import json
 import os
 import httpx
 
 NODE = os.environ.get("NODE_RPC", "http://rh-nitro:8547")
+# pools.trade (Uniswap's shared launch infra on Robinhood Chain) tRPC — the
+# authoritative source for its OWN launches: it returns the launchpad id and the
+# REAL creator EOA. Partner launchpads (Pons/Noxa/LONG) come back `unsupported`
+# and are identified on-chain via their own factories instead.
+POOLS_TRADE_TRPC = "https://pools.trade/api/trpc"
 PONS_V2_FACTORY = "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e"
 PONS_V1_FACTORY = "0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB"
 
@@ -32,6 +38,33 @@ async def detect_launchpad(token: str) -> str | None:
         except Exception:
             continue
     return None
+
+
+async def pools_trade_launch(token: str) -> dict | None:
+    """If `token` is a genuine pools.trade launch (Uniswap bonding-curve / CCA on
+    Robinhood Chain), return {'launchpad': 'pools.trade', 'creator': <addr|None>}.
+    Returns None for anything pools.trade doesn't natively serve — a made-up
+    address, a token traded elsewhere, or a PARTNER launchpad's token (those come
+    back `unsupported: true`, e.g. a Pons launch, and are named on-chain instead).
+    Fails open (None) so a pools.trade API hiccup never blocks the on-chain path."""
+    q = json.dumps({"tokenAddress": token})
+    try:
+        async with httpx.AsyncClient(timeout=12) as c:
+            r = await c.get(f"{POOLS_TRADE_TRPC}/curve.getLaunchByAddress",
+                            params={"input": q}, headers={"accept": "application/json"})
+            data = ((r.json() or {}).get("result") or {}).get("data") or {}
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not data.get("tokenSymbol"):
+        return None
+    if data.get("unsupported") is True:
+        return None
+    creator = data.get("creatorAddress")
+    if isinstance(creator, str) and creator.lower().startswith("0x"):
+        creator = creator.lower()
+    else:
+        creator = None
+    return {"launchpad": "pools.trade", "creator": creator}
 
 
 async def eth_call(to: str, data: str) -> str:
