@@ -3697,8 +3697,9 @@
                 </div>
                 <span class="os-nft__name">{{ n.name || ('#' + n.identifier) }}</span>
                 <div class="mq-actions">
-                  <button class="mq-btn mq-btn--lend" type="button" (click)="openseaList(n)">{{ 'List' | t }}</button>
-                  <button class="mq-btn mq-btn--borrow" type="button" (click)="openseaMakeOffer(n)">{{ 'Offer' | t }}</button>
+                  <!-- These are the user's OWN NFTs — you list them for sale; you
+                       don't bid on your own NFT (Offer belongs on others' NFTs). -->
+                  <button class="mq-btn mq-btn--lend" type="button" (click)="openseaList(n)">{{ 'List for sale' | t }}</button>
                 </div>
               </div>
             }
