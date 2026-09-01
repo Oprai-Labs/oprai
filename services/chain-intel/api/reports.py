@@ -167,8 +167,12 @@ async def token_report(token: str) -> dict:
 
     # A "dev" credited with 100s+ launches is a shared LAUNCHPAD/factory relayer
     # (every launch's tx.from is the same hot wallet), NOT this token's individual
-    # creator — so its token/rug totals must NOT be pinned on this project.
+    # creator. Its aggregate launch/rug counts belong to the LAUNCHPAD, not this
+    # token — how many tokens a launchpad has minted or how many later rugged is not
+    # a signal about THIS project, so drop those numbers entirely (don't surface them).
     dev_is_launchpad = dev_tokens > 100
+    if dev_is_launchpad:
+        dev_tokens, dev_rugs = 0, 0
 
     # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
     # or "launched via a shared launchpad" from "dev holds none" (holding / sold /
@@ -213,7 +217,7 @@ async def token_report(token: str) -> dict:
             {"label": "Sniper dump rate", "value": sniper_dump_rate, "fmt": "%"},
             ({"label": "Dev holding", "value": "Unknown — identity not indexed"}
              if dev_status == "unknown"
-             else {"label": "Dev holding", "value": f"Launched via shared launchpad ({dev_tokens} launches) — individual creator not identified"}
+             else {"label": "Dev holding", "value": "Launched via a shared launchpad — individual creator not identified"}
              if dev_status == "via_launchpad"
              else {"label": "Dev holding", "value": dev_holding_pct, "fmt": "%"}),
             {"label": "Supply grabbed at launch", "value": launch_bundle_pct, "fmt": "%"},
