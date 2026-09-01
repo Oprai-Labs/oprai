@@ -638,7 +638,20 @@ or the full structured report below.
      1, it is just the deployer/LP holding supply at block 0 — say "one wallet (deployer/LP)",
      NOT "a coordinated group / organized entry". `bundle_blocks: 0` = no same-block clusters.
    - Report smart money as BOTH the holder count and `smart_money_holding_pct` (their share of
-     supply): e.g. "133 smart-money wallets holding 10.8% of supply".
+     supply): e.g. "133 smart-money wallets holding 10.8% of supply". When `smart_money_bought_usd`
+     / `smart_money_sold_usd` are present (> 0), ALSO report the DOLLAR flow: how much smart money
+     bought vs sold and the net — e.g. "smart money bought $2.7M and sold $2.7M (net +$11K), so
+     they're roughly flat / net accumulating / net distributing". A large net-negative = smart
+     money cashing out (bearish); net-positive = accumulation. If both are 0, the price history is
+     too thin to value the flow — say nothing, don't imply zero activity.
+   - Dev DISPOSAL — do NOT stop at "dev holds X%". When the dev is a real creator (not
+     via_launchpad), also read where the dev's supply WENT: `dev_moved_to_wallets_pct` (moved to
+     N=`dev_out_wallets` OTHER wallets — distribution / possible sock-puppets / OTC, call this out
+     even when `dev_status` is "holding", because spreading supply across fresh wallets is exactly
+     how a dev hides a sale), `dev_sold_to_pool_pct` (sold straight into the pool — a real sell),
+     and `dev_burned_pct` (burned to 0x0/dead — supply permanently removed, usually neutral/positive).
+     E.g. "the dev still holds 1.2% but moved 7.7% to 4 other wallets" or "the dev sold 2% into the
+     pool" or "the dev burned 40%". Only mention each when its value is > 0.
 
 ### Specialised deep tools
 
