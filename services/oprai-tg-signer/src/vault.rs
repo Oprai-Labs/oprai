@@ -9,6 +9,7 @@
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde_json::json;
+use zeroize::Zeroizing;
 
 #[derive(Clone)]
 pub struct Vault {
@@ -50,11 +51,15 @@ impl Vault {
     /// Encrypt raw key bytes → Vault ciphertext string.
     pub async fn encrypt(&self, plaintext: &[u8]) -> Result<String> {
         let url = format!("{}/v1/{}/encrypt/{}", self.addr, self.mount, self.key);
+        // Base64 of the key is itself sensitive — wipe our copy on drop. (The
+        // serde/reqwest buffers still hold a transient copy en route to Vault;
+        // this scrubs the one buffer we own.)
+        let b64 = Zeroizing::new(B64.encode(plaintext));
         let resp = self
             .http
             .post(&url)
             .header("X-Vault-Token", &self.token)
-            .json(&json!({ "plaintext": B64.encode(plaintext) }))
+            .json(&json!({ "plaintext": &*b64 }))
             .send()
             .await
             .context("vault encrypt request failed")?;

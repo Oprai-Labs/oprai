@@ -10,7 +10,11 @@ component in the Telegram stack that ever touches private keys.
   holds the KEK; plaintext keys never hit disk). The ciphertext handle lives on
   the signer side; the bot's `tg_wallets` row stores only the public address and
   an opaque `enc_key_ref`.
-- **Fail-closed:** if Vault is unreachable, signing is refused (0.3).
+- **Auth:** every mutating endpoint (`/wallet/*`, `/sign`) requires the shared
+  `X-Internal-Api-Key` (`OPRAI_INTERNAL_API_KEY`), checked in constant time.
+  `/health` is open. Loopback binding is defence-in-depth, not the control.
+- **Fail-closed:** if Vault OR the internal key is unset/unreachable, signing is
+  refused.
 
 ## Endpoints (0.3)
 

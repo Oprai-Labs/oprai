@@ -13,7 +13,7 @@
 mod crypto;
 mod vault;
 
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -22,6 +22,42 @@ use crate::vault::Vault;
 
 struct AppState {
     vault: Option<Vault>,
+    /// Shared secret the bot must present (X-Internal-Api-Key). None = signing
+    /// is refused (fail-closed): an unauthenticated signer must never sign.
+    internal_key: Option<String>,
+}
+
+/// Constant-time header check. Every mutating endpoint is gated: only the bot,
+/// holding OPRAI_INTERNAL_API_KEY, may create/import/sign. Loopback binding is
+/// defence-in-depth, not the control.
+fn require_auth(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
+    let key = state.internal_key.as_deref().ok_or_else(|| {
+        unavailable("signer internal API key not configured — refusing (fail-closed)")
+    })?;
+    let provided = req
+        .headers()
+        .get("x-internal-api-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if ct_eq(provided.as_bytes(), key.as_bytes()) {
+        Ok(())
+    } else {
+        Err(HttpResponse::Unauthorized().json(ErrResp {
+            error: "unauthorized".into(),
+        }))
+    }
+}
+
+/// Constant-time byte comparison (length may differ; content compare is CT).
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 #[derive(Serialize)]
@@ -98,9 +134,13 @@ fn require_vault(state: &AppState) -> Result<&Vault, HttpResponse> {
 }
 
 async fn wallet_create(
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<CreateReq>,
 ) -> HttpResponse {
+    if let Err(e) = require_auth(&req, &state) {
+        return e;
+    }
     let vault = match require_vault(&state) {
         Ok(v) => v,
         Err(e) => return e,
@@ -123,9 +163,13 @@ async fn wallet_create(
 }
 
 async fn wallet_import(
+    req: HttpRequest,
     state: web::Data<AppState>,
     body: web::Json<ImportReq>,
 ) -> HttpResponse {
+    if let Err(e) = require_auth(&req, &state) {
+        return e;
+    }
     let vault = match require_vault(&state) {
         Ok(v) => v,
         Err(e) => return e,
@@ -147,7 +191,14 @@ async fn wallet_import(
     }
 }
 
-async fn sign(state: web::Data<AppState>, body: web::Json<SignReq>) -> HttpResponse {
+async fn sign(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<SignReq>,
+) -> HttpResponse {
+    if let Err(e) = require_auth(&req, &state) {
+        return e;
+    }
     let vault = match require_vault(&state) {
         Ok(v) => v,
         Err(e) => return e,
@@ -192,9 +243,24 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("VAULT_ADDR/VAULT_TOKEN not set — signing endpoints are DISABLED (fail-closed)");
     }
 
-    tracing::info!(%bind_host, port, vault = vault.is_some(), "oprai-tg-signer starting");
+    let internal_key = std::env::var("OPRAI_INTERNAL_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty());
+    if internal_key.is_none() {
+        tracing::warn!("OPRAI_INTERNAL_API_KEY not set — signing endpoints are DISABLED (fail-closed)");
+    }
 
-    let state = web::Data::new(AppState { vault });
+    tracing::info!(
+        %bind_host, port,
+        vault = vault.is_some(),
+        auth = internal_key.is_some(),
+        "oprai-tg-signer starting"
+    );
+
+    let state = web::Data::new(AppState {
+        vault,
+        internal_key,
+    });
 
     HttpServer::new(move || {
         App::new()

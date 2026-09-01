@@ -21,11 +21,15 @@ class SignerClient:
     def __init__(self, base_url: str | None = None, timeout: float = 10.0) -> None:
         self._base = (base_url or settings.OPRAI_TG_SIGNER_URL).rstrip("/")
         self._timeout = timeout
+        # Shared internal key — the signer rejects unauthenticated callers.
+        self._headers = {"X-Internal-Api-Key": settings.OPRAI_INTERNAL_API_KEY}
 
     async def _post(self, path: str, payload: dict) -> dict:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as c:
-                r = await c.post(f"{self._base}{path}", json=payload)
+                r = await c.post(
+                    f"{self._base}{path}", json=payload, headers=self._headers
+                )
         except httpx.HTTPError as e:
             raise SignerError(f"signer unreachable: {e}") from e
         if r.status_code != 200:
