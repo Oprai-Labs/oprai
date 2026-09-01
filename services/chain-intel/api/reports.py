@@ -141,6 +141,34 @@ async def token_report(token: str) -> dict:
         launch_bundle_pct = round(min(100.0, 100 * float(fbrow.get("bought") or 0) / minted), 1) if minted else 0.0
         launch_buyers = int(fbrow.get("buyers") or 0)
 
+    # Smart-money's share of SUPPLY (not just the holder count) — the honest read
+    # of how much of the token profitable wallets actually hold.
+    smart_holding_pct = 0.0
+    if smart_holders and minted and await ch.table_exists("smart_wallets"):
+        sb = await ch.scalar(f"""
+            SELECT sumIf(toFloat64(value), tt.to_addr=sw.wallet)
+                 - sumIf(toFloat64(value), tt.from_addr=sw.wallet)
+            FROM rh.token_transfers tt INNER JOIN rh.smart_wallets sw
+              ON (tt.to_addr=sw.wallet OR tt.from_addr=sw.wallet)
+            WHERE tt.token='{t}' AND tt.kind='erc20'""") or 0
+        smart_holding_pct = round(min(100.0, max(0.0, 100 * float(sb) / minted)), 1)
+
+    # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
+    # from "dev holds none" (holding / sold / never held). Never report a sale we
+    # can't see.
+    if not dev:
+        dev_status = "unknown"          # identity not in the index — NOT "sold"
+    elif dev_holding_pct > 0:
+        dev_status = "holding"
+    else:
+        dev_recv = await ch.scalar(f"SELECT sumIf(toFloat64(value), to_addr='{dev}') {base}") or 0
+        dev_status = "sold" if float(dev_recv) > 0 else "never_held"
+
+    # A launch BUNDLE is a COORDINATED grab: a large share taken at launch by
+    # MULTIPLE wallets. A single launch-block buyer is just the deployer/LP holding
+    # supply at block 0 — not a bundle. Guard against reading the latter as the former.
+    launch_bundle_signal = launch_bundle_pct >= 50 and launch_buyers >= 2
+
     # composite risk score (0-100, higher = riskier) from available signals
     risk = 0
     risk += min(40, top10_pct * 0.4)                    # concentration
@@ -162,9 +190,13 @@ async def token_report(token: str) -> dict:
             {"label": "Whales (>1%)", "value": whales},
             {"label": "Bundle blocks", "value": bundle_blocks},
             {"label": "Sniper dump rate", "value": sniper_dump_rate, "fmt": "%"},
-            {"label": "Dev holding", "value": dev_holding_pct, "fmt": "%"},
-            {"label": "Bundled at launch", "value": launch_bundle_pct, "fmt": "%"},
+            ({"label": "Dev holding", "value": "Unknown — identity not indexed"}
+             if dev_status == "unknown"
+             else {"label": "Dev holding", "value": dev_holding_pct, "fmt": "%"}),
+            {"label": "Supply grabbed at launch", "value": launch_bundle_pct, "fmt": "%"},
+            {"label": "Launch-block buyers", "value": launch_buyers},
             {"label": "Smart-money holders", "value": smart_holders},
+            {"label": "Smart-money supply", "value": smart_holding_pct, "fmt": "%"},
             {"label": "Risk score", "value": risk, "fmt": "/100", "flag": risk_label},
         ],
         "charts": [
@@ -195,10 +227,13 @@ async def token_report(token: str) -> dict:
             "bundle_signal": bundle_blocks > 0, "max_same_block_buyers": bundle_first,
             "sniper_count": len(snipers), "sniper_dump_rate": sniper_dump_rate,
             "developer": dev, "dev_identity_source": dev_src,
+            "dev_known": bool(dev), "dev_status": dev_status,
             "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
             "dev_holding_pct": dev_holding_pct, "launch_bundle_pct": launch_bundle_pct,
             "launch_block_buyers": launch_buyers,
+            "launch_bundle_signal": launch_bundle_signal,
             "smart_money_holders": smart_holders,
+            "smart_money_holding_pct": smart_holding_pct,
             "risk_score": risk, "risk_label": risk_label,
         },
     }
