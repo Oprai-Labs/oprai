@@ -3900,6 +3900,19 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   readonly openseaSelectedName = signal<string>('');
   readonly openseaFetching = signal(false);
 
+  // Pagination for the collections/trending table (many collections).
+  readonly OPENSEA_PAGE_SIZE = 10;
+  openseaPage = 0;
+  get openseaTotalPages(): number {
+    return Math.max(1, Math.ceil(this.openseaCollections.length / this.OPENSEA_PAGE_SIZE));
+  }
+  get pagedOpenseaCollections(): OpenseaCollectionRow[] {
+    const page = Math.min(this.openseaPage, this.openseaTotalPages - 1);
+    return this.openseaCollections.slice(page * this.OPENSEA_PAGE_SIZE, (page + 1) * this.OPENSEA_PAGE_SIZE);
+  }
+  openseaNextPage(): void { if (this.openseaPage < this.openseaTotalPages - 1) this.openseaPage++; }
+  openseaPrevPage(): void { if (this.openseaPage > 0) this.openseaPage--; }
+
   private async fetchOpenseaCollections(): Promise<void> {
     this.openseaFetching.set(true);
     this.error.set(null);

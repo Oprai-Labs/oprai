@@ -134,23 +134,30 @@ async fn enrich_collection_stats(http: &reqwest::Client, rows: &mut [Value]) {
         .iter()
         .filter_map(|r| r.get("slug").and_then(|v| v.as_str()).map(String::from))
         .collect();
-    let futs = slugs.into_iter().map(|sl| {
-        let http = http.clone();
-        async move {
-            let st = os_get(&http, &format!("/collections/{sl}/stats")).await.ok();
-            let total = st.as_ref().and_then(|s| s.get("total"));
-            (
-                sl,
-                total.and_then(|t| t.get("floor_price")).cloned().unwrap_or(Value::Null),
-                total.and_then(|t| t.get("floor_price_symbol")).cloned().unwrap_or(Value::Null),
-                total.and_then(|t| t.get("volume")).cloned().unwrap_or(Value::Null),
-                total.and_then(|t| t.get("num_owners")).cloned().unwrap_or(Value::Null),
-                total.and_then(|t| t.get("sales")).cloned().unwrap_or(Value::Null),
-            )
-        }
-    });
-    let map: std::collections::HashMap<String, (Value, Value, Value, Value, Value)> = join_all(futs)
-        .await
+    // Bounded concurrency: OpenSea rate-limits a big burst of /stats calls, and a
+    // 429 came back as null → empty Volume/Floor columns. Fetch in chunks so every
+    // collection gets its stats without tripping the limiter.
+    let mut collected: Vec<(String, Value, Value, Value, Value, Value)> = Vec::new();
+    for chunk in slugs.chunks(6) {
+        let futs = chunk.iter().map(|sl| {
+            let http = http.clone();
+            let sl = sl.clone();
+            async move {
+                let st = os_get(&http, &format!("/collections/{sl}/stats")).await.ok();
+                let total = st.as_ref().and_then(|s| s.get("total"));
+                (
+                    sl,
+                    total.and_then(|t| t.get("floor_price")).cloned().unwrap_or(Value::Null),
+                    total.and_then(|t| t.get("floor_price_symbol")).cloned().unwrap_or(Value::Null),
+                    total.and_then(|t| t.get("volume")).cloned().unwrap_or(Value::Null),
+                    total.and_then(|t| t.get("num_owners")).cloned().unwrap_or(Value::Null),
+                    total.and_then(|t| t.get("sales")).cloned().unwrap_or(Value::Null),
+                )
+            }
+        });
+        collected.extend(join_all(futs).await);
+    }
+    let map: std::collections::HashMap<String, (Value, Value, Value, Value, Value)> = collected
         .into_iter()
         .map(|(sl, f, fs, v, o, sa)| (sl, (f, fs, v, o, sa)))
         .collect();
@@ -281,7 +288,7 @@ fn read_envelope(action_type: &str, description: String, data: Value) -> BuildRe
 
 /// Trending collections — ordered by 7-day volume.
 pub async fn build_trending(http: &reqwest::Client, params: &OpenseaCollectionsParams) -> Result<BuildResponse, AppError> {
-    let limit = params.limit.unwrap_or(24).clamp(1, 60);
+    let limit = params.limit.unwrap_or(40).clamp(1, 60);
     let body = os_get(http, &format!("/collections?chain={CHAIN_SLUG}&order_by=seven_day_volume&limit=100")).await?;
     let items = body.get("collections").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let mut rows: Vec<Value> = items.iter().filter_map(|c| {
