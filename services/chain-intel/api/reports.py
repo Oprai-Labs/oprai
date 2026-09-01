@@ -170,9 +170,11 @@ async def token_report(token: str) -> dict:
     # creator. Its aggregate launch/rug counts belong to the LAUNCHPAD, not this
     # token — how many tokens a launchpad has minted or how many later rugged is not
     # a signal about THIS project, so drop those numbers entirely (don't surface them).
-    dev_is_launchpad = dev_tokens > 100
+    launchpad = await node.detect_launchpad(t)          # e.g. "Pons", else None
+    dev_is_launchpad = launchpad is not None or dev_tokens > 100
     if dev_is_launchpad:
         dev_tokens, dev_rugs = 0, 0
+    launchpad = launchpad or ("a shared launchpad" if dev_is_launchpad else None)
 
     # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
     # or "launched via a shared launchpad" from "dev holds none" (holding / sold /
@@ -217,7 +219,7 @@ async def token_report(token: str) -> dict:
             {"label": "Sniper dump rate", "value": sniper_dump_rate, "fmt": "%"},
             ({"label": "Dev holding", "value": "Unknown — identity not indexed"}
              if dev_status == "unknown"
-             else {"label": "Dev holding", "value": "Launched via a shared launchpad — individual creator not identified"}
+             else {"label": "Dev holding", "value": f"Launched via {launchpad} — individual creator not identified"}
              if dev_status == "via_launchpad"
              else {"label": "Dev holding", "value": dev_holding_pct, "fmt": "%"}),
             {"label": "Supply grabbed at launch", "value": launch_bundle_pct, "fmt": "%"},
@@ -257,7 +259,7 @@ async def token_report(token: str) -> dict:
             "sniper_count": len(snipers), "sniper_dump_rate": sniper_dump_rate,
             "developer": dev, "dev_identity_source": dev_src,
             "dev_known": bool(dev), "dev_status": dev_status,
-            "dev_is_launchpad": dev_is_launchpad,
+            "dev_is_launchpad": dev_is_launchpad, "launchpad": launchpad,
             "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
             "dev_holding_pct": dev_holding_pct, "launch_bundle_pct": launch_bundle_pct,
             "launch_block_buyers": launch_buyers,

@@ -6,6 +6,32 @@ import httpx
 
 NODE = os.environ.get("NODE_RPC", "http://rh-nitro:8547")
 PONS_V2_FACTORY = "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e"
+PONS_V1_FACTORY = "0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB"
+
+# Known Robinhood-Chain launchpads, each with a detector: (name, factory, selector,
+# word_index) where factory.<selector>(token) returns a launch record whose
+# word[word_index] is non-zero when the launchpad owns this token. Extensible — add
+# a row per launchpad (pools.trade / Noxa / LONG / …) once its factory + read method
+# are known.
+_LAUNCHPADS = [
+    ("Pons", PONS_V2_FACTORY, "0x3cf28b5a", 14),  # getLaunchedToken(token)
+    ("Pons", PONS_V1_FACTORY, "0x3cf28b5a", 14),
+]
+
+
+async def detect_launchpad(token: str) -> str | None:
+    """Identify which known launchpad minted `token`, by asking each launchpad's
+    factory whether it owns the launch. Returns the launchpad name (e.g. 'Pons')
+    or None if it isn't one we recognise. Fails open per-launchpad (a node hiccup
+    on one never blocks the others)."""
+    for name, factory, selector, wi in _LAUNCHPADS:
+        try:
+            gl = await eth_call(factory, selector + _enc_addr(token))
+            if len(gl) > 2 and _w(gl, wi) != 0:
+                return name
+        except Exception:
+            continue
+    return None
 
 
 async def eth_call(to: str, data: str) -> str:
