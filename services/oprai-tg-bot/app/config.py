@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # client, so no gateway changes are needed.
     GATEWAY_URL: str = "http://127.0.0.1:3001"
     OPRAI_INTERNAL_API_KEY: str = ""
+    # Must match the auth-service APP_DOMAIN in prod (empty in dev). The bot
+    # builds the SIWS/SIWE sign-in message with this as the first-line domain.
+    OPRAI_TG_APP_DOMAIN: str = ""
 
     # ── Database (tg_schema) ─────────────────────────────────────────────────
     # Plain asyncpg DSN (NOT the SQLAlchemy "+asyncpg" form). _pg_dsn() strips
