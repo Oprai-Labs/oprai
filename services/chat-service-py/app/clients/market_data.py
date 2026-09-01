@@ -3050,6 +3050,8 @@ SOLANA_ACTION_DATA_TYPES: frozenset[str] = frozenset({
     "opensea_offers",
     "opensea_activity",
     "opensea_wallet_nfts",
+    # SeaDrop primary-mint state (price / supply / per-wallet eligibility).
+    "opensea_mint_info",
 })
 
 

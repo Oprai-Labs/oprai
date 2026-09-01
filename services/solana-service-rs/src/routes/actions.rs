@@ -621,6 +621,16 @@ pub async fn post_build(
         let resp = crate::services::opensea::build_nfts(&state.http, &p).await?;
         return Ok(HttpResponse::Ok().json(resp));
     }
+    // Read-only: a collection's SeaDrop public-mint state (price, window, supply,
+    // per-wallet eligibility). Wallet is an optional param.
+    if body.action_type == "opensea_mint_info" {
+        let p: crate::services::opensea::OpenseaMintInfoParams =
+            serde_json::from_value(body.params.clone()).map_err(|e| {
+                AppError::InvalidParams(format!("Invalid opensea_mint_info params: {e}"))
+            })?;
+        let resp = crate::services::opensea::build_mint_info(&state.http, &p).await?;
+        return Ok(HttpResponse::Ok().json(resp));
+    }
     if body.action_type == "opensea_nft" {
         let p: crate::services::opensea::OpenseaNftParams =
             serde_json::from_value(body.params.clone())
@@ -2249,6 +2259,20 @@ pub async fn post_opensea_buy(
 ) -> Result<HttpResponse, AppError> {
     assert_evm_actor(&req, &body)?;
     let result = crate::services::opensea::build_buy(&state.http, &body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// POST /actions/opensea/mint — SeaDrop public mint on Robinhood Chain. Returns
+/// an unsigned mintPublic tx (native-ETH value). Body: {contract|collection,
+/// quantity?, walletAddress}.
+#[post("/opensea/mint")]
+pub async fn post_opensea_mint(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
+    let result = crate::services::opensea::build_mint(&state.http, &body).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 

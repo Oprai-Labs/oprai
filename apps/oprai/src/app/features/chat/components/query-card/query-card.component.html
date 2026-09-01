@@ -3557,6 +3557,32 @@
         }
       }
 
+      <!-- OpenSea SeaDrop mint state (price / supply / eligibility + Mint) -->
+      @if (query.type === 'opensea_mint_info') {
+        @if (openseaFetching() && !openseaMintInfo) {
+          <div class="empty-state"><lucide-icon name="loader" [size]="20" /><span>{{ 'Reading the mint…' | t }}</span></div>
+        } @else if (openseaMintInfo) {
+          <div class="os-stats">
+            <div class="os-stats__body">
+              <div class="os-stats__name">{{ openseaMintInfo.slug }}</div>
+              <div class="os-stats__grid">
+                <div><span class="mq-stat__k">{{ 'Status' | t }}</span><span class="mq-stat__v">{{ (openseaMintInfo.soldOut ? 'Sold out' : (openseaMintInfo.active ? 'Minting now' : (openseaMintInfo.hasDrop ? 'Not live' : 'No public mint'))) | t }}</span></div>
+                <div><span class="mq-stat__k">{{ 'Price' | t }}</span><span class="mq-stat__v">{{ openseaMintInfo.mintPriceEth > 0 ? ((openseaMintInfo.mintPriceEth | number:'1.0-5') + ' ETH') : ('Free' | t) }}</span></div>
+                @if (openseaMintInfo.maxSupply) { <div><span class="mq-stat__k">{{ 'Minted' | t }}</span><span class="mq-stat__v">{{ openseaMintInfo.mintedTotal | number }} / {{ openseaMintInfo.maxSupply | number }}</span></div> }
+                @if (openseaMintInfo.perWalletLimit) { <div><span class="mq-stat__k">{{ 'Per wallet' | t }}</span><span class="mq-stat__v">{{ openseaMintInfo.perWalletLimit }}</span></div> }
+              </div>
+            </div>
+          </div>
+          <button class="km-deposit-btn" type="button" style="width:100%;margin-top:10px"
+                  [disabled]="!openseaMintInfo.active || openseaMintInfo.soldOut"
+                  (click)="openseaMint()">
+            {{ (openseaMintInfo.soldOut ? 'Sold out' : (openseaMintInfo.active ? 'Mint' : 'Minting not live')) | t }}
+          </button>
+        } @else {
+          <div class="empty-state"><lucide-icon name="image" [size]="20" /><span>{{ 'No public mint for this collection' | t }}</span></div>
+        }
+      }
+
       <!-- OpenSea NFTs browse (no price) -->
       @if (query.type === 'opensea_nfts') {
         @if (openseaFetching() && openseaNftsRows.length === 0) {

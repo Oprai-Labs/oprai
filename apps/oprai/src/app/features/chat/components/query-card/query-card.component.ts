@@ -866,6 +866,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       case 'opensea_offers':
       case 'opensea_activity':
       case 'opensea_wallet_nfts':
+      case 'opensea_mint_info':
         return 'assets/protocols/opensea.svg';
       // Every Magic Eden read, by prefix — there are twenty-six of them and
       // listing each one here is how one gets forgotten and renders headerless.
@@ -1170,6 +1171,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (d['openseaCollections']) this.openseaCollections = d['openseaCollections'] as OpenseaCollectionRow[];
     if (d['openseaListings'])    this.openseaListings    = d['openseaListings']    as OpenseaListingRow[];
     if (d['openseaCollectionDetail']) this.openseaCollectionDetail = d['openseaCollectionDetail'];
+    if (d['openseaMintInfo']) this.openseaMintInfo = d['openseaMintInfo'];
     if (d['openseaNftDetail'])   this.openseaNftDetail   = d['openseaNftDetail'];
     if (d['openseaNftsRows'])    this.openseaNftsRows    = d['openseaNftsRows'] as any[];
     if (d['openseaOffersRows'])  this.openseaOffersRows  = d['openseaOffersRows'] as any[];
@@ -1292,6 +1294,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
     if (this.openseaCollections.length) d['openseaCollections'] = this.openseaCollections;
     if (this.openseaListings.length)    d['openseaListings']    = this.openseaListings;
     if (this.openseaCollectionDetail)   d['openseaCollectionDetail'] = this.openseaCollectionDetail;
+    if (this.openseaMintInfo)           d['openseaMintInfo'] = this.openseaMintInfo;
     if (this.openseaNftDetail)          d['openseaNftDetail']   = this.openseaNftDetail;
     if (this.openseaNftsRows.length)    d['openseaNftsRows']    = this.openseaNftsRows;
     if (this.openseaOffersRows.length)  d['openseaOffersRows']  = this.openseaOffersRows;
@@ -3973,6 +3976,41 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   // OpenSea full marketplace state
   openseaCollectionDetail: any = null;
+  openseaMintInfo: any = null;
+
+  private async fetchOpenseaMintInfo(): Promise<void> {
+    this.openseaFetching.set(true);
+    this.error.set(null);
+    try {
+      const collection = String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? '');
+      const contract = String(this.query.params?.['contract'] ?? '');
+      const wallet = await this.lighterPerp.resolveEvmAddress();
+      const r = await firstValueFrom(this.api.post<any>('/actions/build', {
+        type: 'opensea_mint_info',
+        params: { ...(collection ? { collection } : {}), ...(contract ? { contract } : {}), ...(wallet ? { wallet } : {}) },
+      }).pipe(timeout(30_000)));
+      this.openseaMintInfo = r?.data ?? null;
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+      this.persistSnapshot();
+    } catch {
+      this.error.set('Failed to read the mint');
+      this.openseaFetching.set(false);
+      this.loading.set(false);
+    }
+  }
+
+  /** Open the mint action card for the collection shown on the mint-info card. */
+  openseaMint(): void {
+    const mi = this.openseaMintInfo;
+    if (!mi) return;
+    const params: Record<string, string> = {
+      collection: String(mi.slug ?? this.query.params?.['collection'] ?? ''),
+      contract: String(mi.contract ?? ''),
+      quantity: '1',
+    };
+    this.useAction.emit({ type: 'opensea_mint', params, raw: `[ACTION:opensea_mint] ${JSON.stringify(params)}` });
+  }
   openseaNftDetail: any = null;
   openseaNftsRows: any[] = [];
   openseaOffersRows: any[] = [];
@@ -5076,6 +5114,9 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         return;
       case 'opensea_nft':
         await this.fetchOpenseaNft();
+        return;
+      case 'opensea_mint_info':
+        await this.fetchOpenseaMintInfo();
         return;
       // Every Magic Eden read goes through one fetcher; the renderer is
       // chosen from the shape of the reply, not from the type name.

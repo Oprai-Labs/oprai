@@ -1572,7 +1572,7 @@ export class SolanaActionService {
     }
     // OpenSea NFT marketplace — EVM (Robinhood Chain 4663). Buy/accept-offer are
     // unsigned Seaport txs; list/make-offer are gasless EIP-712 signed orders.
-    if (action.type === 'opensea_buy' || action.type === 'opensea_accept_offer') {
+    if (action.type === 'opensea_buy' || action.type === 'opensea_accept_offer' || action.type === 'opensea_mint') {
       return this.executeOpenseaFulfill(action, callbacks);
     }
     if (action.type === 'opensea_list' || action.type === 'opensea_make_offer') {
@@ -3300,8 +3300,9 @@ export class SolanaActionService {
     const p = action.params;
     const chainId = 4663;
     const isAccept = action.type === 'opensea_accept_offer';
+    const isMint = action.type === 'opensea_mint';
     const orderHash = String(p['orderHash'] ?? '').trim();
-    if (!orderHash) throw new Error('OpenSea: no order selected.');
+    if (!isMint && !orderHash) throw new Error('OpenSea: no order selected.');
 
     const ethereum = await this.walletService.resolveEvmProvider();
     if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to trade on OpenSea.');
@@ -3328,16 +3329,25 @@ export class SolanaActionService {
     }
 
     callbacks.onQuote?.();
-    const reqBody: Record<string, unknown> = { orderHash, walletAddress: account };
-    if (p['protocolAddress']) reqBody['protocolAddress'] = String(p['protocolAddress']);
-    if (isAccept) { reqBody['token'] = String(p['token'] ?? ''); reqBody['tokenId'] = String(p['tokenId'] ?? ''); }
-    const endpoint = isAccept ? '/actions/opensea/accept-offer' : '/actions/opensea/buy';
+    let endpoint: string;
+    const reqBody: Record<string, unknown> = { walletAddress: account };
+    if (isMint) {
+      if (p['collection']) reqBody['collection'] = String(p['collection']);
+      if (p['contract']) reqBody['contract'] = String(p['contract']);
+      reqBody['quantity'] = String(p['quantity'] ?? '1');
+      endpoint = '/actions/opensea/mint';
+    } else {
+      reqBody['orderHash'] = orderHash;
+      if (p['protocolAddress']) reqBody['protocolAddress'] = String(p['protocolAddress']);
+      if (isAccept) { reqBody['token'] = String(p['token'] ?? ''); reqBody['tokenId'] = String(p['tokenId'] ?? ''); }
+      endpoint = isAccept ? '/actions/opensea/accept-offer' : '/actions/opensea/buy';
+    }
     const prep = await firstValueFrom(this.api.post<any>(endpoint, reqBody));
     const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
     if (txs.length === 0) throw new Error('OpenSea: no transaction was returned.');
 
     callbacks.onSign?.();
-    const verb = isAccept ? 'accept' : 'buy';
+    const verb = isMint ? 'mint' : isAccept ? 'accept' : 'buy';
     let lastHash = '';
     for (let i = 0; i < txs.length; i++) {
       const tx = txs[i];

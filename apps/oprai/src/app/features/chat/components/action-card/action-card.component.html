@@ -4305,6 +4305,55 @@
               <span>{{ 'The withdrawn tokens plus any uncollected fees are sent to your wallet.' | t }}</span>
             </div>
           </div>
+        } @else if (isOpenseaMint()) {
+          <!-- ─────── OpenSea SeaDrop mint — live drop price/supply + quantity. ── -->
+          @let mi = openseaMintInfo();
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo">
+                <img src="assets/protocols/opensea.svg" alt="" class="uni-lp__logo-img uni-lp__logo-img--a" (error)="$any($event.target).style.display='none'" />
+              </span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ 'Mint' | t }} @if (getEditParam('collection')) { · {{ getEditParam('collection') }} }</span>
+                <span class="uni-lp__sub">OpenSea · Robinhood Chain</span>
+              </div>
+            </div>
+            @if (openseaMintLoading() && !mi) {
+              <div class="morpho-market__loading">{{ 'Reading the mint…' | t }}</div>
+            } @else if (mi) {
+              <div class="perp-summary">
+                <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Status' | t }}</span>
+                  <span class="perp-summary__v">{{ (mi.soldOut ? 'Sold out' : (mi.active ? 'Minting now' : (mi.hasDrop ? 'Not live' : 'No public mint'))) | t }}</span></div>
+                <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Price' | t }}</span>
+                  <span class="perp-summary__v">{{ mi.mintPriceEth > 0 ? ((mi.mintPriceEth | number:'1.0-5') + ' ETH') : ('Free' | t) }}</span></div>
+                @if (mi.maxSupply) {
+                  <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Minted' | t }}</span>
+                    <span class="perp-summary__v">{{ mi.mintedTotal | number }} / {{ mi.maxSupply | number }}</span></div>
+                }
+                @if (mi.perWalletLimit) {
+                  <div class="perp-summary__row"><span class="perp-summary__k">{{ 'Per wallet' | t }}</span>
+                    <span class="perp-summary__v">{{ mi.perWalletLimit }}@if (mi.userRemaining != null) { · {{ mi.userRemaining }} {{ 'left for you' | t }} }</span></div>
+                }
+              </div>
+              <!-- quantity stepper + total -->
+              <div class="pump-panel">
+                <div class="pump-panel__top"><span class="pump-panel__label">{{ 'Quantity' | t }}</span>
+                  <span class="pump-panel__bal">{{ 'Total' | t }} {{ openseaMintTotalEth() | number:'1.0-5' }} ETH</span>
+                </div>
+                <div class="morpho-toggle">
+                  <button type="button" [disabled]="!isEditable() || openseaMintQty() <= 1" (click)="setOpenseaMintQty(openseaMintQty() - 1)">−</button>
+                  <button type="button" [class.on]="true" [disabled]="true">{{ openseaMintQty() }}</button>
+                  <button type="button" [disabled]="!isEditable()" (click)="setOpenseaMintQty(openseaMintQty() + 1)">+</button>
+                </div>
+              </div>
+              <div class="limit-size">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'You mint directly from the collection on Robinhood Chain; the NFTs land in your wallet.' | t }}</span>
+              </div>
+            } @else {
+              <div class="morpho-market__loading">{{ 'Mint details unavailable for this collection.' | t }}</div>
+            }
+          </div>
         } @else if (action.type === 'lend') {
           <!-- ─────── Jupiter Lend (Earn): deposit a token, earn APY (swap-card look) ─────── -->
           @let lendTd = lendTokenTd();
@@ -6913,8 +6962,8 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || openseaMintBlock() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || openseaMintBlock() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (meteoraPositionGone()) {
               <lucide-icon name="alert-circle" [size]="14" />
@@ -6946,6 +6995,9 @@
             } @else if (sushiLpInsufficient()) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ 'Insufficient balance' | t }}
+            } @else if (openseaMintBlock() !== null) {
+              <lucide-icon name="alert-circle" [size]="14" />
+              {{ openseaMintBlock()! | t }}
             } @else if (insufficientFunds()) {
               <lucide-icon name="alert-circle" [size]="14" />
               {{ 'Insufficient balance' | t }}

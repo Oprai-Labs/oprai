@@ -448,6 +448,7 @@ class ActionType(str, Enum):
     SUSHI_ADD_LIQUIDITY = "sushi_add_liquidity"
     # OpenSea (Seaport) NFT marketplace on Robinhood Chain.
     OPENSEA_BUY = "opensea_buy"                    # fulfill a listing (tx)
+    OPENSEA_MINT = "opensea_mint"                  # SeaDrop primary mint (tx)
     OPENSEA_ACCEPT_OFFER = "opensea_accept_offer"  # seller fulfills a bid (tx)
     OPENSEA_LIST = "opensea_list"                  # sell — Seaport listing (signed order)
     OPENSEA_MAKE_OFFER = "opensea_make_offer"      # bid — Seaport offer in WETH (signed order)
@@ -685,6 +686,7 @@ class QueryType(str, Enum):
     OPENSEA_OFFERS = "opensea_offers"
     OPENSEA_ACTIVITY = "opensea_activity"
     OPENSEA_WALLET_NFTS = "opensea_wallet_nfts"
+    OPENSEA_MINT_INFO = "opensea_mint_info"  # SeaDrop mint state (price/supply/eligibility)
     # Orca ─────────────────────────────────────────────────────────────────
     ORCA_GET_POOLS = "orca_get_pools"
     ORCA_GET_POOL = "orca_get_pool"
@@ -917,7 +919,7 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "sushi_swap", "sushi_add_liquidity",
     # OpenSea (Robinhood Chain) — buy spends ETH; accept-offer transfers the NFT;
     # list/make-offer are signed orders that move value on acceptance.
-    "opensea_buy", "opensea_accept_offer", "opensea_list", "opensea_make_offer",
+    "opensea_buy", "opensea_mint", "opensea_accept_offer", "opensea_list", "opensea_make_offer",
     # Jupiter Trigger/Recurring orders (lock input tokens in protocol escrow)
     "limit_order", "dca", "cancel_limit_order", "cancel_all_limit_orders", "cancel_dca",
     # Kamino stake/collateral operations
@@ -1186,6 +1188,9 @@ def validate_action_params(
         "sushi_swap":       ("tokenIn", "tokenOut"),
         # OpenSea buy needs the listing to fulfill.
         "opensea_buy":      ("orderHash",),
+        # OpenSea mint needs the collection (slug) or its contract; the card
+        # resolves price/quantity/eligibility.
+        "opensea_mint":     ("collection",),
         "opensea_accept_offer": ("orderHash", "token", "tokenId"),
         "opensea_list":     ("token", "tokenId", "priceEth"),
         "opensea_make_offer": ("token", "tokenId", "priceEth"),

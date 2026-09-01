@@ -346,6 +346,12 @@ func (p *SolanaProxy) PostOpenseaAcceptOffer(w http.ResponseWriter, r *http.Requ
 	r.URL.Path = "/actions/opensea/accept-offer"
 	p.proxy.ServeHTTP(w, r)
 }
+
+// PostOpenseaMint proxies the SeaDrop public-mint build (unsigned mintPublic tx).
+func (p *SolanaProxy) PostOpenseaMint(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/opensea/mint"
+	p.proxy.ServeHTTP(w, r)
+}
 func (p *SolanaProxy) PostOpenseaList(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/opensea/list"
 	p.proxy.ServeHTTP(w, r)

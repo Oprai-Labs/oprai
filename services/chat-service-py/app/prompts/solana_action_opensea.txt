@@ -18,6 +18,10 @@ Reads (use query_onchain — these render as cards, do NOT also narrate in prose
 - `opensea_offers` {collection} — the collection's offers/bids.
 - `opensea_activity` {collection} — recent sales in a collection.
 - `opensea_wallet_nfts` {wallet} — a wallet's NFTs (wallet="self"), to list/sell.
+- `opensea_mint_info` {collection} — a collection's PRIMARY MINT state (SeaDrop):
+  mint price, whether minting is live now, minted / total supply, per-wallet
+  limit, and the user's eligibility. Use for "is <c> minting?", "<c> mint price",
+  "can I mint <c>". Renders a card with a Mint button.
 
 Routing: "opensea collections/nfts" → opensea_collections; "trending nfts",
 "top nft collections" → opensea_trending; "floor of <c>", "<c> stats/volume" →
@@ -29,6 +33,13 @@ Actions:
 Format: [ACTION:opensea_buy] orderHash=<0x…> [protocolAddress=<0x…>]
 - BUY (fulfill) a listing. The user usually taps "Buy" on a listing row rather
   than naming a hash — surface the listings card and let them buy from it.
+
+Format: [ACTION:opensea_mint] collection=<slug> [quantity=<n>]
+- MINT from a collection's live primary sale (SeaDrop). "mint <c>", "mint 2 from
+  <c>", "mint an <c>". The card reads the live price, supply, and the user's
+  per-wallet eligibility and only mints if the drop is active and they're eligible.
+  Prefer surfacing `opensea_mint_info` first when the user is just asking; emit
+  `opensea_mint` when they clearly want to mint.
 
 Format: [ACTION:opensea_list] token=<0x…> tokenId=<id> priceEth=<amount> [slug=<collection>] [durationDays=<n>]
 - SELL: list one of the user's NFTs for a fixed ETH price. Usually reached by

@@ -269,7 +269,7 @@ function getActionLabel(action: ParsedAction): string {
     sushi_swap: 'Swap (Sushi)', sushi_add_liquidity: 'Add Liquidity (Sushi)',
     sushi_remove_liquidity: 'Remove Liquidity (Sushi)',
     // OpenSea (Robinhood Chain)
-    opensea_buy: 'Buy NFT (OpenSea)',
+    opensea_buy: 'Buy NFT (OpenSea)', opensea_mint: 'Mint NFT (OpenSea)',
     jupsol_stake: 'Stake for jupSOL', jupsol_unstake: 'Unstake jupSOL',
     burn: 'Burn Tokens', close_accounts: 'Close Empty Accounts',
     sns_register: 'Register .sol Domain', sns_transfer: 'Transfer Domain',
@@ -6087,7 +6087,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * a new `<protocol>_claim_fees` then labels itself correctly on arrival.
    */
   get confirmButtonLabel(): string {
-    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token', pons_buy:'Buy', pons_sell:'Sell', pons_launch:'Launch token' };
+    const labels: Record<string, string> = { swap:'Swap', transfer:'Send', stake:'Stake', unstake:'Unstake', lend:'Deposit', withdraw:'Withdraw', borrow:'Borrow', repay:'Repay', add_liquidity:'Add Liquidity', remove_liquidity:'Remove Liquidity', pools_buy:'Buy', pools_sell:'Sell', pools_launch:'Launch token', pons_buy:'Buy', pons_sell:'Sell', pons_launch:'Launch token', opensea_mint:'Mint' };
     const t = this.action?.type ?? '';
     if (labels[t]) return labels[t];
     // Ordered longest-verb-first so `add_to_position` isn't read as `stake`
@@ -6607,6 +6607,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     if (this.isMorphoAction()) this.startMorphoCard();
     // SushiSwap: swap quote/balance, or the pool picker for add-liquidity.
     if (this.isSushiAction()) this.startSushiCard();
+    // OpenSea mint: read the live drop (price / supply / eligibility).
+    if (this.isOpenseaMint()) void this.fetchOpenseaMintInfo();
     // Before anything reads an amount: a percentage is not one.
     this.capturePercentAmounts();
     this.maybeLoadLstRate();
@@ -10577,6 +10579,49 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isOpenseaOrder = computed(() => this.action?.type === 'opensea_list' || this.action?.type === 'opensea_make_offer');
   readonly isOpenseaList = computed(() => this.action?.type === 'opensea_list');
   setOpenseaPrice(v: string): void { if (this.isEditable()) this.setEditParam('priceEth', v); }
+
+  // ── OpenSea SeaDrop mint ────────────────────────────────────────────────────
+  readonly isOpenseaMint = computed(() => this.action?.type === 'opensea_mint');
+  readonly openseaMintInfo = signal<any | null>(null);
+  readonly openseaMintLoading = signal(false);
+
+  private async fetchOpenseaMintInfo(): Promise<void> {
+    const collection = this.getEditParam('collection') || this.getEditParam('slug');
+    const contract = this.getEditParam('contract');
+    if (!collection && !contract) return;
+    this.openseaMintLoading.set(true);
+    try {
+      const wallet = await this.resolveEvmAddress();
+      const r = await firstValueFrom(this.apiService.post<any>('/actions/build', {
+        type: 'opensea_mint_info',
+        params: { ...(collection ? { collection } : {}), ...(contract ? { contract } : {}), ...(wallet ? { wallet } : {}) },
+      }));
+      this.openseaMintInfo.set(r?.data ?? null);
+    } catch { this.openseaMintInfo.set(null); }
+    this.openseaMintLoading.set(false);
+  }
+
+  openseaMintQty(): number { const v = Number(this.getEditParam('quantity')); return v >= 1 ? Math.floor(v) : 1; }
+  setOpenseaMintQty(n: number): void {
+    if (!this.isEditable()) return;
+    const info = this.openseaMintInfo();
+    const cap = info?.userRemaining != null ? Number(info.userRemaining) : Infinity;
+    const q = Math.max(1, Math.min(Math.floor(n), Number.isFinite(cap) ? cap : n));
+    this.setEditParam('quantity', String(q));
+  }
+  openseaMintTotalEth(): number {
+    const info = this.openseaMintInfo();
+    return (Number(info?.mintPriceEth) || 0) * this.openseaMintQty();
+  }
+  /** Why Mint is blocked (null = ready). */
+  openseaMintBlock(): string | null {
+    const info = this.openseaMintInfo();
+    if (this.openseaMintLoading() || !info) return null; // don't gate while loading
+    if (info.soldOut) return 'Sold out';
+    if (!info.active) return info.hasDrop ? 'Minting not live' : 'No public mint';
+    if (info.userRemaining != null && Number(info.userRemaining) <= 0) return 'Wallet limit reached';
+    return null;
+  }
   readonly isSushiAction = computed(() => (this.action?.type ?? '').startsWith('sushi_'));
   readonly isSushiSwap = computed(() => this.action?.type === 'sushi_swap');
   readonly isSushiAddLiq = computed(() => this.action?.type === 'sushi_add_liquidity');

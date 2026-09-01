@@ -350,6 +350,184 @@ pub async fn build_collection(http: &reqwest::Client, p: &OpenseaCollectionParam
     Ok(read_envelope("opensea_collection", format!("{slug} — OpenSea collection on Robinhood Chain."), json!({ "collection": row })))
 }
 
+// ── PRIMARY MINT (OpenSea SeaDrop v1 — canonical, deployed on Robinhood 4663) ──
+//
+// OpenSea's primary sales run through SeaDrop: the drop config (price, window,
+// per-wallet cap, fee) lives in the SeaDrop contract keyed by the NFT contract,
+// and a public mint is `SeaDrop.mintPublic(nft, feeRecipient, minterIfNotPayer,
+// quantity)` payable with mintPrice × quantity in native ETH. Reads are
+// `getPublicDrop(nft)` + the NFT's `getMintStats(minter)` (minted / supply / max).
+const SEADROP: &str = "0x00005EA00Ac477B1030CE78506496e8C2dE24bf5";
+const SEL_GET_PUBLIC_DROP: &str = "0xbc6a629c"; // getPublicDrop(address)
+const SEL_GET_MINT_STATS: &str = "0x840e15d4"; // getMintStats(address)
+const SEL_GET_ALLOWED_FEE: &str = "0x68632274"; // getAllowedFeeRecipients(address)
+const SEL_MINT_PUBLIC: &str = "0x161ac21f"; // mintPublic(address,address,address,uint256)
+const ZERO_ADDR: &str = "0x0000000000000000000000000000000000000000";
+// OpenSea's canonical fee recipient (same across chains) — the fallback when the
+// drop restricts fee recipients but the on-chain list read comes back empty.
+const OPENSEA_FEE_RECIPIENT: &str = "0x0000a26b00c1f0df003000390027140000faa719";
+
+/// Parse the i-th 32-byte word of an eth_call return as a u128 (fits price/uint80,
+/// times/uint48, counts). All-zero / short → 0.
+fn hword(h: &str, i: usize) -> u128 {
+    let h = h.trim_start_matches("0x");
+    let seg = h.get(i * 64..(i + 1) * 64).unwrap_or("");
+    let trimmed = seg.trim_start_matches('0');
+    if trimmed.is_empty() { 0 } else { u128::from_str_radix(trimmed, 16).unwrap_or(0) }
+}
+/// The address in the i-th word (last 40 hex chars).
+fn hword_addr(h: &str, i: usize) -> String {
+    let h = h.trim_start_matches("0x");
+    let seg = h.get(i * 64..(i + 1) * 64).unwrap_or("");
+    if seg.len() == 64 { format!("0x{}", &seg[24..]) } else { ZERO_ADDR.to_string() }
+}
+
+/// Resolve (slug, contract) — accept a 0x contract directly, else look the
+/// contract up from the collection slug.
+async fn resolve_collection(http: &reqwest::Client, slug: &str, contract: &str) -> Result<(String, String), AppError> {
+    let slug = slug.trim();
+    let contract = contract.trim();
+    if contract.starts_with("0x") && contract.len() == 42 {
+        return Ok((slug.to_string(), contract.to_lowercase()));
+    }
+    if slug.is_empty() {
+        return Err(AppError::InvalidParams("opensea: collection slug or contract required".into()));
+    }
+    let d = os_get(http, &format!("/collections/{slug}")).await?;
+    let c = d.pointer("/contracts/0/address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if c.is_empty() {
+        return Err(AppError::InvalidParams("opensea: could not resolve the collection's contract".into()));
+    }
+    Ok((slug.to_string(), c.to_lowercase()))
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct OpenseaMintInfoParams {
+    #[serde(default, alias = "collection", alias = "collectionSlug")]
+    pub slug: String,
+    #[serde(default)]
+    pub contract: String,
+    #[serde(default)]
+    pub wallet: String,
+}
+
+/// Read a collection's SeaDrop public-mint state (price, window, per-wallet cap,
+/// minted / max supply) plus, if a wallet is given, that wallet's eligibility.
+pub async fn build_mint_info(http: &reqwest::Client, p: &OpenseaMintInfoParams) -> Result<BuildResponse, AppError> {
+    let rpc = rpc();
+    let (slug, contract) = resolve_collection(http, &p.slug, &p.contract).await?;
+
+    let drop = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_PUBLIC_DROP.trim_start_matches("0x"), w_addr(&contract)))
+        .await
+        .unwrap_or_default();
+    let mint_price = hword(&drop, 0);
+    let start = hword(&drop, 1) as u64;
+    let end = hword(&drop, 2) as u64;
+    let per_wallet = hword(&drop, 3);
+    let fee_bps = hword(&drop, 4);
+    let now = now_secs();
+    let active = start != 0 && start <= now && now <= end;
+    let has_drop = mint_price != 0 || end != 0;
+
+    let minter = if p.wallet.starts_with("0x") && p.wallet.len() == 42 { p.wallet.to_lowercase() } else { ZERO_ADDR.to_string() };
+    let stats = crate::services::uniswap::eth_call(http, &rpc, &contract, &format!("{}{}", SEL_GET_MINT_STATS.trim_start_matches("0x"), w_addr(&minter)))
+        .await
+        .unwrap_or_default();
+    let user_minted = hword(&stats, 0);
+    let total = hword(&stats, 1);
+    let max_supply = hword(&stats, 2);
+    let sold_out = max_supply != 0 && total >= max_supply;
+    let user_remaining = if per_wallet == 0 { u128::MAX } else { per_wallet.saturating_sub(user_minted) };
+    let eligible = active && !sold_out && user_remaining > 0;
+
+    Ok(read_envelope(
+        "opensea_mint_info",
+        format!("Mint info for {slug}."),
+        json!({
+            "slug": slug, "contract": contract,
+            "mintPriceWei": mint_price.to_string(),
+            "mintPriceEth": mint_price as f64 / 1e18,
+            "active": active, "hasDrop": has_drop,
+            "startTime": start, "endTime": end,
+            "perWalletLimit": per_wallet, "feeBps": fee_bps,
+            "mintedTotal": total, "maxSupply": max_supply, "soldOut": sold_out,
+            "userMinted": user_minted,
+            "userRemaining": if user_remaining == u128::MAX { Value::Null } else { Value::from(user_remaining as u64) },
+            "eligible": eligible,
+            "chain": CHAIN_SLUG,
+        }),
+    ))
+}
+
+/// Build a SeaDrop public-mint tx. Body: {contract | collection, quantity?,
+/// walletAddress}. Returns an unsigned mintPublic tx (native-ETH value).
+pub async fn build_mint(http: &reqwest::Client, body: &Value) -> Result<Value, AppError> {
+    let rpc = rpc();
+    let wallet = body
+        .get("walletAddress")
+        .and_then(|v| v.as_str())
+        .filter(|s| s.starts_with("0x") && s.len() == 42)
+        .ok_or_else(|| AppError::InvalidParams("opensea: walletAddress required".into()))?;
+    let slug = body.get("collection").or_else(|| body.get("slug")).and_then(|v| v.as_str()).unwrap_or("");
+    let contract_in = body.get("contract").and_then(|v| v.as_str()).unwrap_or("");
+    let (_slug, contract) = resolve_collection(http, slug, contract_in).await?;
+    let qty = body
+        .get("quantity")
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(1)
+        .max(1) as u128;
+
+    let drop = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_PUBLIC_DROP.trim_start_matches("0x"), w_addr(&contract)))
+        .await
+        .unwrap_or_default();
+    let mint_price = hword(&drop, 0);
+    let start = hword(&drop, 1) as u64;
+    let end = hword(&drop, 2) as u64;
+    let per_wallet = hword(&drop, 3);
+    let now = now_secs();
+    if !(start != 0 && start <= now && now <= end) {
+        return Err(AppError::InvalidParams("opensea: this collection is not minting right now".into()));
+    }
+    // Per-wallet cap: refuse a quantity the drop would revert on.
+    if per_wallet != 0 {
+        let stats = crate::services::uniswap::eth_call(http, &rpc, &contract, &format!("{}{}", SEL_GET_MINT_STATS.trim_start_matches("0x"), w_addr(wallet)))
+            .await
+            .unwrap_or_default();
+        let remaining = per_wallet.saturating_sub(hword(&stats, 0));
+        if remaining == 0 {
+            return Err(AppError::InvalidParams("opensea: you've already minted the per-wallet limit for this drop".into()));
+        }
+        if qty > remaining {
+            return Err(AppError::InvalidParams(format!("opensea: over the per-wallet limit — you can mint {remaining} more")));
+        }
+    }
+
+    // Fee recipient: the drop's allowed list (first), else OpenSea's canonical one.
+    let allowed = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_ALLOWED_FEE.trim_start_matches("0x"), w_addr(&contract)))
+        .await
+        .unwrap_or_default();
+    let fee_recipient = if hword(&allowed, 1) > 0 { hword_addr(&allowed, 2) } else { OPENSEA_FEE_RECIPIENT.to_string() };
+
+    let value = mint_price.saturating_mul(qty);
+    let data = format!(
+        "{}{}{}{}{}",
+        SEL_MINT_PUBLIC.trim_start_matches("0x"),
+        w_addr(&contract),
+        w_addr(&fee_recipient),
+        w_addr(ZERO_ADDR), // minterIfNotPayer = 0 → the payer is the minter
+        w_u128(qty),
+    );
+    Ok(json!({
+        "transactions": [ json!({ "to": SEADROP, "data": format!("0x{data}"), "value": value.to_string(), "chainId": CHAIN }) ],
+        "chainId": CHAIN,
+        "contract": contract,
+        "quantity": qty as u64,
+        "mintPriceWei": mint_price.to_string(),
+        "totalWei": value.to_string(),
+        "totalEth": value as f64 / 1e18,
+    }))
+}
+
 /// NFTs in a collection (browse — includes traits/image).
 pub async fn build_nfts(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
     let slug = p.slug.trim();

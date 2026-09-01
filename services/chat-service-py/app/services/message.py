@@ -312,6 +312,7 @@ QUERY_CARD_RENDER_TYPES: frozenset[str] = frozenset({
     "opensea_offers",
     "opensea_activity",
     "opensea_wallet_nfts",
+    "opensea_mint_info",
     # Magic Eden. An NFT is a picture with a price on it — prose is the wrong
     # shape for all of these. The collection lists need a floor and a thumbnail
     # per row, the token lists a grid you can buy from, the offer lists an
