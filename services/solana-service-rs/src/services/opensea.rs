@@ -65,9 +65,35 @@ fn os_chain_name(slug: &str) -> &'static str {
 const ZERO: &str = "0x0000000000000000000000000000000000000000";
 /// Seaport 1.6 — canonical address, verified deployed on 4663.
 pub const SEAPORT: &str = "0x0000000000000068F116a894984e2DB1123eB395";
-/// OpenSea's canonical conduit — the spender that pulls ERC-20 payment (USDG) on
-/// a fulfillment, so an ERC-20-priced buy must approve it first.
-const OPENSEA_CONDUIT: &str = "0x1E0049783F008A0085193E00003D00cd54003c71";
+/// Seaport's ConduitController (canonical) — resolves the conduit a given
+/// conduit key pulls ERC-20 payment through, so an ERC-20 buy approves the RIGHT
+/// (per-order) conduit rather than a fixed one.
+const CONDUIT_CONTROLLER: &str = "0x00000000F9490004C11Cef243f5400493c00Ad63";
+const SEL_GET_CONDUIT: &str = "0x6e9bfd9f"; // getConduit(bytes32)->(address,bool)
+
+/// Resolve the conduit address for a Seaport conduit key. Zero key → Seaport
+/// pulls the token directly (approve Seaport itself); else getConduit on the
+/// ConduitController gives the per-owner conduit. Falls back to Seaport on any
+/// failure so the buy still has a spender to approve.
+async fn resolve_conduit(http: &reqwest::Client, rpc: &str, key_hex: &str) -> String {
+    let key = key_hex.trim().trim_start_matches("0x");
+    if key.is_empty() || key.chars().all(|c| c == '0') {
+        return SEAPORT.to_string();
+    }
+    let data = format!("{SEL_GET_CONDUIT}{key:0>64}");
+    match crate::services::uniswap::eth_call(http, rpc, CONDUIT_CONTROLLER, &data).await {
+        Ok(h) => {
+            let h = h.trim_start_matches("0x");
+            if h.len() >= 64 {
+                let addr = format!("0x{}", &h[24..64]);
+                if addr[2..].chars().all(|c| c == '0') { SEAPORT.to_string() } else { addr }
+            } else {
+                SEAPORT.to_string()
+            }
+        }
+        Err(_) => SEAPORT.to_string(),
+    }
+}
 
 /// Robinhood Chain public RPC (for the Seaport getCounter read). Overridable.
 fn rpc() -> String {
@@ -779,38 +805,46 @@ pub async fn build_buy(http: &reqwest::Client, body: &Value) -> Result<Value, Ap
     let function = tx.get("function").and_then(|v| v.as_str()).unwrap_or("");
     let suffix = tx.get("calldata_suffix").and_then(|v| v.as_str()).unwrap_or("").trim_start_matches("0x").to_string();
 
-    let (calldata, cons_token, cons_total) = if function.starts_with("fulfillBasicOrder_efficient_6GL6yc") {
+    let (calldata, cons_token, cons_total, conduit_key) = if function.starts_with("fulfillBasicOrder_efficient_6GL6yc") {
         let p = tx.pointer("/input_data/parameters")
             .ok_or_else(|| AppError::Internal("OpenSea fulfillment missing parameters".into()))?;
         // Consideration token: native ETH (zero) needs no approval; an ERC-20
-        // (USDG on Robinhood) is pulled by Seaport via the conduit → approve first.
+        // (USDG on Robinhood) is pulled by Seaport via the fulfiller's CONDUIT →
+        // approve that conduit first.
         let ct = p.get("considerationToken").and_then(|v| v.as_str()).unwrap_or(ZERO).to_lowercase();
         let mut total: u128 = p.get("considerationAmount").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
         if let Some(ar) = p.get("additionalRecipients").and_then(|v| v.as_array()) {
             for a in ar { total += a.get("amount").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0); }
         }
-        (encode_fulfill_basic_order(p, &suffix)?, ct, total)
+        let key = p.get("fulfillerConduitKey").and_then(|v| v.as_str())
+            .or_else(|| p.get("offererConduitKey").and_then(|v| v.as_str()))
+            .unwrap_or("").to_string();
+        (encode_fulfill_basic_order(p, &suffix)?, ct, total, key)
     } else {
         return Err(AppError::InvalidParams(
             "opensea: this listing type isn't buyable in-app yet — open it on OpenSea.".into(),
         ));
     };
 
-    // For an ERC-20-priced listing, prepend an approval to the OpenSea conduit if
-    // the wallet's allowance can't cover the buy — else Seaport can't pull the
-    // token and the fulfill reverts. Native ETH (zero token, non-zero tx value)
-    // needs nothing.
+    // For an ERC-20-priced listing, prepend an approval to the conduit Seaport
+    // will pull the token through — derived from the order's fulfillerConduitKey
+    // (NOT a fixed address; OpenSea uses per-owner conduits). Without the exact
+    // conduit the token pull reverts and the wallet can't estimate gas. Native
+    // ETH (zero token) needs nothing.
     let mut txs = vec![];
     if cons_token.starts_with("0x") && cons_token.len() == 42 && !cons_token.eq_ignore_ascii_case(ZERO) && cons_total > 0 {
         let rpc = rpc();
-        let allow_data = format!("0xdd62ed3e{}{}", w_addr(wallet), w_addr(OPENSEA_CONDUIT));
+        let spender = resolve_conduit(http, &rpc, &conduit_key).await;
+        let allow_data = format!("0xdd62ed3e{}{}", w_addr(wallet), w_addr(&spender));
         let have = crate::services::uniswap::eth_call(http, &rpc, &cons_token, &allow_data)
             .await
             .ok()
             .and_then(|h| u128::from_str_radix(h.trim_start_matches("0x").trim_start_matches('0'), 16).ok())
             .unwrap_or(0);
         if have < cons_total {
-            let approve = erc20_approve_calldata(OPENSEA_CONDUIT, cons_total);
+            // Approve a generous max so a re-buy in the same collection needs no
+            // second approval (Seaport only pulls the exact consideration).
+            let approve = erc20_approve_calldata(&spender, u128::MAX);
             txs.push(json!({ "to": cons_token, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
         }
     }
