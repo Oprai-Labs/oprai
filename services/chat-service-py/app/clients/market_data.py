@@ -2593,6 +2593,52 @@ async def rh_wallet_analysis(wallet: str) -> dict:
 
 
 @query_tool(required=["token"], tags={"analysis"})
+def _fmt_usd(v: float, is_price: bool = False) -> str:
+    if is_price:
+        return (f"${v:.8f}".rstrip("0").rstrip(".")) if v < 1 else f"${v:,.4f}"
+    a = abs(v)
+    if a >= 1e9:
+        return f"${v / 1e9:.2f}B"
+    if a >= 1e6:
+        return f"${v / 1e6:.2f}M"
+    if a >= 1e3:
+        return f"${v / 1e3:.1f}K"
+    return f"${v:,.2f}"
+
+
+async def _dexscreener_evm_market(token: str) -> dict:
+    """Price / market cap / liquidity / 24h volume for an EVM (non-Solana) token,
+    from its best-liquidity DexScreener pair. The Robinhood-Chain index is holder/
+    PnL focused and carries no price, so this fills in the market side."""
+    raw = await _get(f"https://api.dexscreener.com/latest/dex/tokens/{token}")
+    pairs = raw.get("pairs") or [] if isinstance(raw, dict) else []
+    evm = [p for p in pairs if isinstance(p, dict) and p.get("chainId") != "solana"]
+    if not evm:
+        return {}
+
+    def _liq(p: dict) -> float:
+        try:
+            return float((p.get("liquidity") or {}).get("usd") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _f(v: Any) -> float | None:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    best = max(evm, key=_liq)
+    return {
+        "price_usd": _f(best.get("priceUsd")),
+        "market_cap_usd": _f(best.get("marketCap")) or _f(best.get("fdv")),
+        "liquidity_usd": _liq(best),
+        "volume_24h_usd": _f((best.get("volume") or {}).get("h24")),
+        "chain": best.get("chainId"),
+        "symbol": (best.get("baseToken") or {}).get("symbol"),
+    }
+
+
 async def rh_token_analysis(token: str) -> dict:
     """Robinhood-Chain token X-ray from our own index: holders, REAL-wallet
     concentration (bonding-curve/AMM excluded), whales, snipers (still-holding vs
@@ -2601,7 +2647,28 @@ async def rh_token_analysis(token: str) -> dict:
     smart-money holders, and a composite RISK score (0-100, LOW/MED/HIGH). Use for
     'analyze this token / is it a rug / who is the dev / bundle / snipers / dev
     holdings / risk' on Robinhood Chain."""
-    return await _chain_intel(f"/token/{token}")
+    res, md = await asyncio.gather(
+        _chain_intel(f"/token/{token}"),
+        _dexscreener_evm_market(token),
+        return_exceptions=True,
+    )
+    res = res if isinstance(res, dict) else {}
+    md = md if isinstance(md, dict) else {}
+    # Prepend market KPIs (price / market cap / liquidity / 24h volume) — the index
+    # carries none. Pre-formatted strings so they render regardless of KPI fmt.
+    if md and isinstance(res.get("kpis"), list):
+        market: list[dict] = []
+        if md.get("price_usd") is not None:
+            market.append({"label": "Price", "value": _fmt_usd(md["price_usd"], is_price=True)})
+        if md.get("market_cap_usd"):
+            market.append({"label": "Market cap", "value": _fmt_usd(md["market_cap_usd"])})
+        if md.get("liquidity_usd"):
+            market.append({"label": "Liquidity", "value": _fmt_usd(md["liquidity_usd"])})
+        if md.get("volume_24h_usd"):
+            market.append({"label": "24h volume", "value": _fmt_usd(md["volume_24h_usd"])})
+        res["kpis"] = market + res["kpis"]
+        res["market"] = md
+    return res
 
 
 @query_tool(optional=["limit"], tags={"analysis", "dex"})
