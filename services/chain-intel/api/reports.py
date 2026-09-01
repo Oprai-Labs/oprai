@@ -178,12 +178,21 @@ async def token_report(token: str) -> dict:
         dev_holding_pct = round(min(100.0, max(0.0, 100 * float(dev_bal) / minted)), 1) if minted else 0.0
     launch_bundle_pct, launch_buyers = 0.0, 0
     fb = overview.get("first_block")
-    if fb:
-        fbrow = await ch.one(
-            f"SELECT sum(toFloat64(value)) AS bought, uniqExact(to_addr) AS buyers {base} "
-            f"AND block_number={fb} AND from_addr!='0x0000000000000000000000000000000000000000'")
-        launch_bundle_pct = round(min(100.0, 100 * float(fbrow.get("bought") or 0) / minted), 1) if minted else 0.0
-        launch_buyers = int(fbrow.get("buyers") or 0)
+    if fb and minted:
+        # A launch BUNDLE is a coordinated grab by multiple WALLETS in the launch
+        # block — NOT the launch plumbing moving supply mint -> curve -> LP pool,
+        # which is all contract->contract and would otherwise read as a fake
+        # "100% by 2 buyers". Count per-recipient first-block receipts, drop mints,
+        # and drop CONTRACT recipients (pools / curve / router) — same wallet-only
+        # rule as holder concentration — so only real wallet buys count.
+        fb_rows = await ch.q(
+            f"SELECT to_addr, sum(toFloat64(value)) AS got {base} "
+            f"AND block_number={fb} AND from_addr!='{_ZERO}' GROUP BY to_addr")
+        fb_contracts = await node.contract_addresses([r["to_addr"] for r in fb_rows])
+        fb_wallets = [r for r in fb_rows if r["to_addr"] not in fb_contracts]
+        bought = sum(float(r.get("got") or 0) for r in fb_wallets)
+        launch_bundle_pct = round(min(100.0, 100 * bought / minted), 1)
+        launch_buyers = len(fb_wallets)
 
     # Smart-money's share of SUPPLY (not just the holder count) — the honest read
     # of how much of the token profitable wallets actually hold.
