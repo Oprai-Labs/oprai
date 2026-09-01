@@ -385,6 +385,12 @@ Detection rules:
   Robinhood Chain), NEVER the Solana jupiter swap. (Lending/borrowing USDG →
   "morpho"; a perp quoted in USDG → "lighter".) This holds even mid-conversation
   after a Morpho/Lighter turn: a bare "swap USDG→USDe" is a Sushi swap.
+- OPRAI is MULTICHAIN (Solana AND EVM/Robinhood). The venue is chain-specific:
+  when the user names Robinhood / an EVM chain, or an EVM asset (USDG, USDe, WETH,
+  cbBTC, any 0x… address), pick the EVM venue for the action and NEVER a Solana
+  venue — swap → sushi (or uniswap); lend/borrow → morpho; perp → lighter; LP/pool
+  → sushi/uniswap; NFT → opensea; launchpad → pools/pons. The reverse holds for
+  Solana. Only "bridge/move to another chain" → relay.
 - NFTs are chain-specific. Magic Eden and Tensor are SOLANA NFT marketplaces;
   OpenSea is the NFT marketplace on Robinhood Chain (EVM). When the user asks
   about NFTs "on Robinhood" (or any EVM chain) — trending, top collections,
