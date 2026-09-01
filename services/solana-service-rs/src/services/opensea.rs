@@ -417,7 +417,7 @@ pub async fn build_mint_info(http: &reqwest::Client, p: &OpenseaMintInfoParams) 
     let rpc = rpc();
     let (slug, contract) = resolve_collection(http, &p.slug, &p.contract).await?;
 
-    let drop = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_PUBLIC_DROP.trim_start_matches("0x"), w_addr(&contract)))
+    let drop = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_PUBLIC_DROP, w_addr(&contract)))
         .await
         .unwrap_or_default();
     let mint_price = hword(&drop, 0);
@@ -430,7 +430,7 @@ pub async fn build_mint_info(http: &reqwest::Client, p: &OpenseaMintInfoParams) 
     let has_drop = mint_price != 0 || end != 0;
 
     let minter = if p.wallet.starts_with("0x") && p.wallet.len() == 42 { p.wallet.to_lowercase() } else { ZERO_ADDR.to_string() };
-    let stats = crate::services::uniswap::eth_call(http, &rpc, &contract, &format!("{}{}", SEL_GET_MINT_STATS.trim_start_matches("0x"), w_addr(&minter)))
+    let stats = crate::services::uniswap::eth_call(http, &rpc, &contract, &format!("{}{}", SEL_GET_MINT_STATS, w_addr(&minter)))
         .await
         .unwrap_or_default();
     let user_minted = hword(&stats, 0);
@@ -477,7 +477,7 @@ pub async fn build_mint(http: &reqwest::Client, body: &Value) -> Result<Value, A
         .unwrap_or(1)
         .max(1) as u128;
 
-    let drop = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_PUBLIC_DROP.trim_start_matches("0x"), w_addr(&contract)))
+    let drop = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_PUBLIC_DROP, w_addr(&contract)))
         .await
         .unwrap_or_default();
     let mint_price = hword(&drop, 0);
@@ -490,7 +490,7 @@ pub async fn build_mint(http: &reqwest::Client, body: &Value) -> Result<Value, A
     }
     // Per-wallet cap: refuse a quantity the drop would revert on.
     if per_wallet != 0 {
-        let stats = crate::services::uniswap::eth_call(http, &rpc, &contract, &format!("{}{}", SEL_GET_MINT_STATS.trim_start_matches("0x"), w_addr(wallet)))
+        let stats = crate::services::uniswap::eth_call(http, &rpc, &contract, &format!("{}{}", SEL_GET_MINT_STATS, w_addr(wallet)))
             .await
             .unwrap_or_default();
         let remaining = per_wallet.saturating_sub(hword(&stats, 0));
@@ -503,7 +503,7 @@ pub async fn build_mint(http: &reqwest::Client, body: &Value) -> Result<Value, A
     }
 
     // Fee recipient: the drop's allowed list (first), else OpenSea's canonical one.
-    let allowed = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_ALLOWED_FEE.trim_start_matches("0x"), w_addr(&contract)))
+    let allowed = crate::services::uniswap::eth_call(http, &rpc, SEADROP, &format!("{}{}", SEL_GET_ALLOWED_FEE, w_addr(&contract)))
         .await
         .unwrap_or_default();
     let fee_recipient = if hword(&allowed, 1) > 0 { hword_addr(&allowed, 2) } else { OPENSEA_FEE_RECIPIENT.to_string() };
