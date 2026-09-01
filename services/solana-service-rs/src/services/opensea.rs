@@ -176,9 +176,18 @@ async fn enrich_collection_stats(http: &reqwest::Client, rows: &mut [Value]) {
 
 /// Active listings in a collection, enriched with each NFT's name/image.
 pub async fn fetch_listings(http: &reqwest::Client, slug: &str, limit: usize) -> Result<Vec<Value>, AppError> {
-    let body = os_get(http, &format!("/listings/collection/{slug}/all?limit={}", limit.clamp(1, 50))).await?;
+    // Pull a wider page than we show, so "cheapest" is the cheapest of many, not
+    // of whatever arbitrary order the API returned first.
+    let body = os_get(http, &format!("/listings/collection/{slug}/all?limit=50")).await?;
     let items = body.get("listings").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let raws: Vec<Value> = items.into_iter().filter_map(|l| shape_listing(&l)).collect();
+    let mut raws: Vec<Value> = items.into_iter().filter_map(|l| shape_listing(&l)).collect();
+    // Cheapest first (the usual ask), then keep only what we'll show.
+    raws.sort_by(|a, b| {
+        let pa = a.get("price").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+        let pb = b.get("price").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+        pa.partial_cmp(&pb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    raws.truncate(limit.clamp(1, 50));
     // Enrich name/image per NFT (best-effort, concurrent).
     let futs = raws.into_iter().map(|r| enrich_listing(http, r));
     Ok(join_all(futs).await)
@@ -247,8 +256,25 @@ pub struct OpenseaListingsParams {
     pub limit: Option<usize>,
 }
 
+/// Turn a user-supplied collection reference into an OpenSea slug. Users (and the
+/// LLM) routinely paste a 0x CONTRACT address; OpenSea's slug-keyed endpoints
+/// (listings, offers, activity, nfts, stats) return NOTHING for a raw address, so
+/// look the slug up from the contract first. A plain slug passes through.
+async fn resolve_slug(http: &reqwest::Client, input: &str) -> String {
+    let input = input.trim();
+    if input.starts_with("0x") && input.len() == 42 {
+        if let Ok(v) = os_get(http, &format!("/chain/{CHAIN_SLUG}/contract/{input}")).await {
+            if let Some(sl) = v.get("collection").and_then(|c| c.as_str()).filter(|s| !s.is_empty()) {
+                return sl.to_string();
+            }
+        }
+    }
+    input.to_string()
+}
+
 pub async fn build_listings(http: &reqwest::Client, params: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = params.slug.trim();
+    let slug = resolve_slug(http, &params.slug).await;
+    let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let limit = params.limit.unwrap_or(24).clamp(1, 40);
     let rows = fetch_listings(http, slug, limit).await.unwrap_or_default();
@@ -316,7 +342,8 @@ pub struct OpenseaCollectionParams {
 
 /// Collection detail + live stats (floor, volume, owners, supply, fees).
 pub async fn build_collection(http: &reqwest::Client, p: &OpenseaCollectionParams) -> Result<BuildResponse, AppError> {
-    let slug = p.slug.trim();
+    let slug = resolve_slug(http, &p.slug).await;
+    let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let url_detail = format!("/collections/{slug}");
     let url_stats = format!("/collections/{slug}/stats");
@@ -530,7 +557,8 @@ pub async fn build_mint(http: &reqwest::Client, body: &Value) -> Result<Value, A
 
 /// NFTs in a collection (browse — includes traits/image).
 pub async fn build_nfts(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = p.slug.trim();
+    let slug = resolve_slug(http, &p.slug).await;
+    let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let limit = p.limit.unwrap_or(30).clamp(1, 50);
     let body = os_get(http, &format!("/collection/{slug}/nfts?limit={limit}")).await?;
@@ -574,7 +602,8 @@ pub async fn build_nft(http: &reqwest::Client, p: &OpenseaNftParams) -> Result<B
 
 /// Collection offers (bids), highest first.
 pub async fn build_offers(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = p.slug.trim();
+    let slug = resolve_slug(http, &p.slug).await;
+    let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let body = os_get(http, &format!("/offers/collection/{slug}")).await?;
     let rows: Vec<Value> = body.get("offers").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(shape_offer).collect()).unwrap_or_default();
@@ -597,7 +626,8 @@ fn shape_offer(o: &Value) -> Option<Value> {
 
 /// Recent collection activity (sales).
 pub async fn build_events(http: &reqwest::Client, p: &OpenseaListingsParams) -> Result<BuildResponse, AppError> {
-    let slug = p.slug.trim();
+    let slug = resolve_slug(http, &p.slug).await;
+    let slug = slug.as_str();
     if slug.is_empty() { return Err(AppError::InvalidParams("opensea: collection slug required".into())); }
     let limit = p.limit.unwrap_or(20).clamp(1, 40);
     let body = os_get(http, &format!("/events/collection/{slug}?event_type=sale&limit={limit}")).await?;
