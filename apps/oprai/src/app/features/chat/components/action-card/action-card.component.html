@@ -4003,7 +4003,7 @@
             <div class="perp-summary">
               <div class="perp-summary__row">
                 <span class="perp-summary__k">{{ 'Price' | t }}</span>
-                <span class="perp-summary__v">{{ getEditParam('price') || '—' }} ETH</span>
+                <span class="perp-summary__v">{{ getEditParam('price') || '—' }} {{ getEditParam('currency') || 'ETH' }}</span>
               </div>
               <div class="perp-summary__row">
                 <span class="perp-summary__k">{{ 'Marketplace' | t }}</span>
@@ -4012,7 +4012,7 @@
             </div>
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />
-              <span>{{ 'You pay in ETH on Robinhood Chain; your wallet signs the purchase.' | t }}</span>
+              <span>{{ 'You pay in {c} on Robinhood Chain; your wallet signs the purchase.' | t:{ c: getEditParam('currency') || 'ETH' } }}</span>
             </div>
           </div>
         } @else if (isOpenseaOrder()) {

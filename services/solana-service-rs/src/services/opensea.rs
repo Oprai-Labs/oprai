@@ -24,6 +24,9 @@ const CHAIN_SLUG: &str = "robinhood";
 const ZERO: &str = "0x0000000000000000000000000000000000000000";
 /// Seaport 1.6 — canonical address, verified deployed on 4663.
 pub const SEAPORT: &str = "0x0000000000000068F116a894984e2DB1123eB395";
+/// OpenSea's canonical conduit — the spender that pulls ERC-20 payment (USDG) on
+/// a fulfillment, so an ERC-20-priced buy must approve it first.
+const OPENSEA_CONDUIT: &str = "0x1E0049783F008A0085193E00003D00cd54003c71";
 
 /// Robinhood Chain public RPC (for the Seaport getCounter read). Overridable.
 fn rpc() -> String {
@@ -714,22 +717,44 @@ pub async fn build_buy(http: &reqwest::Client, body: &Value) -> Result<Value, Ap
     let function = tx.get("function").and_then(|v| v.as_str()).unwrap_or("");
     let suffix = tx.get("calldata_suffix").and_then(|v| v.as_str()).unwrap_or("").trim_start_matches("0x").to_string();
 
-    let calldata = if function.starts_with("fulfillBasicOrder_efficient_6GL6yc") {
+    let (calldata, cons_token, cons_total) = if function.starts_with("fulfillBasicOrder_efficient_6GL6yc") {
         let p = tx.pointer("/input_data/parameters")
             .ok_or_else(|| AppError::Internal("OpenSea fulfillment missing parameters".into()))?;
-        encode_fulfill_basic_order(p, &suffix)?
+        // Consideration token: native ETH (zero) needs no approval; an ERC-20
+        // (USDG on Robinhood) is pulled by Seaport via the conduit → approve first.
+        let ct = p.get("considerationToken").and_then(|v| v.as_str()).unwrap_or(ZERO).to_lowercase();
+        let mut total: u128 = p.get("considerationAmount").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
+        if let Some(ar) = p.get("additionalRecipients").and_then(|v| v.as_array()) {
+            for a in ar { total += a.get("amount").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0); }
+        }
+        (encode_fulfill_basic_order(p, &suffix)?, ct, total)
     } else {
-        // Non-basic orders (auctions / bundles / criteria) need a different Seaport
-        // call we don't encode yet — most fixed-price single-NFT buys are basic.
         return Err(AppError::InvalidParams(
             "opensea: this listing type isn't buyable in-app yet — open it on OpenSea.".into(),
         ));
     };
 
-    Ok(json!({
-        "transactions": [{ "to": to, "data": calldata, "value": value, "chainId": CHAIN }],
-        "chainId": CHAIN,
-    }))
+    // For an ERC-20-priced listing, prepend an approval to the OpenSea conduit if
+    // the wallet's allowance can't cover the buy — else Seaport can't pull the
+    // token and the fulfill reverts. Native ETH (zero token, non-zero tx value)
+    // needs nothing.
+    let mut txs = vec![];
+    if cons_token.starts_with("0x") && cons_token.len() == 42 && !cons_token.eq_ignore_ascii_case(ZERO) && cons_total > 0 {
+        let rpc = rpc();
+        let allow_data = format!("0xdd62ed3e{}{}", w_addr(wallet), w_addr(OPENSEA_CONDUIT));
+        let have = crate::services::uniswap::eth_call(http, &rpc, &cons_token, &allow_data)
+            .await
+            .ok()
+            .and_then(|h| u128::from_str_radix(h.trim_start_matches("0x").trim_start_matches('0'), 16).ok())
+            .unwrap_or(0);
+        if have < cons_total {
+            let approve = erc20_approve_calldata(OPENSEA_CONDUIT, cons_total);
+            txs.push(json!({ "to": cons_token, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
+        }
+    }
+    txs.push(json!({ "to": to, "data": calldata, "value": value, "chainId": CHAIN }));
+
+    Ok(json!({ "transactions": txs, "chainId": CHAIN }))
 }
 
 // ── Accept an offer (seller fulfills a bid) ──────────────────────────────────

@@ -3970,6 +3970,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
       ...(l.name ? { nftName: l.name } : {}),
       ...(l.image ? { nftImage: l.image } : {}),
       ...(l.price != null ? { price: String(l.price) } : {}),
+      currency: l.currency || 'ETH',
     };
     this.useAction.emit({ type: 'opensea_buy', params, raw: `[ACTION:opensea_buy] ${JSON.stringify(params)}` });
   }
