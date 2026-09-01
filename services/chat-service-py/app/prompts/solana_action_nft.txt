@@ -70,7 +70,10 @@ An earlier turn's result is a record of a moment that has passed; answering
 from it tells the user their listing failed when it is live on the marketplace.
 
 - To BUY you must pass the live listing price — first look it up (`query_onchain("me_token_listings", {"tokenMint": "…"})` or `me_nft_info`), then `me_buy {mintAddress, price}`.
-- If the user doesn't name a marketplace, default to Magic Eden.
+- Magic Eden and Tensor are SOLANA NFT marketplaces. For a SOLANA NFT with no
+  marketplace named, default to Magic Eden. NFTs on Robinhood Chain (or any EVM
+  chain) are NOT here — they trade on OpenSea; use the `opensea_*` tools and
+  never a `me_*`/`tensor_*` tool for a Robinhood/EVM NFT.
 
 Example:
 - "Buy this NFT on Magic Eden: 7xKX…" → look up price, then `execute_action("me_buy", {"mintAddress": "7xKX…", "price": "<listing_price>"})`

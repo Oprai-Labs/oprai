@@ -137,6 +137,19 @@ _TOKEN_PROTOCOL_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 
+# NFT-intent words + EVM chain names — an NFT ask that names one of these chains
+# is OpenSea (Robinhood NFTs), not Magic Eden (Solana). English-only (the rule
+# for every keyword net here); the classifier handles other languages
+# semantically, and "nft" itself is universal.
+_NFT_WORDS: tuple[str, ...] = (
+    "nft", "nfts", "collection", "collections", "floor price",
+)
+_EVM_CHAIN_WORDS: tuple[str, ...] = (
+    "robinhood", "ethereum", "base", "arbitrum", "optimism", "polygon", "bsc",
+    "bnb chain", "avalanche", "evm",
+)
+
+
 # Compiled regex cache for word-boundary matching. Built lazily on first use.
 _KEYWORD_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
 
@@ -169,6 +182,19 @@ def _augment_protocols_from_keywords(
             continue
         if any(_kw_regex(kw).search(msg) for kw in keywords):
             augmented.add(proto)
+
+    # NFTs are chain-specific. Magic Eden / Tensor are SOLANA NFT marketplaces;
+    # OpenSea is the NFT marketplace on Robinhood Chain (EVM). The classifier is
+    # Solana-biased and answers a bare "trending nfts" with Magic Eden — so when
+    # an NFT ask ALSO names Robinhood / an EVM chain, pin it to OpenSea and drop
+    # the wrong-chain Solana venues. ("trend'de neler var nft, robinhood ağında"
+    # was coming back as Magic Eden.)
+    _nft_here = any(_kw_regex(w).search(msg) for w in _NFT_WORDS)
+    _evm_here = any(_kw_regex(w).search(msg) for w in _EVM_CHAIN_WORDS)
+    if _nft_here and _evm_here:
+        augmented.add("opensea")
+        augmented.discard("magic_eden")
+        augmented.discard("tensor")
 
     # Token hints are the weak signal and only speak when nobody else has:
     # naming an asset picks a venue only if no venue is on the table yet.
@@ -335,7 +361,7 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   native_stake — Generic Solana validator stake (no LST), stake account ops.
   kamino       — Kamino K-Lend, K-Vault, K-Swap, Multiply, Long/Short, kpool.
   tensor       — Tensor NFT marketplace.
-  magic_eden   — Magic Eden, ME, MMM pools.
+  magic_eden   — Magic Eden, ME, MMM pools. SOLANA NFTs ONLY.
   pumpfun      — pump.fun token launches, PumpSwap, mayhem.
   relay        — Relay.link cross-chain bridge.
   lighter      — Lighter zero-fee order-book PERPS on Robinhood Chain. Both
@@ -344,7 +370,7 @@ Protocols (canonical id list — use ONLY these strings, multiple allowed):
   sushi        — SushiSwap DEX on Robinhood Chain (EVM): swaps + V3 liquidity.
   uniswap      — Uniswap DEX on EVM chains incl. Robinhood: swaps + LP.
   morpho       — Morpho Blue lending on Robinhood Chain (USDG supply / borrow).
-  opensea      — OpenSea NFT marketplace on Robinhood Chain.
+  opensea      — OpenSea NFT marketplace on Robinhood Chain (EVM NFTs).
 
 Detection rules:
 - The user often names a venue or product without naming the protocol — map
@@ -359,6 +385,12 @@ Detection rules:
   Robinhood Chain), NEVER the Solana jupiter swap. (Lending/borrowing USDG →
   "morpho"; a perp quoted in USDG → "lighter".) This holds even mid-conversation
   after a Morpho/Lighter turn: a bare "swap USDG→USDe" is a Sushi swap.
+- NFTs are chain-specific. Magic Eden and Tensor are SOLANA NFT marketplaces;
+  OpenSea is the NFT marketplace on Robinhood Chain (EVM). When the user asks
+  about NFTs "on Robinhood" (or any EVM chain) — trending, top collections,
+  floor, listings, browsing — emit "opensea", NEVER "magic_eden"/"tensor". Use
+  "magic_eden" only for Solana NFTs. "trending nfts on robinhood" → opensea;
+  "trending nfts on solana" → magic_eden.
 - Leverage / perp / short / long → "jupiter" by DEFAULT, never Kamino. A
   leveraged long/short on SOL/ETH/BTC, "open a perp", "2x short SOL", and any
   "max leverage / how much can I open" question maps to "jupiter"
