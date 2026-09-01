@@ -145,21 +145,23 @@ async fn enrich_collection_stats(http: &reqwest::Client, rows: &mut [Value]) {
                 total.and_then(|t| t.get("floor_price_symbol")).cloned().unwrap_or(Value::Null),
                 total.and_then(|t| t.get("volume")).cloned().unwrap_or(Value::Null),
                 total.and_then(|t| t.get("num_owners")).cloned().unwrap_or(Value::Null),
+                total.and_then(|t| t.get("sales")).cloned().unwrap_or(Value::Null),
             )
         }
     });
-    let map: std::collections::HashMap<String, (Value, Value, Value, Value)> = join_all(futs)
+    let map: std::collections::HashMap<String, (Value, Value, Value, Value, Value)> = join_all(futs)
         .await
         .into_iter()
-        .map(|(sl, f, fs, v, o)| (sl, (f, fs, v, o)))
+        .map(|(sl, f, fs, v, o, sa)| (sl, (f, fs, v, o, sa)))
         .collect();
     for r in rows.iter_mut() {
         if let Some(sl) = r.get("slug").and_then(|v| v.as_str()).map(String::from) {
-            if let Some((f, fs, v, o)) = map.get(&sl) {
+            if let Some((f, fs, v, o, sa)) = map.get(&sl) {
                 r["floorPrice"] = f.clone();
                 r["floorSymbol"] = fs.clone();
                 r["volume"] = v.clone();
                 r["numOwners"] = o.clone();
+                r["sales"] = sa.clone();
             }
         }
     }

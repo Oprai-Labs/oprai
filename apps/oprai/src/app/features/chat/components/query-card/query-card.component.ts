@@ -78,7 +78,7 @@ interface MorphoPositionRow {
 
 interface OpenseaCollectionRow {
   slug: string; name: string; image?: string | null; description?: string | null; contract?: string; url?: string | null;
-  floorPrice?: number | null; floorSymbol?: string | null; volume?: number | null; numOwners?: number | null;
+  floorPrice?: number | null; floorSymbol?: string | null; volume?: number | null; numOwners?: number | null; sales?: number | null;
 }
 interface OpenseaListingRow {
   orderHash: string; protocolAddress: string; token: string; tokenId: string;

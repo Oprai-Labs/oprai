@@ -3441,34 +3441,35 @@
           } @else if (openseaCollections.length === 0) {
             <div class="empty-state"><lucide-icon name="image" [size]="20" /><span>{{ 'No OpenSea collections found' | t }}</span></div>
           } @else {
-            <!-- Same card standard as Magic Eden: art + name + Floor/Vol/Owners
-                 stats + a way in (me-grid / me-coll design system). -->
-            <div class="me-grid">
+            <!-- Same table standard as Magic Eden trending: Collection | Volume |
+                 Floor | Sales | Holders (result-table--me-trend design system). -->
+            <div class="result-table">
+              <div class="result-table__header result-table__header--me-trend">
+                <span>{{ 'Collection' | t }}</span>
+                <span class="text-right">{{ 'Volume' | t }}</span>
+                <span class="text-right">{{ 'Floor' | t }}</span>
+                <span class="text-right">{{ 'Sales' | t }}</span>
+                <span class="text-right">{{ 'Holders' | t }}</span>
+              </div>
               @for (c of openseaCollections; track c.slug) {
-                <button type="button" class="me-coll" (click)="openOpenseaCollection(c)">
-                  <span class="me-coll__art">
-                    <span class="me-art__fallback"><img class="me-art__mark" src="/oprai-mark.svg" alt="" aria-hidden="true" /></span>
-                    @if (c.image) {
-                      <img [src]="c.image" [alt]="c.name" loading="lazy" decoding="async"
-                           (error)="$any($event.target).style.display='none'" />
-                    }
-                  </span>
-                  <span class="me-coll__body">
-                    <span class="me-coll__name">{{ c.name }}</span>
-                    <span class="me-coll__stats">
-                      @if (c.floorPrice != null) {
-                        <span class="me-stat"><span class="me-stat__k">{{ 'Floor' | t }}</span> {{ c.floorPrice | number:'1.0-4' }} {{ c.floorSymbol || 'ETH' }}</span>
-                      }
-                      @if (c.volume != null && c.volume > 0) {
-                        <span class="me-stat"><span class="me-stat__k">{{ 'Vol' | t }}</span> {{ c.volume | number:'1.0-1' }}</span>
-                      }
-                      @if (c.numOwners) {
-                        <span class="me-stat"><span class="me-stat__k">{{ 'Owners' | t }}</span> {{ c.numOwners }}</span>
+                <div class="result-table__row result-table__row--me-trend dlmm-row" (click)="openOpenseaCollection(c)">
+                  <span class="km-pair">
+                    <span class="km-icon-slot">
+                      <span class="km-icon km-icon--fallback">{{ (c.name || '?').charAt(0) }}</span>
+                      @if (c.image) {
+                        <img class="km-icon km-icon--img" [src]="c.image" [alt]="c.name"
+                             loading="lazy" decoding="async" (error)="$any($event.target).style.display='none'" />
                       }
                     </span>
+                    <span class="km-pair__text">
+                      <span class="km-pair__name">{{ c.name }}</span>
+                    </span>
                   </span>
-                  <lucide-icon name="arrow-right" [size]="14" class="me-coll__go" />
-                </button>
+                  <span class="text-right mono me-num">{{ c.volume != null ? (c.volume | number:'1.0-1') : '—' }} {{ c.volume != null ? (c.floorSymbol || 'ETH') : '' }}</span>
+                  <span class="text-right mono me-num">{{ c.floorPrice != null ? (c.floorPrice | number:'1.0-3') : '—' }} {{ c.floorPrice != null ? (c.floorSymbol || 'ETH') : '' }}</span>
+                  <span class="text-right mono">{{ c.sales != null ? (c.sales | number) : '—' }}</span>
+                  <span class="text-right mono">{{ c.numOwners ? (c.numOwners | number) : '—' }}</span>
+                </div>
               }
             </div>
           }
