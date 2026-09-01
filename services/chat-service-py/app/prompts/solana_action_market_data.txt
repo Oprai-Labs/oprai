@@ -610,10 +610,11 @@ or the full structured report below.
      the dev's identity is NOT in the index. Say exactly that. NEVER claim the dev "sold",
      "dumped", or "holds nothing" — a 0% is only a sale when `dev_status` is `sold`.
    - `dev_status: "via_launchpad"` / `dev_is_launchpad: true` means the token was minted
-     through a shared LAUNCHPAD (its recorded "dev" is the launchpad's relayer). This is
-     NEUTRAL — most legit tokens launch this way — so present it as a plain fact, NOT a 🔴
-     risk/red flag: "launched via a shared launchpad; the individual creator isn't
-     identifiable". A launchpad mints thousands of tokens and many later rug — that is the
+     through a shared LAUNCHPAD (its recorded "dev" is the launchpad's relayer). Name the
+     launchpad from the `launchpad` fact when present (e.g. "launched via Pons"); else say
+     "a shared launchpad". This is NEUTRAL — most legit tokens launch this way — so present
+     it as a plain fact, NOT a 🔴 risk/red flag: "launched via <launchpad>; the individual
+     creator isn't identifiable". A launchpad mints thousands of tokens and many later rug — that is the
      nature of a launchpad, NOT a signal about THIS token — so NEVER state or imply "the
      launchpad had N launches / N rugs" and never call the dev a serial rugger. Just move on.
    - Concentration is REAL-WALLET only: `top10_pct` already EXCLUDES LP pools, contracts and
