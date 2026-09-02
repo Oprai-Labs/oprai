@@ -39,6 +39,8 @@ HELP = (
     "    tokenized stocks (e.g. <code>/send 5 NVDA @friend</code>)\n"
     "/swap &lt;amount&gt; &lt;from&gt; &lt;to&gt; — trade stocks and tokens\n"
     "/bridge &lt;amount&gt; ETH from &lt;chain&gt; — bring funds in\n"
+    "/launch &lt;TICKER&gt; &lt;name&gt; — create a token (reply to a photo\n"
+    "    to use it as the image)\n"
     "/help — this message\n\n"
     "In groups, add me and an admin can top up the group's free quota with "
     "$OPRAI. Actions always run from your own wallet, confirmed privately."
