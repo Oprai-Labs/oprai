@@ -197,3 +197,128 @@ async def new_launches(since_block: int, with_smart_only: bool = False,
         if len(out) >= limit:
             break
     return {"tip": tip, "since_block": int(since_block), "launches": out}
+
+
+async def smart_flow(since_block: int, min_smart: int = 1, limit: int = 30) -> dict:
+    """Smart-money BUY vs SELL per token since `since_block` — the exit side the
+    buy-only feed can't show. Per token: distinct smart buyers/sellers, buy/sell
+    counts, and net_buyers (buyers − sellers). A token with many smart sellers and
+    few buyers is smart money DUMPING it. Base assets excluded."""
+    tip = await index_tip()
+    rows = await ch.q(f"""
+        SELECT token,
+               uniqExactIf(w, side='in')  AS smart_buyers,
+               uniqExactIf(w, side='out') AS smart_sellers,
+               countIf(side='in')  AS buys,
+               countIf(side='out') AS sells,
+               max(block_number)   AS last_block
+        FROM (
+          SELECT tt.token AS token, tt.block_number AS block_number,
+                 if(sw.wallet = tt.to_addr, 'in', 'out') AS side,
+                 if(sw.wallet = tt.to_addr, tt.to_addr, tt.from_addr) AS w
+          FROM rh.token_transfers tt
+          INNER JOIN rh.smart_wallets sw
+            ON (sw.wallet = tt.to_addr OR sw.wallet = tt.from_addr)
+          WHERE tt.kind='erc20' AND tt.block_number > {int(since_block)}
+            AND tt.from_addr != '{_ZERO}' AND tt.to_addr != '{_ZERO}'
+            AND {_base_filter('tt.token')}
+        )
+        GROUP BY token
+        HAVING smart_buyers + smart_sellers >= {int(min_smart)}
+        ORDER BY (smart_buyers + smart_sellers) DESC, sells DESC
+        LIMIT {int(limit)}""")
+    meta = await _token_meta([r["token"] for r in rows])
+    out = []
+    for r in rows:
+        m = meta.get(r["token"], {})
+        if (m.get("symbol") or "").upper() in _BASE_SYMBOLS:
+            continue
+        b, s = int(r["smart_buyers"]), int(r["smart_sellers"])
+        out.append({
+            "token": r["token"], "symbol": m.get("symbol"),
+            "smart_buyers": b, "smart_sellers": s, "net_buyers": b - s,
+            "buys": int(r["buys"]), "sells": int(r["sells"]),
+            "last_block": int(r["last_block"]),
+            "signal": ("accumulating" if b > s else "distributing" if s > b else "mixed"),
+        })
+    return {"tip": tip, "since_block": int(since_block), "tokens": out}
+
+
+async def token_smart_buyers(token: str, since_block: int = 0, limit: int = 25) -> dict:
+    """WHICH smart wallets bought this token (and why each is smart): rank in the
+    top-5000, realized PnL, win rate, tokens traded, plus their buy count here and
+    whether they've since sold any. since_block=0 = all-time."""
+    t = ch.addr(token)
+    tip = await index_tip()
+    rows = await ch.q(f"""
+        SELECT sw.wallet AS wallet, sw.rank AS rank, sw.realized_pnl AS pnl,
+               sw.win_rate AS win_rate, sw.n_tokens AS n_tokens,
+               countIf(tt.to_addr = sw.wallet)   AS buys,
+               countIf(tt.from_addr = sw.wallet) AS sells,
+               minIf(tt.block_number, tt.to_addr = sw.wallet) AS first_buy_block,
+               max(tt.block_number) AS last_block
+        FROM rh.token_transfers tt
+        INNER JOIN rh.smart_wallets sw
+          ON (sw.wallet = tt.to_addr OR sw.wallet = tt.from_addr)
+        WHERE tt.token='{t}' AND tt.kind='erc20' AND tt.block_number > {int(since_block)}
+          AND tt.from_addr != '{_ZERO}' AND tt.to_addr != '{_ZERO}'
+        GROUP BY wallet, rank, pnl, win_rate, n_tokens
+        HAVING buys > 0
+        ORDER BY rank ASC LIMIT {int(limit)}""")
+    buyers = [{
+        "wallet": r["wallet"], "rank": int(r["rank"]),
+        "realized_pnl_usd": round(float(r["pnl"]), 2),
+        "win_rate": round(float(r["win_rate"]), 3), "n_tokens": int(r["n_tokens"]),
+        "buys": int(r["buys"]), "sells": int(r["sells"]),
+        "still_holding": int(r["sells"]) == 0,
+        "first_buy_block": int(r["first_buy_block"] or 0), "last_block": int(r["last_block"]),
+    } for r in rows]
+    return {"tip": tip, "token": t, "since_block": int(since_block),
+            "smart_buyers": len(buyers), "buyers": buyers}
+
+
+async def wallet_smart_profile(wallet: str) -> dict:
+    """WHY is this wallet smart (or not)? Its top-5000 standing — rank, smart score,
+    realized PnL, win rate, tokens traded — from the EOA-only smart set; if it isn't
+    in the set, its raw wallet_metrics so the answer is 'not smart because …'."""
+    w = ch.addr(wallet)
+    sm = await ch.one(
+        f"SELECT rank, smart_score, realized_pnl, win_rate, n_tokens "
+        f"FROM rh.smart_wallets WHERE wallet='{w}'")
+    wm = await ch.one(
+        f"SELECT realized_pnl, win_rate, n_tokens, trade_count, archetype, "
+        f"first_seen, last_seen FROM rh.wallet_metrics WHERE wallet='{w}'")
+    is_contract = w in (await node.contract_addresses([w]))
+    prof = {"wallet": w, "is_smart": bool(sm), "is_contract": is_contract}
+    if sm:
+        prof.update({
+            "rank": int(sm["rank"]), "smart_score": round(float(sm["smart_score"]), 2),
+            "realized_pnl_usd": round(float(sm["realized_pnl"]), 2),
+            "win_rate": round(float(sm["win_rate"]), 3), "n_tokens": int(sm["n_tokens"]),
+            "why": (f"top-5000 by realized PnL × win rate (rank #{int(sm['rank'])}): "
+                    f"${float(sm['realized_pnl']):,.0f} realized over {int(sm['n_tokens'])} "
+                    f"tokens at a {float(sm['win_rate'])*100:.0f}% win rate; EOA (not a contract)"),
+        })
+    elif wm:
+        reasons = []
+        if is_contract:
+            reasons.append("it's a contract (pool/router), not a trader")
+        if int(wm["n_tokens"] or 0) < 3:
+            reasons.append("fewer than 3 tokens traded")
+        if int(wm["n_tokens"] or 0) > 1000:
+            reasons.append("over 1000 tokens (bot/market-maker pattern)")
+        if float(wm["win_rate"] or 0) < 0.4:
+            reasons.append(f"win rate {float(wm['win_rate'] or 0)*100:.0f}% below 40%")
+        if float(wm["realized_pnl"] or 0) <= 0:
+            reasons.append("no positive realized PnL")
+        if not reasons:
+            reasons.append("profitable but outside the top-5000 cut")
+        prof.update({
+            "realized_pnl_usd": round(float(wm["realized_pnl"] or 0), 2),
+            "win_rate": round(float(wm["win_rate"] or 0), 3),
+            "n_tokens": int(wm["n_tokens"] or 0), "trade_count": int(wm["trade_count"] or 0),
+            "archetype": wm.get("archetype"), "why": "not smart: " + "; ".join(reasons),
+        })
+    else:
+        prof["why"] = "no trading history in the index"
+    return prof

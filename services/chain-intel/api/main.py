@@ -131,3 +131,33 @@ async def wallet_recent_buys(wallet: str, since_block: int = Query(..., ge=0),
     if not ch.is_addr(wallet):
         raise HTTPException(400, "wallet must be a 0x address")
     return await signals.wallet_recent_buys(wallet, since_block, limit)
+
+
+@app.get("/signals/smart-flow")
+async def signals_smart_flow(since_block: int = Query(..., ge=0),
+                             min_smart: int = Query(1, ge=1, le=50),
+                             limit: int = Query(30, ge=1, le=100),
+                             x_internal_api_key: str | None = Header(None)):
+    """Smart-money buys vs SELLS per token since `since_block` (accumulating / distributing)."""
+    _gate(x_internal_api_key)
+    return await signals.smart_flow(since_block, min_smart, limit)
+
+
+@app.get("/signals/token-buyers/{token}")
+async def signals_token_buyers(token: str, since_block: int = Query(0, ge=0),
+                               limit: int = Query(25, ge=1, le=100),
+                               x_internal_api_key: str | None = Header(None)):
+    """WHICH smart wallets bought this token, with why each is smart."""
+    _gate(x_internal_api_key)
+    if not ch.is_addr(token):
+        raise HTTPException(400, "token must be a 0x address")
+    return await signals.token_smart_buyers(token, since_block, limit)
+
+
+@app.get("/wallet/{wallet}/smart-profile")
+async def wallet_smart_profile(wallet: str, x_internal_api_key: str | None = Header(None)):
+    """WHY a wallet is (or isn't) smart — rank, PnL, win rate, tokens; EOA check."""
+    _gate(x_internal_api_key)
+    if not ch.is_addr(wallet):
+        raise HTTPException(400, "wallet must be a 0x address")
+    return await signals.wallet_smart_profile(wallet)
