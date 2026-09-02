@@ -976,6 +976,28 @@ async fn collection_fees(http: &reqwest::Client, slug: &str) -> Vec<(f64, String
     }
 }
 
+/// The currency a collection requires for a LISTING or an OFFER, from OpenSea's
+/// `pricing_currencies` (`field` = "listing_currency" | "offer_currency").
+/// Robinhood collections price in USDG (ERC-20, 6 decimals), NOT native ETH — a
+/// native-ETH order is rejected by OpenSea ("Payment asset … is not supported").
+/// Returns (seaportItemType, tokenAddress, decimals, symbol); falls back to
+/// native ETH (18 dp) when the collection accepts it / is unknown.
+async fn pricing_currency(http: &reqwest::Client, slug: &str, field: &str) -> (u8, String, u32, String) {
+    if !slug.is_empty() {
+        if let Ok(d) = os_get(http, &format!("/collections/{slug}")).await {
+            if let Some(c) = d.pointer(&format!("/pricing_currencies/{field}")) {
+                let addr = c.get("address").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                let dec = c.get("decimals").and_then(|v| v.as_u64()).unwrap_or(18) as u32;
+                let sym = c.get("symbol").and_then(|v| v.as_str()).unwrap_or("ETH").to_string();
+                if addr.starts_with("0x") && addr.len() == 42 && addr != ZERO {
+                    return (1, addr, dec, sym); // ERC-20 (itemType 1)
+                }
+            }
+        }
+    }
+    (0, ZERO.to_string(), 18, "ETH".to_string()) // native ETH (itemType 0)
+}
+
 async fn seaport_counter(http: &reqwest::Client, owner: &str) -> u128 {
     let rpc = rpc();
     let data = format!("{SEL_GET_COUNTER}{}", w_addr(owner));
@@ -1024,7 +1046,11 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
     let slug = body.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let days = body.get("durationDays").and_then(|v| v.as_u64()).unwrap_or(30).clamp(1, 180);
 
-    let price_wei = (price_eth * 1e18) as u128;
+    // The collection's REQUIRED listing currency. Robinhood collections require
+    // USDG (ERC-20, 6dp) — a native-ETH listing is rejected. `price_eth` is the
+    // price in that currency's units (e.g. USDG), scaled by its decimals.
+    let (cur_type, cur_addr, cur_dec, _cur_sym) = pricing_currency(http, &slug, "listing_currency").await;
+    let price_wei = (price_eth * 10f64.powi(cur_dec as i32)) as u128;
     let fees = if slug.is_empty() { vec![] } else { collection_fees(http, &slug).await };
     // consideration: fee items first summed, seller gets the remainder.
     let mut consideration = vec![];
@@ -1037,9 +1063,10 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
     }
     let seller_amt = price_wei.saturating_sub(fee_total);
     // Order: seller proceeds first, then fees (OpenSea's canonical ordering).
-    let mut cons_items = vec![item(0, ZERO, "0", &seller_amt.to_string(), &seller_amt.to_string(), Some(&wallet))];
+    // Every consideration item is denominated in the collection's currency.
+    let mut cons_items = vec![item(cur_type, &cur_addr, "0", &seller_amt.to_string(), &seller_amt.to_string(), Some(&wallet))];
     for (amt, rec) in &consideration {
-        cons_items.push(item(0, ZERO, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
+        cons_items.push(item(cur_type, &cur_addr, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
     }
     let offer = vec![item(2, &token, &token_id, "1", "1", None)];
     let counter = seaport_counter(http, &wallet).await;
@@ -1080,15 +1107,22 @@ pub async fn build_make_offer(http: &reqwest::Client, body: &Value) -> Result<Va
     let slug = body.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let days = body.get("durationDays").and_then(|v| v.as_u64()).unwrap_or(7).clamp(1, 90);
 
-    let price_wei = (price_eth * 1e18) as u128;
+    // The collection's REQUIRED offer currency (Robinhood → USDG, 6dp). An offer
+    // is always an ERC-20 (you cannot bid with native ETH), so when the collection
+    // reports native/unknown, fall back to WETH. `price_eth` is in that currency.
+    let (oc_addr, oc_dec) = {
+        let (t, a, d, _s) = pricing_currency(http, &slug, "offer_currency").await;
+        if t == 1 { (a, d) } else { (SUSHI_WETH.to_string(), 18u32) }
+    };
+    let price_wei = (price_eth * 10f64.powi(oc_dec as i32)) as u128;
     let fees = if slug.is_empty() { vec![] } else { collection_fees(http, &slug).await };
-    // offer: WETH from the bidder. consideration: the NFT to the bidder + fees (WETH).
-    let offer = vec![item(1, SUSHI_WETH, "0", &price_wei.to_string(), &price_wei.to_string(), None)];
+    // offer: the currency from the bidder. consideration: the NFT to the bidder + fees.
+    let offer = vec![item(1, &oc_addr, "0", &price_wei.to_string(), &price_wei.to_string(), None)];
     let mut cons_items = vec![item(2, &token, &token_id, "1", "1", Some(&wallet))];
     for (pct, rec) in &fees {
         let amt = ((price_wei as f64) * pct / 100.0) as u128;
         if amt == 0 { continue; }
-        cons_items.push(item(1, SUSHI_WETH, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
+        cons_items.push(item(1, &oc_addr, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
     }
     let counter = seaport_counter(http, &wallet).await;
     let start = now_secs();
@@ -1107,8 +1141,8 @@ pub async fn build_make_offer(http: &reqwest::Client, body: &Value) -> Result<Va
     // can't pull more than this one offer's WETH.
     let approve = erc20_approve_calldata("0x1E0049783F008A0085193E00003D00cd54003c71", price_wei);
     if let Some(o) = resp.as_object_mut() {
-        o.insert("wethApprove".into(), json!({ "to": SUSHI_WETH, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
-        o.insert("offerCurrency".into(), Value::from(SUSHI_WETH));
+        o.insert("wethApprove".into(), json!({ "to": oc_addr, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
+        o.insert("offerCurrency".into(), Value::from(oc_addr.clone()));
     }
     Ok(resp)
 }

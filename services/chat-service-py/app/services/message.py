@@ -2574,6 +2574,24 @@ async def stream_chat_response(
                             ),
                         }))
                         continue
+                    # opensea_wallet_nfts self-fetches with the user's resolved EVM
+                    # + Solana addresses (the card passes both). A server-side fetch
+                    # here would substitute "self" → the Solana auth wallet, which
+                    # the EVM-only Rust endpoint rejects with a 400 — a wasted call
+                    # whose error could leak into the turn. Skip it; the card owns
+                    # the data.
+                    if validated.type.value == "opensea_wallet_nfts":
+                        market_data_results.append((validated.type.value, params_dict, {
+                            "_card_self_fetch": True,
+                            "note": (
+                                "This renders as a live card that loads the user's own "
+                                "OpenSea NFTs across every chain they hold on (Robinhood "
+                                "+ other EVM chains + Solana). Do NOT give counts or say "
+                                "the wallet is empty — write ONE short sentence "
+                                "introducing the card. The card is the source of truth."
+                            ),
+                        }))
+                        continue
                     _log.info(
                         "market_data_query query_type=%s wallet=%s session=%s",
                         validated.type.value, wallet[:16] + "…", session_id,
