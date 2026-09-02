@@ -54,6 +54,13 @@ class SignerClient:
             {"chain": chain, "enc_key_ref": enc_key_ref, "message": message},
         )
 
+    async def sign_tx(self, enc_key_ref: str, tx: dict) -> dict:
+        """Sign an EIP-1559 tx (copy-trade auto-execute). `tx` = {chain_id, nonce, to,
+        value, data, gas, max_fee_per_gas, max_priority_fee_per_gas} with amounts as
+        strings. Returns {address, raw, hash}; the bot submits `raw` to the node."""
+        return await self._post("/sign-tx", {"chain": "evm", "enc_key_ref": enc_key_ref,
+                                             "tx": tx})
+
     async def health(self) -> dict:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as c:

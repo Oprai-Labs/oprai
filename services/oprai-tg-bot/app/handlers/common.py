@@ -35,6 +35,7 @@ HELP = (
     "/wallet — your custodial Robinhood wallet (create or import)\n"
     "/balance — your ETH balance on Robinhood Chain\n"
     "/portfolio — your holdings\n"
+    "/send &lt;amount&gt; ETH &lt;0xaddress|@user&gt; — transfer ETH\n"
     "/help — this message\n\n"
     "In groups, add me and an admin can top up the group's free quota with "
     "$OPRAI. Actions always run from your own wallet, confirmed privately."
