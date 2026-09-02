@@ -120,10 +120,19 @@ async def estimate_gas(
     call = {"from": from_, "to": to, "value": hex(value_wei), "data": data or "0x"}
     try:
         est = _hex_to_int(await rpc("eth_estimateGas", [call], chain_id))
-    except EvmError:
-        # A bare native send is always 21k; anything else must surface the error.
+    except EvmError as e:
+        # A bare native send is always 21k, and the caller's own balance check
+        # gives a better message than the node's refusal — so answer the gas
+        # question here rather than failing the whole flow.
         if (data or "0x") == "0x":
             return NATIVE_TRANSFER_GAS
+        # For a call, a node won't estimate what the sender can't afford. That
+        # is an affordability answer, not a gas one, and the raw RPC sentence is
+        # not something to show a person.
+        if "insufficient funds" in str(e).lower():
+            raise EvmError(
+                "this wallet doesn't hold enough ETH to cover the amount plus gas"
+            ) from e
         raise
     return int(est * 1.2)  # buffer for state drift between estimate and inclusion
 

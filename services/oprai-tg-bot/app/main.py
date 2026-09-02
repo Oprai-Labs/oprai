@@ -15,7 +15,7 @@ from aiogram.enums import ParseMode
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import alpha, bridge, common, portfolio, send, swap, wallet
+from app.handlers import alpha, bridge, common, launch, portfolio, send, swap, wallet
 from app.logging_config import configure_logging, log
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
@@ -31,6 +31,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(send.router)
     dp.include_router(swap.router)
     dp.include_router(bridge.router)
+    dp.include_router(launch.router)
     return dp
 
 
