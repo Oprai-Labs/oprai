@@ -994,24 +994,27 @@ const OPENSEA_CONDUIT_KEY: &str = "0x61159fefdfada89302ed55f8b9e89e2d67d8258712b
 const OPENSEA_SIGNED_ZONE: &str = "0x000056f7000000ece9003ca63978907a00ffd100";
 const SEL_GET_COUNTER: &str = "0xf07ec373"; // getCounter(address)
 
-/// A collection's order policy in one fetch: its fee items (pct, recipient) and
-/// whether OpenSea requires the Signed Zone V2 for orders on it — true when any
-/// fee other than OpenSea's platform fee (OPENSEA_FEE_RECIPIENT — its `required`
-/// is always true) is `required` (enforced creator
-/// earnings). Unknown/unreachable → (no fees, unrestricted).
-async fn collection_order_policy(http: &reqwest::Client, slug: &str) -> (Vec<(f64, String)>, bool) {
-    let Ok(d) = os_get(http, &format!("/collections/{slug}")).await else { return (vec![], false) };
-    let mut fees = vec![];
-    let mut signed = false;
-    if let Some(a) = d.get("fees").and_then(|f| f.as_array()) {
-        for f in a {
-            let (Some(pct), Some(rec)) = (f.get("fee").and_then(|v| v.as_f64()), f.get("recipient").and_then(|v| v.as_str())) else { continue };
-            let required = f.get("required").and_then(|v| v.as_bool()).unwrap_or(false);
-            if required && !rec.eq_ignore_ascii_case(OPENSEA_FEE_RECIPIENT) { signed = true; }
-            fees.push((pct, rec.to_string()));
-        }
-    }
-    (fees, signed)
+/// The fee items an order must carry: ONLY the fees the collection marks
+/// `required`. Checked against live orders — a FAX offer OpenSea accepted
+/// carried just the 1% platform fee, while the collection also advertises a 10%
+/// creator fee with `required: false`. Billing that optional fee made our offer
+/// cost the user 11% and did not match any order OpenSea had accepted.
+async fn collection_required_fees(http: &reqwest::Client, slug: &str) -> Vec<(f64, String)> {
+    let Ok(d) = os_get(http, &format!("/collections/{slug}")).await else { return vec![] };
+    d.get("fees")
+        .and_then(|f| f.as_array())
+        .map(|a| {
+            a.iter()
+                .filter(|f| f.get("required").and_then(|v| v.as_bool()).unwrap_or(false))
+                .filter_map(|f| {
+                    Some((
+                        f.get("fee").and_then(|v| v.as_f64())?,
+                        f.get("recipient").and_then(|v| v.as_str())?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The currency a collection requires for a LISTING or an OFFER, from OpenSea's
@@ -1089,8 +1092,13 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
     // price in that currency's units (e.g. USDG), scaled by its decimals.
     let (cur_type, cur_addr, cur_dec, _cur_sym) = pricing_currency(http, &slug, "listing_currency").await;
     let price_wei = (price_eth * 10f64.powi(cur_dec as i32)) as u128;
-    let (fees, signed_zone) = if slug.is_empty() { (vec![], false) } else { collection_order_policy(http, &slug).await };
-    let (order_zone, order_type): (&str, u8) = if signed_zone { (OPENSEA_SIGNED_ZONE, 2) } else { (ZERO, 0) };
+    let fees = if slug.is_empty() { vec![] } else { collection_required_fees(http, &slug).await };
+    // Robinhood orders go through OpenSea's Signed Zone V2 as FULL_RESTRICTED.
+    // Verified against live orders on both a collection with enforced creator
+    // fees (Quotrons404) and one without (fax-404): every accepted listing and
+    // offer carries zone 0x000056f7… / orderType 2. Unrestricted orders are
+    // rejected outright on contracts that require the zone.
+    let (order_zone, order_type): (&str, u8) = (OPENSEA_SIGNED_ZONE, 2);
     // consideration: fee items first summed, seller gets the remainder.
     let mut consideration = vec![];
     let mut fee_total: u128 = 0;
@@ -1166,8 +1174,13 @@ pub async fn build_make_offer(http: &reqwest::Client, body: &Value) -> Result<Va
         if t == 1 { (a, d) } else { (SUSHI_WETH.to_string(), 18u32) }
     };
     let price_wei = (price_eth * 10f64.powi(oc_dec as i32)) as u128;
-    let (fees, signed_zone) = if slug.is_empty() { (vec![], false) } else { collection_order_policy(http, &slug).await };
-    let (order_zone, order_type): (&str, u8) = if signed_zone { (OPENSEA_SIGNED_ZONE, 2) } else { (ZERO, 0) };
+    let fees = if slug.is_empty() { vec![] } else { collection_required_fees(http, &slug).await };
+    // Robinhood orders go through OpenSea's Signed Zone V2 as FULL_RESTRICTED.
+    // Verified against live orders on both a collection with enforced creator
+    // fees (Quotrons404) and one without (fax-404): every accepted listing and
+    // offer carries zone 0x000056f7… / orderType 2. Unrestricted orders are
+    // rejected outright on contracts that require the zone.
+    let (order_zone, order_type): (&str, u8) = (OPENSEA_SIGNED_ZONE, 2);
     // offer: the currency from the bidder. consideration: the NFT to the bidder + fees.
     let offer = vec![item(1, &oc_addr, "0", &price_wei.to_string(), &price_wei.to_string(), None)];
     let mut cons_items = vec![item(2, &token, &token_id, "1", "1", Some(&wallet))];
