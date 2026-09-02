@@ -56,18 +56,13 @@ def test_signature_only_steps_are_skipped():
     assert relay.count_transactions(steps) == 2
 
 
-def test_step_fields_are_decimal_strings_passed_through():
-    f = relay._tx_fields_from_step(APPROVE_THEN_SWAP[1]["items"][0]["data"])
-    assert f["to"] == "0xRouter"
-    assert f["value"] == "10000000000000000"  # decimal, not hex
-    assert f["gas"] == "250000"
-    assert f["max_fee_per_gas"] == "1500000000"
-
-
-def test_missing_gas_and_fees_are_left_blank_for_the_caller_to_fill():
-    f = relay._tx_fields_from_step({"to": "0xA", "data": "0x"})
-    assert f["gas"] == "" and f["max_fee_per_gas"] == ""
-    assert f["value"] == "0"
+def test_provider_amounts_parse_as_decimal_or_hex():
+    """Providers mix decimal strings, 0x-hex and ints in the same fields."""
+    from app.services import evm
+    assert evm.to_int("10000000000000000") == 10**16
+    assert evm.to_int("0x5208") == 21000
+    assert evm.to_int(21000) == 21000
+    assert evm.to_int("") == 0 and evm.to_int(None) == 0
 
 
 def test_native_sentinel_is_the_zero_address():

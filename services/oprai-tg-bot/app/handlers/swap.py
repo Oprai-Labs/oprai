@@ -1,9 +1,11 @@
-"""/swap — trade on Robinhood Chain through Relay.
+"""/swap — trade on Robinhood Chain.
 
-Relay is how OPRAI swaps on EVM, and OPRAI's commission is applied server-side
-in the quote, so what the card shows is what the user gets. An ERC-20 input
-needs an approval first; Relay returns that as an extra step and we execute
-every step in order, confirming each before the next.
+Two venues, picked by what is being traded:
+  • tokenized stocks (NVDA, TSLA, …) live in Uniswap V3 pools — Relay doesn't
+    route them at all,
+  • ETH / WETH / USDG go through Relay, which is how OPRAI swaps on EVM.
+Either way OPRAI's commission is applied server-side in the quote, the bot signs
+with the isolated signer, and nothing counts as done until a receipt says so.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from app.services import evm
 from app.services import portfolio as pf
 from app.services import relay
 from app.services import tokens as tok
+from app.services import uniswap
 from app.services import wallet as wallet_svc
 from app.signer_client import SignerError
 
@@ -33,8 +36,9 @@ _pending: dict[str, dict] = {}
 USAGE = (
     "Usage: <code>/swap &lt;amount&gt; &lt;from&gt; &lt;to&gt;</code>\n"
     "Examples:\n"
-    "• <code>/swap 0.01 ETH USDG</code>\n"
-    "• <code>/swap 25 USDG WETH</code>"
+    "• <code>/swap 0.01 ETH NVDA</code> — buy a stock\n"
+    "• <code>/swap 5 NVDA USDG</code> — sell one\n"
+    "• <code>/swap 0.01 ETH USDG</code>"
 )
 
 
@@ -43,7 +47,7 @@ def _fmt_units(amount: int, decimals: int) -> str:
 
 
 async def _resolve_side(ref: str) -> tuple[str, str, int, bool] | None:
-    """-> (relay_currency, symbol, decimals, is_stock). ETH -> zero-address."""
+    """-> (currency_address, symbol, decimals, is_stock). ETH -> zero address."""
     r = ref.strip().lstrip("$")
     if r.upper() == "ETH":
         return relay.NATIVE, "ETH", 18, False
@@ -89,13 +93,14 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
     dst_addr, dst_sym, _, dst_stock = dst
     addr = await wallet_svc.wallet_address(user.id)
 
-    # Refuse before quoting if the wallet plainly can't fund the input — a card
-    # the user can't complete is our failure, not theirs.
+    # Tokenized stocks trade on Uniswap; Relay doesn't list them.
+    venue = "uniswap" if (src_stock or dst_stock) else "relay"
+
+    # Refuse before quoting if the wallet plainly can't fund it — a card the
+    # user can't complete is our failure, not theirs.
     try:
-        if src_addr == relay.NATIVE:
-            have = (await pf.native_balance(user.id))["wei"]
-        else:
-            have = await tok.token_balance(src_addr, addr)
+        native = (await pf.native_balance(user.id))["wei"]
+        have = native if src_addr == relay.NATIVE else await tok.token_balance(src_addr, addr)
     except (pf.PortfolioError, evm.EvmError) as e:
         await message.answer(f"⚠️ Couldn't read your balance: {e}")
         return
@@ -107,49 +112,76 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
             f"and tried to swap {amount_str}."
         )
         return
+    if native == 0:
+        await message.answer(
+            "You have no ETH on Robinhood Chain, so there's nothing to pay gas "
+            f"with.\n\nFund <code>{addr}</code> and try again."
+        )
+        return
 
     await message.answer(f"Getting the best route for {amount_str} {src_sym} → {dst_sym}…")
     try:
         jwt = await auth_svc.get_jwt(user.id)
-        params = relay.build_params(
-            origin_currency=src_addr,
-            destination_currency=dst_addr,
-            amount=str(amount),
-            sender=addr,
-            recipient=addr,
-        )
-        q = await relay.quote(jwt, params)
-    except (relay.RelayError, auth_svc.AuthError) as e:
-        if src_stock or dst_stock:
-            # Relay lists liquid assets, not Robinhood's tokenized stocks.
-            stock = src_sym if src_stock else dst_sym
-            await message.answer(
-                f"Relay doesn't route <b>{stock}</b> — tokenized stocks trade on "
-                "Robinhood's own venues. Stock swaps are coming next; for now you "
-                "can swap ETH, WETH and USDG here, and /send any stock you hold."
+        if venue == "uniswap":
+            params = uniswap.build_params(
+                origin_currency=src_addr,
+                destination_currency=dst_addr,
+                amount=str(amount),
+                sender=addr,
             )
-            return
+            q = await uniswap.quote(jwt, params)
+            s = uniswap.summarize(q)
+            out_amount, out_symbol = s["out_amount"], dst_sym
+            extra = ""
+            if s["impact"] is not None:
+                extra += f"\nPrice impact: {s['impact']}%"
+            if s["gas_usd"]:
+                extra += f"\nEstimated gas: ${float(s['gas_usd']):.4f}"
+            steps = uniswap.transaction_count(q)
+            if steps > 1 or s["needs_permit"]:
+                extra += f"\n<i>{steps} transaction(s)"
+                extra += " + a permit signature" if s["needs_permit"] else ""
+                extra += " — I'll walk through them.</i>"
+        else:
+            params = relay.build_params(
+                origin_currency=src_addr,
+                destination_currency=dst_addr,
+                amount=str(amount),
+                sender=addr,
+                recipient=addr,
+            )
+            rq = await relay.quote(jwt, params)
+            rs = relay.summarize(rq)
+            out_amount, out_symbol = rs["out"]["amount"], rs["out"]["symbol"]
+            extra = ""
+            if rs["out"].get("usd"):
+                extra += f"\nValue: ~${rs['out']['usd']}"
+            if rs.get("eta_s"):
+                extra += f"\nETA: ~{rs['eta_s']}s"
+    except (relay.RelayError, uniswap.UniswapError, auth_svc.AuthError) as e:
         await message.answer(f"⚠️ No route right now: {e}")
         return
 
-    s = relay.summarize(q)
     pid = secrets.token_urlsafe(8)
-    _pending[pid] = {"telegram_id": user.id, "params": params, "src": src_sym, "dst": dst_sym,
-                     "amount": amount_str}
-
-    usd = f" (~${s['out']['usd']})" if s["out"].get("usd") else ""
-    eta = f"\nETA: ~{s['eta_s']}s" if s.get("eta_s") else ""
-    impact = f"\nPrice impact: {s['impact']}%" if s.get("impact") else ""
+    _pending[pid] = {
+        "telegram_id": user.id,
+        "venue": venue,
+        "params": params,
+        "src": src_sym,
+        "dst": dst_sym,
+        "amount": amount_str,
+    }
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Confirm swap", callback_data=f"swap:ok:{pid}"),
         InlineKeyboardButton(text="Cancel", callback_data=f"swap:no:{pid}"),
     ]])
-    await audit(user.id, "swap_quoted", {"from": src_sym, "to": dst_sym, "amount": amount_str})
+    await audit(user.id, "swap_quoted",
+                {"venue": venue, "from": src_sym, "to": dst_sym, "amount": amount_str})
     await message.answer(
         f"<b>Swap {amount_str} {src_sym} → {dst_sym}</b> · Robinhood Chain\n\n"
-        f"You receive: <b>{s['out']['amount']} {s['out']['symbol']}</b>{usd}"
-        f"{impact}{eta}\n\n"
-        "<i>Quote includes OPRAI's fee. Rates move — confirm to execute.</i>",
+        f"You receive: <b>{out_amount} {out_symbol}</b>{extra}\n\n"
+        f"<i>via {'Uniswap' if venue == 'uniswap' else 'Relay'} · quote includes "
+        "OPRAI's fee. Rates move — confirm to execute.</i>",
         reply_markup=kb,
     )
 
@@ -174,35 +206,43 @@ async def swap_confirm(cb: CallbackQuery) -> None:
     await cb.answer()
     await cb.message.edit_text(f"Preparing {p['amount']} {p['src']} → {p['dst']}…")
 
+    async def progress(i: int, total: int, kind: str) -> None:
+        await cb.message.edit_text(
+            f"⏳ {p['amount']} {p['src']} → {p['dst']}\nStep {i}/{total}: {kind}…"
+        )
+
+    request_id = None
     try:
         jwt = await auth_svc.get_jwt(p["telegram_id"])
-        # Re-quote at execution time: the earlier price was indicative.
-        steps, request_id, q = await relay.build(jwt, p["params"])
         w = await wallet_svc.get_or_create_wallet(p["telegram_id"])
-
-        async def progress(i: int, total: int, kind: str) -> None:
-            await cb.message.edit_text(
-                f"⏳ {p['amount']} {p['src']} → {p['dst']}\nStep {i}/{total}: {kind}…"
+        # Re-price at execution time: the earlier quote was indicative, and a
+        # permit carries a deadline.
+        if p["venue"] == "uniswap":
+            fresh = await uniswap.quote(jwt, p["params"])
+            hashes = await uniswap.execute(
+                jwt, w["enc_key_ref"], w["address"], fresh, on_step=progress
             )
-
-        hashes = await relay.execute_steps(
-            w["enc_key_ref"], w["address"], steps, on_step=progress
-        )
-    except (relay.RelayError, auth_svc.AuthError, evm.EvmError, SignerError) as e:
-        log.warning("swap_failed", telegram_id=p["telegram_id"], error=str(e))
-        await audit(p["telegram_id"], "swap_failed", {"error": str(e)[:200]})
+            out = f"{fresh.get('outputAmountDisplay')} {p['dst']}"
+        else:
+            steps, request_id, rq = await relay.build(jwt, p["params"])
+            hashes = await relay.execute_steps(
+                w["enc_key_ref"], w["address"], steps, on_step=progress
+            )
+            out = f"{relay.summarize(rq)['out']['amount']} {p['dst']}"
+    except (relay.RelayError, uniswap.UniswapError, auth_svc.AuthError,
+            evm.EvmError, SignerError) as e:
+        log.warning("swap_failed", telegram_id=p["telegram_id"], venue=p["venue"], error=str(e))
+        await audit(p["telegram_id"], "swap_failed", {"venue": p["venue"], "error": str(e)[:200]})
         await cb.message.edit_text(f"❌ Swap failed: {e}")
         return
 
-    last = hashes[-1]
-    link = f'<a href="{EXPLORER}{last}">{last[:10]}…</a>'
     if request_id:
         await relay.record(jwt, request_id)  # book volume/tier; never fatal
-    await audit(p["telegram_id"], "swap_confirmed", {"hashes": hashes, "requestId": request_id})
+    await audit(p["telegram_id"], "swap_confirmed", {"venue": p["venue"], "hashes": hashes})
 
-    out = relay.summarize(q)["out"]
+    last = hashes[-1]
+    link = f'<a href="{EXPLORER}{last}">{last[:10]}…</a>'
     await cb.message.edit_text(
-        f"✅ Swapped <b>{p['amount']} {p['src']}</b> → "
-        f"<b>{out['amount']} {out['symbol']}</b>\n{link}"
+        f"✅ Swapped <b>{p['amount']} {p['src']}</b> → <b>{out}</b>\n{link}"
         + (f"\n<i>{len(hashes)} transactions</i>" if len(hashes) > 1 else "")
     )
