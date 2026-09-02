@@ -526,6 +526,9 @@ class QueryType(str, Enum):
     RH_SMART_MONEY = "rh_smart_money"
     RH_COHORT_FLOW = "rh_cohort_flow"
     RH_HONEYPOT = "rh_honeypot"
+    RH_SMART_FLOW = "rh_smart_flow"
+    RH_TOKEN_SMART_BUYERS = "rh_token_smart_buyers"
+    RH_WALLET_SMART_PROFILE = "rh_wallet_smart_profile"
     BIRDEYE_SEARCH = "birdeye_search"
     BIRDEYE_PRICE_HISTORY = "birdeye_price_history"
     # DexScreener
