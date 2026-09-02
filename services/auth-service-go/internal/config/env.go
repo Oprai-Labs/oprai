@@ -45,6 +45,14 @@ type Config struct {
 	// r.RemoteAddr is always used, preventing IP spoofing via headers.
 	TrustProxyHeaders bool
 
+	// AuthRateLimitAttempts / AuthRateLimitWindowSeconds bound the per-IP
+	// attempts on /auth/nonce and /auth/verify. The defaults (10 per 15 min)
+	// are the production posture; an automated test suite legitimately makes
+	// more than that in a burst, so a dev environment can raise them via
+	// AUTH_RATE_LIMIT_ATTEMPTS / AUTH_RATE_LIMIT_WINDOW_SECONDS.
+	AuthRateLimitAttempts      int
+	AuthRateLimitWindowSeconds int
+
 	// Derived constants
 	SessionTTLSeconds int // configurable via SESSION_TTL_SECONDS; default 3 days
 	NonceTTLSeconds   int // 10 minutes = 600
@@ -93,6 +101,8 @@ func Load() (*Config, error) {
 		TelegramBotUsername: getEnv("OPRAI_TG_BOT_USERNAME", ""),
 		Environment:       environment,
 		TrustProxyHeaders: trustProxy,
+		AuthRateLimitAttempts:      getEnvInt("AUTH_RATE_LIMIT_ATTEMPTS", 10),
+		AuthRateLimitWindowSeconds: getEnvInt("AUTH_RATE_LIMIT_WINDOW_SECONDS", 15*60),
 		SessionTTLSeconds: getEnvInt("SESSION_TTL_SECONDS", 60*60*24*3), // 3 days default
 		NonceTTLSeconds:   60 * 10,                                      // 10 minutes
 	}
