@@ -128,6 +128,49 @@ async def resolve_symbols(tokens: list[str]) -> dict[str, str]:
     return out
 
 
+async def balances_of(wallet: str, tokens: list[str]) -> dict[str, float]:
+    """LIVE ERC20 balances: batched `balanceOf(wallet)` (selector 0x70a08231) for each
+    token → {token: raw_units}. The index knows what a wallet EVER touched; only the
+    node knows what it holds RIGHT NOW. Fails open (empty) so a node hiccup degrades
+    to index-derived numbers instead of showing a wrong portfolio."""
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return {}
+    data = "0x70a08231" + _enc_addr(wallet)
+    batch = [{"jsonrpc": "2.0", "id": i, "method": "eth_call",
+              "params": [{"to": t, "data": data}, "latest"]}
+             for i, t in enumerate(tokens)]
+    try:
+        async with httpx.AsyncClient(timeout=25) as c:
+            r = await c.post(NODE, json=batch)
+            res = r.json() or []
+    except Exception:
+        return {}
+    by_id = {item.get("id"): item.get("result") for item in res if isinstance(item, dict)}
+    out: dict[str, float] = {}
+    for i, t in enumerate(tokens):
+        hx = by_id.get(i) or "0x"
+        try:
+            v = int(hx, 16) if hx not in ("0x", "", None) else 0
+        except ValueError:
+            v = 0
+        if v > 0:
+            out[t] = float(v)
+    return out
+
+
+async def native_balance(wallet: str) -> float:
+    """Native ETH balance in ether."""
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_getBalance",
+               "params": [wallet, "latest"]}
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(NODE, json=payload)
+            return int((r.json() or {}).get("result") or "0x0", 16) / 1e18
+    except Exception:
+        return 0.0
+
+
 async def contract_addresses(addresses: list[str]) -> set[str]:
     """The subset of `addresses` that are CONTRACTS (have bytecode) — one batched
     eth_getCode call. Used to drop LP pools / routers / other contracts from

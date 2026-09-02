@@ -154,6 +154,16 @@ async def signals_token_buyers(token: str, since_block: int = Query(0, ge=0),
     return await signals.token_smart_buyers(token, since_block, limit)
 
 
+@app.get("/wallet/{wallet}/balances")
+async def wallet_balances(wallet: str, limit: int = Query(60, ge=1, le=200),
+                          x_internal_api_key: str | None = Header(None)):
+    """LIVE holdings + per-token USD value + portfolio total (node balanceOf)."""
+    _gate(x_internal_api_key)
+    if not ch.is_addr(wallet):
+        raise HTTPException(400, "wallet must be a 0x address")
+    return await signals.wallet_balances(wallet, limit)
+
+
 @app.get("/wallet/{wallet}/smart-profile")
 async def wallet_smart_profile(wallet: str, x_internal_api_key: str | None = Header(None)):
     """WHY a wallet is (or isn't) smart — rank, PnL, win rate, tokens; EOA check."""

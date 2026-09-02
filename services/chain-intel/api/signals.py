@@ -9,6 +9,8 @@ per subscription and asks "what's new since". That makes the feed idempotent and
 gap-free across bot restarts."""
 from __future__ import annotations
 
+import asyncio
+
 from . import ch, node
 
 _ZERO = "0x0000000000000000000000000000000000000000"
@@ -275,6 +277,70 @@ async def token_smart_buyers(token: str, since_block: int = 0, limit: int = 25) 
     } for r in rows]
     return {"tip": tip, "token": t, "since_block": int(since_block),
             "smart_buyers": len(buyers), "buyers": buyers}
+
+
+async def wallet_balances(wallet: str, limit: int = 60) -> dict:
+    """LIVE portfolio: what this wallet holds RIGHT NOW and what it's worth.
+
+    The index says what a wallet ever touched; the node says what's still there. So:
+    candidate tokens from the index (anything with a positive net balance), live
+    `balanceOf` from the node, priced off the daily price series, plus native ETH.
+    Returns per-token value and the portfolio total — the "token değerleri / toplam
+    bakiye" the index alone can't answer."""
+    w = ch.addr(wallet)
+    # Candidates from the PRE-AGGREGATED position ledger — scanning raw transfers for
+    # an active wallet costs ~10s, this is keyed by wallet. Fall back to the raw scan
+    # only if the derived table isn't built yet.
+    if await ch.table_exists("wallet_token_positions"):
+        cands = await ch.q(f"""
+            SELECT token FROM rh.wallet_token_positions
+            WHERE wallet='{w}' AND holding > 0
+            ORDER BY holding DESC LIMIT {int(limit)}""")
+    else:
+        cands = await ch.q(f"""
+            SELECT token, sum(net) AS net FROM (
+              SELECT token, toFloat64(value) AS net FROM rh.token_transfers
+              WHERE to_addr='{w}' AND kind='erc20'
+              UNION ALL
+              SELECT token, -toFloat64(value) FROM rh.token_transfers
+              WHERE from_addr='{w}' AND kind='erc20'
+            ) GROUP BY token HAVING net > 0
+            ORDER BY net DESC LIMIT {int(limit)}""")
+    tokens = [r["token"] for r in cands]
+    live, eth, meta = await asyncio.gather(
+        node.balances_of(w, tokens), node.native_balance(w), _token_meta(tokens))
+    price = {}
+    if live:
+        inl = ",".join(f"'{t}'" for t in live)
+        prows = await ch.q(
+            f"SELECT token, argMax(price_usd, timestamp) AS px FROM rh.token_prices "
+            f"WHERE token IN ({inl}) GROUP BY token")
+        price = {r["token"]: float(r.get("px") or 0) for r in prows}
+    # ETH/USD from the canonical daily series (the wallet needn't hold WETH itself).
+    eth_usd = float(await ch.scalar(
+        "SELECT argMax(weth_usd, day) FROM rh.weth_price") or 0.0)
+    holdings, total = [], eth * eth_usd
+    for t, raw in live.items():
+        amt = raw / 1e18
+        px = price.get(t, 0.0)
+        val = amt * px
+        total += val
+        m = meta.get(t, {})
+        holdings.append({
+            "token": t, "symbol": m.get("symbol"), "amount": round(amt, 6),
+            "price_usd": px or None, "value_usd": round(val, 2) if px else None,
+            "priced": bool(px),
+        })
+    holdings.sort(key=lambda h: (h["value_usd"] or 0), reverse=True)
+    return {
+        "wallet": w,
+        "native_eth": round(eth, 6),
+        "native_usd": round(eth * eth_usd, 2) if eth_usd else None,
+        "token_count": len(holdings),
+        "unpriced_tokens": sum(1 for h in holdings if not h["priced"]),
+        "total_usd": round(total, 2) if eth_usd or price else None,
+        "holdings": holdings,
+    }
 
 
 async def wallet_smart_profile(wallet: str) -> dict:
