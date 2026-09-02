@@ -445,6 +445,7 @@ class ActionType(str, Enum):
     PONS_LAUNCH = "pons_launch"
     # SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity, unsigned EVM txs.
     SUSHI_SWAP = "sushi_swap"
+    EVM_WRAP = "evm_wrap"  # native <-> wrapped-native (ETH<->WETH) on any EVM chain
     SUSHI_ADD_LIQUIDITY = "sushi_add_liquidity"
     # OpenSea (Seaport) NFT marketplace on Robinhood Chain.
     OPENSEA_BUY = "opensea_buy"                    # fulfill a listing (tx)
@@ -920,6 +921,8 @@ _FUND_MOVING_ACTIONS: frozenset[str] = frozenset({
     "morpho_supply", "morpho_borrow", "morpho_repay", "morpho_withdraw",
     # SushiSwap (Robinhood Chain) — swap spends input; add-liquidity deposits both legs
     "sushi_swap", "sushi_add_liquidity",
+    # Native <-> wrapped (ETH <-> WETH) on any EVM chain — moves the user's native/WETH
+    "evm_wrap",
     # OpenSea (Robinhood Chain) — buy spends ETH; accept-offer transfers the NFT;
     # list/make-offer are signed orders that move value on acceptance.
     "opensea_buy", "opensea_mint", "opensea_accept_offer", "opensea_list", "opensea_make_offer",
@@ -1189,6 +1192,7 @@ def validate_action_params(
         # SushiSwap — a swap needs both sides; add-liquidity resolves the rest in
         # the card (pool picker + amount).
         "sushi_swap":       ("tokenIn", "tokenOut"),
+        "evm_wrap":         ("amount",),
         # OpenSea buy needs the listing to fulfill.
         "opensea_buy":      ("orderHash",),
         # OpenSea mint needs the collection (slug) or its contract; the card

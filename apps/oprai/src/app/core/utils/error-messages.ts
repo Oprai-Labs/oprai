@@ -504,6 +504,18 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
     return 'This token can’t be traded yet — it isn’t live on a pool. If it’s a crowd launch, commit to the auction instead.';
   }
 
+  // OpenSea order price increment: "Bids at this price are not allowed. Please
+  // place a bid in the nearest allowed increment. 4 decimals allowed. Received
+  // 0.000991 per unit, expected 0.001." — tell them the exact step and number.
+  if (/an offer amount is required|a price is required/i.test(lower)) {
+    return 'Enter an amount first — OpenSea prices use up to 4 decimals (minimum 0.0001).';
+  }
+  if (/nearest allowed increment|decimals allowed|bids at this price are not allowed/i.test(lower)) {
+    const dec = /(\d+)\s*decimals? allowed/i.exec(msg)?.[1];
+    const expected = /expected\s+([0-9.]+)/i.exec(msg)?.[1];
+    return `OpenSea only accepts prices with up to ${dec ?? 4} decimals`
+      + (expected ? ` — try ${expected}.` : ' — round your amount and try again.');
+  }
   // Catch-all. Everything a user can act on has been mapped to prose above, so
   // whatever is still here is unmapped by definition — and if it still reads
   // like machinery (identifiers, field names, codes, payloads) it is worse

@@ -360,6 +360,13 @@ func (p *SolanaProxy) PostOpenseaMakeOffer(w http.ResponseWriter, r *http.Reques
 	r.URL.Path = "/actions/opensea/make-offer"
 	p.proxy.ServeHTTP(w, r)
 }
+
+// PostEvmWrap proxies POST /actions/evm/wrap — native ↔ wrapped-native
+// (ETH ↔ WETH, …) on any EVM chain.
+func (p *SolanaProxy) PostEvmWrap(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/actions/evm/wrap"
+	p.proxy.ServeHTTP(w, r)
+}
 func (p *SolanaProxy) PostOpenseaOrderSubmit(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "/actions/opensea/order/submit"
 	p.proxy.ServeHTTP(w, r)

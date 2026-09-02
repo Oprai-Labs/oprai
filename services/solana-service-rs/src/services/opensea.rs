@@ -65,9 +65,35 @@ fn os_chain_name(slug: &str) -> &'static str {
 const ZERO: &str = "0x0000000000000000000000000000000000000000";
 /// Seaport 1.6 — canonical address, verified deployed on 4663.
 pub const SEAPORT: &str = "0x0000000000000068F116a894984e2DB1123eB395";
-/// OpenSea's canonical conduit — the spender that pulls ERC-20 payment (USDG) on
-/// a fulfillment, so an ERC-20-priced buy must approve it first.
-const OPENSEA_CONDUIT: &str = "0x1E0049783F008A0085193E00003D00cd54003c71";
+/// Seaport's ConduitController (canonical) — resolves the conduit a given
+/// conduit key pulls ERC-20 payment through, so an ERC-20 buy approves the RIGHT
+/// (per-order) conduit rather than a fixed one.
+const CONDUIT_CONTROLLER: &str = "0x00000000F9490004C11Cef243f5400493c00Ad63";
+const SEL_GET_CONDUIT: &str = "0x6e9bfd9f"; // getConduit(bytes32)->(address,bool)
+
+/// Resolve the conduit address for a Seaport conduit key. Zero key → Seaport
+/// pulls the token directly (approve Seaport itself); else getConduit on the
+/// ConduitController gives the per-owner conduit. Falls back to Seaport on any
+/// failure so the buy still has a spender to approve.
+async fn resolve_conduit(http: &reqwest::Client, rpc: &str, key_hex: &str) -> String {
+    let key = key_hex.trim().trim_start_matches("0x");
+    if key.is_empty() || key.chars().all(|c| c == '0') {
+        return SEAPORT.to_string();
+    }
+    let data = format!("{SEL_GET_CONDUIT}{key:0>64}");
+    match crate::services::uniswap::eth_call(http, rpc, CONDUIT_CONTROLLER, &data).await {
+        Ok(h) => {
+            let h = h.trim_start_matches("0x");
+            if h.len() >= 64 {
+                let addr = format!("0x{}", &h[24..64]);
+                if addr[2..].chars().all(|c| c == '0') { SEAPORT.to_string() } else { addr }
+            } else {
+                SEAPORT.to_string()
+            }
+        }
+        Err(_) => SEAPORT.to_string(),
+    }
+}
 
 /// Robinhood Chain public RPC (for the Seaport getCounter read). Overridable.
 fn rpc() -> String {
@@ -109,6 +135,24 @@ fn w_addr(a: &str) -> String { format!("{:0>64}", a.trim_start_matches("0x").to_
 /// unbounded `u128::MAX` allowance.
 fn erc20_approve_calldata(spender: &str, amount_wei: u128) -> String {
     format!("095ea7b3{}{}", w_addr(spender), format!("{amount_wei:064x}"))
+}
+
+/// ERC-721/1155 `setApprovalForAll(operator, approved)` calldata (selector
+/// 0xa22cb465). Grants the Seaport conduit permission to transfer the seller's
+/// NFTs on a fill — OpenSea rejects a listing whose conduit isn't approved.
+fn set_approval_for_all_calldata(operator: &str, approved: bool) -> String {
+    format!("a22cb465{}{}", w_addr(operator), format!("{:064x}", approved as u8))
+}
+
+/// Is `operator` already approved to move ALL of `owner`'s NFTs on `contract`?
+/// isApprovedForAll(address,address)->bool, selector 0xe985e9c5. false on any
+/// read error (so we then include the approval tx rather than silently skip it).
+async fn is_approved_for_all(http: &reqwest::Client, rpc: &str, contract: &str, owner: &str, operator: &str) -> bool {
+    let data = format!("0xe985e9c5{}{}", w_addr(owner), w_addr(operator));
+    match crate::services::uniswap::eth_call(http, rpc, contract, &data).await {
+        Ok(h) => h.trim_start_matches("0x").trim_start_matches('0') == "1",
+        Err(_) => false,
+    }
 }
 fn b32(s: &str) -> String { format!("{:0>64}", s.trim_start_matches("0x").to_lowercase()) }
 /// Decimal (or 0x-hex) string → a 256-bit big-endian hex word (handles values
@@ -723,17 +767,74 @@ pub struct OpenseaWalletParams {
     pub limit: Option<usize>,
     #[serde(default)]
     pub chain: String,
+    // The caller's Solana address, so "my nfts" spans OpenSea's Solana chain
+    // too (the user's EVM `wallet` can't hold Solana NFTs). Best-effort.
+    #[serde(default, alias = "solWallet")]
+    pub sol_wallet: Option<String>,
 }
 
-/// A wallet's NFTs on Robinhood Chain (to list/sell from).
+/// A wallet's OpenSea NFTs. With no chain named, aggregate across the wallet's
+/// EVM chains (so the user sees their FULL OpenSea holdings, not just Robinhood);
+/// a named chain narrows to that one. Each row carries its chain.
 pub async fn build_wallet_nfts(http: &reqwest::Client, p: &OpenseaWalletParams) -> Result<BuildResponse, AppError> {
-    let w = p.wallet.trim().to_lowercase();
-    if !(w.starts_with("0x") && w.len() == 42) { return Err(AppError::InvalidParams("opensea: wallet address required".into())); }
-    let limit = p.limit.unwrap_or(40).clamp(1, 50);
-    let ch = os_chain(&p.chain);
-    let body = os_get(http, &format!("/chain/{ch}/account/{w}/nfts?limit={limit}")).await?;
-    let rows: Vec<Value> = body.get("nfts").and_then(|v| v.as_array()).map(|a| a.iter().map(shape_nft).collect()).unwrap_or_default();
-    Ok(read_envelope("opensea_wallet_nfts", format!("{} NFT(s) held on Robinhood Chain.", rows.len()), json!({ "wallet": w, "nfts": rows, "chain": ch })))
+    let evm = p.wallet.trim().to_lowercase();
+    let evm_ok = evm.starts_with("0x") && evm.len() == 42;
+    let sol = p.sol_wallet.as_deref().unwrap_or("").trim().to_string();
+    let sol_ok = !sol.is_empty() && !sol.starts_with("0x") && (32..=44).contains(&sol.len());
+    let limit = p.limit.unwrap_or(30).clamp(1, 50);
+
+    // Build (chain, owner) targets. A named chain narrows to one (Solana uses the
+    // Solana address, every other chain the EVM one). With no chain named,
+    // aggregate the wallet's EVM chains PLUS Solana — so "my nfts" returns the
+    // user's FULL OpenSea holdings across every chain they actually hold on,
+    // not just one side.
+    let mut targets: Vec<(String, String)> = Vec::new();
+    if !p.chain.trim().is_empty() {
+        let ch = os_chain(&p.chain);
+        let owner = if ch == "solana" { sol.clone() } else { evm.clone() };
+        if !owner.is_empty() { targets.push((ch, owner)); }
+    } else {
+        if evm_ok {
+            for ch in ["robinhood", "ethereum", "base", "arbitrum", "optimism", "matic"] {
+                targets.push((ch.to_string(), evm.clone()));
+            }
+        }
+        if sol_ok {
+            targets.push(("solana".to_string(), sol.clone()));
+        }
+    }
+    if targets.is_empty() {
+        return Err(AppError::InvalidParams("opensea: a wallet address is required".into()));
+    }
+    // Fetch each (chain, owner) concurrently; tag every NFT with the chain it's on.
+    let futs = targets.iter().map(|(ch, owner)| {
+        let http = http.clone(); let ch = ch.clone(); let owner = owner.clone();
+        async move {
+            let body = os_get(&http, &format!("/chain/{ch}/account/{owner}/nfts?limit={limit}")).await.ok();
+            let mut out: Vec<Value> = Vec::new();
+            if let Some(a) = body.as_ref().and_then(|b| b.get("nfts")).and_then(|v| v.as_array()) {
+                for n in a {
+                    let mut row = shape_nft(n);
+                    if let Some(o) = row.as_object_mut() {
+                        o.insert("chain".into(), Value::from(ch.clone()));
+                        o.insert("chainName".into(), Value::from(os_chain_name(&ch)));
+                    }
+                    out.push(row);
+                }
+            }
+            out
+        }
+    });
+    let rows: Vec<Value> = join_all(futs).await.into_iter().flatten().collect();
+    let single = targets.len() == 1;
+    let primary = if single { targets[0].0.clone() } else { CHAIN_SLUG.to_string() };
+    let desc = if single {
+        format!("{} NFT(s) held on {}.", rows.len(), os_chain_name(&primary))
+    } else {
+        format!("{} NFT(s) across your OpenSea chains.", rows.len())
+    };
+    let wallet_echo = if evm_ok { evm } else { sol };
+    Ok(read_envelope("opensea_wallet_nfts", desc, json!({ "wallet": wallet_echo, "nfts": rows, "chain": primary })))
 }
 
 // ── Buy (fulfill a listing) ──────────────────────────────────────────────────
@@ -779,38 +880,46 @@ pub async fn build_buy(http: &reqwest::Client, body: &Value) -> Result<Value, Ap
     let function = tx.get("function").and_then(|v| v.as_str()).unwrap_or("");
     let suffix = tx.get("calldata_suffix").and_then(|v| v.as_str()).unwrap_or("").trim_start_matches("0x").to_string();
 
-    let (calldata, cons_token, cons_total) = if function.starts_with("fulfillBasicOrder_efficient_6GL6yc") {
+    let (calldata, cons_token, cons_total, conduit_key) = if function.starts_with("fulfillBasicOrder_efficient_6GL6yc") {
         let p = tx.pointer("/input_data/parameters")
             .ok_or_else(|| AppError::Internal("OpenSea fulfillment missing parameters".into()))?;
         // Consideration token: native ETH (zero) needs no approval; an ERC-20
-        // (USDG on Robinhood) is pulled by Seaport via the conduit → approve first.
+        // (USDG on Robinhood) is pulled by Seaport via the fulfiller's CONDUIT →
+        // approve that conduit first.
         let ct = p.get("considerationToken").and_then(|v| v.as_str()).unwrap_or(ZERO).to_lowercase();
         let mut total: u128 = p.get("considerationAmount").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
         if let Some(ar) = p.get("additionalRecipients").and_then(|v| v.as_array()) {
             for a in ar { total += a.get("amount").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0); }
         }
-        (encode_fulfill_basic_order(p, &suffix)?, ct, total)
+        let key = p.get("fulfillerConduitKey").and_then(|v| v.as_str())
+            .or_else(|| p.get("offererConduitKey").and_then(|v| v.as_str()))
+            .unwrap_or("").to_string();
+        (encode_fulfill_basic_order(p, &suffix)?, ct, total, key)
     } else {
         return Err(AppError::InvalidParams(
             "opensea: this listing type isn't buyable in-app yet — open it on OpenSea.".into(),
         ));
     };
 
-    // For an ERC-20-priced listing, prepend an approval to the OpenSea conduit if
-    // the wallet's allowance can't cover the buy — else Seaport can't pull the
-    // token and the fulfill reverts. Native ETH (zero token, non-zero tx value)
-    // needs nothing.
+    // For an ERC-20-priced listing, prepend an approval to the conduit Seaport
+    // will pull the token through — derived from the order's fulfillerConduitKey
+    // (NOT a fixed address; OpenSea uses per-owner conduits). Without the exact
+    // conduit the token pull reverts and the wallet can't estimate gas. Native
+    // ETH (zero token) needs nothing.
     let mut txs = vec![];
     if cons_token.starts_with("0x") && cons_token.len() == 42 && !cons_token.eq_ignore_ascii_case(ZERO) && cons_total > 0 {
         let rpc = rpc();
-        let allow_data = format!("0xdd62ed3e{}{}", w_addr(wallet), w_addr(OPENSEA_CONDUIT));
+        let spender = resolve_conduit(http, &rpc, &conduit_key).await;
+        let allow_data = format!("0xdd62ed3e{}{}", w_addr(wallet), w_addr(&spender));
         let have = crate::services::uniswap::eth_call(http, &rpc, &cons_token, &allow_data)
             .await
             .ok()
             .and_then(|h| u128::from_str_radix(h.trim_start_matches("0x").trim_start_matches('0'), 16).ok())
             .unwrap_or(0);
         if have < cons_total {
-            let approve = erc20_approve_calldata(OPENSEA_CONDUIT, cons_total);
+            // Approve a generous max so a re-buy in the same collection needs no
+            // second approval (Seaport only pulls the exact consideration).
+            let approve = erc20_approve_calldata(&spender, u128::MAX);
             txs.push(json!({ "to": cons_token, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
         }
     }
@@ -871,18 +980,63 @@ pub async fn build_accept_offer(http: &reqwest::Client, body: &Value) -> Result<
 
 // ── Sell (list) & Make offer — Seaport EIP-712 orders (build → sign → submit) ──
 
-const OPENSEA_CONDUIT_KEY: &str = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
+// OpenSea's conduit key for ORDER PLACEMENT on Robinhood Chain. OpenSea rejects
+// any other key ("please use OpenSea's conduit key: 0x61159fef…"). It resolves
+// via ConduitController.getConduit → conduit 0x963f00d3ff000064ffcba824b800c0000000c300
+// (the same conduit the buy side approves). The old mainnet key
+// 0x0000007b0223…0f0000 is NOT valid here.
+const OPENSEA_CONDUIT_KEY: &str = "0x61159fefdfada89302ed55f8b9e89e2d67d8258712b3a3f89aa88525877f1d5e";
+// OpenSea's Signed Zone V2 on Robinhood. Collections with an ENFORCED creator
+// fee reject unrestricted orders ("requires Signed Zone V2 … set orderType to
+// FULL_RESTRICTED (2) … use the required zone 0x000056f7…"). Their live
+// listings/offers all carry zone=this, orderType=2. Collections with only
+// OpenSea's platform fee accept plain unrestricted (zone 0x0, orderType 0).
+const OPENSEA_SIGNED_ZONE: &str = "0x000056f7000000ece9003ca63978907a00ffd100";
 const SEL_GET_COUNTER: &str = "0xf07ec373"; // getCounter(address)
 
-async fn collection_fees(http: &reqwest::Client, slug: &str) -> Vec<(f64, String)> {
-    match os_get(http, &format!("/collections/{slug}")).await {
-        Ok(d) => d.get("fees").and_then(|f| f.as_array()).map(|a| a.iter().filter_map(|f| {
-            let pct = f.get("fee").and_then(|v| v.as_f64())?;
-            let rec = f.get("recipient").and_then(|v| v.as_str())?.to_string();
-            Some((pct, rec))
-        }).collect()).unwrap_or_default(),
-        Err(_) => vec![],
+/// The fee items an order must carry: ONLY the fees the collection marks
+/// `required`. Checked against live orders — a FAX offer OpenSea accepted
+/// carried just the 1% platform fee, while the collection also advertises a 10%
+/// creator fee with `required: false`. Billing that optional fee made our offer
+/// cost the user 11% and did not match any order OpenSea had accepted.
+async fn collection_required_fees(http: &reqwest::Client, slug: &str) -> Vec<(f64, String)> {
+    let Ok(d) = os_get(http, &format!("/collections/{slug}")).await else { return vec![] };
+    d.get("fees")
+        .and_then(|f| f.as_array())
+        .map(|a| {
+            a.iter()
+                .filter(|f| f.get("required").and_then(|v| v.as_bool()).unwrap_or(false))
+                .filter_map(|f| {
+                    Some((
+                        f.get("fee").and_then(|v| v.as_f64())?,
+                        f.get("recipient").and_then(|v| v.as_str())?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The currency a collection requires for a LISTING or an OFFER, from OpenSea's
+/// `pricing_currencies` (`field` = "listing_currency" | "offer_currency").
+/// Robinhood collections price in USDG (ERC-20, 6 decimals), NOT native ETH — a
+/// native-ETH order is rejected by OpenSea ("Payment asset … is not supported").
+/// Returns (seaportItemType, tokenAddress, decimals, symbol); falls back to
+/// native ETH (18 dp) when the collection accepts it / is unknown.
+async fn pricing_currency(http: &reqwest::Client, slug: &str, field: &str) -> (u8, String, u32, String) {
+    if !slug.is_empty() {
+        if let Ok(d) = os_get(http, &format!("/collections/{slug}")).await {
+            if let Some(c) = d.pointer(&format!("/pricing_currencies/{field}")) {
+                let addr = c.get("address").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                let dec = c.get("decimals").and_then(|v| v.as_u64()).unwrap_or(18) as u32;
+                let sym = c.get("symbol").and_then(|v| v.as_str()).unwrap_or("ETH").to_string();
+                if addr.starts_with("0x") && addr.len() == 42 && addr != ZERO {
+                    return (1, addr, dec, sym); // ERC-20 (itemType 1)
+                }
+            }
+        }
     }
+    (0, ZERO.to_string(), 18, "ETH".to_string()) // native ETH (itemType 0)
 }
 
 async fn seaport_counter(http: &reqwest::Client, owner: &str) -> u128 {
@@ -933,8 +1087,18 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
     let slug = body.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let days = body.get("durationDays").and_then(|v| v.as_u64()).unwrap_or(30).clamp(1, 180);
 
-    let price_wei = (price_eth * 1e18) as u128;
-    let fees = if slug.is_empty() { vec![] } else { collection_fees(http, &slug).await };
+    // The collection's REQUIRED listing currency. Robinhood collections require
+    // USDG (ERC-20, 6dp) — a native-ETH listing is rejected. `price_eth` is the
+    // price in that currency's units (e.g. USDG), scaled by its decimals.
+    let (cur_type, cur_addr, cur_dec, _cur_sym) = pricing_currency(http, &slug, "listing_currency").await;
+    let price_wei = (price_eth * 10f64.powi(cur_dec as i32)) as u128;
+    let fees = if slug.is_empty() { vec![] } else { collection_required_fees(http, &slug).await };
+    // Robinhood orders go through OpenSea's Signed Zone V2 as FULL_RESTRICTED.
+    // Verified against live orders on both a collection with enforced creator
+    // fees (Quotrons404) and one without (fax-404): every accepted listing and
+    // offer carries zone 0x000056f7… / orderType 2. Unrestricted orders are
+    // rejected outright on contracts that require the zone.
+    let (order_zone, order_type): (&str, u8) = (OPENSEA_SIGNED_ZONE, 2);
     // consideration: fee items first summed, seller gets the remainder.
     let mut consideration = vec![];
     let mut fee_total: u128 = 0;
@@ -946,9 +1110,10 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
     }
     let seller_amt = price_wei.saturating_sub(fee_total);
     // Order: seller proceeds first, then fees (OpenSea's canonical ordering).
-    let mut cons_items = vec![item(0, ZERO, "0", &seller_amt.to_string(), &seller_amt.to_string(), Some(&wallet))];
+    // Every consideration item is denominated in the collection's currency.
+    let mut cons_items = vec![item(cur_type, &cur_addr, "0", &seller_amt.to_string(), &seller_amt.to_string(), Some(&wallet))];
     for (amt, rec) in &consideration {
-        cons_items.push(item(0, ZERO, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
+        cons_items.push(item(cur_type, &cur_addr, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
     }
     let offer = vec![item(2, &token, &token_id, "1", "1", None)];
     let counter = seaport_counter(http, &wallet).await;
@@ -958,10 +1123,10 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
 
     let parameters = json!({
         "offerer": wallet,
-        "zone": ZERO,
+        "zone": order_zone,
         "offer": offer,
         "consideration": cons_items,
-        "orderType": 0,
+        "orderType": order_type,
         "startTime": start.to_string(),
         "endTime": end.to_string(),
         "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -970,7 +1135,19 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
         "totalOriginalConsiderationItems": cons_items.len(),
         "counter": counter.to_string(),
     });
-    Ok(order_response(parameters, &slug))
+    let mut resp = order_response(parameters, &slug);
+    // OpenSea validates the ERC-721 conduit approval AT SUBMIT ("ERC721 conduit
+    // not approved"). If the seller hasn't granted the conduit setApprovalForAll
+    // on this collection, hand the frontend an approval tx to send first. Skip
+    // it when already approved so the user isn't prompted for a redundant tx.
+    let conduit = resolve_conduit(http, &rpc(), OPENSEA_CONDUIT_KEY).await;
+    if conduit.starts_with("0x") && !is_approved_for_all(http, &rpc(), &token, &wallet, &conduit).await {
+        let data = set_approval_for_all_calldata(&conduit, true);
+        if let Some(o) = resp.as_object_mut() {
+            o.insert("nftApprove".into(), json!({ "to": token, "data": format!("0x{data}"), "value": "0", "chainId": CHAIN }));
+        }
+    }
+    Ok(resp)
 }
 
 /// Build a Seaport OFFER (bid, paid in WETH) + EIP-712 typed data. Body:
@@ -989,35 +1166,50 @@ pub async fn build_make_offer(http: &reqwest::Client, body: &Value) -> Result<Va
     let slug = body.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let days = body.get("durationDays").and_then(|v| v.as_u64()).unwrap_or(7).clamp(1, 90);
 
-    let price_wei = (price_eth * 1e18) as u128;
-    let fees = if slug.is_empty() { vec![] } else { collection_fees(http, &slug).await };
-    // offer: WETH from the bidder. consideration: the NFT to the bidder + fees (WETH).
-    let offer = vec![item(1, SUSHI_WETH, "0", &price_wei.to_string(), &price_wei.to_string(), None)];
+    // The collection's REQUIRED offer currency (Robinhood → USDG, 6dp). An offer
+    // is always an ERC-20 (you cannot bid with native ETH), so when the collection
+    // reports native/unknown, fall back to WETH. `price_eth` is in that currency.
+    let (oc_addr, oc_dec) = {
+        let (t, a, d, _s) = pricing_currency(http, &slug, "offer_currency").await;
+        if t == 1 { (a, d) } else { (SUSHI_WETH.to_string(), 18u32) }
+    };
+    let price_wei = (price_eth * 10f64.powi(oc_dec as i32)) as u128;
+    let fees = if slug.is_empty() { vec![] } else { collection_required_fees(http, &slug).await };
+    // Robinhood orders go through OpenSea's Signed Zone V2 as FULL_RESTRICTED.
+    // Verified against live orders on both a collection with enforced creator
+    // fees (Quotrons404) and one without (fax-404): every accepted listing and
+    // offer carries zone 0x000056f7… / orderType 2. Unrestricted orders are
+    // rejected outright on contracts that require the zone.
+    let (order_zone, order_type): (&str, u8) = (OPENSEA_SIGNED_ZONE, 2);
+    // offer: the currency from the bidder. consideration: the NFT to the bidder + fees.
+    let offer = vec![item(1, &oc_addr, "0", &price_wei.to_string(), &price_wei.to_string(), None)];
     let mut cons_items = vec![item(2, &token, &token_id, "1", "1", Some(&wallet))];
     for (pct, rec) in &fees {
         let amt = ((price_wei as f64) * pct / 100.0) as u128;
         if amt == 0 { continue; }
-        cons_items.push(item(1, SUSHI_WETH, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
+        cons_items.push(item(1, &oc_addr, "0", &amt.to_string(), &amt.to_string(), Some(rec)));
     }
     let counter = seaport_counter(http, &wallet).await;
     let start = now_secs();
     let end = start + days * 86400;
     let parameters = json!({
-        "offerer": wallet, "zone": ZERO, "offer": offer, "consideration": cons_items,
-        "orderType": 0, "startTime": start.to_string(), "endTime": end.to_string(),
+        "offerer": wallet, "zone": order_zone, "offer": offer, "consideration": cons_items,
+        "orderType": order_type, "startTime": start.to_string(), "endTime": end.to_string(),
         "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "salt": salt_hex(), "conduitKey": OPENSEA_CONDUIT_KEY,
         "totalOriginalConsiderationItems": cons_items.len(), "counter": counter.to_string(),
     });
     let mut resp = order_response(parameters, &slug);
-    // WETH approve to the conduit's Conduit contract is required to pull the bid
-    // on acceptance. Approve the canonical OpenSea conduit spender for EXACTLY the
-    // bid amount (not an unbounded allowance), so a future conduit compromise
-    // can't pull more than this one offer's WETH.
-    let approve = erc20_approve_calldata("0x1E0049783F008A0085193E00003D00cd54003c71", price_wei);
+    // The offer currency must be approved to the CONDUIT that Seaport pulls it
+    // through on acceptance — the conduit for OPENSEA_CONDUIT_KEY, resolved via
+    // ConduitController (not a hardcoded address, which drifts when the key
+    // changes). Approve EXACTLY the bid amount, so a future conduit compromise
+    // can't pull more than this one offer.
+    let spender = resolve_conduit(http, &rpc(), OPENSEA_CONDUIT_KEY).await;
+    let approve = erc20_approve_calldata(&spender, price_wei);
     if let Some(o) = resp.as_object_mut() {
-        o.insert("wethApprove".into(), json!({ "to": SUSHI_WETH, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
-        o.insert("offerCurrency".into(), Value::from(SUSHI_WETH));
+        o.insert("wethApprove".into(), json!({ "to": oc_addr, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
+        o.insert("offerCurrency".into(), Value::from(oc_addr.clone()));
     }
     Ok(resp)
 }

@@ -35,6 +35,10 @@ type Config struct {
 	// the endpoint returns a clear "not configured" error.
 	TelegramBotToken string
 
+	// TelegramBotUsername (without @) builds the deep-link the web app hands
+	// users to link their Telegram: https://t.me/<username>?start=<token>.
+	TelegramBotUsername string
+
 	// TrustProxyHeaders controls whether X-Forwarded-For / X-Real-IP headers
 	// are trusted for client IP extraction. Set to true only when the service
 	// is known to run behind a trusted reverse proxy. When false (the default),
@@ -86,6 +90,7 @@ func Load() (*Config, error) {
 		CORSOrigin:        corsOrigin,
 		AppDomain:         getEnv("APP_DOMAIN", ""),
 		TelegramBotToken:  telegramBotToken,
+		TelegramBotUsername: getEnv("OPRAI_TG_BOT_USERNAME", ""),
 		Environment:       environment,
 		TrustProxyHeaders: trustProxy,
 		SessionTTLSeconds: getEnvInt("SESSION_TTL_SECONDS", 60*60*24*3), // 3 days default

@@ -1,0 +1,48 @@
+[package]
+name = "oprai-tg-signer"
+version = "0.1.0"
+edition = "2021"
+description = "OPRAI Telegram bot custodial signer — isolated key custody + signing"
+license = "MIT"
+
+[[bin]]
+name = "oprai-tg-signer"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+actix-web = "4"
+actix-rt = "2"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Config / logging / errors
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+# ── Custody + signing (0.3) ─────────────────────────────────────────────────
+# Solana keys/signing are ed25519 over base58 addresses — ed25519-dalek + bs58
+# gives us keygen + message signing (and later tx signing, since a Solana tx
+# signature is just ed25519 over the serialized message) WITHOUT pulling the
+# heavy solana-sdk crate tree.
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+bs58 = "0.5"
+# EVM signing (secp256k1 + EIP-191 personal_sign + address derivation).
+alloy-signer = "0.8"
+alloy-signer-local = "0.8"
+alloy-primitives = "0.8"
+# Vault Transit is called over plain HTTP (encrypt/decrypt) — no need for a
+# full Vault client crate.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# Key material handling.
+rand = "0.8"
+zeroize = "1"
+base64 = "0.22"
+hex = "0.4"

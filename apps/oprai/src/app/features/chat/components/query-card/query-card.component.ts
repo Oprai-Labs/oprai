@@ -4071,17 +4071,30 @@ export class QueryCardComponent implements OnInit, OnDestroy {
 
   /** List one of the user's NFTs for sale. */
   openseaList(n: any): void {
+    const listCur = String(n.currency || '').trim().toUpperCase();
     const params: Record<string, string> = {
       token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
       ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+      ...(listCur ? { currency: listCur } : {}),
     };
     this.useAction.emit({ type: 'opensea_list', params, raw: `[ACTION:opensea_list] ${JSON.stringify(params)}` });
   }
   /** Make an offer (WETH bid) on an NFT. */
   openseaMakeOffer(n: any): void {
+    // The slug is required to resolve the collection's OFFER currency (USDG on
+    // Robinhood) — fall back to the card's active collection when the row itself
+    // doesn't carry one, so the offer isn't built in the wrong currency.
+    const slug = n.collection || this.openseaSelectedSlug?.() || this.openseaCollectionDetail?.slug
+      || String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? '');
+    // Display currency: offers are always ERC-20, so a native-ETH collection
+    // bids in WETH. Pass it so the card shows the real currency (not a hardcoded
+    // USDG). The backend independently resolves the collection's offer_currency.
+    const rowCur = String(n.currency || '').trim().toUpperCase();
+    const offerCur = rowCur === 'ETH' ? 'WETH' : rowCur;
     const params: Record<string, string> = {
       token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
-      ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+      ...(slug ? { slug } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+      ...(offerCur ? { currency: offerCur } : {}),
     };
     this.useAction.emit({ type: 'opensea_make_offer', params, raw: `[ACTION:opensea_make_offer] ${JSON.stringify(params)}` });
   }
@@ -5116,7 +5129,7 @@ export class QueryCardComponent implements OnInit, OnDestroy {
         await this.fetchOpenseaSimple('opensea_activity', 'openseaActivityRows', 'events', { slug: String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? ''), limit: 25 });
         return;
       case 'opensea_wallet_nfts':
-        await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: await this.lighterPerp.resolveEvmAddress() ?? 'self', limit: 40 });
+        await this.fetchOpenseaSimple('opensea_wallet_nfts', 'openseaWalletNfts', 'nfts', { wallet: (await this.lighterPerp.resolveEvmAddress()) || 'self', solWallet: this.walletService.publicKey()?.toString() ?? '', limit: 40 });
         return;
       case 'opensea_nft':
         await this.fetchOpenseaNft();

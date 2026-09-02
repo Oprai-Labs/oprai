@@ -47,6 +47,7 @@ build-python: ## Install Python dependencies (chat, memory, knowledge-ingestion)
 	cd services/chat-service-py && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 	cd services/memory-service-py && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 	cd services/knowledge-ingestion-service && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+	cd services/oprai-tg-bot && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 build-angular: ## Build Angular frontend
 	cd apps/oprai && npm install && npx ng build --configuration production
@@ -97,6 +98,14 @@ dev-infra: ## Start infrastructure only (Postgres, Redis, Qdrant)
 
 dev-stop: ## Stop infrastructure
 	docker compose -f docker-compose.infra.yml down
+
+vault-init: ## Enable Vault transit + create the tg-signer key (dev Vault must be up)
+	@echo "==> Enabling Vault transit engine + creating oprai-tg-keys (dev)..."
+	docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$${VAULT_DEV_TOKEN:-oprai-dev-root} \
+		oprai-vault vault secrets enable transit 2>/dev/null || echo "   transit already enabled"
+	docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$${VAULT_DEV_TOKEN:-oprai-dev-root} \
+		oprai-vault vault write -f transit/keys/oprai-tg-keys
+	@echo "==> Vault transit ready."
 
 dev-all: dev-infra ## Start infra + all polyglot services in one terminal (requires honcho)
 	@echo "Waiting for infrastructure..."
@@ -160,6 +169,7 @@ migrate: ## Run ALL database migrations (schema DDL + Alembic)
 	psql "$(DATABASE_URL)" -f services/chat-service-py/sql/schema.sql
 	psql "$(DATABASE_URL)" -f services/memory-service-py/sql/schema.sql
 	psql "$(DATABASE_URL)" -f services/solana-service-rs/migrations/001_create_schema.sql
+	psql "$(DATABASE_URL)" -f services/oprai-tg-bot/sql/schema.sql
 	psql "$(DATABASE_URL)" -f agent-platform/migrations/001_initial_schema.sql
 	psql "$(DATABASE_URL)" -f agent-platform/migrations/002_subscriptions.sql
 	@echo "==> Running Alembic migrations (chat-service-py + memory-service-py)..."

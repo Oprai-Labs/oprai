@@ -292,6 +292,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, grpcClients *proxy.GRPCC
 		r.Post("/opensea/accept-offer", solanaProxy.PostOpenseaAcceptOffer)
 		r.Post("/opensea/list", solanaProxy.PostOpenseaList)
 		r.Post("/opensea/make-offer", solanaProxy.PostOpenseaMakeOffer)
+		r.Post("/evm/wrap", solanaProxy.PostEvmWrap)
 		r.Post("/opensea/order/submit", solanaProxy.PostOpenseaOrderSubmit)
 		// Lighter perps (Robinhood Chain domain) — proxied to chat-service
 		// (Python SDK + agent-key store), NOT solana-service. Wallet auth

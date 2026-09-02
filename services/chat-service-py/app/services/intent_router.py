@@ -109,7 +109,10 @@ _PROTOCOL_KEYWORDS: dict[str, tuple[str, ...]] = {
     # Morpho Blue = lending on Robinhood Chain (single-meaning product name).
     "morpho":    ("morpho", "morpho blue"),
     # SushiSwap = DEX on Robinhood Chain (single-meaning product name).
-    "sushi":     ("sushi", "sushiswap", "sushi swap"),
+    # + ETH<->WETH wrap/unwrap: an EVM utility routed to the Robinhood DEX venue so
+    # the evm_wrap action is in scope (the action itself carries the chain).
+    "sushi":     ("sushi", "sushiswap", "sushi swap", "wrap eth", "wrap ether", "wrap my eth",
+                  "unwrap", "eth to weth", "weth to eth"),
     # OpenSea = NFT marketplace on Robinhood Chain (single-meaning product name).
     "opensea":   ("opensea", "open sea"),
     # Lighter = zero-fee CLOB perps (Robinhood Chain domain). Multi-word / suffix
@@ -391,12 +394,20 @@ Detection rules:
   venue — swap → sushi (or uniswap); lend/borrow → morpho; perp → lighter; LP/pool
   → sushi/uniswap; NFT → opensea; launchpad → pools/pons. The reverse holds for
   Solana. Only "bridge/move to another chain" → relay.
+- Wrapping / unwrapping native <-> WETH ("wrap 0.1 ETH", "unwrap WETH", "ETH to
+  WETH", "convert ETH to WETH") is an EVM utility (WETH9 deposit/withdraw), NOT a
+  swap and NEVER a Solana action → "sushi" (the Robinhood DEX venue) so the
+  evm_wrap action is in scope; the action carries the chain if one is named.
 - NFTs are chain-specific. Magic Eden and Tensor are SOLANA NFT marketplaces;
   OpenSea is the NFT marketplace on Robinhood Chain (EVM). When the user asks
   about NFTs "on Robinhood" (or any EVM chain) — trending, top collections,
   floor, listings, browsing — emit "opensea", NEVER "magic_eden"/"tensor". Use
   "magic_eden" only for Solana NFTs. "trending nfts on robinhood" → opensea;
   "trending nfts on solana" → magic_eden.
+- A user's OWN NFT holdings — "my nfts", "list my nfts", "nfts I hold/own", "the
+  nfts in my wallet" (in ANY language) with no chain named — → "opensea". OpenSea
+  is multichain and spans all the user's EVM chains, so it is the right default
+  for "show my nfts"; do NOT route a bare "my nfts" to a Solana-only NFT tool.
 - Leverage / perp / short / long → "jupiter" by DEFAULT, never Kamino. A
   leveraged long/short on SOL/ETH/BTC, "open a perp", "2x short SOL", and any
   "max leverage / how much can I open" question maps to "jupiter"

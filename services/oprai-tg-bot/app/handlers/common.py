@@ -1,0 +1,86 @@
+"""Core command handlers: /start, /help.
+
+Faz 0 scope. /start upserts the tg_users identity row and (when a deep-link
+token is present, e.g. t.me/OpraiBot?start=<token>) will bind the Telegram
+identity to an existing OPRAI account — that binding lands in 0.7. Wallet
+create/import and balance/portfolio land in 0.5 once the signer (0.3) is up.
+"""
+
+from __future__ import annotations
+
+from aiogram import Router
+from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.types import Message
+
+from app.db import audit, upsert_tg_user
+from app.logging_config import log
+from app.services import linking
+
+router = Router(name="common")
+
+WELCOME = (
+    "👋 <b>OPRAI</b> — conversational DeFi on <b>Robinhood Chain</b>, on Telegram.\n\n"
+    "Trade tokenized stocks and tokens, swap, lend, launch, trade perps, run "
+    "strategies and read the chain — all on Robinhood Chain, from one chat.\n\n"
+    "Get started:\n"
+    "• /wallet — your Robinhood wallet\n"
+    "• /balance — your ETH balance\n"
+    "• /portfolio — your holdings\n"
+    "• /help — everything I can do\n"
+)
+
+HELP = (
+    "<b>OPRAI bot — Robinhood Chain</b>\n\n"
+    "/start — get started / link your account\n"
+    "/wallet — your custodial Robinhood wallet (create or import)\n"
+    "/balance — your ETH balance on Robinhood Chain\n"
+    "/portfolio — your holdings\n"
+    "/help — this message\n\n"
+    "In groups, add me and an admin can top up the group's free quota with "
+    "$OPRAI. Actions always run from your own wallet, confirmed privately."
+)
+
+
+@router.message(CommandStart(deep_link=True))
+async def start_with_token(message: Message, command: CommandObject) -> None:
+    user = message.from_user
+    await upsert_tg_user(user.id, user.username)
+    token = (command.args or "").strip()
+    account_id = await linking.consume_link_token(token, user.id) if token else None
+    await audit(
+        user.id,
+        "start_deeplink",
+        {"token_present": bool(token), "linked": account_id is not None},
+    )
+    log.info(
+        "start_deeplink",
+        telegram_id=user.id,
+        token_present=bool(token),
+        linked=account_id is not None,
+    )
+    if account_id:
+        await message.answer(
+            "✅ <b>Account linked.</b> Your Telegram is now connected to your "
+            "OPRAI account — same wallets, same history.\n\n" + WELCOME
+        )
+    elif token:
+        await message.answer(
+            "⚠️ That link is invalid or expired. Generate a fresh one from the "
+            "OPRAI app, then tap it again.\n\n" + WELCOME
+        )
+    else:
+        await message.answer(WELCOME)
+
+
+@router.message(CommandStart())
+async def start(message: Message) -> None:
+    user = message.from_user
+    await upsert_tg_user(user.id, user.username)
+    await audit(user.id, "start", {})
+    log.info("start", telegram_id=user.id, username=user.username)
+    await message.answer(WELCOME)
+
+
+@router.message(Command("help"))
+async def help_cmd(message: Message) -> None:
+    await message.answer(HELP)

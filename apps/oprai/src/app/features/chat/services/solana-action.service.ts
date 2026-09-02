@@ -1567,6 +1567,9 @@ export class SolanaActionService {
     }
     // SushiSwap — EVM (Robinhood Chain 4663). Swap + V3 add-liquidity; backend
     // returns unsigned txs (approval? + the call). Route out before the Solana guard.
+    if (action.type === 'evm_wrap') {
+      return this.executeEvmWrap(action, callbacks);
+    }
     if (action.type === 'sushi_swap' || action.type === 'sushi_add_liquidity' || action.type === 'sushi_remove_liquidity') {
       return this.executeSushi(action, callbacks);
     }
@@ -3425,13 +3428,25 @@ export class SolanaActionService {
     if (!typedData || !parameters) throw new Error('OpenSea: could not build the order.');
 
     callbacks.onSign?.();
-    // make-offer: one-time WETH approval to the conduit so the bid can be pulled.
+    // make-offer: one-time currency (USDG/WETH) approval to the conduit so the
+    // bid can be pulled on acceptance.
     if (isOffer && built?.wethApprove?.to) {
       const a = built.wethApprove;
       const h = await withTimeout(ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: account, to: a.to, data: a.data ?? '0x', value: '0x0' }],
-      }), 120_000, 'WETH approval') as string;
+      }), 120_000, 'currency approval') as string;
+      await this.watchEvmReceipt(ethereum, h);
+    }
+    // list: OpenSea rejects the order unless the conduit is approved to move the
+    // NFT (ERC721 conduit not approved). Backend includes a setApprovalForAll tx
+    // only when it isn't approved yet — send it before signing the order.
+    if (!isOffer && built?.nftApprove?.to) {
+      const a = built.nftApprove;
+      const h = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: a.to, data: a.data ?? '0x', value: '0x0' }],
+      }), 120_000, 'NFT approval') as string;
       await this.watchEvmReceipt(ethereum, h);
     }
     // Sign the Seaport order (EIP-712, gasless).
@@ -3471,6 +3486,63 @@ export class SolanaActionService {
    * (an ERC-20 approval to RedSnwapper/NPM when needed, then the call); we switch
    * the wallet to Robinhood Chain and sign each in order, like the Morpho flow.
    */
+  /**
+   * Native <-> wrapped-native (ETH <-> WETH, …) on ANY EVM chain: the chain's
+   * WETH9 deposit() (payable) or withdraw(uint256). One tx, no approval, same
+   * asset 1:1. Chain from the action (chainId | chain name), default Robinhood.
+   */
+  private async executeEvmWrap(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
+    const p = action.params;
+    const chainId = Number(p['chainId'] ?? 0) || this.evmChainIdFromName(String(p['chain'] ?? '')) || 4663;
+    const direction = String(p['direction'] ?? 'wrap').toLowerCase() === 'unwrap' ? 'unwrap' : 'wrap';
+    const amount = String(p['amount'] ?? '').trim();
+    if (!(Number(amount) > 0)) throw new Error(`Enter an amount to ${direction}.`);
+
+    const ethereum = await this.walletService.resolveEvmProvider();
+    if (!ethereum) throw new Error('No EVM wallet detected. Install MetaMask or another EVM wallet to wrap ETH.');
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([promise, new Promise<never>((_, r) => setTimeout(() => r(new Error(`Wrap: ${label} timed out`)), ms))]);
+    const toHexQty = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      if (/^0x[0-9a-fA-F]*$/.test(s)) return s;
+      try { return '0x' + BigInt(s).toString(16); } catch { return undefined; }
+    };
+
+    const accounts: string[] = await withTimeout(ethereum.request({ method: 'eth_requestAccounts' }), 30_000, 'wallet connect');
+    const account = accounts?.[0];
+    if (!account) throw new Error('No EVM account available.');
+    const onChain = Number(await ethereum.request({ method: 'eth_chainId' }));
+    if (onChain !== chainId) {
+      try {
+        await withTimeout(ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] }), 60_000, 'network switch');
+      } catch {
+        throw new Error('Your wallet is on a different network. Switch it to the chain of this wrap and try again — nothing was signed.');
+      }
+    }
+
+    callbacks.onQuote?.();
+    const prep = await firstValueFrom(this.api.post<any>('/actions/evm/wrap', { walletAddress: account, chainId, direction, amount }));
+    const txs: any[] = Array.isArray(prep?.transactions) ? prep.transactions : [];
+    const tx = txs[0];
+    if (!tx?.to) throw new Error('Wrap: no transaction was returned.');
+
+    callbacks.onSign?.();
+    const hash = await withTimeout(ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{ from: account, to: tx.to, data: tx.data ?? '0x', value: toHexQty(tx.value) ?? '0x0' }],
+    }), 120_000, direction) as string;
+    callbacks.onSubmit?.(hash);
+    const ok = await this.watchEvmReceipt(ethereum, hash);
+    if (ok === false) {
+      callbacks.onFail?.(`The ${direction} reverted on-chain — your funds are safe minus the network fee.`, hash);
+      return hash;
+    }
+    callbacks.onConfirm?.(hash);
+    return hash;
+  }
+
   private async executeSushi(action: ParsedAction, callbacks: ActionCallbacks): Promise<string> {
     const p = action.params;
     const chainId = 4663;

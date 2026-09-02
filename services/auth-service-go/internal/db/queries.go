@@ -576,6 +576,18 @@ func (q *Queries) IncrementTodaySpending(ctx context.Context, walletAddress stri
 	return total, nil
 }
 
+// CreateTelegramLinkToken mints a single-use deep-link token in tg_schema so the
+// user can bind their Telegram to this account by opening t.me/<bot>?start=<token>.
+// The bot (which owns tg_schema) consumes it. Cross-schema write is deliberate:
+// only the auth-service knows the caller's account_id from their JWT.
+func (q *Queries) CreateTelegramLinkToken(ctx context.Context, accountID, token string, ttlMinutes int) error {
+	_, err := q.pool.Exec(ctx,
+		`INSERT INTO tg_schema.tg_link_tokens (token, account_id, expires_at)
+		 VALUES ($1, $2::uuid, now() + make_interval(mins => $3))`,
+		token, accountID, ttlMinutes)
+	return err
+}
+
 // joinStrings joins a slice of strings with the given separator.
 func joinStrings(strs []string, sep string) string {
 	if len(strs) == 0 {

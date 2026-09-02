@@ -453,6 +453,90 @@ fn native_symbol(chain_id: u64) -> &'static str {
     }
 }
 
+/// The chain's wrapped-native symbol (WETH / WMATIC / WBNB / …).
+fn wrapped_symbol(chain_id: u64) -> &'static str {
+    use crate::services::relay::chain_id as c;
+    match chain_id {
+        c::BSC => "WBNB",
+        c::AVALANCHE => "WAVAX",
+        c::POLYGON => "WPOL",
+        c::CELO => "CELO",
+        _ => "WETH",
+    }
+}
+
+/// Wrapped-native ERC-20 for a numeric chain id (see `wrapped_native_address`).
+fn wrapped_native_for_chain_id(chain_id: u64) -> &'static str {
+    use crate::services::relay::chain_id as c;
+    let slug = match chain_id {
+        c::ETHEREUM => "ethereum",
+        c::BASE => "base",
+        c::OPTIMISM => "optimism",
+        c::ARBITRUM => "arbitrum",
+        c::POLYGON => "polygon",
+        c::BSC => "bsc",
+        c::AVALANCHE => "avalanche",
+        c::CELO => "celo",
+        c::ROBINHOOD => "robinhood",
+        _ => "base", // OP-stack default (0x4200…0006)
+    };
+    wrapped_native_address(slug)
+}
+
+/// Build a native ↔ wrapped-native conversion on ANY EVM chain — the canonical
+/// WETH9 contract: `deposit()` (payable, native → WETH) and `withdraw(uint256)`
+/// (WETH → native). Body: {chainId?|chain?, direction: "wrap"|"unwrap", amount,
+/// walletAddress?}. Every wrapped native is 18 dp. No approval needed either
+/// way. Returns an unsigned tx the user's wallet signs.
+pub async fn build_wrap(body: &Value) -> Result<Value, AppError> {
+    use crate::services::relay::chain_id as c;
+    let chain_id = body.get("chainId").and_then(|v| v.as_u64())
+        .or_else(|| body.get("chainId").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()))
+        .or_else(|| body.get("chain").and_then(|v| v.as_str()).and_then(|s| {
+            s.parse::<u64>().ok().or_else(|| match s.trim().to_lowercase().as_str() {
+                "ethereum" | "eth" | "mainnet" => Some(c::ETHEREUM),
+                "base" => Some(c::BASE),
+                "optimism" | "op" => Some(c::OPTIMISM),
+                "arbitrum" | "arb" => Some(c::ARBITRUM),
+                "polygon" | "matic" => Some(c::POLYGON),
+                "bsc" | "bnb" => Some(c::BSC),
+                "avalanche" | "avax" => Some(c::AVALANCHE),
+                "celo" => Some(c::CELO),
+                "robinhood" | "rh" => Some(c::ROBINHOOD),
+                _ => None,
+            })
+        }))
+        .unwrap_or(c::ROBINHOOD);
+    if !is_uniswap_chain(chain_id) {
+        return Err(AppError::InvalidParams("wrap: an EVM chain is required (wrapping is not a Solana concept).".into()));
+    }
+    let direction = body.get("direction").and_then(|v| v.as_str()).unwrap_or("wrap").trim().to_lowercase();
+    let amount = body.get("amount").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .filter(|a| *a > 0.0)
+        .ok_or_else(|| AppError::InvalidParams("wrap: an amount greater than 0 is required".into()))?;
+    let weth = wrapped_native_for_chain_id(chain_id);
+    let wei = (amount * 1e18).round() as u128;
+    let native = native_symbol(chain_id);
+    let wrapped = wrapped_symbol(chain_id);
+    let (tx, from_sym, to_sym) = if direction == "unwrap" {
+        // withdraw(uint256) — selector 0x2e1a7d4d + the amount as a 32-byte word.
+        (json!({ "to": weth, "data": format!("0x2e1a7d4d{wei:064x}"), "value": "0x0", "chainId": chain_id }), wrapped, native)
+    } else {
+        // deposit() — selector 0xd0e30db0; the native amount rides in `value`.
+        (json!({ "to": weth, "data": "0xd0e30db0", "value": format!("0x{wei:x}"), "chainId": chain_id }), native, wrapped)
+    };
+    Ok(json!({
+        "transactions": [tx],
+        "chainId": chain_id,
+        "direction": if direction == "unwrap" { "unwrap" } else { "wrap" },
+        "amount": amount,
+        "fromSymbol": from_sym,
+        "toSymbol": to_sym,
+        "wrappedToken": weth,
+        "description": format!("{} {} {} → {}", if direction == "unwrap" { "Unwrap" } else { "Wrap" }, amount, from_sym, to_sym),
+    }))
+}
+
 /// Display symbol: prefer the caller's currency token when it's a ticker (not an
 /// 0x address), else the quote leg's symbol, else a shortened address.
 fn display_symbol(param_currency: &str, leg: &Value, addr: &str) -> String {

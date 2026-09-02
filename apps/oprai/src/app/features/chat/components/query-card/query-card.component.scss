@@ -3722,16 +3722,24 @@
 .os-nft {
   display: flex; flex-direction: column; gap: 5px;
   border: 1px solid var(--op-border-subtle); border-radius: 12px; padding: 6px; background: var(--op-bg-surface-2);
-  &__img { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--op-bg-surface-1); }
+  &__img { position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--op-bg-surface-1); }
   &__img img { width: 100%; height: 100%; object-fit: cover; }
+  &__chain { position: absolute; top: 5px; left: 5px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: #fff; background: rgba(0,0,0,.62); padding: 2px 6px; border-radius: 6px; }
   &__name { font-size: 12px; font-weight: 600; color: var(--op-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   &__row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   &__price { font-size: 12px; font-weight: 700; color: var(--op-text-primary); font-variant-numeric: tabular-nums; }
 }
+.os-nft__btns { display: flex; gap: 5px; }
+.os-nft__btns .os-buy, .os-nft__btns .os-offer { flex: 1; text-align: center; }
 .os-buy {
   padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; border: none;
   background: var(--op-brand); color: #fff;
   &:hover { filter: brightness(1.08); }
+}
+.os-offer {
+  padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;
+  background: transparent; color: var(--op-text-primary); border: 1px solid var(--op-border-subtle);
+  &:hover { border-color: var(--op-brand); color: var(--op-brand); }
 }
 
 /* OpenSea collection detail stats header */

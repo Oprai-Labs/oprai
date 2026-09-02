@@ -3835,12 +3835,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * works.
    */
   meOfferMinNote(): string | null {
-    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return null;
+    // Magic Eden ONLY. `opensea_make_offer` also contains "make_offer", so an
+    // un-anchored /make_offer/ wrongly showed this SOL/escrow note (Solana) on
+    // OpenSea (EVM) offer cards.
+    const t = this.action?.type ?? '';
+    if (t.startsWith('opensea')) return null;
+    if (!/make_offer|buy_change_price/.test(t)) return null;
     return 'Minimum 0.0009 SOL — Magic Eden escrows the bid, and the escrow pays its own rent';
   }
 
   meOfferBelowMin(): boolean {
-    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return false;
+    const t = this.action?.type ?? '';
+    if (t.startsWith('opensea')) return false;
+    if (!/make_offer|buy_change_price/.test(t)) return false;
     const v = Number(this.getEditParam(this.meAmountKey()));
     return Number.isFinite(v) && v > 0 && v < this.ME_MIN_OFFER_SOL;
   }
@@ -6175,7 +6182,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // on Robinhood Mainnet). The LLM's params carry no chainId for these, so
     // the tx link would otherwise fall through to Solscan.
     const t = this.action?.type ?? '';
-    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_') || t.startsWith('opensea_')) return 4663;
+    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_') || t.startsWith('opensea_') || t.startsWith('evm_')) return 4663;
     return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
@@ -6536,6 +6543,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // into the bin range the card renders, so a stated range pre-fills instead of
     // opening at the default spread.
     if (this.action?.type?.startsWith('meteora_')) this.seedMeteoraRangeFromPrice();
+    // OpenSea offer: load the wallet's balance of the bid currency for the
+    // under-input readout + Max (a listing price isn't spent, so no balance).
+    if (this.action?.type === 'opensea_make_offer') void this.refreshOpenseaOfferBalance();
+    if (this.action?.type === 'evm_wrap') void this.refreshEvmWrapBalance();
     // pools.trade launch: auto-fill the X profile from the account's saved X
     // (set once in Wallets) unless the user/LLM already supplied one.
     if (this.action?.type === 'pools_launch') {
@@ -10574,11 +10585,153 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   // ── SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity ──────────────
+  // ── Native <-> wrapped (ETH <-> WETH) on any EVM chain ────────────────────
+  readonly isEvmWrap = computed(() => this.action?.type === 'evm_wrap');
+  /** Canonical WETH9 per chain (mirrors the backend's wrapped_native_address). */
+  private static readonly WRAPPED_NATIVE: Record<number, { addr: string; native: string; wrapped: string; name: string }> = {
+    4663:  { addr: '0x0bd7d308f8e1639fab988df18a8011f41eacad73', native: 'ETH',  wrapped: 'WETH',  name: 'Robinhood Chain' },
+    1:     { addr: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', native: 'ETH',  wrapped: 'WETH',  name: 'Ethereum' },
+    8453:  { addr: '0x4200000000000000000000000000000000000006', native: 'ETH',  wrapped: 'WETH',  name: 'Base' },
+    10:    { addr: '0x4200000000000000000000000000000000000006', native: 'ETH',  wrapped: 'WETH',  name: 'Optimism' },
+    42161: { addr: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', native: 'ETH',  wrapped: 'WETH',  name: 'Arbitrum' },
+    137:   { addr: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', native: 'POL',  wrapped: 'WPOL',  name: 'Polygon' },
+    56:    { addr: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', native: 'BNB',  wrapped: 'WBNB',  name: 'BNB Chain' },
+    43114: { addr: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', native: 'AVAX', wrapped: 'WAVAX', name: 'Avalanche' },
+  };
+  evmWrapChainId(): number { const id = this.explorerChainId(); return ActionCardComponent.WRAPPED_NATIVE[id] ? id : 4663; }
+  private evmWrapMeta() { return ActionCardComponent.WRAPPED_NATIVE[this.evmWrapChainId()]; }
+  evmWrapIsUnwrap(): boolean { return String(this.getEditParam('direction') || 'wrap').toLowerCase() === 'unwrap'; }
+  evmWrapFromSym(): string { const m = this.evmWrapMeta(); return this.evmWrapIsUnwrap() ? m.wrapped : m.native; }
+  evmWrapToSym(): string { const m = this.evmWrapMeta(); return this.evmWrapIsUnwrap() ? m.native : m.wrapped; }
+  evmWrapChainName(): string { return this.evmWrapMeta().name; }
+  setEvmWrapDirection(d: 'wrap' | 'unwrap'): void {
+    if (!this.isEditable() || this.evmWrapIsUnwrap() === (d === 'unwrap')) return;
+    this.setEditParam('direction', d);
+    void this.refreshEvmWrapBalance();
+  }
+  setEvmWrapAmount(v: string): void {
+    if (!this.isEditable()) return;
+    let s = String(v).replace(',', '.').replace(/[^0-9.]/g, '');
+    const dot = s.indexOf('.');
+    if (dot >= 0) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, 8);
+    this.setEditParam('amount', s);
+  }
+  /** Balance of the side being converted FROM (native for wrap, wrapped for
+   *  unwrap), read from the wallet on its current chain — chain-agnostic. */
+  readonly evmWrapBal = signal<number | null>(null);
+  private async refreshEvmWrapBalance(): Promise<void> {
+    this.evmWrapBal.set(null);
+    const provider = this.currentEvmProvider();
+    if (!provider) return;
+    try {
+      const chain = this.evmWrapChainId();
+      const onChain = Number(await provider.request({ method: 'eth_chainId' }));
+      if (onChain !== chain) return; // wrong network — Max stays hidden until they switch
+      const accounts: string[] = await provider.request({ method: 'eth_accounts' });
+      const addr = accounts?.[0];
+      if (!addr) return;
+      const m = this.evmWrapMeta();
+      const raw = this.evmWrapIsUnwrap()
+        ? await provider.request({ method: 'eth_call', params: [{ to: m.addr, data: `0x70a08231${addr.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'] })
+        : await provider.request({ method: 'eth_getBalance', params: [addr, 'latest'] });
+      this.evmWrapBal.set(Number(BigInt(raw || '0x0')) / 1e18);
+    } catch { this.evmWrapBal.set(null); }
+  }
+  setEvmWrapMax(): void {
+    const b = this.evmWrapBal();
+    if (b == null || b <= 0 || !this.isEditable()) return;
+    // Wrapping spends native, so keep a sliver for gas; unwrapping can use it all.
+    const usable = this.evmWrapIsUnwrap() ? b : Math.max(0, b - 0.0005);
+    this.setEditParam('amount', String(Math.floor(usable * 1e8) / 1e8));
+  }
+
   readonly isOpenseaBuy = computed(() => this.action?.type === 'opensea_buy');
   readonly isOpenseaAccept = computed(() => this.action?.type === 'opensea_accept_offer');
   readonly isOpenseaOrder = computed(() => this.action?.type === 'opensea_list' || this.action?.type === 'opensea_make_offer');
   readonly isOpenseaList = computed(() => this.action?.type === 'opensea_list');
-  setOpenseaPrice(v: string): void { if (this.isEditable()) this.setEditParam('priceEth', v); }
+  /** Sanitize the amount: digits + a single dot, decimals capped to the offer
+   *  currency's precision (≤8 shown) so it can't be typed to absurd length. */
+  setOpenseaPrice(v: string | HTMLInputElement): void {
+    if (!this.isEditable()) return;
+    const el = typeof v === 'string' ? null : v;
+    let s = String(el ? el.value : v).replace(',', '.').replace(/[^0-9.]/g, '');
+    const dot = s.indexOf('.');
+    if (dot >= 0) {
+      // OpenSea rejects orders finer than 4 decimals ("Bids at this price are not
+      // allowed… 4 decimals allowed"), whatever the token's own precision.
+      const maxDec = Math.min(this.openseaOfferDecimals(), ActionCardComponent.OPENSEA_PRICE_DECIMALS);
+      s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, maxDec);
+    }
+    // Write the sanitized text back into the box: a typed 0.00001 was being
+    // stored as 0.0000 (zero) while the input still showed 0.00001 — the user
+    // then submitted an invisible zero ("an offer amount is required").
+    if (el && el.value !== s) el.value = s;
+    this.setEditParam('priceEth', s);
+  }
+  /** The smallest order price OpenSea accepts (one step of its 4-decimal grid). */
+  openseaMinPrice(): number { return 10 ** -ActionCardComponent.OPENSEA_PRICE_DECIMALS; }
+  /** Inline reason the order can't be submitted yet, or null when it's fine. */
+  openseaOrderProblem(): string | null {
+    if (!this.isOpenseaOrder()) return null;
+    const v = Number(this.getEditParam('priceEth') || 0);
+    if (!(v > 0)) return 'Enter an amount.';
+    if (v < this.openseaMinPrice()) return `Minimum ${this.openseaMinPrice()} ${this.openseaOrderCurrencySym()} — OpenSea prices use 4 decimals.`;
+    const bal = this.openseaOfferBal();
+    if (!this.isOpenseaList() && bal != null && v > bal) return `That's more ${this.openseaOrderCurrencySym()} than you hold (${bal}).`;
+    return null;
+  }
+  /** The currency an OpenSea order is priced in — carried on the action (from
+   *  the collection's listing/offer currency). Robinhood-native collections use
+   *  USDG; Ethereum ones use ETH/WETH. Falls back to USDG (the common case). */
+  openseaOrderCurrencySym(): string {
+    const c = String(this.getEditParam('currency') || '').trim();
+    return c || 'USDG';
+  }
+  /** OpenSea's max precision for an order price (bids/listings): 4 decimals. */
+  private static readonly OPENSEA_PRICE_DECIMALS = 4;
+  /** Decimals of the order's currency (USDG 6, WETH/USDe 18), default 18. */
+  openseaOfferDecimals(): number {
+    const addr = ActionCardComponent.SUSHI_SYMBOL_ADDR[this.openseaOrderCurrencySym().toLowerCase()];
+    return (addr && this.SUSHI_KNOWN[addr]?.dec) || 18;
+  }
+
+  /** The connected wallet's balance of the order currency (WETH/USDG) on
+   *  Robinhood — shown under the input, and the source for the Max button. */
+  readonly openseaOfferBal = signal<number | null>(null);
+  private async refreshOpenseaOfferBalance(): Promise<void> {
+    const token = ActionCardComponent.SUSHI_SYMBOL_ADDR[this.openseaOrderCurrencySym().toLowerCase()];
+    if (!token) return; // native ETH offers aren't possible; unknown → no probe
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    try {
+      const r = await firstValueFrom(
+        this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token }),
+      );
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      if (Number.isFinite(bal)) this.openseaOfferBal.set(bal);
+    } catch { /* leave unknown — Max just won't show */ }
+  }
+  /** Fill the offer/list amount with the full currency balance. */
+  setOpenseaOfferMax(): void {
+    const b = this.openseaOfferBal();
+    if (b != null && b > 0 && this.isEditable()) {
+      // Floor to OpenSea's allowed increment — the exact balance (e.g. 0.000991)
+      // is rejected as an off-step bid.
+      const dec = Math.min(this.openseaOfferDecimals(), ActionCardComponent.OPENSEA_PRICE_DECIMALS);
+      const f = 10 ** dec;
+      this.setEditParam('priceEth', String(Math.floor(b * f) / f));
+    }
+  }
+  /** An ETH-priced collection's offer is paid in WETH. If the wallet is short,
+   *  hand the user a one-tap wrap for exactly the shortfall (via chat, so it
+   *  renders as its own evm_wrap card). */
+  openseaWrapForOffer(): void {
+    const want = Number(this.getEditParam('priceEth') || 0);
+    const have = this.openseaOfferBal() ?? 0;
+    const short = want > have ? Math.ceil((want - have) * 1e6) / 1e6 : 0;
+    const amt = short > 0 ? String(short) : (want > 0 ? String(want) : '');
+    this.requestChat.emit(amt ? `wrap ${amt} ETH to WETH on Robinhood` : 'wrap ETH to WETH on Robinhood');
+  }
 
   // ── OpenSea SeaDrop mint ────────────────────────────────────────────────────
   readonly isOpenseaMint = computed(() => this.action?.type === 'opensea_mint');

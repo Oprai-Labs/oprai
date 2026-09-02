@@ -337,8 +337,8 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "me_accept_offer":    _A({"nft", "magic_eden"}),
     "me_cancel_offer":    _A({"nft", "magic_eden"}),
     "me_withdraw":    _A({"nft", "magic_eden"}),
-    "me_collection_info": _A({"analysis", "nft_read"}),
-    "me_nft_info":        _A({"analysis", "nft_read"}),
+    "me_collection_info": _A({"analysis", "magic_eden"}),
+    "me_nft_info":        _A({"analysis", "magic_eden"}),
     "me_wallet_nfts":     _A({"nft", "magic_eden", "portfolio"}),
     "me_collection_activity":_A({"nft", "magic_eden", "analysis"}),
     "me_listings":        _A({"nft", "magic_eden"}),
@@ -373,6 +373,9 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "morpho_repay":                  _A({"morpho", "lending"}),
     "morpho_withdraw":               _A({"morpho", "lending"}),
     "sushi_swap":                    _A({"sushi", "dex", "swap"}),
+    # ETH<->WETH wrap/unwrap is a cross-venue EVM utility: offered whenever ANY EVM
+    # venue is active (an OpenSea offer needs WETH; a Sushi/Uniswap trade may too).
+    "evm_wrap":                      _A({"sushi", "uniswap", "opensea", "relay", "morpho", "lighter", "poolstrade", "pons", "dex"}),
     "sushi_add_liquidity":           _A({"sushi", "dex", "liquidity"}),
     "opensea_buy":                   _A({"opensea", "nft"}),
     "opensea_mint":                  _A({"opensea", "nft"}),
@@ -526,15 +529,15 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_wallet_activities":    _A({"nft", "magic_eden", "portfolio"}),
     "me_wallet_offers_made":   _A({"nft", "magic_eden", "portfolio"}),
     "me_wallet_offers_received":_A({"nft", "magic_eden", "portfolio"}),
-    "me_collection_activities":_A({"analysis", "nft_read"}),
-    "me_collection_stats":     _A({"analysis", "nft_read"}),
+    "me_collection_activities":_A({"analysis", "magic_eden"}),
+    "me_collection_stats":     _A({"analysis", "magic_eden"}),
     "me_collections":          _A({"nft", "magic_eden"}),
-    "me_collection_listings":  _A({"analysis", "nft_read"}),
+    "me_collection_listings":  _A({"analysis", "magic_eden"}),
     "me_collections_batch_listings":_A({"nft", "magic_eden"}),
-    "me_collection_leaderboard":_A({"analysis", "nft_read"}),
-    "me_trending_collections":_A({"analysis", "nft_read"}),
-    "me_collection_holder_stats":_A({"analysis", "nft_read"}),
-    "me_collection_sales_history":_A({"analysis", "nft_read"}),
+    "me_collection_leaderboard":_A({"analysis", "magic_eden"}),
+    "me_trending_collections":_A({"analysis", "magic_eden"}),
+    "me_collection_holder_stats":_A({"analysis", "magic_eden"}),
+    "me_collection_sales_history":_A({"analysis", "magic_eden"}),
     "me_buy_instruction":      _A({"nft", "magic_eden"}),
     "me_buy_now_transfer_nft": _A({"nft", "magic_eden"}),
     "me_buy_now":              _A({"nft", "magic_eden"}),
@@ -542,7 +545,7 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "me_sell":                 _A({"nft", "magic_eden"}),
     "me_sell_now":             _A({"nft", "magic_eden"}),
     "me_sell_cancel":          _A({"nft", "magic_eden"}),
-    "me_collection_attributes":_A({"analysis", "nft_read"}),
+    "me_collection_attributes":_A({"analysis", "magic_eden"}),
     "me_owner_activities":     _A({"nft", "magic_eden"}),
     "me_wallet_tokens":        _A({"nft", "magic_eden", "portfolio"}),
     # Offered on every token question — the check has to be reachable
@@ -552,7 +555,7 @@ QUERY_TAGS: dict[str, frozenset[str]] = {
     "honeypot_check":          _A({"analysis", "dex", "trading"}),
     "scam_check":              _A({"analysis", "dex", "trading"}),
     "rug_check":               _A({"analysis", "dex", "trading"}),
-    "me_token":                _A({"analysis", "nft_read"}),
+    "me_token":                _A({"analysis", "magic_eden"}),
     "me_token_listings":       _A({"nft", "magic_eden"}),
     "me_token_offers_received":_A({"nft", "magic_eden"}),
     "me_token_activities":     _A({"nft", "magic_eden"}),
@@ -606,7 +609,7 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
     # SushiSwap on Robinhood Chain — swap + pools + add-liquidity.
     "sushi":       _A({"sushi"}),
     # OpenSea NFT marketplace on Robinhood Chain — browse + buy.
-    "opensea":     _A({"opensea", "nft"}),
+    "opensea":     _A({"opensea"}),
     "relay":       _A({"relay"}),
     "native_stake":_A({"native_stake", "staking"}),
     # Lighter perps — its own tag so lighter_open/close/leverage surface when
@@ -624,7 +627,10 @@ PROTOCOL_TO_TAGS: dict[str, frozenset[str]] = {
 # `native_stake` maps to {native_stake, staking}, so "staking" would otherwise
 # leak in and wrongly gate cross-cutting tools like `yield` / `top_validators`.
 _CATEGORY_TAGS: frozenset[str] = frozenset(
-    {"always", "core", "analysis", "portfolio", "price", "dex", "lending", "staking"}
+    # "nft" is a CROSS-PROTOCOL category (Magic Eden, Tensor, OpenSea all carry it)
+    # — it must NOT act as a protocol-identity tag, or tagging one NFT venue would
+    # pull in every other venue's NFT tools (opensea tag was leaking me_* tools).
+    {"always", "core", "analysis", "portfolio", "price", "dex", "lending", "staking", "nft"}
 )
 PROTOCOL_TAGS: frozenset[str] = frozenset().union(*PROTOCOL_TO_TAGS.values()) - _CATEGORY_TAGS
 

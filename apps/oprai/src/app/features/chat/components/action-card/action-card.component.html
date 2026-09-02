@@ -437,7 +437,7 @@
          || isNativeStake() || isStakeAccountAction() || isTransfer() || isCloseAccounts()
          || isBurn() || isLstPanel() || isMarinadeClaim() || isUniswapSwap() || isUniswapAddLiquidity()
          || action.type === 'lighter_deposit' || action.type === 'lighter_withdraw' || isMorphoAction() || isSushiAction()
-         || isOpenseaBuy() || isOpenseaAccept() || isOpenseaOrder()) {
+         || isOpenseaBuy() || isOpenseaAccept() || isOpenseaOrder() || isEvmWrap()) {
       <div class="proto-body">
         <!-- Rendered ABOVE the field chain, not as a branch inside it.
              As a branch it REPLACED the fields, so an offer showed a price
@@ -4033,19 +4033,85 @@
             <div class="pump-panel" [class.proto-fields--shake]="shake()">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ (isOpenseaList() ? 'List price' : 'Your offer') | t }}</span>
+                @if (!isOpenseaList() && openseaOfferBal() != null) {
+                  <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ openseaOfferBal() | number:'1.0-4' }} {{ openseaOrderCurrencySym() }}
+                    @if (isEditable() && openseaOfferBal()! > 0) {
+                      <button class="pump-panel__max" type="button" (click)="setOpenseaOfferMax()">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                }
               </div>
               <div class="pump-panel__row">
-                <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
                        [value]="getEditParam('priceEth')" [disabled]="!isEditable()"
-                       (input)="setOpenseaPrice($any($event.target).value)" />
-                <div class="pump-token"><span class="pump-token__sym">{{ isOpenseaList() ? 'ETH' : 'WETH' }}</span></div>
+                       (input)="setOpenseaPrice($any($event.target))" />
+                <div class="pump-token">
+                  @if (openseaOrderCurrencySym() === 'USDG') {
+                    <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" (error)="$any($event.target).style.display='none'" />
+                  }
+                  <span class="pump-token__sym">{{ openseaOrderCurrencySym() }}</span>
+                </div>
               </div>
             </div>
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />
               <span>{{ isOpenseaList()
-                ? ('Listing is gasless — you sign the order; it sells when someone buys.' | t)
-                : ('Offers are paid in WETH — you approve WETH once, then sign the offer.' | t) }}</span>
+                ? ('Your first listing of a collection needs a one-time approval; then you sign the order and it sells when someone buys.' | t)
+                : ('You approve the offer currency once, then sign the offer.' | t) }}</span>
+            </div>
+            @if (isEditable() && openseaOrderProblem(); as problem) {
+              <div class="limit-size" style="color:var(--op-danger,#d33)">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ problem }}</span>
+              </div>
+            }
+            @if (!isOpenseaList() && openseaOrderCurrencySym() === 'WETH' && isEditable()) {
+              <div class="limit-size">
+                <lucide-icon name="info" [size]="13" />
+                <span>{{ 'Offers on this collection are paid in WETH.' | t }}
+                  <button class="pump-panel__max" type="button" (click)="openseaWrapForOffer()">{{ 'Wrap ETH → WETH' | t }}</button>
+                </span>
+              </div>
+            }
+          </div>
+        } @else if (isEvmWrap()) {
+          <!-- ─────── Native <-> wrapped (ETH <-> WETH) — the chain's WETH9
+               deposit()/withdraw(). Same asset 1:1: no slippage, no approval. ── -->
+          <div class="uni-lp">
+            <div class="uni-lp__head">
+              <span class="km-icon-slot uni-lp__logo"><span class="km-icon km-icon--fallback">{{ evmWrapFromSym().charAt(0) }}</span></span>
+              <div class="uni-lp__headtext">
+                <span class="uni-lp__pair">{{ (evmWrapIsUnwrap() ? 'Unwrap' : 'Wrap') | t }} {{ evmWrapFromSym() }} → {{ evmWrapToSym() }}</span>
+                <span class="uni-lp__sub">{{ evmWrapChainName() }}</span>
+              </div>
+            </div>
+            @if (isEditable()) {
+              <div style="display:flex;gap:6px;margin-bottom:8px">
+                <button class="pump-panel__max" type="button" [style.opacity]="evmWrapIsUnwrap() ? 0.5 : 1" (click)="setEvmWrapDirection('wrap')">{{ 'Wrap' | t }}</button>
+                <button class="pump-panel__max" type="button" [style.opacity]="evmWrapIsUnwrap() ? 1 : 0.5" (click)="setEvmWrapDirection('unwrap')">{{ 'Unwrap' | t }}</button>
+              </div>
+            }
+            <div class="pump-panel" [class.proto-fields--shake]="shake()">
+              <div class="pump-panel__top">
+                <span class="pump-panel__label">{{ 'Amount' | t }}</span>
+                @if (evmWrapBal() != null) {
+                  <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ evmWrapBal() | number:'1.0-6' }} {{ evmWrapFromSym() }}
+                    @if (isEditable() && evmWrapBal()! > 0) {
+                      <button class="pump-panel__max" type="button" (click)="setEvmWrapMax()">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                }
+              </div>
+              <div class="pump-panel__row">
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
+                       [value]="getEditParam('amount')" [disabled]="!isEditable()"
+                       (input)="setEvmWrapAmount($any($event.target).value)" />
+                <div class="pump-token"><span class="pump-token__sym">{{ evmWrapFromSym() }}</span></div>
+              </div>
+            </div>
+            <div class="limit-size">
+              <lucide-icon name="info" [size]="13" />
+              <span>{{ 'Same asset, 1:1 — no slippage, no approval. You receive exactly this amount as {to}.' | t:{ to: evmWrapToSym() } }}</span>
             </div>
           </div>
         } @else if (isOpenseaAccept()) {
@@ -4059,7 +4125,7 @@
             </div>
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />
-              <span>{{ 'Accepting sells your NFT to the bidder for their WETH offer; your wallet signs the transfer.' | t }}</span>
+              <span>{{ 'Accepting sells your NFT to the bidder for their offer; your wallet signs the transfer.' | t }}</span>
             </div>
           </div>
         } @else if (isSushiSwap()) {
@@ -6962,8 +7028,8 @@
 
         <div class="proto-footer">
           <button class="proto-btn-confirm"
-                  [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || openseaMintBlock() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
-                  [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || openseaMintBlock() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [class.proto-btn-confirm--disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || openseaMintBlock() !== null || openseaOrderProblem() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
+                  [disabled]="meOfferBelowMin() || meteoraPositionGone() || nothingToClaim() || meteoraPoolUnresolved() || meteoraBinsOverflow() || meteoraInsufficient() !== null || clmmUnresolved() || clmmInsufficient() !== null || clmmIncreaseInsufficient() !== null || ammInsufficient() !== null || sushiLpInsufficient() || openseaMintBlock() !== null || openseaOrderProblem() !== null || insufficientFunds() || belowMinAmount() !== null || !canApprove() || swapBlockedByImpact() || borrowInputInvalid()"
                   (click)="approve()">
             @if (meteoraPositionGone()) {
               <lucide-icon name="alert-circle" [size]="14" />
