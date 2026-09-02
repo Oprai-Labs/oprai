@@ -752,9 +752,20 @@ pub async fn post_build(
     // cross-chain actions (relay, cross-chain swap) instead carry their EVM
     // sender/recipient in the params, so a Solana-format wallet isn't required —
     // an EVM-native (SIWE) session's 0x address must not fail the whole build.
+    // A SIWE (EVM-native) session has no Solana pubkey at all. Rejecting it here
+    // broke every READ for those users — "Invalid wallet address" on a plain
+    // collection-stats card — because reads go through this same endpoint and
+    // never touch the pubkey. Accept a well-formed EVM address with the default
+    // pubkey; the post-build guard below is what still refuses a Solana
+    // TRANSACTION (which such a session could never sign anyway).
+    let evm_session = wallet.len() == 42
+        && wallet.starts_with("0x")
+        && wallet[2..].chars().all(|c| c.is_ascii_hexdigit());
     let user_pubkey: solana_sdk::pubkey::Pubkey = match wallet.parse() {
         Ok(pk) => pk,
-        Err(_) if is_evm_build_action(&body.action_type) => solana_sdk::pubkey::Pubkey::default(),
+        Err(_) if is_evm_build_action(&body.action_type) || evm_session => {
+            solana_sdk::pubkey::Pubkey::default()
+        }
         Err(_) => return Err(AppError::InvalidParams("Invalid wallet address".into())),
     };
 
@@ -781,6 +792,18 @@ pub async fn post_build(
         tracing::error!(error = %e, user_wallet = %wallet, action_type = %body.action_type, "Failed to build transaction");
         e
     })?;
+
+    // Reads come back with `transaction: None` and are served to any session. A
+    // Solana transaction built against the default pubkey, though, is unsignable
+    // by an EVM-only wallet — say so plainly instead of handing over a dead card.
+    if evm_session && result.transaction.is_some() && !is_evm_build_action(&body.action_type) {
+        return Err(AppError::InvalidParams(
+            "This is a Solana action, and you're signed in with an EVM wallet. \
+             Connect a Solana wallet to sign it — EVM wallets cover the Robinhood, \
+             Base and Ethereum actions."
+                .into(),
+        ));
+    }
 
     tracing::info!(
         action = "build_transaction",
