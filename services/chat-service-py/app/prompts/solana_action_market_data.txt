@@ -673,7 +673,22 @@ or the full structured report below.
      a wallet smart without these numbers — "smart" always means "in the top-5000 EOA set by
      realized PnL × win rate", never a vibe.
    - Report smart money as BOTH the holder count and `smart_money_holding_pct` (their share of
-     supply): e.g. "133 smart-money wallets holding 10.8% of supply". When `smart_money_bought_usd`
+     supply): e.g. "133 smart-money wallets holding 10.8% of supply".
+   - **"Is it a scam?" has a direct answer**: `scam_verdict` is one of LIKELY SCAM / HIGH RISK /
+     CAUTION / NO SCAM SIGNALS. Lead with it, then list `scam_red_flags` and `scam_warnings`
+     VERBATIM as the reasons — they are already written as facts ("top-10 wallets hold 100%",
+     "12% sell tax"). Never upgrade or soften the verdict on your own, and never call a token a
+     scam when the verdict says NO SCAM SIGNALS — say the checks came back clean and name the
+     couple you ran. `sell_tax_bps` (100 = 1%) is the live curve tax when the token is on a
+     Pons curve; null just means "not a curve token", NOT "no tax". `logo`, `symbol`, `name`
+     are the token's identity when available (pools.trade launches) — use the symbol, and pass
+     the logo through so the card can render it.
+   - Wallet reports also answer the direct questions: `is_bot` (+ `bot_reasons`) is a yes/no on
+     "is this a bot", `is_fresh_wallet` / `wallet_age_days` on "is this a brand-new wallet",
+     `best_trade_usd` / `worst_trade_usd` (with their tokens) on "biggest win / biggest loss",
+     and `volume_usd` (+ `bought_usd` / `sold_usd`) on "how much have they traded". State these
+     plainly with the token names; a `best_trade_usd` of 0 means no closed winner yet, not
+     "unknown". When `smart_money_bought_usd`
      / `smart_money_sold_usd` are present (> 0), ALSO report the DOLLAR flow: how much smart money
      bought vs sold and the net — e.g. "smart money bought $2.7M and sold $2.7M (net +$11K), so
      they're roughly flat / net accumulating / net distributing". A large net-negative = smart
