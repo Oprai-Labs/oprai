@@ -3835,12 +3835,19 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
    * works.
    */
   meOfferMinNote(): string | null {
-    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return null;
+    // Magic Eden ONLY. `opensea_make_offer` also contains "make_offer", so an
+    // un-anchored /make_offer/ wrongly showed this SOL/escrow note (Solana) on
+    // OpenSea (EVM) offer cards.
+    const t = this.action?.type ?? '';
+    if (t.startsWith('opensea')) return null;
+    if (!/make_offer|buy_change_price/.test(t)) return null;
     return 'Minimum 0.0009 SOL — Magic Eden escrows the bid, and the escrow pays its own rent';
   }
 
   meOfferBelowMin(): boolean {
-    if (!/make_offer|buy_change_price/.test(this.action?.type ?? '')) return false;
+    const t = this.action?.type ?? '';
+    if (t.startsWith('opensea')) return false;
+    if (!/make_offer|buy_change_price/.test(t)) return false;
     const v = Number(this.getEditParam(this.meAmountKey()));
     return Number.isFinite(v) && v > 0 && v < this.ME_MIN_OFFER_SOL;
   }
@@ -10579,6 +10586,13 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isOpenseaOrder = computed(() => this.action?.type === 'opensea_list' || this.action?.type === 'opensea_make_offer');
   readonly isOpenseaList = computed(() => this.action?.type === 'opensea_list');
   setOpenseaPrice(v: string): void { if (this.isEditable()) this.setEditParam('priceEth', v); }
+  /** The currency an OpenSea order is priced in — carried on the action (from
+   *  the collection's listing/offer currency). Robinhood-native collections use
+   *  USDG; Ethereum ones use ETH/WETH. Falls back to USDG (the common case). */
+  openseaOrderCurrencySym(): string {
+    const c = String(this.getEditParam('currency') || '').trim();
+    return c || 'USDG';
+  }
 
   // ── OpenSea SeaDrop mint ────────────────────────────────────────────────────
   readonly isOpenseaMint = computed(() => this.action?.type === 'opensea_mint');

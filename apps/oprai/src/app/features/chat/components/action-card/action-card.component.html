@@ -4039,16 +4039,18 @@
                        [value]="getEditParam('priceEth')" [disabled]="!isEditable()"
                        (input)="setOpenseaPrice($any($event.target).value)" />
                 <div class="pump-token">
-                  <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" (error)="$any($event.target).style.display='none'" />
-                  <span class="pump-token__sym">USDG</span>
+                  @if (openseaOrderCurrencySym() === 'USDG') {
+                    <img class="pump-token__logo" src="assets/tokens/usdg.png" alt="USDG" width="18" height="18" (error)="$any($event.target).style.display='none'" />
+                  }
+                  <span class="pump-token__sym">{{ openseaOrderCurrencySym() }}</span>
                 </div>
               </div>
             </div>
             <div class="limit-size">
               <lucide-icon name="info" [size]="13" />
               <span>{{ isOpenseaList()
-                ? ('Priced in USDG. Your first listing of a collection needs a one-time approval; then you sign the order and it sells when someone buys.' | t)
-                : ('Offers are paid in USDG — you approve USDG once, then sign the offer.' | t) }}</span>
+                ? ('Your first listing of a collection needs a one-time approval; then you sign the order and it sells when someone buys.' | t)
+                : ('You approve the offer currency once, then sign the offer.' | t) }}</span>
             </div>
           </div>
         } @else if (isOpenseaAccept()) {
