@@ -2573,8 +2573,10 @@ async def sns_subdomains(domain: str) -> dict:
 CHAIN_INTEL_BASE = os.environ.get("CHAIN_INTEL_URL", "http://rh-chain-intel-api:3160")
 
 
-async def _chain_intel(path: str) -> dict:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+async def _chain_intel(path: str, timeout: float | None = None) -> dict:
+    # Deep reports (a wallet's full FIFO P&L replay) legitimately run past the
+    # default read timeout — pass a longer one rather than losing the whole report.
+    async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as c:
         r = await c.get(f"{CHAIN_INTEL_BASE}{path}")
         r.raise_for_status()
         return r.json()
@@ -2589,7 +2591,30 @@ async def rh_wallet_analysis(wallet: str) -> dict:
     top counterparties and a smart-money flag. Use for any 'analyze / how much did
     this wallet make / P&L / win rate / is it smart money / did they jeet' about a
     Robinhood-Chain 0x (EVM) wallet."""
-    return await _chain_intel(f"/wallet/{wallet}")
+    res, bal = await asyncio.gather(
+        _chain_intel(f"/wallet/{wallet}", timeout=45.0),
+        _chain_intel(f"/wallet/{wallet}/balances?limit=40"),
+        return_exceptions=True,
+    )
+    res = res if isinstance(res, dict) else {}
+    bal = bal if isinstance(bal, dict) else {}
+    # Fold the LIVE portfolio in: the index knows history, only the node knows what
+    # the wallet is holding right now and what it's worth.
+    if isinstance(res.get("facts"), dict) and bal:
+        res["facts"]["portfolio_total_usd"] = bal.get("total_usd")
+        res["facts"]["native_eth"] = bal.get("native_eth")
+        res["facts"]["live_holdings"] = bal.get("holdings", [])[:15]
+        res["facts"]["live_token_count"] = bal.get("token_count")
+    return res
+
+
+@query_tool(required=["wallet"], optional=["limit"], tags={"analysis", "portfolio"})
+async def rh_wallet_balances(wallet: str, limit: int = 40) -> dict:
+    """LIVE Robinhood-Chain portfolio of a wallet: what it holds RIGHT NOW (node
+    balanceOf, not index history), each token's amount, price and USD value, native
+    ETH, and the TOTAL portfolio value. Use for 'what does this wallet hold', 'total
+    balance', 'how much is this wallet worth', 'token values'."""
+    return await _chain_intel(f"/wallet/{wallet}/balances?limit={int(limit)}")
 
 
 def _fmt_usd(v: float, is_price: bool = False) -> str:
