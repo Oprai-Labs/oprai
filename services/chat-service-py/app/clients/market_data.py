@@ -2647,13 +2647,15 @@ async def rh_token_analysis(token: str) -> dict:
     smart-money holders, and a composite RISK score (0-100, LOW/MED/HIGH). Use for
     'analyze this token / is it a rug / who is the dev / bundle / snipers / dev
     holdings / risk' on Robinhood Chain."""
-    res, md = await asyncio.gather(
+    res, md, buyers = await asyncio.gather(
         _chain_intel(f"/token/{token}"),
         _dexscreener_evm_market(token),
+        _chain_intel(f"/signals/token-buyers/{token}?since_block=0&limit=10"),
         return_exceptions=True,
     )
     res = res if isinstance(res, dict) else {}
     md = md if isinstance(md, dict) else {}
+    buyers = buyers if isinstance(buyers, dict) else {}
     # Not a Robinhood-Chain token (our index is Robinhood-only) — return the explicit
     # not_found as-is. Do NOT prepend DexScreener market data: a price for a token
     # that lives on another chain would read as if we had analysed it here.
@@ -2673,6 +2675,18 @@ async def rh_token_analysis(token: str) -> dict:
             market.append({"label": "24h volume", "value": _fmt_usd(md["volume_24h_usd"])})
         res["kpis"] = market + res["kpis"]
         res["market"] = md
+    # WHICH smart wallets bought (and are they still holding?) — the concrete "who"
+    # behind the smart-money count, each with WHY it's smart (rank / PnL / win rate).
+    top = buyers.get("buyers") or []
+    if isinstance(res.get("facts"), dict) and top:
+        res["facts"]["smart_top_buyers"] = [{
+            "wallet": b.get("wallet"), "rank": b.get("rank"),
+            "realized_pnl_usd": b.get("realized_pnl_usd"), "win_rate": b.get("win_rate"),
+            "n_tokens": b.get("n_tokens"), "buys": b.get("buys"), "sells": b.get("sells"),
+            "still_holding": b.get("still_holding"),
+        } for b in top]
+        res["facts"]["smart_buyers_still_holding"] = sum(1 for b in top if b.get("still_holding"))
+        res["facts"]["smart_buyers_sold"] = sum(1 for b in top if not b.get("still_holding"))
     return res
 
 
@@ -2700,6 +2714,37 @@ async def rh_honeypot(token: str, amount: float | None = None) -> dict:
     (distinct sellers). Use for 'can I sell / is it a honeypot / sell tax / exit'."""
     path = f"/honeypot/{token}" + (f"?amount={float(amount)}" if amount else "")
     return await _chain_intel(path)
+
+
+@query_tool(optional=["window_blocks", "min_smart"], tags={"analysis", "dex"})
+async def rh_smart_flow(window_blocks: int = 3000, min_smart: int = 2) -> dict:
+    """Robinhood-Chain smart money BUYS vs SELLS per token over the last
+    `window_blocks` (~10 blocks/s, so 3000 ≈ 5 min): which tokens smart wallets are
+    ACCUMULATING (buyers > sellers) vs DISTRIBUTING/dumping (sellers > buyers). Use
+    for 'what is smart money buying/selling right now', 'is smart money exiting X',
+    'smart money dump' on Robinhood Chain."""
+    tip = int((await _chain_intel("/signals/tip")).get("tip") or 0)
+    since = max(0, tip - int(window_blocks))
+    return await _chain_intel(
+        f"/signals/smart-flow?since_block={since}&min_smart={int(min_smart)}&limit=40")
+
+
+@query_tool(required=["token"], optional=["limit"], tags={"analysis"})
+async def rh_token_smart_buyers(token: str, limit: int = 15) -> dict:
+    """WHICH smart wallets bought this Robinhood-Chain token — each with rank in the
+    top-5000, realized PnL, win rate, tokens traded, buy/sell count and whether it is
+    STILL HOLDING. Use for 'which smart wallets bought X', 'who is the smart money in
+    X', 'are the smart buyers still holding'."""
+    return await _chain_intel(f"/signals/token-buyers/{token}?since_block=0&limit={int(limit)}")
+
+
+@query_tool(required=["wallet"], tags={"analysis", "portfolio"})
+async def rh_wallet_smart_profile(wallet: str) -> dict:
+    """WHY is this Robinhood-Chain wallet smart (or not)? Its top-5000 standing —
+    rank, smart score, realized PnL, win rate, tokens traded — or the exact reason
+    it doesn't qualify (contract, too few/many tokens, low win rate, no PnL). Use for
+    'why is this wallet smart', 'is 0x… smart money and why'."""
+    return await _chain_intel(f"/wallet/{wallet}/smart-profile")
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────

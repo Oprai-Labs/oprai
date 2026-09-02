@@ -15,6 +15,9 @@ This section governs all read-only data queries: prices, charts, holders, wallet
 | **Robinhood-Chain WALLET analysis** — "analyze this wallet", "how much did wallet X make / P&L / win rate", "is it smart money", "did they jeet / sell before the peak" — for a Robinhood-Chain 0x wallet. Returns P&L (daily + 7d/30d/total), archetype, jeet/missed-gains, holdings, smart-money flag. Use this (NOT the Solana `birdeye_*` tools) for any Robinhood-Chain / chain-4663 / 0x-EVM-wallet analysis | `rh_wallet_analysis` | `wallet` |
 | **Robinhood-Chain TOKEN analysis / rug check** — "analyze this token on Robinhood", "is it a rug", "who is the dev / did the dev rug before", "bundle at launch", "snipers", "dev holdings", "risk score" — holders, real-wallet concentration (curve excluded), dev identity + launch & rug history, bundled-at-launch %, composite risk. Use this for ANY `0x…` token/contract address a user asks to analyze — a bare `0x…` address with NO chain named DEFAULTS to Robinhood Chain, so call this (NEVER the Solana `birdeye_*`/`dex_token`/`helius_*` tools, and NEVER ask "which chain?"). Deep on-chain analysis currently covers Robinhood Chain ONLY | `rh_token_analysis` | `token` |
 | **Robinhood-Chain smart money** — "what is smart money buying on Robinhood Chain", "top Robinhood-Chain traders" — most profitable wallets + what they're accumulating (24h/7d/30d) | `rh_smart_money` | — (optional `limit`) |
+| **Robinhood-Chain smart-money FLOW (buy vs sell)** — "what is smart money buying/selling right now", "is smart money exiting/dumping X", "which tokens are smart wallets accumulating" — per token: smart buyers vs smart sellers over the last ~5 min, flagged accumulating / distributing | `rh_smart_flow` | — (optional `window_blocks`, `min_smart`) |
+| **Robinhood-Chain token smart BUYERS (who + why)** — "which smart wallets bought X", "who is the smart money in X", "are the smart buyers still holding" — each smart buyer with rank, realized PnL, win rate, tokens traded, still-holding flag | `rh_token_smart_buyers` | `token` (optional `limit`) |
+| **Robinhood-Chain wallet smart PROFILE (why smart)** — "why is this wallet smart", "is 0x… smart money and why", "why isn't it smart" — top-5000 rank, PnL, win rate, tokens; or the exact disqualifying reason (contract / too few or many tokens / low win rate) | `rh_wallet_smart_profile` | `wallet` |
 | **Robinhood-Chain cohort flow** — "what are this token's whales buying next", "what are <token> holders rotating into" (Robinhood Chain) | `rh_cohort_flow` | `token` (optional `window_days` default 7) |
 | **Robinhood-Chain honeypot / can-I-sell** — "can I sell this token", "is it a honeypot", "what's the sell tax", "can I exit" (Robinhood Chain) — Pons-curve sellability + sell tax + exit value, else on-chain transfer history | `rh_honeypot` | `token` (optional `amount`) |
 | Spot price for a token | `birdeye_price` | `address` |
@@ -662,6 +665,13 @@ or the full structured report below.
      `launch_bundle_signal` is true / `launch_block_buyers` >= 2. If `launch_block_buyers` is
      1, it is just the deployer/LP holding supply at block 0 — say "one wallet (deployer/LP)",
      NOT "a coordinated group / organized entry". `bundle_blocks: 0` = no same-block clusters.
+   - When `smart_top_buyers` is present, NAME the smart money: list the top few wallets
+     (short address, rank, realized PnL, win rate) and say how many are still holding vs sold
+     (`smart_buyers_still_holding` / `smart_buyers_sold`) — "3 of the 5 smart buyers still hold;
+     the #84-ranked wallet ($1.4M realized, 41% win) bought and hasn't sold". Smart money that
+     bought and already SOLD is a warning; smart money still holding is conviction. Never call
+     a wallet smart without these numbers — "smart" always means "in the top-5000 EOA set by
+     realized PnL × win rate", never a vibe.
    - Report smart money as BOTH the holder count and `smart_money_holding_pct` (their share of
      supply): e.g. "133 smart-money wallets holding 10.8% of supply". When `smart_money_bought_usd`
      / `smart_money_sold_usd` are present (> 0), ALSO report the DOLLAR flow: how much smart money
