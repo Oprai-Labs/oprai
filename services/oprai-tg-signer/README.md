@@ -23,7 +23,8 @@ component in the Telegram stack that ever touches private keys.
 | GET    | `/health`        | liveness + Vault status (scaffolded in 0.1)       |
 | POST   | `/wallet/create` | generate keypair (solana\|evm), encrypt, store    |
 | POST   | `/wallet/import` | import an existing key, encrypt, store            |
-| POST   | `/sign`          | decrypt → sign an unsigned tx → wipe → return      |
+| POST   | `/sign`          | decrypt → sign a message → wipe → return           |
+| POST   | `/sign-tx`       | sign an EIP-1559 tx → `{address, raw, hash}`      |
 | POST   | `/siws-sign`     | sign a Sign-In-With-Solana auth message           |
 | POST   | `/siwe-sign`     | sign a Sign-In-With-Ethereum (EIP-4361) message   |
 

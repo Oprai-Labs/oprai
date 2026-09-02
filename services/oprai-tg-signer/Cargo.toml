@@ -34,10 +34,13 @@ anyhow = "1"
 # heavy solana-sdk crate tree.
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 bs58 = "0.5"
-# EVM signing (secp256k1 + EIP-191 personal_sign + address derivation).
+# EVM signing (secp256k1 + EIP-191 personal_sign + address derivation) and
+# EIP-1559 transaction signing (build -> sign -> RLP/2718-encode the raw tx).
 alloy-signer = "0.8"
 alloy-signer-local = "0.8"
 alloy-primitives = "0.8"
+alloy-consensus = { version = "0.8", features = ["k256"] }
+alloy-eips = "0.8"
 # Vault Transit is called over plain HTTP (encrypt/decrypt) — no need for a
 # full Vault client crate.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
