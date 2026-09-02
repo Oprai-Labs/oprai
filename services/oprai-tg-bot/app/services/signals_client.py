@@ -63,3 +63,7 @@ class SignalsClient:
         """A tracked wallet's buys since `since_block`."""
         return await self._get(f"/wallet/{wallet}/recent-buys", {
             "since_block": since_block, "limit": limit})
+
+    async def token_report(self, token: str) -> dict:
+        """Full token X-ray (for the Analyze button) — {subject,status,kpis,facts,…}."""
+        return await self._get(f"/token/{token}")

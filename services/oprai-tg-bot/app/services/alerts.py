@@ -26,11 +26,12 @@ def _sym(s: dict) -> str:
 
 
 def _buttons(token: str) -> list[tuple[str, str, str]]:
-    """(label, kind, payload) — the send layer builds callback_data / urls from kind."""
+    """(label, kind, payload) — the send layer maps `kind` to a callback. Buy hands
+    off to the bot's existing gateway+signer trade flow; Analyze runs the chain-intel
+    token X-ray (holders / concentration / smart money / risk) inline."""
     return [
         ("🟢 Buy", "buy", token),
-        ("📈 Chart", "chart", token),
-        ("➕ Track", "track_token", token),
+        ("🔍 Analyze", "analyze", token),
     ]
 
 
