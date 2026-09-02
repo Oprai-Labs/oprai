@@ -136,6 +136,24 @@ fn w_addr(a: &str) -> String { format!("{:0>64}", a.trim_start_matches("0x").to_
 fn erc20_approve_calldata(spender: &str, amount_wei: u128) -> String {
     format!("095ea7b3{}{}", w_addr(spender), format!("{amount_wei:064x}"))
 }
+
+/// ERC-721/1155 `setApprovalForAll(operator, approved)` calldata (selector
+/// 0xa22cb465). Grants the Seaport conduit permission to transfer the seller's
+/// NFTs on a fill — OpenSea rejects a listing whose conduit isn't approved.
+fn set_approval_for_all_calldata(operator: &str, approved: bool) -> String {
+    format!("a22cb465{}{}", w_addr(operator), format!("{:064x}", approved as u8))
+}
+
+/// Is `operator` already approved to move ALL of `owner`'s NFTs on `contract`?
+/// isApprovedForAll(address,address)->bool, selector 0xe985e9c5. false on any
+/// read error (so we then include the approval tx rather than silently skip it).
+async fn is_approved_for_all(http: &reqwest::Client, rpc: &str, contract: &str, owner: &str, operator: &str) -> bool {
+    let data = format!("0xe985e9c5{}{}", w_addr(owner), w_addr(operator));
+    match crate::services::uniswap::eth_call(http, rpc, contract, &data).await {
+        Ok(h) => h.trim_start_matches("0x").trim_start_matches('0') == "1",
+        Err(_) => false,
+    }
+}
 fn b32(s: &str) -> String { format!("{:0>64}", s.trim_start_matches("0x").to_lowercase()) }
 /// Decimal (or 0x-hex) string → a 256-bit big-endian hex word (handles values
 /// beyond u128 — salts and token ids can exceed it).
@@ -1093,7 +1111,19 @@ pub async fn build_list(http: &reqwest::Client, body: &Value) -> Result<Value, A
         "totalOriginalConsiderationItems": cons_items.len(),
         "counter": counter.to_string(),
     });
-    Ok(order_response(parameters, &slug))
+    let mut resp = order_response(parameters, &slug);
+    // OpenSea validates the ERC-721 conduit approval AT SUBMIT ("ERC721 conduit
+    // not approved"). If the seller hasn't granted the conduit setApprovalForAll
+    // on this collection, hand the frontend an approval tx to send first. Skip
+    // it when already approved so the user isn't prompted for a redundant tx.
+    let conduit = resolve_conduit(http, &rpc(), OPENSEA_CONDUIT_KEY).await;
+    if conduit.starts_with("0x") && !is_approved_for_all(http, &rpc(), &token, &wallet, &conduit).await {
+        let data = set_approval_for_all_calldata(&conduit, true);
+        if let Some(o) = resp.as_object_mut() {
+            o.insert("nftApprove".into(), json!({ "to": token, "data": format!("0x{data}"), "value": "0", "chainId": CHAIN }));
+        }
+    }
+    Ok(resp)
 }
 
 /// Build a Seaport OFFER (bid, paid in WETH) + EIP-712 typed data. Body:

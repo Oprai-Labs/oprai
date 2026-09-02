@@ -3425,13 +3425,25 @@ export class SolanaActionService {
     if (!typedData || !parameters) throw new Error('OpenSea: could not build the order.');
 
     callbacks.onSign?.();
-    // make-offer: one-time WETH approval to the conduit so the bid can be pulled.
+    // make-offer: one-time currency (USDG/WETH) approval to the conduit so the
+    // bid can be pulled on acceptance.
     if (isOffer && built?.wethApprove?.to) {
       const a = built.wethApprove;
       const h = await withTimeout(ethereum.request({
         method: 'eth_sendTransaction',
         params: [{ from: account, to: a.to, data: a.data ?? '0x', value: '0x0' }],
-      }), 120_000, 'WETH approval') as string;
+      }), 120_000, 'currency approval') as string;
+      await this.watchEvmReceipt(ethereum, h);
+    }
+    // list: OpenSea rejects the order unless the conduit is approved to move the
+    // NFT (ERC721 conduit not approved). Backend includes a setApprovalForAll tx
+    // only when it isn't approved yet — send it before signing the order.
+    if (!isOffer && built?.nftApprove?.to) {
+      const a = built.nftApprove;
+      const h = await withTimeout(ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: a.to, data: a.data ?? '0x', value: '0x0' }],
+      }), 120_000, 'NFT approval') as string;
       await this.watchEvmReceipt(ethereum, h);
     }
     // Sign the Seaport order (EIP-712, gasless).
