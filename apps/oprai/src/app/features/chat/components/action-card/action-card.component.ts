@@ -10656,7 +10656,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     let s = String(v).replace(',', '.').replace(/[^0-9.]/g, '');
     const dot = s.indexOf('.');
     if (dot >= 0) {
-      const maxDec = Math.min(this.openseaOfferDecimals(), 8);
+      // OpenSea rejects orders finer than 4 decimals ("Bids at this price are not
+      // allowed… 4 decimals allowed"), whatever the token's own precision.
+      const maxDec = Math.min(this.openseaOfferDecimals(), ActionCardComponent.OPENSEA_PRICE_DECIMALS);
       s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, maxDec);
     }
     this.setEditParam('priceEth', s);
@@ -10668,6 +10670,8 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     const c = String(this.getEditParam('currency') || '').trim();
     return c || 'USDG';
   }
+  /** OpenSea's max precision for an order price (bids/listings): 4 decimals. */
+  private static readonly OPENSEA_PRICE_DECIMALS = 4;
   /** Decimals of the order's currency (USDG 6, WETH/USDe 18), default 18. */
   openseaOfferDecimals(): number {
     const addr = ActionCardComponent.SUSHI_SYMBOL_ADDR[this.openseaOrderCurrencySym().toLowerCase()];
@@ -10694,7 +10698,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   setOpenseaOfferMax(): void {
     const b = this.openseaOfferBal();
     if (b != null && b > 0 && this.isEditable()) {
-      const dec = Math.min(this.openseaOfferDecimals(), 8);
+      // Floor to OpenSea's allowed increment — the exact balance (e.g. 0.000991)
+      // is rejected as an off-step bid.
+      const dec = Math.min(this.openseaOfferDecimals(), ActionCardComponent.OPENSEA_PRICE_DECIMALS);
       const f = 10 ** dec;
       this.setEditParam('priceEth', String(Math.floor(b * f) / f));
     }
