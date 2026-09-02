@@ -6543,6 +6543,9 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // into the bin range the card renders, so a stated range pre-fills instead of
     // opening at the default spread.
     if (this.action?.type?.startsWith('meteora_')) this.seedMeteoraRangeFromPrice();
+    // OpenSea offer: load the wallet's balance of the bid currency for the
+    // under-input readout + Max (a listing price isn't spent, so no balance).
+    if (this.action?.type === 'opensea_make_offer') void this.refreshOpenseaOfferBalance();
     // pools.trade launch: auto-fill the X profile from the account's saved X
     // (set once in Wallets) unless the user/LLM already supplied one.
     if (this.action?.type === 'pools_launch') {
@@ -10585,13 +10588,55 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isOpenseaAccept = computed(() => this.action?.type === 'opensea_accept_offer');
   readonly isOpenseaOrder = computed(() => this.action?.type === 'opensea_list' || this.action?.type === 'opensea_make_offer');
   readonly isOpenseaList = computed(() => this.action?.type === 'opensea_list');
-  setOpenseaPrice(v: string): void { if (this.isEditable()) this.setEditParam('priceEth', v); }
+  /** Sanitize the amount: digits + a single dot, decimals capped to the offer
+   *  currency's precision (≤8 shown) so it can't be typed to absurd length. */
+  setOpenseaPrice(v: string): void {
+    if (!this.isEditable()) return;
+    let s = String(v).replace(',', '.').replace(/[^0-9.]/g, '');
+    const dot = s.indexOf('.');
+    if (dot >= 0) {
+      const maxDec = Math.min(this.openseaOfferDecimals(), 8);
+      s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, maxDec);
+    }
+    this.setEditParam('priceEth', s);
+  }
   /** The currency an OpenSea order is priced in — carried on the action (from
    *  the collection's listing/offer currency). Robinhood-native collections use
    *  USDG; Ethereum ones use ETH/WETH. Falls back to USDG (the common case). */
   openseaOrderCurrencySym(): string {
     const c = String(this.getEditParam('currency') || '').trim();
     return c || 'USDG';
+  }
+  /** Decimals of the order's currency (USDG 6, WETH/USDe 18), default 18. */
+  openseaOfferDecimals(): number {
+    const addr = ActionCardComponent.SUSHI_SYMBOL_ADDR[this.openseaOrderCurrencySym().toLowerCase()];
+    return (addr && this.SUSHI_KNOWN[addr]?.dec) || 18;
+  }
+
+  /** The connected wallet's balance of the order currency (WETH/USDG) on
+   *  Robinhood — shown under the input, and the source for the Max button. */
+  readonly openseaOfferBal = signal<number | null>(null);
+  private async refreshOpenseaOfferBalance(): Promise<void> {
+    const token = ActionCardComponent.SUSHI_SYMBOL_ADDR[this.openseaOrderCurrencySym().toLowerCase()];
+    if (!token) return; // native ETH offers aren't possible; unknown → no probe
+    const addr = await this.resolveEvmAddress();
+    if (!addr) return;
+    try {
+      const r = await firstValueFrom(
+        this.apiService.post<any>('/actions/uniswap/eth-balance', { address: addr, token }),
+      );
+      const bal = Number(r?.balance ?? r?.balanceEth);
+      if (Number.isFinite(bal)) this.openseaOfferBal.set(bal);
+    } catch { /* leave unknown — Max just won't show */ }
+  }
+  /** Fill the offer/list amount with the full currency balance. */
+  setOpenseaOfferMax(): void {
+    const b = this.openseaOfferBal();
+    if (b != null && b > 0 && this.isEditable()) {
+      const dec = Math.min(this.openseaOfferDecimals(), 8);
+      const f = 10 ** dec;
+      this.setEditParam('priceEth', String(Math.floor(b * f) / f));
+    }
   }
 
   // ── OpenSea SeaDrop mint ────────────────────────────────────────────────────

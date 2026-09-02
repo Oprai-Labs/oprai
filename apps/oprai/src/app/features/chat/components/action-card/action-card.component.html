@@ -4033,9 +4033,16 @@
             <div class="pump-panel" [class.proto-fields--shake]="shake()">
               <div class="pump-panel__top">
                 <span class="pump-panel__label">{{ (isOpenseaList() ? 'List price' : 'Your offer') | t }}</span>
+                @if (!isOpenseaList() && openseaOfferBal() != null) {
+                  <span class="pump-panel__bal">{{ 'Balance:' | t }} {{ openseaOfferBal() | number:'1.0-4' }} {{ openseaOrderCurrencySym() }}
+                    @if (isEditable() && openseaOfferBal()! > 0) {
+                      <button class="pump-panel__max" type="button" (click)="setOpenseaOfferMax()">{{ 'Max' | t }}</button>
+                    }
+                  </span>
+                }
               </div>
               <div class="pump-panel__row">
-                <input type="number" class="pump-panel__amount" placeholder="0" min="0" step="any" inputmode="decimal"
+                <input type="text" inputmode="decimal" class="pump-panel__amount" placeholder="0"
                        [value]="getEditParam('priceEth')" [disabled]="!isEditable()"
                        (input)="setOpenseaPrice($any($event.target).value)" />
                 <div class="pump-token">
