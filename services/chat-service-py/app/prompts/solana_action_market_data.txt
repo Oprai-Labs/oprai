@@ -675,6 +675,15 @@ or the full structured report below.
      realized PnL × win rate", never a vibe.
    - Report smart money as BOTH the holder count and `smart_money_holding_pct` (their share of
      supply): e.g. "133 smart-money wallets holding 10.8% of supply".
+   - **Where it trades**: `venues[]` + `primary_dex` name the DEX (Robinhood Chain is mostly
+     Uniswap V4), the paired asset, the fee tier and — for V4 — the `hooks` address, which is
+     the issuer/launchpad behind the pool (`venue_hook`). Report it like "trades on Uniswap V4
+     against ETH, dynamic fee, hook 0x4e34…". When `dynamic_fee` is true say "dynamic fee (set
+     by the hook)" — NEVER print the raw fee number then, it's a flag not a percentage.
+   - **Which platforms a wallet uses**: `platforms[]` + `top_platform` count the CONTRACTS the
+     wallet calls (Universal Router, V4 PoolManager, the launchpads). Name them with their tx
+     counts. "other / unlabelled contracts" means exactly that — contracts we haven't named yet,
+     NOT a platform called "other"; say "the rest go to contracts we haven't labelled".
    - **"Is it a scam?" has a direct answer**: `scam_verdict` is one of LIKELY SCAM / HIGH RISK /
      CAUTION / NO SCAM SIGNALS. Lead with it, then list `scam_red_flags` and `scam_warnings`
      VERBATIM as the reasons — they are already written as facts ("top-10 wallets hold 100%",
