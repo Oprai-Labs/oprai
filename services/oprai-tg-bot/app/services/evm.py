@@ -41,6 +41,40 @@ async def rpc(method: str, params: list | None = None) -> Any:
     return body.get("result")
 
 
+async def rpc_batch(reqs: list[tuple[str, list]]) -> list[Any]:
+    """One HTTP round-trip for many calls. Returns results in request order;
+    an entry is None where that individual call errored."""
+    if not reqs:
+        return []
+    payload = [
+        {"jsonrpc": "2.0", "id": i, "method": m, "params": p}
+        for i, (m, p) in enumerate(reqs)
+    ]
+    # Public RPCs rate-limit batches; back off and retry rather than losing the
+    # whole sync. Our own node (prod ROBINHOOD_RPC) doesn't hit this.
+    r = None
+    for attempt in range(4):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as c:
+                r = await c.post(settings.robinhood_rpc(), json=payload)
+        except httpx.HTTPError as e:
+            raise EvmError(f"rpc unreachable: {e}") from e
+        if r.status_code != 429:
+            break
+        await asyncio.sleep(1.5 * (attempt + 1))
+    if r is None or r.status_code != 200:
+        raise EvmError(f"rpc HTTP {r.status_code if r else 'no response'}")
+    body = r.json()
+    if isinstance(body, dict):  # node rejected the batch as a whole
+        raise EvmError(str(body.get("error", "batch rejected")))
+    out: list[Any] = [None] * len(reqs)
+    for item in body:
+        idx = item.get("id")
+        if isinstance(idx, int) and 0 <= idx < len(out) and "result" in item:
+            out[idx] = item["result"]
+    return out
+
+
 def _hex_to_int(v: str | int | None, default: int = 0) -> int:
     if v is None:
         return default

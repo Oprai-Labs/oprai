@@ -1,9 +1,9 @@
-"""/send — transfer ETH on Robinhood Chain, with a confirmation gate.
+"""/send — transfer ETH, tokens or tokenized stocks on Robinhood Chain.
 
-Flow: parse -> resolve recipient -> build from live chain state -> show what it
-will actually cost and whether the balance covers it -> the INITIATOR confirms
--> sign + submit -> wait for the receipt before calling it done. A submitted
-transaction is not a successful one; we only report success on a receipt.
+Flow: parse -> resolve token + recipient -> check the balance that actually
+matters -> build from live chain state -> show what it will really cost -> the
+INITIATOR confirms -> sign + submit -> wait for the receipt before calling it
+done. A submitted transaction is not a successful one.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from app.db import audit, pool, upsert_tg_user
 from app.logging_config import log
 from app.services import evm
 from app.services import portfolio as pf
+from app.services import tokens as tok
 from app.services import wallet as wallet_svc
 from app.signer_client import SignerError
 
@@ -27,17 +28,25 @@ router = Router(name="send")
 WEI = 10**18
 EXPLORER = "https://robinscan.io/tx/"
 
-# pending confirmations: id -> {telegram_id, tx, to, amount_wei}
+# pending confirmations: id -> {telegram_id, tx, display, label, gas_cost}
 _pending: dict[str, dict] = {}
 
 USAGE = (
-    "Usage: <code>/send &lt;amount&gt; ETH &lt;0xaddress|@username&gt;</code>\n"
-    "Example: <code>/send 0.01 ETH 0xAbC…</code>"
+    "Usage: <code>/send &lt;amount&gt; &lt;token&gt; &lt;0xaddress|@username&gt;</code>\n"
+    "Examples:\n"
+    "• <code>/send 0.01 ETH 0xAbC…</code>\n"
+    "• <code>/send 5 NVDA @friend</code>\n"
+    "• <code>/send 25 USDG 0xAbC…</code>"
 )
 
 
+def _fmt_units(amount: int, decimals: int) -> str:
+    s = f"{Decimal(amount) / (10**decimals):f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
 def _fmt_eth(wei: int) -> str:
-    return f"{Decimal(wei) / WEI:.6f}".rstrip("0").rstrip(".") or "0"
+    return _fmt_units(wei, 18)
 
 
 async def _resolve_recipient(token: str) -> tuple[str | None, str]:
@@ -58,25 +67,35 @@ async def _resolve_recipient(token: str) -> tuple[str | None, str]:
     return None, t
 
 
+def _confirm_kb(pid: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Confirm", callback_data=f"send:ok:{pid}"),
+            InlineKeyboardButton(text="Cancel", callback_data=f"send:no:{pid}"),
+        ]]
+    )
+
+
 @router.message(Command("send"))
 async def send_cmd(message: Message, command: CommandObject) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     args = (command.args or "").split()
 
-    if len(args) < 3 or args[1].upper() != "ETH":
+    if len(args) < 3:
         await message.answer(USAGE)
         return
+    amount_str, token_ref, recipient_ref = args[0], args[1], args[2]
 
     try:
-        amount = Decimal(args[0])
+        amount = Decimal(amount_str)
         if amount <= 0:
             raise InvalidOperation
     except (InvalidOperation, ArithmeticError):
         await message.answer("That amount doesn't look right.\n\n" + USAGE)
         return
 
-    to, label = await _resolve_recipient(args[2])
+    to, label = await _resolve_recipient(recipient_ref)
     if not to:
         await message.answer(
             f"I couldn't resolve <b>{label}</b>. Give me a 0x address, or a "
@@ -84,25 +103,68 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
         )
         return
 
-    value_wei = int(amount * WEI)
     from_addr = await wallet_svc.wallet_address(user.id)
+    is_native = token_ref.upper().lstrip("$") == "ETH"
 
     try:
-        tx = await evm.build_transfer(from_addr, to, value_wei)
+        if is_native:
+            value_wei = int(amount * WEI)
+            tx = await evm.build_transfer(from_addr, to, value_wei)
+            spend_display = f"{_fmt_eth(value_wei)} ETH"
+            native_needed = evm.tx_cost_wei(tx)
+        else:
+            matches = await tok.resolve(token_ref)
+            if not matches:
+                await message.answer(
+                    f"I don't know a token called <b>{token_ref}</b> on Robinhood "
+                    "Chain. Try its symbol (NVDA, TSLA, USDG) or paste its address."
+                )
+                return
+            exact = [m for m in matches if m["symbol"].upper() == token_ref.upper().lstrip("$")]
+            if not exact and len(matches) > 1:
+                listing = "\n".join(
+                    f"• <b>{m['symbol']}</b> — {m['name'] or 'token'}" for m in matches[:6]
+                )
+                await message.answer(
+                    f"<b>{token_ref}</b> matches several tokens — say which one:\n\n{listing}"
+                )
+                return
+            t = (exact or matches)[0]
+
+            units = int(amount * (10 ** t["decimals"]))
+            if units <= 0:
+                await message.answer(
+                    f"{amount_str} is below {t['symbol']}'s smallest unit "
+                    f"({t['decimals']} decimals)."
+                )
+                return
+
+            held = await tok.token_balance(t["address"], from_addr)
+            if held < units:
+                await message.answer(
+                    f"Not enough {t['symbol']}. You hold "
+                    f"<b>{_fmt_units(held, t['decimals'])}</b> and tried to send "
+                    f"{_fmt_units(units, t['decimals'])}."
+                )
+                return
+
+            data = evm.encode_erc20_transfer(to, units)
+            tx = await evm.build_transfer(from_addr, t["address"], 0, data)
+            spend_display = f"{_fmt_units(units, t['decimals'])} {t['symbol']}"
+            native_needed = evm.tx_cost_wei(tx)  # value is 0 -> gas only
+
         balance = (await pf.native_balance(user.id))["wei"]
-    except (evm.EvmError, pf.PortfolioError) as e:
+    except (evm.EvmError, pf.PortfolioError, tok.TokenError) as e:
         await message.answer(f"⚠️ Couldn't prepare that transfer: {e}")
         return
 
-    cost = evm.tx_cost_wei(tx)
-    fee = cost - value_wei
-    if balance < cost:
-        short = cost - balance
+    gas_cost = int(tx["gas"]) * int(tx["max_fee_per_gas"])
+    if balance < native_needed:
         await message.answer(
-            f"Not enough ETH. Sending {_fmt_eth(value_wei)} costs up to "
-            f"<b>{_fmt_eth(cost)} ETH</b> with fees, but your balance is "
-            f"{_fmt_eth(balance)} ETH — {_fmt_eth(short)} short.\n\n"
-            f"Fund <code>{from_addr}</code> on Robinhood Chain and try again."
+            f"Not enough ETH for {'the transfer' if is_native else 'gas'}. This needs "
+            f"up to <b>{_fmt_eth(native_needed)} ETH</b>, your balance is "
+            f"{_fmt_eth(balance)} ETH.\n\nFund <code>{from_addr}</code> on "
+            "Robinhood Chain and try again."
         )
         return
 
@@ -110,24 +172,17 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
     _pending[pid] = {
         "telegram_id": user.id,
         "tx": tx,
-        "to": to,
+        "display": spend_display,
         "label": label,
-        "amount_wei": value_wei,
+        "to": to,
     }
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="✅ Confirm", callback_data=f"send:ok:{pid}"),
-            InlineKeyboardButton(text="Cancel", callback_data=f"send:no:{pid}"),
-        ]]
-    )
-    await audit(user.id, "send_prepared", {"to": to, "wei": str(value_wei)})
+    await audit(user.id, "send_prepared", {"what": spend_display, "to": to})
     await message.answer(
-        f"<b>Send {_fmt_eth(value_wei)} ETH</b> · Robinhood Chain\n\n"
+        f"<b>Send {spend_display}</b> · Robinhood Chain\n\n"
         f"To: <code>{label}</code>\n"
-        f"Network fee (max): {_fmt_eth(fee)} ETH\n"
-        f"Total (max): <b>{_fmt_eth(cost)} ETH</b>\n"
-        f"Balance after: ~{_fmt_eth(balance - cost)} ETH",
-        reply_markup=kb,
+        f"Network fee (max): {_fmt_eth(gas_cost)} ETH\n"
+        f"ETH after: ~{_fmt_eth(balance - native_needed)} ETH",
+        reply_markup=_confirm_kb(pid),
     )
 
 
@@ -153,9 +208,7 @@ async def send_confirm(cb: CallbackQuery) -> None:
 
     _pending.pop(pid, None)
     await cb.answer()
-    await cb.message.edit_text(
-        f"Sending {_fmt_eth(p['amount_wei'])} ETH to <code>{p['label']}</code>…"
-    )
+    await cb.message.edit_text(f"Sending {p['display']} to <code>{p['label']}</code>…")
 
     try:
         w = await wallet_svc.get_or_create_wallet(p["telegram_id"])
@@ -180,8 +233,7 @@ async def send_confirm(cb: CallbackQuery) -> None:
     if evm.receipt_succeeded(receipt):
         await audit(p["telegram_id"], "send_confirmed", {"hash": tx_hash})
         await cb.message.edit_text(
-            f"✅ Sent <b>{_fmt_eth(p['amount_wei'])} ETH</b> to "
-            f"<code>{p['label']}</code>\n{link}"
+            f"✅ Sent <b>{p['display']}</b> to <code>{p['label']}</code>\n{link}"
         )
     else:
         await audit(p["telegram_id"], "send_reverted", {"hash": tx_hash})
