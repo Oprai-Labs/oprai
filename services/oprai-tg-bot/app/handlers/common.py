@@ -37,6 +37,7 @@ HELP = (
     "/portfolio — your holdings\n"
     "/send &lt;amount&gt; &lt;token&gt; &lt;0xaddress|@user&gt; — send ETH, tokens or\n"
     "    tokenized stocks (e.g. <code>/send 5 NVDA @friend</code>)\n"
+    "/swap &lt;amount&gt; &lt;from&gt; &lt;to&gt; — trade via Relay (ETH, WETH, USDG)\n"
     "/help — this message\n\n"
     "In groups, add me and an admin can top up the group's free quota with "
     "$OPRAI. Actions always run from your own wallet, confirmed privately."

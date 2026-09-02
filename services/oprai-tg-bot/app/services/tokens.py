@@ -202,7 +202,7 @@ async def resolve(query: str) -> list[dict]:
 
     if q.startswith("0x") and len(q) == 42:
         row = await pool().fetchrow(
-            "SELECT address, symbol, name, decimals FROM tg_token_registry "
+            "SELECT address, symbol, name, decimals, is_stock FROM tg_token_registry "
             "WHERE lower(address) = lower($1)",
             q,
         )
@@ -212,11 +212,12 @@ async def resolve(query: str) -> list[dict]:
         decimals = await read_decimals(q)
         if decimals is None:
             return []
-        return [{"address": q, "symbol": symbol or q[:8], "name": symbol or "", "decimals": decimals}]
+        return [{"address": q, "symbol": symbol or q[:8], "name": symbol or "",
+                 "decimals": decimals, "is_stock": False}]
 
     rows = await pool().fetch(
         """
-        SELECT address, symbol, name, decimals,
+        SELECT address, symbol, name, decimals, is_stock,
                CASE WHEN upper(symbol) = upper($1) THEN 0
                     WHEN upper(symbol) LIKE upper($1) || '%' THEN 1
                     ELSE 2 END AS rank
