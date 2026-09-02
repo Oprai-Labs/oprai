@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # Alpha alert tuning (env-overridable).
     ALERT_POLL_SECONDS: int = 8          # how often the worker polls the feed
     ALERT_COOLDOWN_MINUTES: int = 30     # per (subscriber, token) re-alert cooldown
+    # Copy-trade. The watcher must read OUR node directly (sequencer-feed fed, ~1s
+    # fresh) — never the index — so a copy fires ~1-2s behind the leader.
+    COPY_NODE_RPC: str = "http://rh-nitro:8547"
+    COPY_POLL_MS: int = 400
+    COPY_SLIPPAGE_PCT: float = 15.0
+    COPY_ETH_USD_FALLBACK: float = 2500.0   # daily-cap accounting when no live price
     # Must match the auth-service APP_DOMAIN in prod (empty in dev). The bot
     # builds the SIWS/SIWE sign-in message with this as the first-line domain.
     OPRAI_TG_APP_DOMAIN: str = ""

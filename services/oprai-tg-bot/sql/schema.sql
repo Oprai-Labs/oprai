@@ -97,3 +97,38 @@ CREATE TABLE IF NOT EXISTS tg_alert_sent (
     sent_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (telegram_id, token, kind)
 );
+
+-- ── Copy-trade ──────────────────────────────────────────────────────────────
+-- Per-user, per-leader copy configuration. Auto-execution moves real money, so
+-- every row carries its own risk limits (sizing, per-trade clamp, daily USD cap).
+CREATE TABLE IF NOT EXISTS tg_copy_subs (
+    id                 BIGSERIAL PRIMARY KEY,
+    telegram_id        BIGINT NOT NULL REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    leader             TEXT   NOT NULL,
+    enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+    mode               TEXT    NOT NULL DEFAULT 'fixed' CHECK (mode IN ('fixed','proportional')),
+    amount_eth         NUMERIC NOT NULL DEFAULT 0.01,
+    max_per_trade_eth  NUMERIC NOT NULL DEFAULT 0.05,
+    min_per_trade_eth  NUMERIC NOT NULL DEFAULT 0.001,
+    daily_cap_usd      NUMERIC NOT NULL DEFAULT 100,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (telegram_id, leader)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_copy_leader ON tg_copy_subs(leader) WHERE enabled;
+
+-- Every copy fill (or failed attempt) — the daily-cap ledger and the receipt trail.
+CREATE TABLE IF NOT EXISTS tg_copy_fills (
+    id           BIGSERIAL PRIMARY KEY,
+    telegram_id  BIGINT NOT NULL,
+    leader       TEXT   NOT NULL,
+    token        TEXT   NOT NULL,
+    amount_eth   NUMERIC NOT NULL,
+    usd          NUMERIC NOT NULL DEFAULT 0,
+    leader_tx    TEXT,
+    our_tx       TEXT,
+    status       TEXT   NOT NULL DEFAULT 'sent',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_copy_fills_user_day ON tg_copy_fills(telegram_id, created_at DESC);
