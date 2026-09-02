@@ -59,12 +59,18 @@ async def pools_trade_launch(token: str) -> dict | None:
         return None
     if data.get("unsupported") is True:
         return None
+    img = data.get("imageUrl") or ""
+    if img.startswith("ipfs://"):
+        img = "https://ipfs.pools.trade/ipfs/" + img[7:]
+    elif img and not img.startswith("http"):
+        img = "https://ipfs.pools.trade/ipfs/" + img
     creator = data.get("creatorAddress")
     if isinstance(creator, str) and creator.lower().startswith("0x"):
         creator = creator.lower()
     else:
         creator = None
-    return {"launchpad": "pools.trade", "creator": creator}
+    return {"launchpad": "pools.trade", "creator": creator, "image": img or None,
+            "symbol": data.get("tokenSymbol"), "name": data.get("tokenName")}
 
 
 async def eth_call(to: str, data: str) -> str:

@@ -359,6 +359,36 @@ async def token_report(token: str) -> dict:
     risk = round(min(100, risk))
     risk_label = "HIGH" if risk >= 60 else "MEDIUM" if risk >= 30 else "LOW"
 
+    # SCAM VERDICT — a plain answer to "is this a scam?", assembled from the signals
+    # above plus a live curve read for the sell tax. Each reason is a fact the user
+    # can check; we never call something a scam on the score alone.
+    tax_bps = None
+    try:
+        st = await node.pons_curve_state(t)
+        if st:
+            tax_bps = int(st.get("fee_bps") or 0) + int(st.get("tax_bps") or 0)
+    except Exception:
+        pass
+    red, amber = [], []
+    if launch_bundle_signal:
+        red.append(f"{launch_bundle_pct}% of supply taken at launch by {launch_buyers} wallets")
+    if (dev_rugs or 0) > 0 and not dev_is_launchpad:
+        red.append(f"the dev has {dev_rugs} prior token(s) that died")
+    if tax_bps is not None and tax_bps >= 1000:
+        red.append(f"{tax_bps/100:.0f}% sell tax")
+    if top10_pct >= 60:
+        red.append(f"top-10 wallets hold {top10_pct}%")
+    elif top10_pct >= 40:
+        amber.append(f"top-10 wallets hold {top10_pct}%")
+    if sniper_dump_rate >= 80 and len(snipers) >= 3:
+        amber.append(f"{sniper_dump_rate}% of snipers already dumped")
+    if (dev_moved_to_wallets_pct or 0) >= 5:
+        amber.append(f"the dev moved {dev_moved_to_wallets_pct}% to other wallets")
+    if lp_pct < 5 and burned_pct < 5:
+        amber.append("almost nothing locked in LP or burned")
+    verdict = "LIKELY SCAM" if len(red) >= 2 else "HIGH RISK" if red else (
+        "CAUTION" if len(amber) >= 2 else "NO SCAM SIGNALS")
+
     # For a launchpad-relayed token there is NO identifiable dev wallet, so "dev holds
     # 0%" / "dev burned 0%" would be a false statement about a wallet we never found
     # (and reads as contradicting the token's real, protocol-driven burn). Null these
@@ -450,6 +480,10 @@ async def token_report(token: str) -> dict:
             "smart_money_net_usd": smart_net_usd,
             "smart_money_sellers": smart_sellers,
             "risk_score": risk, "risk_label": risk_label,
+            "scam_verdict": verdict, "scam_red_flags": red, "scam_warnings": amber,
+            "sell_tax_bps": tax_bps,
+            "logo": (pt or {}).get("image"),
+            "symbol": (pt or {}).get("symbol"), "name": (pt or {}).get("name"),
         },
     }
 
@@ -509,6 +543,30 @@ async def wallet_report(wallet: str) -> dict:
     hold_hours.sort()
     median_hold_h = round(hold_hours[len(hold_hours) // 2], 1) if hold_hours else None
     # heuristic archetype (raw-only, refined once P&L lands)
+    # Best/worst single trade + traded USD volume — the headline numbers "how much
+    # did they make/lose at most, how much have they moved" that the per-token table
+    # buries. Junk-capped like every other position read ($100M artefact filter).
+    extremes: dict = {}
+    if has_pos:
+        ex = await ch.one(f"""
+            SELECT max(realized_pnl) AS best, min(realized_pnl) AS worst,
+                   argMax(token, realized_pnl) AS best_token,
+                   argMin(token, realized_pnl) AS worst_token,
+                   sum(usd_in) AS bought_usd, sum(usd_out) AS sold_usd
+            FROM rh.wallet_token_positions
+            WHERE wallet='{w}' AND abs(usd_in) < 1e8 AND abs(usd_out) < 1e8""")
+        if ex and ex.get("best") is not None:
+            bought, sold = float(ex.get("bought_usd") or 0), float(ex.get("sold_usd") or 0)
+            extremes = {
+                "best_trade_usd": round(float(ex["best"]), 2),
+                "best_trade_token": ex.get("best_token"),
+                "worst_trade_usd": round(float(ex["worst"]), 2),
+                "worst_trade_token": ex.get("worst_token"),
+                "volume_usd": round(bought + sold, 2),
+                "bought_usd": round(bought, 2), "sold_usd": round(sold, 2),
+            }
+
+    # heuristic archetype (raw-only, refined once P&L lands)
     archetype = "unknown"
     if txs_per_active_day >= 200:
         archetype = "bot / HFT"
@@ -518,6 +576,36 @@ async def wallet_report(wallet: str) -> dict:
         archetype = "diamond hand"
     elif len(holdings) > 0 and n_sells < n_buys * 0.3:
         archetype = "accumulator"
+
+    # Explicit BOT and FRESH answers — "is this a bot?" and "is this a brand-new
+    # wallet?" deserve a yes/no with the evidence, not an archetype string the
+    # caller has to interpret. A bot trades far too fast or too much to be human.
+    # ClickHouse hands timestamps back as strings over HTTP — parse before diffing.
+    def _dt(v):
+        from datetime import datetime
+        if isinstance(v, datetime):
+            return v
+        try:
+            return datetime.fromisoformat(str(v))
+        except Exception:
+            return None
+    _age_days = None
+    _fs, _ls = _dt(act.get("first_seen")), _dt(act.get("last_seen"))
+    if _fs and _ls:
+        _age_days = (_ls - _fs).days
+    bot_reasons = []
+    if txs_per_active_day >= 200:
+        bot_reasons.append(f"{txs_per_active_day} txs per active day")
+    if median_hold_h is not None and median_hold_h < 0.5 and txs >= 100:
+        bot_reasons.append(f"median hold {median_hold_h}h over {txs} txs")
+    if len(tokens) > 1000:
+        bot_reasons.append(f"{len(tokens)} distinct tokens traded")
+    bot_flags = {
+        "is_bot": bool(bot_reasons),
+        "bot_reasons": bot_reasons,
+        "wallet_age_days": _age_days,
+        "is_fresh_wallet": bool(_age_days is not None and _age_days <= 7),
+    }
 
     daily = await ch.q(f"""
         SELECT toDate(timestamp) AS day, count() AS txs
@@ -694,6 +782,7 @@ async def wallet_report(wallet: str) -> dict:
             "realized_pnl_avg_cost": round(float(metrics.get("realized_pnl", 0)), 2) if metrics else 0.0,
             "pnl_7d": pnl_7d, "pnl_30d": pnl_30d, "pnl_timeseries_total": pnl_total_ts,
             "pnl_daily": [{"day": d, "realized": v} for d, v in daily_series[-90:]],
+            **extremes, **bot_flags,
         },
     }
 
