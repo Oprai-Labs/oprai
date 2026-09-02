@@ -507,6 +507,9 @@ export function sanitizeErrorMessage(msg: string, actionType?: string): string {
   // OpenSea order price increment: "Bids at this price are not allowed. Please
   // place a bid in the nearest allowed increment. 4 decimals allowed. Received
   // 0.000991 per unit, expected 0.001." — tell them the exact step and number.
+  if (/an offer amount is required|a price is required/i.test(lower)) {
+    return 'Enter an amount first — OpenSea prices use up to 4 decimals (minimum 0.0001).';
+  }
   if (/nearest allowed increment|decimals allowed|bids at this price are not allowed/i.test(lower)) {
     const dec = /(\d+)\s*decimals? allowed/i.exec(msg)?.[1];
     const expected = /expected\s+([0-9.]+)/i.exec(msg)?.[1];

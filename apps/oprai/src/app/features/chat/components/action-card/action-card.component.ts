@@ -10651,9 +10651,10 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   readonly isOpenseaList = computed(() => this.action?.type === 'opensea_list');
   /** Sanitize the amount: digits + a single dot, decimals capped to the offer
    *  currency's precision (≤8 shown) so it can't be typed to absurd length. */
-  setOpenseaPrice(v: string): void {
+  setOpenseaPrice(v: string | HTMLInputElement): void {
     if (!this.isEditable()) return;
-    let s = String(v).replace(',', '.').replace(/[^0-9.]/g, '');
+    const el = typeof v === 'string' ? null : v;
+    let s = String(el ? el.value : v).replace(',', '.').replace(/[^0-9.]/g, '');
     const dot = s.indexOf('.');
     if (dot >= 0) {
       // OpenSea rejects orders finer than 4 decimals ("Bids at this price are not
@@ -10661,7 +10662,23 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const maxDec = Math.min(this.openseaOfferDecimals(), ActionCardComponent.OPENSEA_PRICE_DECIMALS);
       s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, maxDec);
     }
+    // Write the sanitized text back into the box: a typed 0.00001 was being
+    // stored as 0.0000 (zero) while the input still showed 0.00001 — the user
+    // then submitted an invisible zero ("an offer amount is required").
+    if (el && el.value !== s) el.value = s;
     this.setEditParam('priceEth', s);
+  }
+  /** The smallest order price OpenSea accepts (one step of its 4-decimal grid). */
+  openseaMinPrice(): number { return 10 ** -ActionCardComponent.OPENSEA_PRICE_DECIMALS; }
+  /** Inline reason the order can't be submitted yet, or null when it's fine. */
+  openseaOrderProblem(): string | null {
+    if (!this.isOpenseaOrder()) return null;
+    const v = Number(this.getEditParam('priceEth') || 0);
+    if (!(v > 0)) return 'Enter an amount.';
+    if (v < this.openseaMinPrice()) return `Minimum ${this.openseaMinPrice()} ${this.openseaOrderCurrencySym()} — OpenSea prices use 4 decimals.`;
+    const bal = this.openseaOfferBal();
+    if (!this.isOpenseaList() && bal != null && v > bal) return `That's more ${this.openseaOrderCurrencySym()} than you hold (${bal}).`;
+    return null;
   }
   /** The currency an OpenSea order is priced in — carried on the action (from
    *  the collection's listing/offer currency). Robinhood-native collections use
