@@ -189,6 +189,81 @@ pub fn sign_evm_tx(secret: &[u8], tx: &EvmTx) -> Result<SignedTx> {
     })
 }
 
+/// Sign EIP-712 typed data (Permit2, for Uniswap ERC-20 swaps).
+///
+/// Accepts the shape Uniswap's Trading API actually returns — `values` instead
+/// of `message`, and no `primaryType` — as well as canonical EIP-712 JSON, and
+/// normalises before hashing. Returns a 0x-hex 65-byte signature.
+pub fn sign_typed_data(secret: &[u8], typed: &serde_json::Value) -> Result<String> {
+    use alloy_dyn_abi::TypedData;
+    use alloy_signer::SignerSync;
+
+    let normalised = normalise_typed_data(typed)?;
+    let td: TypedData = serde_json::from_value(normalised)
+        .map_err(|e| anyhow!("invalid EIP-712 payload: {e}"))?;
+    let hash = td
+        .eip712_signing_hash()
+        .map_err(|e| anyhow!("EIP-712 hashing failed: {e}"))?;
+
+    let signer = evm_signer(secret)?;
+    let sig = signer
+        .sign_hash_sync(&hash)
+        .map_err(|e| anyhow!("typed-data sign: {e}"))?;
+    Ok(format!("0x{}", hex::encode(sig.as_bytes())))
+}
+
+/// Rename `values` -> `message` and infer `primaryType` when absent.
+fn normalise_typed_data(typed: &serde_json::Value) -> Result<serde_json::Value> {
+    use serde_json::Value;
+
+    let obj = typed
+        .as_object()
+        .ok_or_else(|| anyhow!("typed data must be an object"))?;
+    let mut out = obj.clone();
+
+    if !out.contains_key("message") {
+        let values = out
+            .remove("values")
+            .ok_or_else(|| anyhow!("typed data has neither `message` nor `values`"))?;
+        out.insert("message".into(), values);
+    }
+
+    if !out.contains_key("primaryType") {
+        let types = out
+            .get("types")
+            .and_then(Value::as_object)
+            .ok_or_else(|| anyhow!("typed data has no `types`"))?;
+
+        // The primary type is the one no other type refers to. Permit2 sends
+        // {PermitDetails, PermitSingle}; PermitSingle references PermitDetails,
+        // so PermitSingle is primary.
+        let mut referenced: Vec<String> = Vec::new();
+        for fields in types.values() {
+            for f in fields.as_array().into_iter().flatten() {
+                if let Some(t) = f.get("type").and_then(Value::as_str) {
+                    referenced.push(t.trim_end_matches("[]").to_string());
+                }
+            }
+        }
+        let candidates: Vec<&String> = types
+            .keys()
+            .filter(|k| k.as_str() != "EIP712Domain" && !referenced.contains(k))
+            .collect();
+        match candidates.as_slice() {
+            [only] => out.insert("primaryType".into(), Value::String((*only).clone())),
+            [] => return Err(anyhow!("cannot infer primaryType: every type is referenced")),
+            many => {
+                return Err(anyhow!(
+                    "cannot infer primaryType: {} candidates",
+                    many.len()
+                ))
+            }
+        };
+    }
+
+    Ok(Value::Object(out))
+}
+
 fn parse_u64(s: &str, field: &str) -> Result<u64> {
     let s = s.trim();
     if s.is_empty() {
@@ -367,6 +442,82 @@ mod tests {
         let mut tx = sample_tx();
         tx.to = "not-an-address".into();
         assert!(sign_evm_tx(&km.secret, &tx).is_err());
+    }
+
+    /// The exact shape Uniswap's Trading API returns for a Robinhood Chain
+    /// ERC-20 swap: `values` rather than `message`, and no `primaryType`.
+    fn permit2_payload() -> serde_json::Value {
+        serde_json::json!({
+            "domain": {
+                "chainId": 4663,
+                "name": "Permit2",
+                "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+            },
+            "types": {
+                "PermitDetails": [
+                    {"name": "token", "type": "address"},
+                    {"name": "amount", "type": "uint160"},
+                    {"name": "expiration", "type": "uint48"},
+                    {"name": "nonce", "type": "uint48"}
+                ],
+                "PermitSingle": [
+                    {"name": "details", "type": "PermitDetails"},
+                    {"name": "spender", "type": "address"},
+                    {"name": "sigDeadline", "type": "uint256"}
+                ]
+            },
+            "values": {
+                "details": {
+                    "token": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+                    "amount": "1461501637330902918203684832716283019655932542975",
+                    "expiration": "1790968935",
+                    "nonce": "0"
+                },
+                "spender": "0x8876789976DECBFcbBBe364623C63652DB8c0904",
+                "sigDeadline": "1788378735"
+            }
+        })
+    }
+
+    #[test]
+    fn normalises_uniswap_permit_payload() {
+        let out = normalise_typed_data(&permit2_payload()).unwrap();
+        // `values` becomes `message`; PermitSingle is primary because nothing
+        // references it (it references PermitDetails).
+        assert!(out.get("message").is_some());
+        assert!(out.get("values").is_none());
+        assert_eq!(out["primaryType"], "PermitSingle");
+    }
+
+    #[test]
+    fn permit2_typed_data_signs_and_recovers() {
+        use alloy_dyn_abi::TypedData;
+        use alloy_primitives::Signature;
+
+        let km = import(
+            Chain::Evm,
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .unwrap();
+        let payload = permit2_payload();
+        let sig_hex = sign_typed_data(&km.secret, &payload).unwrap();
+        assert!(sig_hex.starts_with("0x") && sig_hex.len() == 132, "{sig_hex}");
+
+        // the signature must recover to the signing wallet over the EIP-712 hash
+        let td: TypedData = serde_json::from_value(normalise_typed_data(&payload).unwrap()).unwrap();
+        let hash = td.eip712_signing_hash().unwrap();
+        let bytes = hex::decode(sig_hex.trim_start_matches("0x")).unwrap();
+        let sig = Signature::try_from(bytes.as_slice()).unwrap();
+        assert_eq!(
+            sig.recover_address_from_prehash(&hash).unwrap().to_string(),
+            km.address
+        );
+    }
+
+    #[test]
+    fn typed_data_without_message_or_values_is_rejected() {
+        let bad = serde_json::json!({"domain": {}, "types": {}});
+        assert!(normalise_typed_data(&bad).is_err());
     }
 
     #[test]

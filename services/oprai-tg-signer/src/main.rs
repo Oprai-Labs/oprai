@@ -139,6 +139,17 @@ struct SignTxResp {
     raw: String,
     hash: String,
 }
+
+/// EIP-712 typed data (Permit2 for Uniswap ERC-20 swaps). The payload is passed
+/// through as-is; the crypto layer normalises Uniswap's `values`/no-primaryType
+/// variant before hashing.
+#[derive(Deserialize)]
+struct SignTypedReq {
+    #[allow(dead_code)]
+    chain: Option<String>,
+    enc_key_ref: String,
+    typed_data: serde_json::Value,
+}
 #[derive(Serialize)]
 struct ErrResp {
     error: String,
@@ -291,6 +302,35 @@ async fn sign_tx(
     }
 }
 
+/// POST /sign-typed-data — sign EIP-712 typed data (Permit2). Same custody
+/// rules as every other signing route: internal-key gated, key decrypted for
+/// the call and wiped after.
+async fn sign_typed_data(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<SignTypedReq>,
+) -> HttpResponse {
+    if let Err(e) = require_auth(&req, &state) {
+        return e;
+    }
+    let vault = match require_vault(&state) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let secret = match vault.decrypt(&body.enc_key_ref).await {
+        Ok(s) => zeroize::Zeroizing::new(s),
+        Err(e) => return upstream(e.to_string()),
+    };
+    let address = match crypto::address_from_secret(Chain::Evm, &secret) {
+        Ok(a) => a,
+        Err(e) => return bad(e.to_string()),
+    };
+    match crypto::sign_typed_data(&secret, &body.typed_data) {
+        Ok(signature) => HttpResponse::Ok().json(SignResp { address, signature }),
+        Err(e) => bad(e.to_string()),
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::from_filename(".env");
@@ -342,6 +382,7 @@ async fn main() -> anyhow::Result<()> {
             // with `chain` in the body.
             .route("/sign", web::post().to(sign))
             .route("/sign-tx", web::post().to(sign_tx))
+            .route("/sign-typed-data", web::post().to(sign_typed_data))
     })
     .bind((bind_host, port))?
     .run()

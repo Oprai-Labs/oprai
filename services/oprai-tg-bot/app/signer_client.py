@@ -61,6 +61,15 @@ class SignerClient:
         return await self._post("/sign-tx", {"chain": "evm", "enc_key_ref": enc_key_ref,
                                              "tx": tx})
 
+    async def sign_typed_data(self, enc_key_ref: str, typed_data: dict) -> dict:
+        """Sign EIP-712 typed data (Permit2, required for Uniswap ERC-20 swaps).
+        Accepts Uniswap's shape (`values`, no `primaryType`) as-is — the signer
+        normalises it. Returns {address, signature}."""
+        return await self._post(
+            "/sign-typed-data",
+            {"chain": "evm", "enc_key_ref": enc_key_ref, "typed_data": typed_data},
+        )
+
     async def health(self) -> dict:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as c:

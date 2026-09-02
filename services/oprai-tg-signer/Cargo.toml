@@ -41,6 +41,8 @@ alloy-signer-local = "0.8"
 alloy-primitives = "0.8"
 alloy-consensus = { version = "0.8", features = ["k256"] }
 alloy-eips = "0.8"
+# EIP-712 typed-data hashing (Permit2 signatures for Uniswap ERC-20 swaps).
+alloy-dyn-abi = { version = "0.8", features = ["eip712"] }
 # Vault Transit is called over plain HTTP (encrypt/decrypt) — no need for a
 # full Vault client crate.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
