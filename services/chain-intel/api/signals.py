@@ -115,13 +115,18 @@ async def wallet_recent_buys(wallet: str, since_block: int, limit: int = 20) -> 
     tip = await index_tip()
     is_smart = bool(await ch.scalar(
         f"SELECT count() FROM rh.smart_wallets WHERE wallet='{w}'"))
+    # AGGREGATE per token (not per transfer) so a wallet buying a token across many
+    # txs is ONE clean alert, and EXCLUDE base/quote assets (USDG/WETH) — buying the
+    # money side of a trade is not a signal worth pinging a follower about.
     rows = await ch.q(f"""
-        SELECT tt.token AS token, tt.block_number AS block, tt.timestamp AS ts,
-               toFloat64(tt.value) AS amt
+        SELECT tt.token AS token, max(tt.block_number) AS block, max(tt.timestamp) AS ts,
+               sum(toFloat64(tt.value)) AS amt, count() AS n
         FROM rh.token_transfers tt
         WHERE tt.to_addr='{w}' AND tt.kind='erc20'
           AND tt.block_number > {int(since_block)} AND tt.from_addr != '{_ZERO}'
-        ORDER BY tt.block_number DESC LIMIT {int(limit)}""")
+          AND {_base_filter('tt.token')}
+        GROUP BY tt.token
+        ORDER BY block DESC LIMIT {int(limit)}""")
     toks = list({r["token"] for r in rows})
     meta = await _token_meta(toks)
     # best-effort USD: token's latest daily price
@@ -145,6 +150,7 @@ async def wallet_recent_buys(wallet: str, since_block: int, limit: int = 20) -> 
             "ts": r.get("ts"),
             "amount": r["amt"] / 1e18,
             "usd": round(usd, 2) if usd is not None else None,
+            "tx_count": int(r.get("n") or 1),
         })
     return {"tip": tip, "wallet": w, "wallet_is_smart": is_smart,
             "since_block": int(since_block), "buys": buys}
