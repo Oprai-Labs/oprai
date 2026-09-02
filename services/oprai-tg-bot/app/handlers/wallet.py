@@ -23,9 +23,9 @@ def _fmt(address: str) -> str:
     return (
         "<b>Your OPRAI wallet</b> · Robinhood Chain\n\n"
         f"<code>{address}</code>\n\n"
-        "<i>Custodial &amp; recoverable. Fund it with ETH on Robinhood Chain to "
-        "start trading stocks, tokens and perps. Withdrawals to external "
-        "addresses ask for confirmation.</i>"
+        "<i>Custodial &amp; recoverable. This is the same address on every EVM "
+        "chain — send ETH here on Robinhood Chain to start, or send it on Base "
+        "or Ethereum and bring it over with /bridge.</i>"
     )
 
 

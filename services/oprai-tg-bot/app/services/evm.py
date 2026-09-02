@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.services import chains
 from app.signer_client import signer
 
 CHAIN_ID = 4663  # Robinhood Chain
@@ -26,11 +27,19 @@ class EvmError(RuntimeError):
     pass
 
 
-async def rpc(method: str, params: list | None = None) -> Any:
+def rpc_url(chain_id: int = CHAIN_ID) -> str:
+    """Home chain honours the bot's override (our own node in prod); every other
+    chain comes from the shared registry."""
+    if int(chain_id) == CHAIN_ID:
+        return settings.robinhood_rpc()
+    return chains.rpc_for(chain_id)
+
+
+async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID) -> Any:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or []}
     try:
         async with httpx.AsyncClient(timeout=15.0) as c:
-            r = await c.post(settings.robinhood_rpc(), json=payload)
+            r = await c.post(rpc_url(chain_id), json=payload)
     except httpx.HTTPError as e:
         raise EvmError(f"rpc unreachable: {e}") from e
     if r.status_code != 200:
@@ -41,7 +50,7 @@ async def rpc(method: str, params: list | None = None) -> Any:
     return body.get("result")
 
 
-async def rpc_batch(reqs: list[tuple[str, list]]) -> list[Any]:
+async def rpc_batch(reqs: list[tuple[str, list]], chain_id: int = CHAIN_ID) -> list[Any]:
     """One HTTP round-trip for many calls. Returns results in request order;
     an entry is None where that individual call errored."""
     if not reqs:
@@ -56,7 +65,7 @@ async def rpc_batch(reqs: list[tuple[str, list]]) -> list[Any]:
     for attempt in range(4):
         try:
             async with httpx.AsyncClient(timeout=30.0) as c:
-                r = await c.post(settings.robinhood_rpc(), json=payload)
+                r = await c.post(rpc_url(chain_id), json=payload)
         except httpx.HTTPError as e:
             raise EvmError(f"rpc unreachable: {e}") from e
         if r.status_code != 429:
@@ -83,17 +92,19 @@ def _hex_to_int(v: str | int | None, default: int = 0) -> int:
     return int(v, 16) if v.startswith("0x") else int(v)
 
 
-async def get_nonce(address: str) -> int:
+async def get_nonce(address: str, chain_id: int = CHAIN_ID) -> int:
     """Pending nonce, so back-to-back sends don't collide."""
-    return _hex_to_int(await rpc("eth_getTransactionCount", [address, "pending"]))
+    return _hex_to_int(
+        await rpc("eth_getTransactionCount", [address, "pending"], chain_id)
+    )
 
 
-async def get_fees() -> tuple[int, int]:
+async def get_fees(chain_id: int = CHAIN_ID) -> tuple[int, int]:
     """(max_fee_per_gas, max_priority_fee_per_gas) in wei, EIP-1559."""
-    block = await rpc("eth_getBlockByNumber", ["latest", False])
+    block = await rpc("eth_getBlockByNumber", ["latest", False], chain_id)
     base = _hex_to_int((block or {}).get("baseFeePerGas"), 0)
     try:
-        priority = _hex_to_int(await rpc("eth_maxPriorityFeePerGas"))
+        priority = _hex_to_int(await rpc("eth_maxPriorityFeePerGas", None, chain_id))
     except EvmError:
         priority = 0
     # Headroom for a couple of base-fee bumps while the tx is pending.
@@ -103,10 +114,12 @@ async def get_fees() -> tuple[int, int]:
     return max_fee, priority
 
 
-async def estimate_gas(from_: str, to: str, value_wei: int, data: str = "0x") -> int:
+async def estimate_gas(
+    from_: str, to: str, value_wei: int, data: str = "0x", chain_id: int = CHAIN_ID
+) -> int:
     call = {"from": from_, "to": to, "value": hex(value_wei), "data": data or "0x"}
     try:
-        est = _hex_to_int(await rpc("eth_estimateGas", [call]))
+        est = _hex_to_int(await rpc("eth_estimateGas", [call], chain_id))
     except EvmError:
         # A bare native send is always 21k; anything else must surface the error.
         if (data or "0x") == "0x":
@@ -123,14 +136,14 @@ def encode_erc20_transfer(to: str, amount: int) -> str:
 
 
 async def build_transfer(
-    from_: str, to: str, value_wei: int, data: str = "0x"
+    from_: str, to: str, value_wei: int, data: str = "0x", chain_id: int = CHAIN_ID
 ) -> dict[str, str]:
     """Build an EIP-1559 transfer from live chain state. Amounts as strings."""
-    nonce = await get_nonce(from_)
-    max_fee, priority = await get_fees()
-    gas = await estimate_gas(from_, to, value_wei, data)
+    nonce = await get_nonce(from_, chain_id)
+    max_fee, priority = await get_fees(chain_id)
+    gas = await estimate_gas(from_, to, value_wei, data, chain_id)
     return {
-        "chain_id": str(CHAIN_ID),
+        "chain_id": str(chain_id),
         "nonce": str(nonce),
         "to": to,
         "value": str(value_wei),
@@ -151,7 +164,9 @@ def to_int(v: str | int | None, default: int = 0) -> int:
     return int(s, 16) if s.startswith("0x") else int(s)
 
 
-async def build_tx_from_provider(from_addr: str, data: dict) -> dict[str, str]:
+async def build_tx_from_provider(
+    from_addr: str, data: dict, chain_id: int | None = None
+) -> dict[str, str]:
     """Complete a provider's unsigned transaction (a Relay step or a Uniswap
     swap) into a signable EIP-1559 tx.
 
@@ -159,6 +174,9 @@ async def build_tx_from_provider(from_addr: str, data: dict) -> dict[str, str]:
     strings, and never a nonce — that is ours to supply, freshly, per
     transaction, because each one is broadcast only after the previous confirms.
     """
+    # A bridge step executes on its ORIGIN chain, so the provider's own chainId
+    # wins over our home chain.
+    chain = int(chain_id or to_int(data.get("chainId"), CHAIN_ID) or CHAIN_ID)
     to = data.get("to") or ""
     if not to:
         raise EvmError("provider returned a transaction with no recipient")
@@ -167,16 +185,16 @@ async def build_tx_from_provider(from_addr: str, data: dict) -> dict[str, str]:
 
     gas = to_int(data.get("gas") or data.get("gasLimit"))
     if gas <= 0:
-        gas = await estimate_gas(from_addr, to, value, calldata)
+        gas = await estimate_gas(from_addr, to, value, calldata, chain)
 
     max_fee = to_int(data.get("maxFeePerGas"))
     priority = to_int(data.get("maxPriorityFeePerGas"))
     if max_fee <= 0:
-        max_fee, priority = await get_fees()
+        max_fee, priority = await get_fees(chain)
 
     return {
-        "chain_id": str(CHAIN_ID),
-        "nonce": str(await get_nonce(from_addr)),
+        "chain_id": str(chain),
+        "nonce": str(await get_nonce(from_addr, chain)),
         "to": to,
         "value": str(value),
         "data": calldata,
@@ -188,8 +206,9 @@ async def build_tx_from_provider(from_addr: str, data: dict) -> dict[str, str]:
 
 async def send_and_confirm(enc_key_ref: str, tx: dict[str, str], label: str = "transaction") -> str:
     """Sign, broadcast and wait for the receipt. Raises unless it succeeded."""
+    chain = to_int(tx.get("chain_id"), CHAIN_ID)
     tx_hash = await sign_and_send(enc_key_ref, tx)
-    receipt = await wait_receipt(tx_hash)
+    receipt = await wait_receipt(tx_hash, chain_id=chain)
     if receipt is None:
         raise EvmError(
             f"{label} is taking longer than expected ({tx_hash[:10]}…) — "
@@ -206,17 +225,19 @@ def tx_cost_wei(tx: dict[str, str]) -> int:
 
 
 async def sign_and_send(enc_key_ref: str, tx: dict[str, str]) -> str:
-    """Sign via the signer and broadcast. Returns the tx hash."""
+    """Sign via the signer and broadcast — on the tx's OWN chain."""
     signed = await signer.sign_tx(enc_key_ref, tx)
-    tx_hash = await rpc("eth_sendRawTransaction", [signed["raw"]])
-    return tx_hash
+    chain = to_int(tx.get("chain_id"), CHAIN_ID)
+    return await rpc("eth_sendRawTransaction", [signed["raw"]], chain)
 
 
-async def wait_receipt(tx_hash: str, timeout_s: float = 60.0) -> dict | None:
+async def wait_receipt(
+    tx_hash: str, timeout_s: float = 60.0, chain_id: int = CHAIN_ID
+) -> dict | None:
     """Poll for the receipt. None on timeout — a pending tx is not a failure."""
     deadline = asyncio.get_event_loop().time() + timeout_s
     while asyncio.get_event_loop().time() < deadline:
-        receipt = await rpc("eth_getTransactionReceipt", [tx_hash])
+        receipt = await rpc("eth_getTransactionReceipt", [tx_hash], chain_id)
         if receipt:
             return receipt
         await asyncio.sleep(1.5)
