@@ -66,7 +66,10 @@ func NewHTTPServer(
 	// 10 attempts per 15-minute window per IP. Defends against credential
 	// stuffing and nonce-flooding attacks. The gateway already limits to
 	// 20/min globally; this adds defence-in-depth at the service level.
-	authRateLimiter := middleware.NewIPRateLimiter(10, 15*time.Minute)
+	authRateLimiter := middleware.NewIPRateLimiter(
+		cfg.AuthRateLimitAttempts,
+		time.Duration(cfg.AuthRateLimitWindowSeconds)*time.Second,
+	)
 
 	// ── Handlers ──────────────────────────────────────────────────────
 	authHandler := handlers.NewAuthHandler(nonceService, jwtService, revocationService, queries, cfg, auditLogger)
