@@ -962,7 +962,12 @@ pub async fn build_accept_offer(http: &reqwest::Client, body: &Value) -> Result<
 
 // ── Sell (list) & Make offer — Seaport EIP-712 orders (build → sign → submit) ──
 
-const OPENSEA_CONDUIT_KEY: &str = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
+// OpenSea's conduit key for ORDER PLACEMENT on Robinhood Chain. OpenSea rejects
+// any other key ("please use OpenSea's conduit key: 0x61159fef…"). It resolves
+// via ConduitController.getConduit → conduit 0x963f00d3ff000064ffcba824b800c0000000c300
+// (the same conduit the buy side approves). The old mainnet key
+// 0x0000007b0223…0f0000 is NOT valid here.
+const OPENSEA_CONDUIT_KEY: &str = "0x61159fefdfada89302ed55f8b9e89e2d67d8258712b3a3f89aa88525877f1d5e";
 const SEL_GET_COUNTER: &str = "0xf07ec373"; // getCounter(address)
 
 async fn collection_fees(http: &reqwest::Client, slug: &str) -> Vec<(f64, String)> {
@@ -1135,11 +1140,13 @@ pub async fn build_make_offer(http: &reqwest::Client, body: &Value) -> Result<Va
         "totalOriginalConsiderationItems": cons_items.len(), "counter": counter.to_string(),
     });
     let mut resp = order_response(parameters, &slug);
-    // WETH approve to the conduit's Conduit contract is required to pull the bid
-    // on acceptance. Approve the canonical OpenSea conduit spender for EXACTLY the
-    // bid amount (not an unbounded allowance), so a future conduit compromise
-    // can't pull more than this one offer's WETH.
-    let approve = erc20_approve_calldata("0x1E0049783F008A0085193E00003D00cd54003c71", price_wei);
+    // The offer currency must be approved to the CONDUIT that Seaport pulls it
+    // through on acceptance — the conduit for OPENSEA_CONDUIT_KEY, resolved via
+    // ConduitController (not a hardcoded address, which drifts when the key
+    // changes). Approve EXACTLY the bid amount, so a future conduit compromise
+    // can't pull more than this one offer.
+    let spender = resolve_conduit(http, &rpc(), OPENSEA_CONDUIT_KEY).await;
+    let approve = erc20_approve_calldata(&spender, price_wei);
     if let Some(o) = resp.as_object_mut() {
         o.insert("wethApprove".into(), json!({ "to": oc_addr, "data": format!("0x{approve}"), "value": "0", "chainId": CHAIN }));
         o.insert("offerCurrency".into(), Value::from(oc_addr.clone()));
