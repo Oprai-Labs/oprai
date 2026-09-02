@@ -11,6 +11,8 @@ import random
 import urllib.error
 import urllib.request
 
+import asyncio
+
 import pytest
 
 from app.config import settings
@@ -64,6 +66,21 @@ async def db():
     await close_pool()
 
 
+async def _quote_with_retry(jwt, params, attempts: int = 3):
+    """Uniswap's API intermittently answers "No quotes available" for a pair it
+    prices fine seconds later. Retry so a transient upstream blip doesn't look
+    like a regression — but still fail if it never prices, which is what a real
+    break would look like."""
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return await uniswap.quote(jwt, params)
+        except uniswap.UniswapError as e:
+            last = e
+            await asyncio.sleep(1.5 * (i + 1))
+    raise last  # type: ignore[misc]
+
+
 @pytest.mark.skipif(not LIVE, reason="signer/gateway not reachable")
 @pytest.mark.asyncio
 async def test_live_stock_quotes_both_directions(db):
@@ -76,7 +93,7 @@ async def test_live_stock_quotes_both_directions(db):
         usdg = (await tok.resolve("USDG"))[0]["address"]
 
         # BUY with native ETH — no approval, no permit
-        buy = await uniswap.quote(jwt, uniswap.build_params(
+        buy = await _quote_with_retry(jwt, uniswap.build_params(
             origin_currency=uniswap.NATIVE, destination_currency=nvda,
             amount="0.01", sender=addr))
         b = uniswap.summarize(buy)
@@ -85,7 +102,7 @@ async def test_live_stock_quotes_both_directions(db):
         assert uniswap.transaction_count(buy) == 1
 
         # SELL a stock — this direction used to fail outright
-        sell = await uniswap.quote(jwt, uniswap.build_params(
+        sell = await _quote_with_retry(jwt, uniswap.build_params(
             origin_currency=nvda, destination_currency=usdg,
             amount="0.1", sender=addr))
         s = uniswap.summarize(sell)

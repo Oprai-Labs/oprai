@@ -35,6 +35,31 @@ def build_dispatcher() -> Dispatcher:
 
 
 REGISTRY_REFRESH_SECONDS = 6 * 60 * 60
+DEPOSIT_POLL_SECONDS = 8
+
+
+async def _watch_deposits(bot) -> None:
+    """Tell people when money lands, without them asking.
+
+    We run the chain's node, so a deposit is visible within a block or two.
+    Runs beside polling and never lets a bad cycle stop the bot.
+    """
+    from app.services import deposits
+
+    while True:
+        try:
+            for d in await deposits.poll():
+                try:
+                    await bot.send_message(
+                        d.telegram_id,
+                        f"💰 <b>{d.display}</b> landed in your OPRAI wallet.\n"
+                        "Check /balance, or put it to work with /swap.",
+                    )
+                except Exception as e:  # noqa: BLE001 — one blocked chat is not fatal
+                    log.warning("deposit_notify_failed", telegram_id=d.telegram_id, error=str(e))
+        except Exception as e:  # noqa: BLE001
+            log.warning("deposit_watch_failed", error=str(e))
+        await asyncio.sleep(DEPOSIT_POLL_SECONDS)
 
 
 async def _keep_token_registry_fresh() -> None:
@@ -79,12 +104,14 @@ async def run() -> None:
     worker = asyncio.create_task(
         run_alert_worker(SignalsClient(), AlertStore(), make_alert_sender(bot)))
     registry_task = asyncio.create_task(_keep_token_registry_fresh())
+    deposit_task = asyncio.create_task(_watch_deposits(bot))
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         worker.cancel()
         registry_task.cancel()
+        deposit_task.cancel()
         await bot.session.close()
         await close_pool()
 

@@ -149,3 +149,32 @@ CREATE TABLE IF NOT EXISTS tg_token_registry (
 
 CREATE INDEX IF NOT EXISTS idx_tg_token_symbol ON tg_token_registry (upper(symbol));
 CREATE INDEX IF NOT EXISTS idx_tg_token_name   ON tg_token_registry (lower(name));
+
+-- ── Incoming deposits ───────────────────────────────────────────────────────
+-- We run the chain's node, so money arriving should be noticed without the user
+-- asking. Native ETH is caught by watching each wallet's balance (one batched
+-- read per cycle); ERC-20 arrivals are caught from Transfer logs (one filtered
+-- getLogs per cycle), so cost is constant in the number of users.
+CREATE TABLE IF NOT EXISTS tg_balance_watch (
+    telegram_id BIGINT PRIMARY KEY REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    wei         NUMERIC NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Last block already scanned for token transfers, so a restart neither
+-- re-announces nor skips.
+CREATE TABLE IF NOT EXISTS tg_deposit_cursor (
+    id          INT PRIMARY KEY DEFAULT 1,
+    last_block  BIGINT NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT tg_deposit_cursor_single CHECK (id = 1)
+);
+
+-- Announced token deposits, so a re-scan can't double-notify.
+CREATE TABLE IF NOT EXISTS tg_deposit_seen (
+    tx_hash     TEXT   NOT NULL,
+    log_index   INT    NOT NULL,
+    telegram_id BIGINT NOT NULL,
+    seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tx_hash, log_index)
+);
