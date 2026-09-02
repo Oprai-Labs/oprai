@@ -75,6 +75,53 @@ async def eth_call(to: str, data: str) -> str:
         return (r.json() or {}).get("result") or "0x"
 
 
+def _decode_str(hx: str) -> str | None:
+    """Decode an ERC20 symbol()/name() eth_call return — handles both the standard
+    ABI dynamic string (offset+length+utf8) and the legacy bytes32 right-padded form.
+    Returns None if empty/garbage."""
+    hx = (hx or "").removeprefix("0x")
+    if not hx or int(hx or "0", 16) == 0:
+        return None
+    try:
+        if len(hx) >= 128:  # dynamic string: [offset][length][data]
+            length = int(hx[64:128], 16)
+            if 0 < length <= 256:
+                raw = bytes.fromhex(hx[128:128 + length * 2])
+                s = raw.decode("utf-8", "ignore").strip("\x00").strip()
+                if s:
+                    return s
+        # legacy bytes32
+        raw = bytes.fromhex(hx[:64])
+        s = raw.decode("utf-8", "ignore").strip("\x00").strip()
+        return s or None
+    except Exception:
+        return None
+
+
+async def resolve_symbols(tokens: list[str]) -> dict[str, str]:
+    """Batched ERC20 symbol() (selector 0x95d89b41) for tokens whose symbol isn't in
+    the decode table (launchpad/factory tokens). One JSON-RPC batch. Fails open."""
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return {}
+    batch = [{"jsonrpc": "2.0", "id": i, "method": "eth_call",
+              "params": [{"to": t, "data": "0x95d89b41"}, "latest"]}
+             for i, t in enumerate(tokens)]
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(NODE, json=batch)
+            res = r.json() or []
+    except Exception:
+        return {}
+    by_id = {item.get("id"): item.get("result") for item in res if isinstance(item, dict)}
+    out: dict[str, str] = {}
+    for i, t in enumerate(tokens):
+        sym = _decode_str(by_id.get(i) or "")
+        if sym:
+            out[t] = sym
+    return out
+
+
 async def contract_addresses(addresses: list[str]) -> set[str]:
     """The subset of `addresses` that are CONTRACTS (have bytecode) — one batched
     eth_getCode call. Used to drop LP pools / routers / other contracts from
