@@ -61,3 +61,39 @@ CREATE TABLE IF NOT EXISTS tg_audit (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tg_audit_user_time ON tg_audit(telegram_id, created_at DESC);
+
+-- ── Alpha alerts (real-time signal feed) ────────────────────────────────────
+-- Wallets a user tracks — a buy by one pings the user. cursor_block is the last
+-- block already alerted for THIS subscription, so polling is idempotent and
+-- gap-free across bot restarts (seeded to the index tip when first added).
+CREATE TABLE IF NOT EXISTS tg_tracked_wallets (
+    id           BIGSERIAL PRIMARY KEY,
+    telegram_id  BIGINT NOT NULL REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    address      TEXT   NOT NULL,
+    label        TEXT,
+    cursor_block BIGINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (telegram_id, address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_tracked_user ON tg_tracked_wallets(telegram_id);
+
+-- Per-user smart-money DISCOVERY feed preference (one row per user).
+CREATE TABLE IF NOT EXISTS tg_alert_subs (
+    telegram_id   BIGINT PRIMARY KEY REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    smart_alerts  BOOLEAN NOT NULL DEFAULT FALSE,
+    min_smart     INT     NOT NULL DEFAULT 3,
+    new_only      BOOLEAN NOT NULL DEFAULT FALSE,
+    cursor_block  BIGINT  NOT NULL DEFAULT 0,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Dedup / cooldown: what (user, token, kind) we've already pinged and when, so a
+-- token that keeps getting bought doesn't spam the same user.
+CREATE TABLE IF NOT EXISTS tg_alert_sent (
+    telegram_id  BIGINT NOT NULL,
+    token        TEXT   NOT NULL,
+    kind         TEXT   NOT NULL,
+    sent_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (telegram_id, token, kind)
+);
