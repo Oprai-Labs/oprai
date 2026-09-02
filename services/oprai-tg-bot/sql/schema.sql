@@ -132,3 +132,20 @@ CREATE TABLE IF NOT EXISTS tg_copy_fills (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tg_copy_fills_user_day ON tg_copy_fills(telegram_id, created_at DESC);
+-- ── Token registry (Robinhood Chain) ────────────────────────────────────────
+-- Symbol/name -> ERC-20 contract, so "send 5 NVDA" resolves without the user
+-- pasting an address. Seeded from Robinhood's official stock-token registry
+-- (api.robinhood.com/rhj/assets, chainId 4663) plus well-known base assets;
+-- `decimals` is read from the chain, never assumed.
+CREATE TABLE IF NOT EXISTS tg_token_registry (
+    address     TEXT PRIMARY KEY,          -- EIP-55 checksummed
+    symbol      TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    decimals    INT  NOT NULL,
+    is_stock    BOOLEAN NOT NULL DEFAULT FALSE,
+    source      TEXT NOT NULL DEFAULT 'robinhood',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_token_symbol ON tg_token_registry (upper(symbol));
+CREATE INDEX IF NOT EXISTS idx_tg_token_name   ON tg_token_registry (lower(name));

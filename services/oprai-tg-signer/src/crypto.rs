@@ -124,6 +124,118 @@ pub fn sign_message(chain: Chain, secret: &[u8], message: &[u8]) -> Result<Strin
     }
 }
 
+/// An unsigned EIP-1559 transaction as it arrives over the wire. Amounts are
+/// strings (decimal or 0x-hex) so callers never lose precision through JSON
+/// numbers.
+#[derive(Debug, Clone, Default)]
+pub struct EvmTx {
+    pub chain_id: String,
+    pub nonce: String,
+    pub to: String,
+    pub value: String,
+    pub data: String,
+    pub gas: String,
+    pub max_fee_per_gas: String,
+    pub max_priority_fee_per_gas: String,
+}
+
+/// A signed transaction, ready for `eth_sendRawTransaction`.
+pub struct SignedTx {
+    pub address: String,
+    pub raw: String,
+    pub hash: String,
+}
+
+/// Sign an EIP-1559 transaction. The signer applies NO policy — it signs what
+/// it is given. Risk controls (amount caps, confirmations, allowlists) belong
+/// to the caller; reaching this endpoint already requires the internal API key.
+pub fn sign_evm_tx(secret: &[u8], tx: &EvmTx) -> Result<SignedTx> {
+    use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope};
+    use alloy_eips::eip2718::Encodable2718;
+    use alloy_primitives::{Address, TxKind};
+    use alloy_signer::SignerSync;
+
+    let signer = evm_signer(secret)?;
+    let to: Address = tx
+        .to
+        .trim()
+        .parse()
+        .map_err(|_| anyhow!("invalid `to` address: {}", tx.to))?;
+
+    let inner = TxEip1559 {
+        chain_id: parse_u64(&tx.chain_id, "chain_id")?,
+        nonce: parse_u64(&tx.nonce, "nonce")?,
+        gas_limit: parse_u64(&tx.gas, "gas")?,
+        max_fee_per_gas: parse_u128(&tx.max_fee_per_gas, "max_fee_per_gas")?,
+        max_priority_fee_per_gas: parse_u128(
+            &tx.max_priority_fee_per_gas,
+            "max_priority_fee_per_gas",
+        )?,
+        to: TxKind::Call(to),
+        value: parse_u256(&tx.value, "value")?,
+        input: parse_bytes(&tx.data)?,
+        access_list: Default::default(),
+    };
+
+    let sig = signer
+        .sign_hash_sync(&inner.signature_hash())
+        .map_err(|e| anyhow!("evm tx sign: {e}"))?;
+    let envelope: TxEnvelope = inner.into_signed(sig).into();
+
+    Ok(SignedTx {
+        address: signer.address().to_string(),
+        raw: format!("0x{}", hex::encode(envelope.encoded_2718())),
+        hash: format!("{:#x}", envelope.tx_hash()),
+    })
+}
+
+fn parse_u64(s: &str, field: &str) -> Result<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(0);
+    }
+    match s.strip_prefix("0x") {
+        Some(h) => u64::from_str_radix(h, 16),
+        None => s.parse::<u64>(),
+    }
+    .map_err(|_| anyhow!("invalid {field}: {s}"))
+}
+
+fn parse_u128(s: &str, field: &str) -> Result<u128> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(0);
+    }
+    match s.strip_prefix("0x") {
+        Some(h) => u128::from_str_radix(h, 16),
+        None => s.parse::<u128>(),
+    }
+    .map_err(|_| anyhow!("invalid {field}: {s}"))
+}
+
+fn parse_u256(s: &str, field: &str) -> Result<alloy_primitives::U256> {
+    use alloy_primitives::U256;
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(U256::ZERO);
+    }
+    match s.strip_prefix("0x") {
+        Some(h) => U256::from_str_radix(h, 16),
+        None => U256::from_str_radix(s, 10),
+    }
+    .map_err(|_| anyhow!("invalid {field}: {s}"))
+}
+
+fn parse_bytes(s: &str) -> Result<alloy_primitives::Bytes> {
+    let s = s.trim();
+    if s.is_empty() || s == "0x" {
+        return Ok(alloy_primitives::Bytes::new());
+    }
+    let h = s.strip_prefix("0x").unwrap_or(s);
+    let raw = hex::decode(h).map_err(|_| anyhow!("invalid `data` hex"))?;
+    Ok(alloy_primitives::Bytes::from(raw))
+}
+
 fn evm_signer(secret: &[u8]) -> Result<alloy_signer_local::PrivateKeySigner> {
     use alloy_primitives::B256;
     use alloy_signer_local::PrivateKeySigner;
@@ -184,6 +296,77 @@ mod tests {
         let sig = signer.sign_message_sync(msg).unwrap();
         let recovered = sig.recover_address_from_msg(msg).unwrap();
         assert_eq!(recovered, signer.address());
+    }
+
+    fn sample_tx() -> EvmTx {
+        EvmTx {
+            chain_id: "4663".into(), // Robinhood Chain
+            nonce: "3".into(),
+            to: "0x000000000000000000000000000000000000dEaD".into(),
+            value: "1000000000000000".into(), // 0.001 ETH
+            data: "0x".into(),
+            gas: "21000".into(),
+            max_fee_per_gas: "1000000000".into(),
+            max_priority_fee_per_gas: "1000000".into(),
+        }
+    }
+
+    #[test]
+    fn evm_tx_signs_and_recovers_to_signer() {
+        use alloy_consensus::TxEnvelope;
+        use alloy_eips::eip2718::Decodable2718;
+
+        let km = import(
+            Chain::Evm,
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .unwrap();
+        let signed = sign_evm_tx(&km.secret, &sample_tx()).unwrap();
+
+        assert_eq!(signed.address, km.address);
+        // EIP-1559 typed transaction envelope
+        assert!(signed.raw.starts_with("0x02"), "raw = {}", signed.raw);
+
+        // the raw tx must decode and recover to the SAME address
+        let raw = hex::decode(signed.raw.trim_start_matches("0x")).unwrap();
+        let env = TxEnvelope::decode_2718(&mut raw.as_slice()).unwrap();
+        assert_eq!(env.recover_signer().unwrap().to_string(), km.address);
+        assert_eq!(format!("{:#x}", env.tx_hash()), signed.hash);
+    }
+
+    #[test]
+    fn tx_amounts_accept_decimal_and_hex() {
+        let km = import(
+            Chain::Evm,
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .unwrap();
+        let dec = sign_evm_tx(&km.secret, &sample_tx()).unwrap();
+
+        let mut hexed = sample_tx();
+        hexed.chain_id = "0x1237".into(); // 4663
+        hexed.nonce = "0x3".into();
+        hexed.value = "0x38d7ea4c68000".into(); // 1000000000000000
+        hexed.gas = "0x5208".into(); // 21000
+        hexed.max_fee_per_gas = "0x3b9aca00".into(); // 1000000000
+        hexed.max_priority_fee_per_gas = "0xf4240".into(); // 1000000
+        let hx = sign_evm_tx(&km.secret, &hexed).unwrap();
+
+        // identical transaction either way -> identical signature/hash
+        assert_eq!(dec.raw, hx.raw);
+        assert_eq!(dec.hash, hx.hash);
+    }
+
+    #[test]
+    fn bad_to_address_is_rejected() {
+        let km = import(
+            Chain::Evm,
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+        )
+        .unwrap();
+        let mut tx = sample_tx();
+        tx.to = "not-an-address".into();
+        assert!(sign_evm_tx(&km.secret, &tx).is_err());
     }
 
     #[test]

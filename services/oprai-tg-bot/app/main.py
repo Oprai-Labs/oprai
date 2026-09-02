@@ -15,7 +15,7 @@ from aiogram.enums import ParseMode
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import alpha, common, portfolio, wallet
+from app.handlers import alpha, common, portfolio, send, wallet
 from app.logging_config import configure_logging, log
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
@@ -28,7 +28,30 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(wallet.router)
     dp.include_router(portfolio.router)
     dp.include_router(alpha.router)
+    dp.include_router(send.router)
     return dp
+
+
+REGISTRY_REFRESH_SECONDS = 6 * 60 * 60
+
+
+async def _keep_token_registry_fresh() -> None:
+    """Seed the token registry on first boot, then refresh it periodically.
+
+    Runs beside polling: a registry hiccup must never stop the bot answering,
+    so failures are logged and retried on the next cycle.
+    """
+    from app.services import tokens
+
+    while True:
+        try:
+            if await tokens.registry_size() == 0:
+                log.info("token_registry_seeding")
+            result = await tokens.sync_registry()
+            log.info("token_registry_ready", **result)
+        except Exception as e:  # noqa: BLE001 — never let this kill the bot
+            log.warning("token_registry_sync_failed", error=str(e))
+        await asyncio.sleep(REGISTRY_REFRESH_SECONDS)
 
 
 async def run() -> None:
@@ -53,11 +76,13 @@ async def run() -> None:
     from app.handlers.alpha import make_alert_sender
     worker = asyncio.create_task(
         run_alert_worker(SignalsClient(), AlertStore(), make_alert_sender(bot)))
+    registry_task = asyncio.create_task(_keep_token_registry_fresh())
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         worker.cancel()
+        registry_task.cancel()
         await bot.session.close()
         await close_pool()
 

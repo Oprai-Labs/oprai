@@ -111,6 +111,34 @@ struct SignResp {
     address: String,
     signature: String,
 }
+
+/// EIP-1559 transaction fields, amounts as strings (decimal or 0x-hex) so no
+/// precision is lost through JSON numbers.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct TxFields {
+    chain_id: String,
+    nonce: String,
+    to: String,
+    value: String,
+    data: String,
+    gas: String,
+    max_fee_per_gas: String,
+    max_priority_fee_per_gas: String,
+}
+#[derive(Deserialize)]
+struct SignTxReq {
+    #[allow(dead_code)]
+    chain: Option<String>, // always "evm" today; accepted for symmetry
+    enc_key_ref: String,
+    tx: TxFields,
+}
+#[derive(Serialize)]
+struct SignTxResp {
+    address: String,
+    raw: String,
+    hash: String,
+}
 #[derive(Serialize)]
 struct ErrResp {
     error: String,
@@ -222,6 +250,47 @@ async fn sign(
     }
 }
 
+/// POST /sign-tx — sign an EIP-1559 transaction; the caller submits `raw` via
+/// eth_sendRawTransaction. Money-moving: gated by the internal API key, and the
+/// CALLER owns policy (caps, confirmations). The key is decrypted, used, and
+/// wiped (Zeroizing) within this call.
+async fn sign_tx(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<SignTxReq>,
+) -> HttpResponse {
+    if let Err(e) = require_auth(&req, &state) {
+        return e;
+    }
+    let vault = match require_vault(&state) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let secret = match vault.decrypt(&body.enc_key_ref).await {
+        Ok(s) => zeroize::Zeroizing::new(s),
+        Err(e) => return upstream(e.to_string()),
+    };
+    let t = &body.tx;
+    let tx = crypto::EvmTx {
+        chain_id: t.chain_id.clone(),
+        nonce: t.nonce.clone(),
+        to: t.to.clone(),
+        value: t.value.clone(),
+        data: t.data.clone(),
+        gas: t.gas.clone(),
+        max_fee_per_gas: t.max_fee_per_gas.clone(),
+        max_priority_fee_per_gas: t.max_priority_fee_per_gas.clone(),
+    };
+    match crypto::sign_evm_tx(&secret, &tx) {
+        Ok(s) => HttpResponse::Ok().json(SignTxResp {
+            address: s.address,
+            raw: s.raw,
+            hash: s.hash,
+        }),
+        Err(e) => bad(e.to_string()),
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::from_filename(".env");
@@ -272,6 +341,7 @@ async fn main() -> anyhow::Result<()> {
             // SIWS/SIWE auth signing + (later) tx signing all go through /sign,
             // with `chain` in the body.
             .route("/sign", web::post().to(sign))
+            .route("/sign-tx", web::post().to(sign_tx))
     })
     .bind((bind_host, port))?
     .run()
