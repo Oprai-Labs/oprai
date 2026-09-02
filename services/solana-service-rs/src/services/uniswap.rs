@@ -134,7 +134,20 @@ async fn amount_base_units(
         let trimmed = joined.trim_start_matches('0');
         return Ok(if trimmed.is_empty() { "0".into() } else { trimmed.to_string() });
     }
-    to_base_units(http, chain_id, token_addr, amount).await
+    match to_base_units(http, chain_id, token_addr, amount).await {
+        Ok(scaled) => Ok(scaled),
+        Err(list_err) => {
+            // Relay's currency list is not a registry of everything tradable.
+            // Robinhood's tokenized stocks (NVDA, TSLA, …) are absent from it,
+            // so scaling through the list refused every SELL of a stock — you
+            // could buy NVDA but never sell it. The chain itself is the
+            // authority on decimals; ask it before giving up.
+            match erc20_decimals_strict(http, chain_id, token_addr).await {
+                Some(decimals) => scale_to_base_units(amount, decimals),
+                None => Err(list_err),
+            }
+        }
+    }
 }
 
 /// Call `POST /v1/quote`. Same-chain EVM only (validated by the caller).
@@ -1673,23 +1686,49 @@ async fn futures_lite_json(r: reqwest::Response) -> Option<String> {
     v.get("result").and_then(|x| x.as_str()).map(String::from)
 }
 
-/// ERC-20 `decimals()` via RPC (0x313ce567). Falls back to 18 — works for any
-/// token on any chain we have an RPC for, unlike Relay's token list (which
-/// doesn't cover every chain, e.g. Robinhood).
-async fn erc20_decimals(http: &reqwest::Client, chain_id: u64, token: &str) -> u8 {
+/// Robinhood Chain public RPC (shared with Pons/Morpho). Overridable via
+/// ROBINHOOD_RPC — in production that points at our own node.
+const ROBINHOOD_PUBLIC_RPC: &str = "https://rpc.mainnet.chain.robinhood.com";
+
+/// An RPC we can actually reach for `chain_id`.
+///
+/// Robinhood Chain is served by ROBINHOOD_RPC (our own node in prod) rather
+/// than Alchemy: Alchemy needs a key that isn't always configured, and reading
+/// a Robinhood token's metadata must not depend on a third party when we run
+/// the chain's node ourselves.
+pub(crate) fn evm_rpc_for(chain_id: u64) -> Option<String> {
+    use crate::services::relay::chain_id as c;
+    if chain_id == c::ROBINHOOD {
+        return Some(
+            std::env::var("ROBINHOOD_RPC")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| ROBINHOOD_PUBLIC_RPC.to_string()),
+        );
+    }
+    alchemy_rpc(chain_id)
+}
+
+/// ERC-20 `decimals()` via RPC (0x313ce567), with NO fallback: `None` means the
+/// token did not answer. Callers that must not guess (amount scaling) use this;
+/// display paths use `erc20_decimals`, which defaults to 18.
+async fn erc20_decimals_strict(http: &reqwest::Client, chain_id: u64, token: &str) -> Option<u8> {
     // Native (zero address) isn't an ERC-20 — decimals() would read nothing and
     // yield 0, mangling amount formatting. Native gas coins are 18 decimals.
     if is_zero_address(token) {
-        return 18;
+        return Some(18);
     }
-    let rpc = match alchemy_rpc(chain_id) { Some(r) => r, None => return 18 };
-    match eth_call(http, &rpc, token, "0x313ce567").await {
-        Ok(hex) => {
-            let d = hex_to_u64(&hex) as u8;
-            if d == 0 || d > 36 { 18 } else { d } // 0 usually means the call failed
-        }
-        Err(_) => 18,
-    }
+    let rpc = evm_rpc_for(chain_id)?;
+    let hex = eth_call(http, &rpc, token, "0x313ce567").await.ok()?;
+    let d = hex_to_u64(&hex) as u8;
+    if d == 0 || d > 36 { None } else { Some(d) } // 0 usually means the call failed
+}
+
+/// ERC-20 `decimals()` via RPC. Falls back to 18 — works for any token on any
+/// chain we have an RPC for, unlike Relay's token list (which doesn't cover
+/// every chain, e.g. Robinhood).
+async fn erc20_decimals(http: &reqwest::Client, chain_id: u64, token: &str) -> u8 {
+    erc20_decimals_strict(http, chain_id, token).await.unwrap_or(18)
 }
 
 /// Scale a human decimal amount into base units by `decimals`, RPC-free.
