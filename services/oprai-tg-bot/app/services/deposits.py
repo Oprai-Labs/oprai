@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.db import pool
+from app.logging_config import log
 from app.services import evm, tokens
 
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -118,6 +119,50 @@ async def _set_cursor(block: int) -> None:
     )
 
 
+def _is_too_many_logs(message: str) -> bool:
+    """Nodes phrase the log cap differently and we must recognise all of them —
+    an unrecognised one freezes the cursor and deposits stop being noticed:
+
+      geth/nitro : "logs matched by query exceeds limit of 10000"
+      erigon     : "query returned more than 10000 results"
+      providers  : "too many results", "response size exceeded"
+    """
+    m = message.lower()
+    return any(
+        marker in m
+        for marker in ("exceed", "limit", "too many", "more than", "response size")
+    )
+
+
+async def _get_logs_narrowing(
+    from_block: int, to_block: int, topics: list
+) -> tuple[list, int]:
+    """Fetch Transfer logs, halving the window when the node refuses the query.
+
+    Nodes cap how many logs one query may match. Hitting that cap must not fail
+    the cycle: the cursor would never advance and deposits would stop being
+    noticed entirely. Narrow the range instead, and report how far we actually
+    got so the cursor only claims what was scanned.
+    """
+    lo, hi = from_block, to_block
+    while True:
+        try:
+            logs = await evm.rpc(
+                "eth_getLogs",
+                [{"fromBlock": hex(lo), "toBlock": hex(hi), "topics": topics}],
+            )
+            return (logs or []), hi
+        except evm.EvmError as e:
+            if not _is_too_many_logs(str(e)):
+                raise
+            if hi <= lo:
+                # Even one block is too much for this filter — move past it
+                # rather than wedging the watcher forever.
+                log.warning("deposit_block_too_dense", block=lo)
+                return [], lo
+            hi = lo + (hi - lo) // 2
+
+
 async def check_tokens() -> list[Deposit]:
     """One filtered getLogs for token transfers into any of our wallets."""
     wallets = await _wallets()
@@ -134,14 +179,8 @@ async def check_tokens() -> list[Deposit]:
         return []
     to_block = min(head, last + MAX_BLOCKS_PER_CYCLE)
 
-    logs = await evm.rpc(
-        "eth_getLogs",
-        [{
-            "fromBlock": hex(last + 1),
-            "toBlock": hex(to_block),
-            "topics": [TRANSFER_TOPIC, None, [_pad_address(a) for _, a in wallets]],
-        }],
-    ) or []
+    topics = [TRANSFER_TOPIC, None, [_pad_address(a) for _, a in wallets]]
+    logs, to_block = await _get_logs_narrowing(last + 1, to_block, topics)
 
     # Work per cycle must stay bounded: a single busy address can produce
     # thousands of transfers in a few blocks, and a per-log round-trip would
@@ -149,10 +188,10 @@ async def check_tokens() -> list[Deposit]:
     # the rest is picked up next cycle rather than dropped.
     candidates = []
     for lg in logs:
-        topics = lg.get("topics") or []
-        if len(topics) < 3:
+        log_topics = lg.get("topics") or []   # not `topics` — that is the filter
+        if len(log_topics) < 3:
             continue
-        telegram_id = by_address.get(("0x" + topics[2][-40:]).lower())
+        telegram_id = by_address.get(("0x" + log_topics[2][-40:]).lower())
         amount = evm.to_int(lg.get("data"))
         if telegram_id is None or amount <= 0:
             continue

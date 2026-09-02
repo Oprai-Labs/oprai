@@ -41,6 +41,53 @@ def test_amount_is_formatted_by_the_token_s_own_decimals():
     assert deposits.Deposit(1, 10**16, 18, "ETH").display == "0.01 ETH"
 
 
+@pytest.mark.asyncio
+async def test_a_too_dense_range_narrows_instead_of_failing(monkeypatch):
+    """A node caps how many logs one query may match. Failing the cycle would
+    freeze the cursor and stop deposits being noticed at all — so the window
+    must narrow instead."""
+    calls: list[tuple[int, int]] = []
+
+    async def fake_rpc(method, params=None, chain_id=None):
+        f = int(params[0]["fromBlock"], 16)
+        t = int(params[0]["toBlock"], 16)
+        calls.append((f, t))
+        if t - f > 10:           # a wide window is refused, like the real node
+            raise deposits.evm.EvmError("logs matched by query exceeds limit of 10000")
+        return [{"ok": True}]
+
+    monkeypatch.setattr(deposits.evm, "rpc", fake_rpc)
+    logs, scanned_to = await deposits._get_logs_narrowing(1000, 3000, ["0xtopic"])
+
+    assert logs == [{"ok": True}]
+    assert scanned_to < 3000, "the cursor must only claim what was scanned"
+    assert len(calls) > 1, "it should have retried with a smaller window"
+    assert calls[-1][1] - calls[-1][0] <= 10
+
+
+@pytest.mark.asyncio
+async def test_a_single_impossible_block_is_skipped_not_retried_forever(monkeypatch):
+    async def always_too_many(method, params=None, chain_id=None):
+        raise deposits.evm.EvmError("query returned more than 10000 results")
+
+    monkeypatch.setattr(deposits.evm, "rpc", always_too_many)
+    logs, scanned_to = await deposits._get_logs_narrowing(500, 500, ["0xtopic"])
+    assert logs == [] and scanned_to == 500
+
+
+def test_every_node_phrasing_of_the_log_cap_is_recognised():
+    """An unrecognised phrasing freezes the cursor — deposits stop entirely."""
+    for phrasing in (
+        "logs matched by query exceeds limit of 10000",   # geth / nitro
+        "query returned more than 10000 results",         # erigon
+        "too many results",
+        "response size exceeded",
+    ):
+        assert deposits._is_too_many_logs(phrasing), phrasing
+    # an unrelated failure must still surface
+    assert not deposits._is_too_many_logs("connection reset by peer")
+
+
 def test_work_per_cycle_is_capped():
     assert deposits.MAX_LOGS_PER_CYCLE > 0
     assert deposits.MAX_BLOCKS_PER_CYCLE > 0
