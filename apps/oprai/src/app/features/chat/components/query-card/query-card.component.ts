@@ -4079,9 +4079,14 @@ export class QueryCardComponent implements OnInit, OnDestroy {
   }
   /** Make an offer (WETH bid) on an NFT. */
   openseaMakeOffer(n: any): void {
+    // The slug is required to resolve the collection's OFFER currency (USDG on
+    // Robinhood) — fall back to the card's active collection when the row itself
+    // doesn't carry one, so the offer isn't built in the wrong currency.
+    const slug = n.collection || this.openseaSelectedSlug?.() || this.openseaCollectionDetail?.slug
+      || String(this.query.params?.['collection'] ?? this.query.params?.['slug'] ?? '');
     const params: Record<string, string> = {
       token: n.contract || n.token || '', tokenId: String(n.identifier ?? n.tokenId ?? ''),
-      ...(n.collection ? { slug: n.collection } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
+      ...(slug ? { slug } : {}), ...(n.name ? { nftName: n.name } : {}), ...(n.image ? { nftImage: n.image } : {}),
     };
     this.useAction.emit({ type: 'opensea_make_offer', params, raw: `[ACTION:opensea_make_offer] ${JSON.stringify(params)}` });
   }

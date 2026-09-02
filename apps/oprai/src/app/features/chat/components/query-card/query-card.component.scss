@@ -3729,10 +3729,17 @@
   &__row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   &__price { font-size: 12px; font-weight: 700; color: var(--op-text-primary); font-variant-numeric: tabular-nums; }
 }
+.os-nft__btns { display: flex; gap: 5px; }
+.os-nft__btns .os-buy, .os-nft__btns .os-offer { flex: 1; text-align: center; }
 .os-buy {
   padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; border: none;
   background: var(--op-brand); color: #fff;
   &:hover { filter: brightness(1.08); }
+}
+.os-offer {
+  padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer;
+  background: transparent; color: var(--op-text-primary); border: 1px solid var(--op-border-subtle);
+  &:hover { border-color: var(--op-brand); color: var(--op-brand); }
 }
 
 /* OpenSea collection detail stats header */

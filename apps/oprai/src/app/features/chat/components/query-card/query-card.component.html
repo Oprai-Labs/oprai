@@ -3507,7 +3507,10 @@
                   <span class="os-nft__name">{{ l.name || ('#' + l.tokenId) }}</span>
                   <div class="os-nft__row">
                     <span class="os-nft__price">{{ l.price != null ? (l.price | number:'1.0-4') : '—' }} {{ l.currency || 'ETH' }}</span>
+                  </div>
+                  <div class="os-nft__btns">
                     <button class="os-buy" type="button" (click)="openseaBuy(l)">{{ 'Buy' | t }}</button>
+                    <button class="os-offer" type="button" (click)="openseaMakeOffer(l)">{{ 'Offer' | t }}</button>
                   </div>
                 </div>
               }
@@ -3544,7 +3547,10 @@
                   <span class="os-nft__name">{{ l.name || ('#' + l.tokenId) }}</span>
                   <div class="os-nft__row">
                     <span class="os-nft__price">{{ l.price != null ? (l.price | number:'1.0-4') : '—' }} {{ l.currency || 'ETH' }}</span>
+                  </div>
+                  <div class="os-nft__btns">
                     <button class="os-buy" type="button" (click)="openseaBuy(l)">{{ 'Buy' | t }}</button>
+                    <button class="os-offer" type="button" (click)="openseaMakeOffer(l)">{{ 'Offer' | t }}</button>
                   </div>
                 </div>
               }
