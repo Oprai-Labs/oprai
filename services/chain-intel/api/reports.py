@@ -29,6 +29,13 @@ _V4_POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951"
 # Which CONTRACT a wallet calls is what identifies the platform it trades on — V4
 # settles with flash accounting, so the ERC20 counterparty is a router, not the pool.
 # Confirmed on-chain (top callees by tx volume + method signature).
+# Venue is identified by the SWAP EVENT a tx emits, not the contract it called.
+_SWAP_SIGS = {
+    "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f": "Uniswap V4",
+    "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "Uniswap V4",
+    "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67": "Uniswap V3",
+    "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822": "Uniswap V2",
+}
 _PLATFORM_CONTRACTS = {
     "0x8876789976decbfcbbbe364623c63652db8c0904": "Uniswap (Universal Router)",
     "0x8366a39cc670b4001a1121b8f6a443a643e40951": "Uniswap V4 (PoolManager)",
@@ -612,6 +619,37 @@ async def wallet_report(wallet: str) -> dict:
     # the individual pool addresses in dex_pools; launchpad buys go through the
     # launchpad's own router. Counting the wallet's counterparties against those sets
     # answers "hangi platformları kullanmış" without a swap-level table.
+    # VENUE per trade, from the EVENT the transaction emitted. Naming contracts can
+    # never keep up (92% of chain traffic goes to contracts nobody has labelled), but
+    # a swap always emits its venue's own Swap event — so an unknown aggregator that
+    # routes into V4 is still correctly counted as a V4 trade. Bounded to the wallet's
+    # recent activity and filtered on block_number (the logs primary key) so the join
+    # never degenerates into a scan of 1.8B rows.
+    venue_trades: list[dict] = []
+    txr = await ch.q(f"""
+        SELECT DISTINCT tx_hash, block_number FROM rh.token_transfers
+        WHERE kind='erc20' AND (to_addr='{w}' OR from_addr='{w}')
+        ORDER BY block_number DESC LIMIT 250""")
+    if txr:
+        # block_number IN (...) — an explicit block list lets the primary key pick
+        # just those granules. A BETWEEN over an active wallet's first..last block
+        # spans millions of blocks and degenerates into a scan.
+        blocks = sorted({int(r["block_number"]) for r in txr})
+        binl = ",".join(str(b) for b in blocks)
+        hinl = ",".join(f"'{r['tx_hash']}'" for r in txr)
+        sinl = ",".join(f"'{s}'" for s in _SWAP_SIGS)
+        vrows = await ch.q(f"""
+            SELECT topic0, uniqExact(tx_hash) AS n FROM rh.logs
+            WHERE block_number IN ({binl})
+              AND topic0 IN ({sinl}) AND tx_hash IN ({hinl})
+            GROUP BY topic0""")
+        agg_v: dict[str, int] = {}
+        for r in vrows:
+            name = _SWAP_SIGS[r["topic0"]]
+            agg_v[name] = agg_v.get(name, 0) + int(r["n"])
+        venue_trades = [{"venue": k, "trades": v} for k, v in
+                        sorted(agg_v.items(), key=lambda kv: kv[1], reverse=True)]
+
     platforms: list[dict] = []
     callees = await ch.q(f"""
         SELECT to_addr AS c, count() AS n FROM rh.transactions
@@ -854,6 +892,8 @@ async def wallet_report(wallet: str) -> dict:
             "pnl_7d": pnl_7d, "pnl_30d": pnl_30d, "pnl_timeseries_total": pnl_total_ts,
             "pnl_daily": [{"day": d, "realized": v} for d, v in daily_series[-90:]],
             **extremes, **bot_flags,
+            "venue_trades": venue_trades,
+            "top_venue": venue_trades[0]["venue"] if venue_trades else None,
             "platforms": platforms,
             "top_platform": platforms[0]["platform"] if platforms else None,
         },
