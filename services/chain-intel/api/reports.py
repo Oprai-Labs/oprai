@@ -23,6 +23,21 @@ _LAUNCHPAD_ROUTERS = {
 }
 _ZERO = "0x0000000000000000000000000000000000000000"
 _DEAD = "0x000000000000000000000000000000000000dead"
+# Uniswap V4 is a SINGLETON: every V4 trade on this chain moves tokens against this
+# one PoolManager, so counterparty == PoolManager is the V4-usage signal.
+_V4_POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951"
+# Which CONTRACT a wallet calls is what identifies the platform it trades on — V4
+# settles with flash accounting, so the ERC20 counterparty is a router, not the pool.
+# Confirmed on-chain (top callees by tx volume + method signature).
+_PLATFORM_CONTRACTS = {
+    "0x8876789976decbfcbbbe364623c63652db8c0904": "Uniswap (Universal Router)",
+    "0x8366a39cc670b4001a1121b8f6a443a643e40951": "Uniswap V4 (PoolManager)",
+    "0x58daec3116aae6d93017baaea7749052e8a04fa7": "Uniswap V4 (positions)",
+    "0xd9ec2db5f3d1b236843925949fe5bd8a3836fccb": "Noxa (launchpad)",
+    "0x22e99278308b393ea1260859b181ad7e78f5eeed": "LONG (launchpad)",
+    "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e": "Pons (launchpad)",
+    "0xa5aab3f0c6eeadf30ef1d3eb997108e976351feb": "Pons V1 (launchpad)",
+}
 
 
 def _usd(v: float) -> str:
@@ -359,6 +374,30 @@ async def token_report(token: str) -> dict:
     risk = round(min(100, risk))
     risk_label = "HIGH" if risk >= 60 else "MEDIUM" if risk >= 30 else "LOW"
 
+    # WHERE it trades: the venue map (dex_pools). Uniswap V4 is a singleton, so its
+    # "pool" is a poolId and the HOOK address is what identifies the issuer/launchpad
+    # behind it — that's the "Factory" line a trader wants next to the DEX name.
+    venues = []
+    if await ch.table_exists("dex_pools"):
+        vrows = await ch.q(
+            f"SELECT dex, pool, token0, token1, fee, hooks FROM rh.dex_pools "
+            f"WHERE token0='{t}' OR token1='{t}' ORDER BY created_block ASC LIMIT 8")
+        pairs = [(r["token1"] if r["token0"] == t else r["token0"]) for r in vrows]
+        psyms = await node.resolve_symbols([p for p in pairs if p and int(p, 16) != 0])
+        for r, pair in zip(vrows, pairs):
+            hooks = r.get("hooks") or ""
+            venues.append({
+                "dex": r["dex"], "pool": r["pool"],
+                "pair_token": pair,
+                "pair_symbol": psyms.get(pair) or ("ETH" if pair and int(pair, 16) == 0 else None),
+                # V4 encodes a hook-controlled DYNAMIC fee as 0x800000 — that's a
+                # flag, not 838%. Report it as dynamic rather than a nonsense number.
+                "fee_pct": (None if int(r.get("fee") or 0) == 0x800000
+                            else round(int(r.get("fee") or 0) / 10000, 4)),
+                "dynamic_fee": int(r.get("fee") or 0) == 0x800000,
+                "hooks": hooks if hooks and int(hooks, 16) != 0 else None,
+            })
+
     # SCAM VERDICT — a plain answer to "is this a scam?", assembled from the signals
     # above plus a live curve read for the sell tax. Each reason is a fact the user
     # can check; we never call something a scam on the score alone.
@@ -480,6 +519,8 @@ async def token_report(token: str) -> dict:
             "smart_money_net_usd": smart_net_usd,
             "smart_money_sellers": smart_sellers,
             "risk_score": risk, "risk_label": risk_label,
+            "venues": venues, "primary_dex": venues[0]["dex"] if venues else None,
+            "venue_hook": venues[0]["hooks"] if venues else None,
             "scam_verdict": verdict, "scam_red_flags": red, "scam_warnings": amber,
             "sell_tax_bps": tax_bps,
             "logo": (pt or {}).get("image"),
@@ -565,6 +606,36 @@ async def wallet_report(wallet: str) -> dict:
                 "volume_usd": round(bought + sold, 2),
                 "bought_usd": round(bought, 2), "sold_usd": round(sold, 2),
             }
+
+    # WHICH PLATFORMS this wallet actually uses. Uniswap V4 is a singleton, so every
+    # V4 trade shows up as a transfer against the PoolManager; V3/V2 show up against
+    # the individual pool addresses in dex_pools; launchpad buys go through the
+    # launchpad's own router. Counting the wallet's counterparties against those sets
+    # answers "hangi platformları kullanmış" without a swap-level table.
+    platforms: list[dict] = []
+    callees = await ch.q(f"""
+        SELECT to_addr AS c, count() AS n FROM rh.transactions
+        WHERE from_addr='{w}' AND to_addr != ''
+        GROUP BY c ORDER BY n DESC LIMIT 40""")
+    if callees:
+        unknown = [r["c"] for r in callees if r["c"] not in _PLATFORM_CONTRACTS]
+        dex_of = {}
+        if unknown:
+            inl = ",".join(f"'{a}'" for a in unknown[:40])
+            dex_of = {r["pool"]: r["dex"] for r in
+                      await ch.q(f"SELECT pool, dex FROM rh.dex_pools WHERE pool IN ({inl})")}
+        agg: dict[str, int] = {}
+        other = 0
+        for r in callees:
+            name = _PLATFORM_CONTRACTS.get(r["c"]) or dex_of.get(r["c"])
+            if name:
+                agg[name] = agg.get(name, 0) + int(r["n"])
+            else:
+                other += int(r["n"])
+        platforms = [{"platform": k, "txs": v} for k, v in
+                     sorted(agg.items(), key=lambda kv: kv[1], reverse=True)]
+        if other:
+            platforms.append({"platform": "other / unlabelled contracts", "txs": other})
 
     # heuristic archetype (raw-only, refined once P&L lands)
     archetype = "unknown"
@@ -783,6 +854,8 @@ async def wallet_report(wallet: str) -> dict:
             "pnl_7d": pnl_7d, "pnl_30d": pnl_30d, "pnl_timeseries_total": pnl_total_ts,
             "pnl_daily": [{"day": d, "realized": v} for d, v in daily_series[-90:]],
             **extremes, **bot_flags,
+            "platforms": platforms,
+            "top_platform": platforms[0]["platform"] if platforms else None,
         },
     }
 

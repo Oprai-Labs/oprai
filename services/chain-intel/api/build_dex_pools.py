@@ -84,11 +84,14 @@ async def collect_v4(tip: int) -> list[tuple]:
     return out
 
 
-async def collect_addr_pools(sig: str, dex: str, tip: int) -> list[tuple]:
+async def collect_addr_pools(sig: str, dex: str, tip: int, since: int = 0) -> list[tuple]:
     """V3/V2: distinct addresses that emitted a Swap, then token0/token1/fee from
-    the node in batches (the log itself never carries the pair)."""
+    the node in batches (the log itself never carries the pair). `since` bounds the
+    scan — a pool that hasn't traded in the window is not a venue anyone is asking
+    about, and scanning 1.8B logs for every historical pool costs far more than it
+    is worth."""
     pools: dict[str, int] = {}
-    lo = 0
+    lo = since
     while lo <= tip:
         hi = min(lo + BLOCK_STEP - 1, tip)
         rows = await ch.q(
@@ -132,27 +135,46 @@ async def _batch_call(addrs: list[str], selector: str) -> dict[str, str]:
             if by_id.get(i) and by_id[i] not in ("0x", "")}
 
 
-async def main() -> None:
-    tip = int(await ch.scalar("SELECT max(block_number) FROM rh.logs") or 0)
-    print(f"tip={tip}")
-    await ensure_columns()
-
-    v4 = await collect_v4(tip)
-    print(f"  uniswap-v4: {len(v4)} pools")
-    v3 = await collect_addr_pools(SIG_V3_SWAP, "uniswap-v3", tip)
-    print(f"  uniswap-v3: {len(v3)} pools")
-    v2 = await collect_addr_pools(SIG_V2_SWAP, "uniswap-v2", tip)
-    print(f"  uniswap-v2: {len(v2)} pools")
-
-    rows = v4 + v3 + v2
-    await ch_write("TRUNCATE TABLE rh.dex_pools")
+async def insert_rows(rows: list[tuple]) -> None:
     for i in range(0, len(rows), 2000):
         vals = ",".join(
             "('{}','{}','{}','{}',{},{},'{}')".format(*r) for r in rows[i:i + 2000])
         await ch_write("INSERT INTO rh.dex_pools "
                        "(pool, token0, token1, dex, created_block, fee, hooks) VALUES " + vals)
+
+
+async def main() -> None:
+    """Steps are separate so each finishes inside a sane window and partial progress
+    persists: `--v4` (all history, from logs), `--v3v2` (bounded scan + node calls).
+    `--truncate` clears first; no step flag runs everything."""
+    args = sys.argv[1:]
+    do_v4 = "--v4" in args or not any(a.startswith("--") and a != "--truncate" for a in args)
+    do_v3v2 = "--v3v2" in args or not any(a.startswith("--") and a != "--truncate" for a in args)
+    since_blocks = 5_000_000
+    for a in args:
+        if a.startswith("--since="):
+            since_blocks = int(a.split("=", 1)[1])
+
+    tip = int(await ch.scalar("SELECT max(block_number) FROM rh.logs") or 0)
+    print(f"tip={tip}", flush=True)
+    await ensure_columns()
+    if "--truncate" in args:
+        await ch_write("TRUNCATE TABLE rh.dex_pools")
+        print("truncated", flush=True)
+
+    if do_v4:
+        v4 = await collect_v4(tip)
+        await insert_rows(v4)
+        print(f"  uniswap-v4: {len(v4)} pools written", flush=True)
+    if do_v3v2:
+        since = max(0, tip - since_blocks)
+        for sig, dex in ((SIG_V3_SWAP, "uniswap-v3"), (SIG_V2_SWAP, "uniswap-v2")):
+            rows = await collect_addr_pools(sig, dex, tip, since)
+            await insert_rows(rows)
+            print(f"  {dex}: {len(rows)} pools written (since block {since})", flush=True)
+
     n = await ch.scalar("SELECT count() FROM rh.dex_pools")
-    print(f"dex_pools = {n} rows")
+    print(f"dex_pools = {n} rows", flush=True)
 
 
 if __name__ == "__main__":
