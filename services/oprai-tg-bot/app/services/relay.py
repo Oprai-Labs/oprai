@@ -121,18 +121,6 @@ def summarize(q: dict) -> dict:
     }
 
 
-def _tx_fields_from_step(item_data: dict) -> dict[str, str]:
-    """Relay hands back to/data/value/gas/fees as DECIMAL strings."""
-    return {
-        "to": item_data.get("to", ""),
-        "data": item_data.get("data", "0x") or "0x",
-        "value": str(item_data.get("value") or "0"),
-        "gas": str(item_data.get("gas") or item_data.get("gasLimit") or ""),
-        "max_fee_per_gas": str(item_data.get("maxFeePerGas") or ""),
-        "max_priority_fee_per_gas": str(item_data.get("maxPriorityFeePerGas") or ""),
-    }
-
-
 def count_transactions(steps: list[dict]) -> int:
     return sum(
         1
@@ -163,43 +151,16 @@ async def execute_steps(
             if not data.get("to"):
                 continue  # nothing to broadcast (e.g. a signature-only step)
 
-            f = _tx_fields_from_step(data)
-            gas = int(f["gas"]) if f["gas"] else None
-            if gas is None:
-                gas = await evm.estimate_gas(
-                    from_addr, f["to"], int(f["value"]), f["data"]
-                )
-            if f["max_fee_per_gas"] and f["max_priority_fee_per_gas"]:
-                max_fee, priority = int(f["max_fee_per_gas"]), int(
-                    f["max_priority_fee_per_gas"]
-                )
-            else:
-                max_fee, priority = await evm.get_fees()
-
-            tx = {
-                "chain_id": str(ROBINHOOD_CHAIN_ID),
-                "nonce": str(await evm.get_nonce(from_addr)),
-                "to": f["to"],
-                "value": f["value"],
-                "data": f["data"],
-                "gas": str(gas),
-                "max_fee_per_gas": str(max_fee),
-                "max_priority_fee_per_gas": str(priority),
-            }
-
+            tx = await evm.build_tx_from_provider(from_addr, data)
+            n = len(hashes) + 1
             if on_step:
-                await on_step(len(hashes) + 1, total, step.get("type") or "step")
-
-            tx_hash = await evm.sign_and_send(enc_key_ref, tx)
-            receipt = await evm.wait_receipt(tx_hash)
-            if receipt is None:
-                raise RelayError(
-                    f"step {len(hashes) + 1}/{total} is taking longer than expected "
-                    f"({tx_hash[:10]}…) — check the explorer before retrying"
+                await on_step(n, total, step.get("type") or "step")
+            try:
+                hashes.append(
+                    await evm.send_and_confirm(enc_key_ref, tx, f"step {n}/{total}")
                 )
-            if not evm.receipt_succeeded(receipt):
-                raise RelayError(f"step {len(hashes) + 1}/{total} reverted ({tx_hash[:10]}…)")
-            hashes.append(tx_hash)
+            except evm.EvmError as e:
+                raise RelayError(str(e)) from e
     if not hashes:
         raise RelayError("Relay returned no broadcastable transaction")
     return hashes

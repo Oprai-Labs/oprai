@@ -25,6 +25,7 @@ component in the Telegram stack that ever touches private keys.
 | POST   | `/wallet/import` | import an existing key, encrypt, store            |
 | POST   | `/sign`          | decrypt → sign a message → wipe → return           |
 | POST   | `/sign-tx`       | sign an EIP-1559 tx → `{address, raw, hash}`      |
+| POST   | `/sign-typed-data` | sign EIP-712 typed data (Permit2) → `{address, signature}` |
 | POST   | `/siws-sign`     | sign a Sign-In-With-Solana auth message           |
 | POST   | `/siwe-sign`     | sign a Sign-In-With-Ethereum (EIP-4361) message   |
 

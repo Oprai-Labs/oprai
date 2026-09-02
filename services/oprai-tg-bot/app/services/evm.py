@@ -141,6 +141,65 @@ async def build_transfer(
     }
 
 
+def to_int(v: str | int | None, default: int = 0) -> int:
+    """Providers mix decimal strings, 0x-hex and ints in the same fields."""
+    if v is None or v == "":
+        return default
+    if isinstance(v, int):
+        return v
+    s = str(v).strip()
+    return int(s, 16) if s.startswith("0x") else int(s)
+
+
+async def build_tx_from_provider(from_addr: str, data: dict) -> dict[str, str]:
+    """Complete a provider's unsigned transaction (a Relay step or a Uniswap
+    swap) into a signable EIP-1559 tx.
+
+    Providers hand back to/data/value and sometimes gas and fees, as decimal
+    strings, and never a nonce — that is ours to supply, freshly, per
+    transaction, because each one is broadcast only after the previous confirms.
+    """
+    to = data.get("to") or ""
+    if not to:
+        raise EvmError("provider returned a transaction with no recipient")
+    calldata = data.get("data") or "0x"
+    value = to_int(data.get("value"))
+
+    gas = to_int(data.get("gas") or data.get("gasLimit"))
+    if gas <= 0:
+        gas = await estimate_gas(from_addr, to, value, calldata)
+
+    max_fee = to_int(data.get("maxFeePerGas"))
+    priority = to_int(data.get("maxPriorityFeePerGas"))
+    if max_fee <= 0:
+        max_fee, priority = await get_fees()
+
+    return {
+        "chain_id": str(CHAIN_ID),
+        "nonce": str(await get_nonce(from_addr)),
+        "to": to,
+        "value": str(value),
+        "data": calldata,
+        "gas": str(gas),
+        "max_fee_per_gas": str(max_fee),
+        "max_priority_fee_per_gas": str(priority),
+    }
+
+
+async def send_and_confirm(enc_key_ref: str, tx: dict[str, str], label: str = "transaction") -> str:
+    """Sign, broadcast and wait for the receipt. Raises unless it succeeded."""
+    tx_hash = await sign_and_send(enc_key_ref, tx)
+    receipt = await wait_receipt(tx_hash)
+    if receipt is None:
+        raise EvmError(
+            f"{label} is taking longer than expected ({tx_hash[:10]}…) — "
+            "check the explorer before retrying"
+        )
+    if not receipt_succeeded(receipt):
+        raise EvmError(f"{label} reverted ({tx_hash[:10]}…)")
+    return tx_hash
+
+
 def tx_cost_wei(tx: dict[str, str]) -> int:
     """Worst-case debit: value + gas * max_fee — what the sender must hold."""
     return int(tx["value"]) + int(tx["gas"]) * int(tx["max_fee_per_gas"])
