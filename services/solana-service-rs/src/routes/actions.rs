@@ -2302,6 +2302,19 @@ pub async fn post_opensea_list(
     Ok(HttpResponse::Ok().json(result))
 }
 
+/// POST /actions/evm/wrap — native ↔ wrapped-native (ETH ↔ WETH, …) on ANY EVM
+/// chain via the canonical WETH9 deposit()/withdraw(). Body: {chainId?|chain?,
+/// direction: "wrap"|"unwrap", amount, walletAddress?}. Unsigned tx to sign.
+#[post("/evm/wrap")]
+pub async fn post_evm_wrap(
+    req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> Result<HttpResponse, AppError> {
+    assert_evm_actor(&req, &body)?;
+    let result = crate::services::uniswap::build_wrap(&body).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
 /// POST /actions/opensea/make-offer — build a Seaport OFFER (WETH bid) + typed data.
 #[post("/opensea/make-offer")]
 pub async fn post_opensea_make_offer(

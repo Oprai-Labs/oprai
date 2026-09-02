@@ -238,6 +238,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(routes::actions::post_opensea_accept_offer)
                     .service(routes::actions::post_opensea_list)
                     .service(routes::actions::post_opensea_make_offer)
+                    .service(routes::actions::post_evm_wrap)
                     .service(routes::actions::post_opensea_order_submit)
                     .service(routes::actions::post_uniswap_record)
                     .service(routes::actions::post_relay_index_transaction)

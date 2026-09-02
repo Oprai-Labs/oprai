@@ -373,6 +373,9 @@ ACTION_TAGS: dict[str, frozenset[str]] = {
     "morpho_repay":                  _A({"morpho", "lending"}),
     "morpho_withdraw":               _A({"morpho", "lending"}),
     "sushi_swap":                    _A({"sushi", "dex", "swap"}),
+    # ETH<->WETH wrap/unwrap is a cross-venue EVM utility: offered whenever ANY EVM
+    # venue is active (an OpenSea offer needs WETH; a Sushi/Uniswap trade may too).
+    "evm_wrap":                      _A({"sushi", "uniswap", "opensea", "relay", "morpho", "lighter", "poolstrade", "pons", "dex"}),
     "sushi_add_liquidity":           _A({"sushi", "dex", "liquidity"}),
     "opensea_buy":                   _A({"opensea", "nft"}),
     "opensea_mint":                  _A({"opensea", "nft"}),

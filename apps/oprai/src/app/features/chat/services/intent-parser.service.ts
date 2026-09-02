@@ -83,6 +83,8 @@ const KNOWN_ACTION_TYPES = new Set<string>([
   'morpho_supply', 'morpho_borrow', 'morpho_repay', 'morpho_withdraw',
   // SushiSwap (Robinhood Chain 4663 — EVM)
   'sushi_swap', 'sushi_add_liquidity',
+  // Native <-> wrapped (ETH <-> WETH) on any EVM chain
+  'evm_wrap',
   // OpenSea NFT marketplace (Robinhood Chain 4663 — EVM)
   'opensea_buy', 'opensea_accept_offer', 'opensea_list', 'opensea_make_offer',
   'nft_buy', 'nft_list', 'nft_mint',
@@ -632,6 +634,10 @@ export class IntentParserService {
         return `Swap on Sushi`;
       case 'sushi_add_liquidity':
         return `Add liquidity on Sushi`;
+      case 'evm_wrap': {
+        const un = String(action.params['direction'] ?? '').toLowerCase() === 'unwrap';
+        return `${un ? 'Unwrap' : 'Wrap'} ${action.params['amount'] ?? ''} ${un ? 'WETH → ETH' : 'ETH → WETH'}`.replace(/\s+/g, ' ');
+      }
       case 'opensea_buy':
         return `Buy NFT on OpenSea`;
       case 'opensea_accept_offer':
@@ -1026,6 +1032,7 @@ export class IntentParserService {
       case 'morpho_repay': return 'undo-2';
       case 'morpho_withdraw': return 'download';
       case 'sushi_swap': return 'arrow-down-up';
+      case 'evm_wrap': return 'arrow-down-up';
       case 'sushi_add_liquidity': return 'droplets';
       case 'opensea_buy': return 'shopping-cart';
       case 'opensea_accept_offer': return 'check-check';

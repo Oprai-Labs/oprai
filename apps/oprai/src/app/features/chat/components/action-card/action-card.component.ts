@@ -6182,7 +6182,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // on Robinhood Mainnet). The LLM's params carry no chainId for these, so
     // the tx link would otherwise fall through to Solscan.
     const t = this.action?.type ?? '';
-    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_') || t.startsWith('opensea_')) return 4663;
+    if (t.startsWith('pons_') || t.startsWith('pools_') || t.startsWith('lighter_') || t.startsWith('morpho_') || t.startsWith('sushi_') || t.startsWith('opensea_') || t.startsWith('evm_')) return 4663;
     return 0; // Solana
   }
   get protocolNote(): { type: 'info' | 'warning'; lines: string[] } | null { return null; }
@@ -6546,6 +6546,7 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
     // OpenSea offer: load the wallet's balance of the bid currency for the
     // under-input readout + Max (a listing price isn't spent, so no balance).
     if (this.action?.type === 'opensea_make_offer') void this.refreshOpenseaOfferBalance();
+    if (this.action?.type === 'evm_wrap') void this.refreshEvmWrapBalance();
     // pools.trade launch: auto-fill the X profile from the account's saved X
     // (set once in Wallets) unless the user/LLM already supplied one.
     if (this.action?.type === 'pools_launch') {
@@ -10584,6 +10585,66 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   // ── SushiSwap (Robinhood Chain 4663) — swap + V3 add-liquidity ──────────────
+  // ── Native <-> wrapped (ETH <-> WETH) on any EVM chain ────────────────────
+  readonly isEvmWrap = computed(() => this.action?.type === 'evm_wrap');
+  /** Canonical WETH9 per chain (mirrors the backend's wrapped_native_address). */
+  private static readonly WRAPPED_NATIVE: Record<number, { addr: string; native: string; wrapped: string; name: string }> = {
+    4663:  { addr: '0x0bd7d308f8e1639fab988df18a8011f41eacad73', native: 'ETH',  wrapped: 'WETH',  name: 'Robinhood Chain' },
+    1:     { addr: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', native: 'ETH',  wrapped: 'WETH',  name: 'Ethereum' },
+    8453:  { addr: '0x4200000000000000000000000000000000000006', native: 'ETH',  wrapped: 'WETH',  name: 'Base' },
+    10:    { addr: '0x4200000000000000000000000000000000000006', native: 'ETH',  wrapped: 'WETH',  name: 'Optimism' },
+    42161: { addr: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', native: 'ETH',  wrapped: 'WETH',  name: 'Arbitrum' },
+    137:   { addr: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', native: 'POL',  wrapped: 'WPOL',  name: 'Polygon' },
+    56:    { addr: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', native: 'BNB',  wrapped: 'WBNB',  name: 'BNB Chain' },
+    43114: { addr: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', native: 'AVAX', wrapped: 'WAVAX', name: 'Avalanche' },
+  };
+  evmWrapChainId(): number { const id = this.explorerChainId(); return ActionCardComponent.WRAPPED_NATIVE[id] ? id : 4663; }
+  private evmWrapMeta() { return ActionCardComponent.WRAPPED_NATIVE[this.evmWrapChainId()]; }
+  evmWrapIsUnwrap(): boolean { return String(this.getEditParam('direction') || 'wrap').toLowerCase() === 'unwrap'; }
+  evmWrapFromSym(): string { const m = this.evmWrapMeta(); return this.evmWrapIsUnwrap() ? m.wrapped : m.native; }
+  evmWrapToSym(): string { const m = this.evmWrapMeta(); return this.evmWrapIsUnwrap() ? m.native : m.wrapped; }
+  evmWrapChainName(): string { return this.evmWrapMeta().name; }
+  setEvmWrapDirection(d: 'wrap' | 'unwrap'): void {
+    if (!this.isEditable() || this.evmWrapIsUnwrap() === (d === 'unwrap')) return;
+    this.setEditParam('direction', d);
+    void this.refreshEvmWrapBalance();
+  }
+  setEvmWrapAmount(v: string): void {
+    if (!this.isEditable()) return;
+    let s = String(v).replace(',', '.').replace(/[^0-9.]/g, '');
+    const dot = s.indexOf('.');
+    if (dot >= 0) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, 8);
+    this.setEditParam('amount', s);
+  }
+  /** Balance of the side being converted FROM (native for wrap, wrapped for
+   *  unwrap), read from the wallet on its current chain — chain-agnostic. */
+  readonly evmWrapBal = signal<number | null>(null);
+  private async refreshEvmWrapBalance(): Promise<void> {
+    this.evmWrapBal.set(null);
+    const provider = this.currentEvmProvider();
+    if (!provider) return;
+    try {
+      const chain = this.evmWrapChainId();
+      const onChain = Number(await provider.request({ method: 'eth_chainId' }));
+      if (onChain !== chain) return; // wrong network — Max stays hidden until they switch
+      const accounts: string[] = await provider.request({ method: 'eth_accounts' });
+      const addr = accounts?.[0];
+      if (!addr) return;
+      const m = this.evmWrapMeta();
+      const raw = this.evmWrapIsUnwrap()
+        ? await provider.request({ method: 'eth_call', params: [{ to: m.addr, data: `0x70a08231${addr.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'] })
+        : await provider.request({ method: 'eth_getBalance', params: [addr, 'latest'] });
+      this.evmWrapBal.set(Number(BigInt(raw || '0x0')) / 1e18);
+    } catch { this.evmWrapBal.set(null); }
+  }
+  setEvmWrapMax(): void {
+    const b = this.evmWrapBal();
+    if (b == null || b <= 0 || !this.isEditable()) return;
+    // Wrapping spends native, so keep a sliver for gas; unwrapping can use it all.
+    const usable = this.evmWrapIsUnwrap() ? b : Math.max(0, b - 0.0005);
+    this.setEditParam('amount', String(Math.floor(usable * 1e8) / 1e8));
+  }
+
   readonly isOpenseaBuy = computed(() => this.action?.type === 'opensea_buy');
   readonly isOpenseaAccept = computed(() => this.action?.type === 'opensea_accept_offer');
   readonly isOpenseaOrder = computed(() => this.action?.type === 'opensea_list' || this.action?.type === 'opensea_make_offer');
@@ -10637,6 +10698,16 @@ export class ActionCardComponent implements OnInit, OnChanges, OnDestroy {
       const f = 10 ** dec;
       this.setEditParam('priceEth', String(Math.floor(b * f) / f));
     }
+  }
+  /** An ETH-priced collection's offer is paid in WETH. If the wallet is short,
+   *  hand the user a one-tap wrap for exactly the shortfall (via chat, so it
+   *  renders as its own evm_wrap card). */
+  openseaWrapForOffer(): void {
+    const want = Number(this.getEditParam('priceEth') || 0);
+    const have = this.openseaOfferBal() ?? 0;
+    const short = want > have ? Math.ceil((want - have) * 1e6) / 1e6 : 0;
+    const amt = short > 0 ? String(short) : (want > 0 ? String(want) : '');
+    this.requestChat.emit(amt ? `wrap ${amt} ETH to WETH on Robinhood` : 'wrap ETH to WETH on Robinhood');
   }
 
   // ── OpenSea SeaDrop mint ────────────────────────────────────────────────────
