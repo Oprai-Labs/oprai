@@ -1,7 +1,7 @@
-"""Live test for read-only balances (0.5b).
+"""Live test for read-only balances on Robinhood Chain.
 
-Needs the signer (to create the wallet) + Postgres + a reachable SOLANA_RPC.
-A fresh custodial wallet has 0 SOL, so we assert the call returns a numeric
+Needs the signer (to create the wallet) + Postgres + a reachable Robinhood RPC.
+A fresh custodial wallet has 0 ETH, so we assert the call returns a numeric
 balance (the RPC path works), not a specific amount.
 
 Run: cd services/oprai-tg-bot && .venv/bin/pytest tests/test_portfolio_live.py -v
@@ -40,15 +40,14 @@ async def db():
 
 
 @pytest.mark.asyncio
-async def test_solana_native_balance(db):
+async def test_robinhood_native_balance(db):
     tg_id = random.randint(10_000_000_000, 99_999_999_999)
     await upsert_tg_user(tg_id, "pytest-pf")
     try:
-        bal = await pf.solana_balance(tg_id)
-        assert bal["address"]
-        assert isinstance(bal["lamports"], int) and bal["lamports"] >= 0
-        assert isinstance(bal["sol"], float) and bal["sol"] >= 0.0
-        # lamports/SOL consistency
-        assert abs(bal["sol"] * pf.LAMPORTS_PER_SOL - bal["lamports"]) < 1
+        bal = await pf.native_balance(tg_id)
+        assert bal["address"].startswith("0x")
+        assert isinstance(bal["wei"], int) and bal["wei"] >= 0
+        assert isinstance(bal["eth"], float) and bal["eth"] >= 0.0
+        assert abs(bal["eth"] * pf.WEI_PER_ETH - bal["wei"]) < 1
     finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg_id)

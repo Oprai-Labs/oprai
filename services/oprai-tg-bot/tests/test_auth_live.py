@@ -1,8 +1,8 @@
-"""Live integration test for auth-on-behalf (0.4).
+"""Live integration test for auth-on-behalf (Robinhood Chain / SIWE).
 
-Requires signer + gateway + auth-service + Postgres all running. Verifies the
-bot can obtain a real JWT for a custodial wallet (SIWS and SIWE) and that the
-gateway recognises the session as that exact wallet.
+Requires signer + gateway + auth-service + Postgres running. Verifies the bot
+can obtain a real JWT for the custodial Robinhood wallet and that the gateway
+recognises the session as that exact wallet.
 
 Run: cd services/oprai-tg-bot && .venv/bin/pytest tests/test_auth_live.py -v
 """
@@ -33,10 +33,7 @@ def _reachable(url: str) -> bool:
 if not _reachable(f"{settings.OPRAI_TG_SIGNER_URL.rstrip('/')}/health") or not _reachable(
     f"{settings.GATEWAY_URL.rstrip('/')}/health"
 ):
-    pytest.skip(
-        "signer or gateway not reachable — live auth test skipped",
-        allow_module_level=True,
-    )
+    pytest.skip("signer or gateway not reachable — live auth test skipped", allow_module_level=True)
 
 
 @pytest.fixture
@@ -46,26 +43,23 @@ async def db():
     await close_pool()
 
 
-@pytest.mark.parametrize("chain", ["solana", "evm"])
 @pytest.mark.asyncio
-async def test_auth_on_behalf(db, chain):
+async def test_auth_on_behalf(db):
     tg_id = random.randint(10_000_000_000, 99_999_999_999)
     await upsert_tg_user(tg_id, "pytest-auth")
     try:
-        addr = (await wallet_svc.get_or_create_wallet(tg_id, chain))["address"]
+        addr = (await wallet_svc.get_or_create_wallet(tg_id))["address"]
 
-        jwt = await auth_svc.get_jwt(tg_id, chain)
+        jwt = await auth_svc.get_jwt(tg_id)
         assert jwt and jwt.count(".") == 2, "expected a JWT"
 
-        # the gateway must recognise the session as OUR wallet
         r = await gateway.get("/auth/session", jwt=jwt)
         assert r.status_code == 200
         session = r.json()
         assert session.get("authenticated") is True
         assert session.get("wallet", "").lower() == addr.lower()
 
-        # cached on second call (same token object)
-        jwt2 = await auth_svc.get_jwt(tg_id, chain)
-        assert jwt2 == jwt
+        # cached on second call
+        assert await auth_svc.get_jwt(tg_id) == jwt
     finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg_id)

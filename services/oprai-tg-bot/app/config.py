@@ -45,14 +45,18 @@ class Settings(BaseSettings):
     # builds the SIWS/SIWE sign-in message with this as the first-line domain.
     OPRAI_TG_APP_DOMAIN: str = ""
 
-    # ── Read-only RPC (balances) ─────────────────────────────────────────────
-    # The gateway's /rpc proxy is browser-origin-gated, so for read-only balance
-    # the bot (a trusted backend) queries the chain RPC directly, like the
-    # gateway does. Actions still go through the gateway with the on-behalf JWT.
-    SOLANA_RPC: str = "https://api.mainnet-beta.solana.com"
-    # Optional EVM RPC for native-balance reads (e.g. Robinhood Chain). Empty =
-    # EVM balance reported as unavailable until configured.
-    OPRAI_TG_EVM_RPC: str = ""
+    # ── Robinhood Chain RPC (read-only balances) ─────────────────────────────
+    # The gateway's /rpc proxy is browser-origin-gated, so the bot (a trusted
+    # backend) reads balances straight from the Robinhood Chain RPC — in prod
+    # OUR self-hosted Nitro full node (set ROBINHOOD_RPC in prod .env), so a
+    # balance is the current on-chain state with no indexer lag. Public default
+    # for dev. Actions still go through the gateway with the on-behalf JWT.
+    ROBINHOOD_RPC: str = "https://rpc.mainnet.chain.robinhood.com"
+    # Optional explicit override (e.g. an internal node URL).
+    OPRAI_TG_RPC_OVERRIDE: str = ""
+
+    def robinhood_rpc(self) -> str:
+        return self.OPRAI_TG_RPC_OVERRIDE or self.ROBINHOOD_RPC
 
     # ── Database (tg_schema) ─────────────────────────────────────────────────
     # Plain asyncpg DSN (NOT the SQLAlchemy "+asyncpg" form). _pg_dsn() strips

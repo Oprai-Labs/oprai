@@ -1,8 +1,7 @@
-"""/balance and /portfolio — read-only native balances across the user's wallets.
+"""/balance and /portfolio — read-only holdings on Robinhood Chain.
 
-Balances come from direct chain RPC (see services/portfolio.py). EVM native
-balance needs OPRAI_TG_EVM_RPC configured; without it we render "unavailable"
-rather than failing the whole command. Rich token portfolios land in Faz 1.
+Native ETH balance comes straight from our Robinhood node (see
+services/portfolio.py). Stock/token holdings land in the next phase.
 """
 
 from __future__ import annotations
@@ -18,29 +17,18 @@ from app.services import wallet as wallet_svc
 router = Router(name="portfolio")
 
 
-def _fmt_sol(bal: dict) -> str:
-    return f"◎ <b>Solana</b>: {bal['sol']:.4f} SOL"
-
-
-def _fmt_evm(bal: dict) -> str:
-    return f"⬡ <b>EVM</b>: {bal['eth']:.4f} ETH"
-
-
 @router.message(Command("balance"))
 async def balance_cmd(message: Message) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     await audit(user.id, "balance", {})
-    lines = ["<b>Balance</b>", ""]
     try:
-        lines.append(_fmt_sol(await pf.solana_balance(user.id)))
+        bal = await pf.native_balance(user.id)
+        await message.answer(
+            f"<b>Balance</b> · Robinhood Chain\n\n⬡ {bal['eth']:.4f} ETH"
+        )
     except pf.PortfolioError as e:
-        lines.append(f"◎ <b>Solana</b>: unavailable ({e})")
-    try:
-        lines.append(_fmt_evm(await pf.evm_native_balance(user.id)))
-    except pf.PortfolioError:
-        pass  # EVM RPC optional — omit rather than clutter
-    await message.answer("\n".join(lines))
+        await message.answer(f"⚠️ Couldn't read your balance right now: {e}")
 
 
 @router.message(Command("portfolio"))
@@ -48,24 +36,17 @@ async def portfolio_cmd(message: Message) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     await audit(user.id, "portfolio", {})
-    wallets = await wallet_svc.ensure_all_wallets(user.id)
-    lines = ["<b>Portfolio</b>", ""]
-
+    address = await wallet_svc.wallet_address(user.id)
+    lines = ["<b>Portfolio</b> · Robinhood Chain", ""]
     try:
-        lines.append(_fmt_sol(await pf.solana_balance(user.id)))
+        bal = await pf.native_balance(user.id)
+        lines.append(f"⬡ {bal['eth']:.4f} ETH")
     except pf.PortfolioError as e:
-        lines.append(f"◎ <b>Solana</b>: unavailable ({e})")
-
-    try:
-        lines.append(_fmt_evm(await pf.evm_native_balance(user.id)))
-    except pf.PortfolioError as e:
-        lines.append(f"⬡ <b>EVM</b>: unavailable ({e})")
-
+        lines.append(f"⬡ ETH: unavailable ({e})")
     lines += [
         "",
-        f"◎ <code>{wallets['solana']}</code>",
-        f"⬡ <code>{wallets['evm']}</code>",
+        f"<code>{address}</code>",
         "",
-        "<i>Native balances. Full token portfolios coming soon.</i>",
+        "<i>Native balance. Stock &amp; token holdings coming soon.</i>",
     ]
     await message.answer("\n".join(lines))

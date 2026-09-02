@@ -1,9 +1,8 @@
-"""Live integration test for the custodial wallet flow.
+"""Live integration test for the custodial wallet flow (Robinhood Chain).
 
-Requires a running signer (OPRAI_TG_SIGNER_URL, Vault-connected) and Postgres
-with tg_schema applied. Verifies the full path the /wallet handler relies on:
-signer create -> tg_wallets row -> idempotent re-create -> signer can sign with
-the stored ciphertext and round-trips to the same address.
+Requires a running signer (Vault-connected) + Postgres with tg_schema. Verifies
+signer create -> tg_wallets row -> idempotent re-create -> the stored ciphertext
+signs and round-trips to the same address.
 
 Run: cd services/oprai-tg-bot && .venv/bin/pytest tests/test_wallet_live.py -v
 """
@@ -32,13 +31,8 @@ def _signer_reachable() -> bool:
         return False
 
 
-# Live integration test: skip cleanly when the signer/infra isn't running.
 if not _signer_reachable():
-    pytest.skip(
-        "signer not reachable — live integration test skipped "
-        "(start infra + `make vault-init` + run the signer)",
-        allow_module_level=True,
-    )
+    pytest.skip("signer not reachable — live integration test skipped", allow_module_level=True)
 
 
 @pytest.fixture
@@ -60,22 +54,17 @@ async def test_create_persist_idempotent_and_sign(db):
     tg_id = random.randint(10_000_000_000, 99_999_999_999)
     await upsert_tg_user(tg_id, "pytest")
     try:
-        # create both chains
-        addresses = await wallet_svc.ensure_all_wallets(tg_id)
-        assert addresses["solana"] and addresses["evm"]
-
-        # persisted rows exist with a Vault ciphertext handle
-        rows = await wallet_svc.get_wallets(tg_id)
-        assert {r["chain"] for r in rows} == {"solana", "evm"}
-        sol = await wallet_svc.get_wallet(tg_id, "solana")
-        assert sol["enc_key_ref"].startswith("vault:v1:")
+        row = await wallet_svc.get_or_create_wallet(tg_id)
+        assert row["chain"] == "evm"
+        assert row["address"].startswith("0x") and len(row["address"]) == 42
+        assert row["enc_key_ref"].startswith("vault:v1:")
 
         # idempotent: re-create returns the SAME address (no new key)
-        again = await wallet_svc.ensure_all_wallets(tg_id)
-        assert again == addresses
+        again = await wallet_svc.get_or_create_wallet(tg_id)
+        assert again["address"] == row["address"]
 
         # the stored ciphertext signs and round-trips to the same address
-        signed = await signer.sign("solana", sol["enc_key_ref"], "oprai wallet test")
-        assert signed["address"] == addresses["solana"]
+        signed = await signer.sign("evm", row["enc_key_ref"], "oprai wallet test")
+        assert signed["address"] == row["address"]
     finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg_id)

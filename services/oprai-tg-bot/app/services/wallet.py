@@ -1,7 +1,12 @@
-"""Custodial wallet service: create/import/lookup, persisted in tg_wallets.
+"""Custodial wallet service — Robinhood Chain only.
 
-The bot stores only the public address + the signer's opaque enc_key_ref
-(a Vault ciphertext). Private keys live nowhere on the bot side.
+OPRAI's Telegram bot is Robinhood-Chain-native: one custodial wallet per user,
+an EVM (secp256k1) key used on Robinhood Chain (4663). The bot stores only the
+public address + the signer's opaque enc_key_ref (a Vault ciphertext); private
+keys live nowhere on the bot side.
+
+The DB `chain` column stays 'evm' (the signer's secp256k1 scheme); everything
+user-facing is framed as "Robinhood".
 """
 
 from __future__ import annotations
@@ -11,39 +16,29 @@ import asyncpg
 from app.db import pool
 from app.signer_client import signer
 
-CHAINS = ("solana", "evm")
+CHAIN = "evm"  # secp256k1 key, used on Robinhood Chain (4663)
 
 
-async def get_wallet(telegram_id: int, chain: str) -> asyncpg.Record | None:
+async def get_wallet(telegram_id: int) -> asyncpg.Record | None:
     return await pool().fetchrow(
         "SELECT chain, address, enc_key_ref, imported FROM tg_wallets "
         "WHERE telegram_id = $1 AND chain = $2",
         telegram_id,
-        chain,
+        CHAIN,
     )
 
 
-async def get_wallets(telegram_id: int) -> list[asyncpg.Record]:
-    return await pool().fetch(
-        "SELECT chain, address, imported FROM tg_wallets WHERE telegram_id = $1 "
-        "ORDER BY chain",
-        telegram_id,
-    )
+async def get_or_create_wallet(telegram_id: int) -> asyncpg.Record:
+    """Return the user's Robinhood wallet, creating it via the signer if absent.
 
-
-async def get_or_create_wallet(telegram_id: int, chain: str) -> asyncpg.Record:
-    """Return the user's wallet for `chain`, creating it via the signer if absent.
-
-    Idempotent under a unique(telegram_id, chain) constraint: a concurrent create
-    races to ON CONFLICT DO NOTHING and both callers converge on the same row.
+    Idempotent under unique(telegram_id, chain): a concurrent create races to
+    ON CONFLICT DO NOTHING and both callers converge on the same row.
     """
-    if chain not in CHAINS:
-        raise ValueError(f"unsupported chain: {chain}")
-    existing = await get_wallet(telegram_id, chain)
+    existing = await get_wallet(telegram_id)
     if existing:
         return existing
 
-    created = await signer.create_wallet(chain)  # {address, enc_key_ref}
+    created = await signer.create_wallet(CHAIN)  # {address, enc_key_ref}
     await pool().execute(
         """
         INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref, imported)
@@ -51,18 +46,16 @@ async def get_or_create_wallet(telegram_id: int, chain: str) -> asyncpg.Record:
         ON CONFLICT (telegram_id, chain) DO NOTHING
         """,
         telegram_id,
-        chain,
+        CHAIN,
         created["address"],
         created["enc_key_ref"],
     )
-    return await get_wallet(telegram_id, chain)
+    return await get_wallet(telegram_id)
 
 
-async def import_wallet(telegram_id: int, chain: str, secret: str) -> asyncpg.Record:
-    """Import an existing key. Overwrites any current wallet for that chain."""
-    if chain not in CHAINS:
-        raise ValueError(f"unsupported chain: {chain}")
-    imported = await signer.import_wallet(chain, secret)
+async def import_wallet(telegram_id: int, secret: str) -> asyncpg.Record:
+    """Import an existing key (hex). Overwrites the current Robinhood wallet."""
+    imported = await signer.import_wallet(CHAIN, secret)
     await pool().execute(
         """
         INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref, imported)
@@ -73,17 +66,13 @@ async def import_wallet(telegram_id: int, chain: str, secret: str) -> asyncpg.Re
                       imported = TRUE
         """,
         telegram_id,
-        chain,
+        CHAIN,
         imported["address"],
         imported["enc_key_ref"],
     )
-    return await get_wallet(telegram_id, chain)
+    return await get_wallet(telegram_id)
 
 
-async def ensure_all_wallets(telegram_id: int) -> dict[str, str]:
-    """Ensure the user has a wallet on every chain; return {chain: address}."""
-    out: dict[str, str] = {}
-    for chain in CHAINS:
-        row = await get_or_create_wallet(telegram_id, chain)
-        out[chain] = row["address"]
-    return out
+async def wallet_address(telegram_id: int) -> str:
+    """The user's Robinhood address, creating the wallet on first use."""
+    return (await get_or_create_wallet(telegram_id))["address"]

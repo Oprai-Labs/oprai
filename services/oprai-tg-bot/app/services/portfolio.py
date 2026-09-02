@@ -1,10 +1,8 @@
-"""Read-only balances via direct chain RPC.
+"""Read-only balances on Robinhood Chain, straight from our node.
 
-The gateway's /rpc proxy is browser-origin-gated and there is no non-browser
-balance endpoint, so the bot (a trusted backend, co-located with the gateway)
-queries the chain RPC directly — exactly what the gateway does server-side.
-Actions still flow through the gateway with the on-behalf JWT (see auth.py);
-this module is only for read-only native balances.
+Reads go to settings.robinhood_rpc() — OUR self-hosted Nitro full node in prod —
+so a balance is the current on-chain state with no indexer lag. Actions still
+flow through the gateway with the on-behalf JWT (see auth.py).
 """
 
 from __future__ import annotations
@@ -14,7 +12,6 @@ import httpx
 from app.config import settings
 from app.services import wallet as wallet_svc
 
-LAMPORTS_PER_SOL = 1_000_000_000
 WEI_PER_ETH = 10**18
 
 
@@ -22,11 +19,11 @@ class PortfolioError(RuntimeError):
     pass
 
 
-async def _rpc(url: str, method: str, params: list) -> dict:
+async def _rpc(method: str, params: list) -> dict:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     try:
         async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.post(url, json=payload)
+            r = await c.post(settings.robinhood_rpc(), json=payload)
     except httpx.HTTPError as e:
         raise PortfolioError(f"rpc unreachable: {e}") from e
     if r.status_code != 200:
@@ -37,21 +34,9 @@ async def _rpc(url: str, method: str, params: list) -> dict:
     return body
 
 
-async def solana_balance(telegram_id: int) -> dict:
-    """Native SOL balance for the user's Solana wallet."""
-    w = await wallet_svc.get_or_create_wallet(telegram_id, "solana")
-    addr = w["address"]
-    body = await _rpc(settings.SOLANA_RPC, "getBalance", [addr])
-    lamports = int(body.get("result", {}).get("value", 0))
-    return {"address": addr, "lamports": lamports, "sol": lamports / LAMPORTS_PER_SOL}
-
-
-async def evm_native_balance(telegram_id: int) -> dict:
-    """Native balance for the user's EVM wallet (requires OPRAI_TG_EVM_RPC)."""
-    if not settings.OPRAI_TG_EVM_RPC:
-        raise PortfolioError("EVM RPC not configured")
-    w = await wallet_svc.get_or_create_wallet(telegram_id, "evm")
-    addr = w["address"]
-    body = await _rpc(settings.OPRAI_TG_EVM_RPC, "eth_getBalance", [addr, "latest"])
+async def native_balance(telegram_id: int) -> dict:
+    """Native ETH balance on Robinhood Chain for the user's wallet."""
+    addr = await wallet_svc.wallet_address(telegram_id)
+    body = await _rpc("eth_getBalance", [addr, "latest"])
     wei = int(body.get("result", "0x0"), 16)
     return {"address": addr, "wei": wei, "eth": wei / WEI_PER_ETH}

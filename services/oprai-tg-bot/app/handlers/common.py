@@ -19,21 +19,22 @@ from app.services import linking
 router = Router(name="common")
 
 WELCOME = (
-    "👋 <b>OPRAI</b> — conversational DeFi, now on Telegram.\n\n"
-    "Swap, bridge, lend, stake, trade perps, launch tokens and read the chain "
-    "across Solana and EVM chains — from one chat.\n\n"
-    "Setup is coming online. For now:\n"
-    "• /help — what I can do\n"
-    "• /wallet — your OPRAI wallet <i>(soon)</i>\n"
-    "• /balance — holdings <i>(soon)</i>\n"
+    "👋 <b>OPRAI</b> — conversational DeFi on <b>Robinhood Chain</b>, on Telegram.\n\n"
+    "Trade tokenized stocks and tokens, swap, lend, launch, trade perps, run "
+    "strategies and read the chain — all on Robinhood Chain, from one chat.\n\n"
+    "Get started:\n"
+    "• /wallet — your Robinhood wallet\n"
+    "• /balance — your ETH balance\n"
+    "• /portfolio — your holdings\n"
+    "• /help — everything I can do\n"
 )
 
 HELP = (
-    "<b>OPRAI bot — commands</b>\n\n"
+    "<b>OPRAI bot — Robinhood Chain</b>\n\n"
     "/start — get started / link your account\n"
-    "/wallet — create or import your custodial wallet <i>(soon)</i>\n"
-    "/balance — your token balances <i>(soon)</i>\n"
-    "/portfolio — full portfolio across chains <i>(soon)</i>\n"
+    "/wallet — your custodial Robinhood wallet (create or import)\n"
+    "/balance — your ETH balance on Robinhood Chain\n"
+    "/portfolio — your holdings\n"
     "/help — this message\n\n"
     "In groups, add me and an admin can top up the group's free quota with "
     "$OPRAI. Actions always run from your own wallet, confirmed privately."
