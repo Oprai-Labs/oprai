@@ -55,6 +55,82 @@ async def upload_image(jwt: str, data: bytes, filename: str) -> str:
     return out
 
 
+def to_square_png_data_uri(data: bytes, size: int = 512) -> str:
+    """Center-crop to a square PNG data URI.
+
+    pools.trade takes the image inline and pins it itself — it rejects http and
+    ipfs URLs — so a Telegram photo (JPEG) has to be converted here rather than
+    hosted. Square because every launchpad renders it as one.
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except Exception as e:  # noqa: BLE001 — Pillow raises a family of errors
+        raise LaunchError("that image couldn't be read") from e
+
+    img = img.convert("RGB")
+    side = min(img.size)
+    left = (img.width - side) // 2
+    top = (img.height - side) // 2
+    img = img.crop((left, top, left + side, top + side)).resize(
+        (size, size), Image.LANCZOS
+    )
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    encoded = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/png;base64,{encoded}"
+
+
+async def pools_launch(
+    jwt: str,
+    *,
+    name: str,
+    symbol: str,
+    wallet: str,
+    image_data_uri: str | None = None,
+    description: str = "",
+    website: str | None = None,
+    x_url: str | None = None,
+    mode: str = "instant",
+) -> dict:
+    """Launch on pools.trade — no bonding curve, a Uniswap pool from block one.
+
+    -> {transactions: [...], predictedTokenAddress}. The transaction list can
+    have more than one entry, and they must run in order.
+    """
+    body: dict = {
+        "mode": mode,
+        "tokenName": name,
+        "tokenSymbol": symbol,
+        "walletAddress": wallet,
+        "description": description,
+    }
+    if image_data_uri:
+        body["imageUrl"] = image_data_uri
+    if website:
+        body["website"] = website
+    if x_url:
+        body["xUrl"] = x_url
+
+    try:
+        r = await gateway.post("/actions/uniswap/launch/create", body, jwt=jwt)
+    except GatewayError as e:
+        raise LaunchError(str(e)) from e
+    if r.status_code != 200:
+        raise LaunchError(_error_text(r))
+
+    res = r.json()
+    if not res.get("transactions"):
+        raise LaunchError("the launchpad returned no transaction")
+    return res
+
+
 async def pons_launch(
     jwt: str,
     *,
