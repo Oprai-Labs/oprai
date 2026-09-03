@@ -895,7 +895,48 @@ pub async fn build_buy(http: &reqwest::Client, body: &Value) -> Result<Value, Ap
             .or_else(|| p.get("offererConduitKey").and_then(|v| v.as_str()))
             .unwrap_or("").to_string();
         (encode_fulfill_basic_order(p, &suffix)?, ct, total, key)
+    } else if function.starts_with("fulfillAdvancedOrder") {
+        // The order type nearly every listing on this chain actually uses.
+        // Basic orders are the exception here, not the rule, so without this
+        // branch in-app buying is effectively dead on Robinhood Chain.
+        let input = tx.get("input_data")
+            .ok_or_else(|| AppError::Internal("OpenSea fulfillment missing input_data".into()))?;
+        tracing::debug!(target: "opensea", input = %input, "advanced order input");
+        let ao = input.get("advancedOrder")
+            .ok_or_else(|| AppError::Internal("OpenSea fulfillment missing advancedOrder".into()))?;
+        let p = ao.get("parameters")
+            .ok_or_else(|| AppError::Internal("OpenSea fulfillment missing parameters".into()))?;
+
+        // A criteria order is a collection-wide bid, not a listing of one item;
+        // encoding an empty resolver set for it would buy the wrong thing.
+        if input.get("criteriaResolvers").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()) {
+            return Err(AppError::InvalidParams(
+                "opensea: this listing needs criteria matching — open it on OpenSea.".into(),
+            ));
+        }
+
+        let consideration = p.get("consideration").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        // What the buyer pays: every consideration item together (the seller's
+        // proceeds plus each fee). Quoting only the first would underfund the
+        // call and revert it.
+        let ct = consideration.first()
+            .and_then(|c| c.get("token")).and_then(|v| v.as_str())
+            .unwrap_or(ZERO).to_lowercase();
+        let mut total: u128 = 0;
+        for c in &consideration {
+            total += num_str(c, "startAmount").parse::<u128>().unwrap_or(0);
+        }
+        let key = input.get("fulfillerConduitKey").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        (encode_fulfill_advanced_order(input, &suffix)?, ct, total, key)
     } else {
+        // Without the function name there is no way to know which encoder is
+        // worth writing next.
+        tracing::warn!(
+            target: "opensea",
+            function = %function,
+            order = %order_hash,
+            "unsupported fulfillment function"
+        );
         return Err(AppError::InvalidParams(
             "opensea: this listing type isn't buyable in-app yet — open it on OpenSea.".into(),
         ));
@@ -1282,6 +1323,139 @@ pub async fn submit_order(http: &reqwest::Client, body: &Value) -> Result<Value,
 
 /// ABI-encode `fulfillBasicOrder_efficient_6GL6yc(BasicOrderParameters)` (selector
 /// 0x00000000) + append the referral suffix. Matches `cast` byte-for-byte.
+/// A number that may arrive as a JSON string or a JSON number.
+///
+/// OpenSea is not consistent about which: amounts and salts come as strings,
+/// item types and counts as numbers. Reading only `as_str` silently turns an
+/// item type into zero, which changes what the order says it is buying.
+fn num_str(v: &Value, k: &str) -> String {
+    match v.get(k) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => "0".to_string(),
+    }
+}
+
+/// ABI-encode dynamic `bytes`: length word, then the data padded to a word.
+fn enc_bytes(hex_str: &str) -> (String, usize) {
+    let h = hex_str.trim().trim_start_matches("0x").to_lowercase();
+    let len = h.len() / 2;
+    let mut data = h;
+    while data.len() % 64 != 0 {
+        data.push('0');
+    }
+    let region = format!("{}{}", w_u128(len as u128), data);
+    (region.clone(), region.len() / 2)
+}
+
+/// `fulfillAdvancedOrder((OrderParameters,uint120,uint120,bytes,bytes),
+///  CriteriaResolver[],bytes32,address)`
+///
+/// Hand-encoded because this crate carries no ABI library. The shape is three
+/// nested dynamic tuples, so every offset is relative to the start of its OWN
+/// tuple, not to the calldata — getting that wrong produces a call that
+/// decodes to a different order and reverts after the wallet has paid gas.
+fn encode_fulfill_advanced_order(input: &Value, suffix: &str) -> Result<String, AppError> {
+    let ao = input.get("advancedOrder").ok_or_else(|| {
+        AppError::Internal("advancedOrder missing".into())
+    })?;
+    let p = ao.get("parameters").ok_or_else(|| {
+        AppError::Internal("order parameters missing".into())
+    })?;
+
+    let offer = p.get("offer").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let consideration = p.get("consideration").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    if offer.is_empty() {
+        return Err(AppError::Internal("order offers nothing".into()));
+    }
+
+    // ── OrderParameters ─────────────────────────────────────────────────────
+    // Head is 11 words; the two arrays follow it in order.
+    let params_head_words = 11usize;
+    let offer_region = {
+        let mut r = w_u128(offer.len() as u128);
+        for item in &offer {
+            r.push_str(&dec_to_word(&num_str(item, "itemType")));
+            r.push_str(&w_addr(&s(item, "token")));
+            r.push_str(&dec_to_word(&num_str(item, "identifierOrCriteria")));
+            r.push_str(&dec_to_word(&num_str(item, "startAmount")));
+            r.push_str(&dec_to_word(&num_str(item, "endAmount")));
+        }
+        r
+    };
+    let consideration_region = {
+        let mut r = w_u128(consideration.len() as u128);
+        for item in &consideration {
+            r.push_str(&dec_to_word(&num_str(item, "itemType")));
+            r.push_str(&w_addr(&s(item, "token")));
+            r.push_str(&dec_to_word(&num_str(item, "identifierOrCriteria")));
+            r.push_str(&dec_to_word(&num_str(item, "startAmount")));
+            r.push_str(&dec_to_word(&num_str(item, "endAmount")));
+            r.push_str(&w_addr(&s(item, "recipient")));
+        }
+        r
+    };
+    let offer_off = params_head_words * 32;
+    let consideration_off = offer_off + offer_region.len() / 2;
+
+    let mut params = String::new();
+    params.push_str(&w_addr(&s(p, "offerer")));
+    params.push_str(&w_addr(&s(p, "zone")));
+    params.push_str(&w_u128(offer_off as u128));
+    params.push_str(&w_u128(consideration_off as u128));
+    params.push_str(&dec_to_word(&num_str(p, "orderType")));
+    params.push_str(&dec_to_word(&num_str(p, "startTime")));
+    params.push_str(&dec_to_word(&num_str(p, "endTime")));
+    params.push_str(&b32(&s(p, "zoneHash")));
+    params.push_str(&dec_to_word(&num_str(p, "salt")));
+    params.push_str(&b32(&s(p, "conduitKey")));
+    params.push_str(&dec_to_word(&num_str(p, "totalOriginalConsiderationItems")));
+    params.push_str(&offer_region);
+    params.push_str(&consideration_region);
+    let params_size = params.len() / 2;
+
+    // ── AdvancedOrder ───────────────────────────────────────────────────────
+    // Head is 5 words: parameters offset, numerator, denominator, and the two
+    // bytes offsets.
+    let (sig_region, sig_size) = enc_bytes(&s(ao, "signature"));
+    let (extra_region, _) = enc_bytes(&s(ao, "extraData"));
+
+    let params_off = 5 * 32;
+    let sig_off = params_off + params_size;
+    let extra_off = sig_off + sig_size;
+
+    let mut advanced = String::new();
+    advanced.push_str(&w_u128(params_off as u128));
+    advanced.push_str(&dec_to_word(&num_str(ao, "numerator")));
+    advanced.push_str(&dec_to_word(&num_str(ao, "denominator")));
+    advanced.push_str(&w_u128(sig_off as u128));
+    advanced.push_str(&w_u128(extra_off as u128));
+    advanced.push_str(&params);
+    advanced.push_str(&sig_region);
+    advanced.push_str(&extra_region);
+    let advanced_size = advanced.len() / 2;
+
+    // ── the call ────────────────────────────────────────────────────────────
+    // Head is 4 words. criteriaResolvers is empty (a criteria order is refused
+    // upstream), so its region is a single zero-length word.
+    let advanced_off = 4 * 32;
+    let criteria_off = advanced_off + advanced_size;
+
+    let mut head = String::new();
+    head.push_str(&w_u128(advanced_off as u128));
+    head.push_str(&w_u128(criteria_off as u128));
+    head.push_str(&b32(&s(input, "fulfillerConduitKey")));
+    head.push_str(&w_addr(&s(input, "recipient")));
+
+    // Selector for the signature above.
+    let selector = "e7acab24";
+    Ok(format!(
+        "0x{selector}{head}{advanced}{}{}",
+        w_u128(0),
+        suffix.to_lowercase()
+    ))
+}
+
 fn encode_fulfill_basic_order(p: &Value, suffix: &str) -> Result<String, AppError> {
     let ar = p.get("additionalRecipients").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let n = ar.len();
@@ -1332,7 +1506,7 @@ fn encode_fulfill_basic_order(p: &Value, suffix: &str) -> Result<String, AppErro
 
 #[cfg(test)]
 mod approve_bound_tests {
-    use super::erc20_approve_calldata;
+    use super::{encode_fulfill_advanced_order, erc20_approve_calldata, num_str};
 
     const CONDUIT: &str = "0x1E0049783F008A0085193E00003D00cd54003c71";
 
@@ -1360,5 +1534,105 @@ mod approve_bound_tests {
         // spender word = first 32 bytes after the selector, right-aligned address
         let spender_word = &cd[8..8 + 64];
         assert!(spender_word.ends_with(&CONDUIT.trim_start_matches("0x").to_lowercase()));
+    }
+
+    /// The advanced-order encoder writes three nested dynamic tuples by hand.
+    /// An offset that is off by one word decodes to a different order, and the
+    /// call reverts only after the buyer has paid gas — so the layout is
+    /// checked word by word rather than trusted.
+    #[test]
+    fn advanced_order_encodes_with_correct_offsets() {
+        let input = serde_json::json!({
+            "advancedOrder": {
+                "parameters": {
+                    "offerer": "0x1111111111111111111111111111111111111111",
+                    "zone": "0x2222222222222222222222222222222222222222",
+                    "offer": [{
+                        "itemType": 2,
+                        "token": "0x3333333333333333333333333333333333333333",
+                        "identifierOrCriteria": "8468",
+                        "startAmount": "1",
+                        "endAmount": "1"
+                    }],
+                    "consideration": [
+                        {"itemType": 0, "token": "0x0000000000000000000000000000000000000000",
+                         "identifierOrCriteria": "0", "startAmount": "1000",
+                         "endAmount": "1000", "recipient": "0x4444444444444444444444444444444444444444"},
+                        {"itemType": 0, "token": "0x0000000000000000000000000000000000000000",
+                         "identifierOrCriteria": "0", "startAmount": "25",
+                         "endAmount": "25", "recipient": "0x5555555555555555555555555555555555555555"}
+                    ],
+                    "orderType": 2,
+                    "startTime": "1000",
+                    "endTime": "2000",
+                    "zoneHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "salt": "42",
+                    "conduitKey": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "totalOriginalConsiderationItems": 2
+                },
+                "numerator": 1,
+                "denominator": 1,
+                "signature": "0xabcd",
+                "extraData": "0x"
+            },
+            "criteriaResolvers": [],
+            "fulfillerConduitKey": "0x0000000000000000000000000000000000000000000000000000000000000007",
+            "recipient": "0x6666666666666666666666666666666666666666"
+        });
+
+        let cd = encode_fulfill_advanced_order(&input, "").unwrap();
+        let body = cd.trim_start_matches("0x");
+        assert_eq!(&body[..8], "e7acab24", "wrong selector");
+        let words: Vec<&str> = body[8..].as_bytes().chunks(64)
+            .map(|c| std::str::from_utf8(c).unwrap()).collect();
+        let word = |i: usize| usize::from_str_radix(words[i].trim_start_matches('0'), 16).unwrap_or(0);
+
+        // Head: advancedOrder offset, criteriaResolvers offset, conduit, recipient.
+        assert_eq!(word(0), 4 * 32, "advancedOrder must start after the 4 head words");
+        assert!(words[2].ends_with('7'), "fulfillerConduitKey lost");
+        assert!(words[3].ends_with(&"6".repeat(40)), "recipient lost");
+
+        // criteriaResolvers is an empty array: one zero-length word, and it is
+        // the LAST thing in the calldata.
+        let criteria_word = word(1) / 32;
+        assert_eq!(word(criteria_word), 0, "criteriaResolvers must be empty");
+        assert_eq!(words.len(), criteria_word + 1, "criteria array is not last");
+
+        // AdvancedOrder: parameters offset is 5 words in; numerator and
+        // denominator are the partial-fill fraction and must both be 1.
+        let ao = word(0) / 32;
+        assert_eq!(word(ao), 5 * 32);
+        assert_eq!(word(ao + 1), 1, "numerator");
+        assert_eq!(word(ao + 2), 1, "denominator");
+
+        // OrderParameters: the two arrays follow an 11-word head.
+        let params = ao + word(ao) / 32;
+        assert!(words[params].ends_with(&"1".repeat(40)), "offerer lost");
+        assert_eq!(word(params + 2), 11 * 32, "offer array offset");
+        let offer = params + word(params + 2) / 32;
+        assert_eq!(word(offer), 1, "one offer item");
+        assert_eq!(word(offer + 3), 8468, "token id lost");
+
+        // Consideration starts right after the offer array (1 length + 5 fields).
+        let consideration = params + word(params + 3) / 32;
+        assert_eq!(consideration, offer + 1 + 5, "consideration offset overlaps the offer");
+        assert_eq!(word(consideration), 2, "two consideration items");
+        assert_eq!(word(consideration + 4), 1000, "seller proceeds lost");
+        assert_eq!(word(consideration + 6 + 4), 25, "fee item lost");
+
+        // The signature survives as dynamic bytes.
+        let sig = ao + word(ao + 3) / 32;
+        assert_eq!(word(sig), 2, "signature length");
+        assert!(words[sig + 1].starts_with("abcd"), "signature bytes lost");
+    }
+
+    #[test]
+    fn numbers_are_read_whether_they_arrive_as_strings_or_numbers() {
+        // OpenSea sends item types as numbers and amounts as strings. Reading
+        // only one shape turns the other into zero.
+        let v = serde_json::json!({"a": 5, "b": "6", "c": null});
+        assert_eq!(num_str(&v, "a"), "5");
+        assert_eq!(num_str(&v, "b"), "6");
+        assert_eq!(num_str(&v, "c"), "0");
     }
 }
