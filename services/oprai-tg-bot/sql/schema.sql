@@ -228,3 +228,25 @@ CREATE TABLE IF NOT EXISTS tg_chat_sessions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- A top-up is paid on-chain, and the same transaction must never be credited
+-- twice — not by a retry, not by a restart, not by someone sending the hash
+-- again. The chain's own transaction hash is the key, so the guarantee comes
+-- from the database rather than from the code remembering.
+CREATE TABLE IF NOT EXISTS tg_topups (
+    tx_hash     TEXT   PRIMARY KEY,
+    scope_id    BIGINT NOT NULL,
+    telegram_id BIGINT NOT NULL,
+    oprai_wei   NUMERIC NOT NULL,
+    credits     BIGINT  NOT NULL,
+    -- 'pending' until the transfer has a receipt. A payment that is sent but
+    -- not yet mined must not be lost (the user paid) and must not be credited
+    -- (it may still revert), so it waits here and a reconciler settles it.
+    status      TEXT   NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'credited', 'failed')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_topups_pending
+    ON tg_topups (created_at) WHERE status = 'pending';
