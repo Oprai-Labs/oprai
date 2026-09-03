@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     OPRAI_TG_DEV_WALLET: str = "0xb0E580Cf95E2B045b99b31ddF3137D3D88d55b8E"
     OPRAI_TG_BURN_BPS: int = 0  # basis points burned on top-up; 0 = no auto-burn
 
+    # Free conversation allowance, refilled on a rolling window. A group gets
+    # more than one person because the quota is shared by the whole room.
+    OPRAI_TG_FREE_USER_CREDITS: int = 25
+    OPRAI_TG_FREE_GROUP_CREDITS: int = 60
+    OPRAI_TG_FREE_WINDOW_HOURS: int = 24
+
     # ── Server ───────────────────────────────────────────────────────────────
     PORT: int = 3055
     BIND_HOST: str = "127.0.0.1"
