@@ -12,10 +12,12 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import alpha, bridge, common, launch, portfolio, send, swap, wallet
+from app.handlers import (alpha, bridge, common, launch, perps, portfolio, send,
+                          swap, wallet)
 from app.logging_config import configure_logging, log
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
@@ -32,11 +34,30 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(swap.router)
     dp.include_router(bridge.router)
     dp.include_router(launch.router)
+    dp.include_router(perps.router)
     return dp
 
 
 REGISTRY_REFRESH_SECONDS = 6 * 60 * 60
 DEPOSIT_POLL_SECONDS = 8
+
+# Telegram's "/" menu is how people find out a command exists at all. Ordered
+# by what a new user needs first, not alphabetically.
+COMMANDS = [
+    BotCommand(command="start", description="Get started"),
+    BotCommand(command="wallet", description="Your Robinhood Chain wallet"),
+    BotCommand(command="balance", description="ETH balance"),
+    BotCommand(command="portfolio", description="Your holdings"),
+    BotCommand(command="send", description="Send ETH, tokens or stocks"),
+    BotCommand(command="swap", description="Trade stocks and tokens"),
+    BotCommand(command="bridge", description="Bring funds in from another chain"),
+    BotCommand(command="long", description="Open a leveraged long"),
+    BotCommand(command="short", description="Open a leveraged short"),
+    BotCommand(command="perps", description="Perps account and positions"),
+    BotCommand(command="close", description="Close a position"),
+    BotCommand(command="launch", description="Create a token"),
+    BotCommand(command="help", description="All commands"),
+]
 
 
 async def _watch_deposits(bot) -> None:
@@ -98,6 +119,11 @@ async def run() -> None:
 
     me = await bot.get_me()
     log.info("bot_starting", username=me.username, id=me.id, mode="long-polling")
+
+    try:
+        await bot.set_my_commands(COMMANDS)
+    except Exception as e:  # noqa: BLE001 — a missing menu must not stop the bot
+        log.warning("set_commands_failed", error=str(e))
 
     # Background alpha-alert worker: polls the chain-intel signal feed and pings
     # subscribers. Isolated task — its own retry loop; a crash never stops the bot.

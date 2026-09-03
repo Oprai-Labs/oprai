@@ -41,6 +41,8 @@ HELP = (
     "/bridge &lt;amount&gt; ETH from &lt;chain&gt; — bring funds in\n"
     "/launch &lt;TICKER&gt; &lt;name&gt; — create a token (reply to a photo\n"
     "    to use it as the image)\n"
+    "/long &lt;SYM&gt; &lt;$&gt; [x] · /short — leveraged perps (stocks too)\n"
+    "/perps — your perps account and positions · /close &lt;SYM&gt;\n"
     "/help — this message\n\n"
     "In groups, add me and an admin can top up the group's free quota with "
     "$OPRAI. Actions always run from your own wallet, confirmed privately."
