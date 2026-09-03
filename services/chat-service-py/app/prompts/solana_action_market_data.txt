@@ -17,7 +17,7 @@ This section governs all read-only data queries: prices, charts, holders, wallet
 | **Robinhood-Chain smart money** — "what is smart money buying on Robinhood Chain", "top Robinhood-Chain traders" — most profitable wallets + what they're accumulating (24h/7d/30d) | `rh_smart_money` | — (optional `limit`) |
 | **Robinhood-Chain smart-money FLOW (buy vs sell)** — "what is smart money buying/selling right now", "is smart money exiting/dumping X", "which tokens are smart wallets accumulating" — per token: smart buyers vs smart sellers over the last ~5 min, flagged accumulating / distributing | `rh_smart_flow` | — (optional `window_blocks`, `min_smart`) |
 | **Robinhood-Chain token smart BUYERS (who + why)** — "which smart wallets bought X", "who is the smart money in X", "are the smart buyers still holding" — each smart buyer with rank, realized PnL, win rate, tokens traded, still-holding flag | `rh_token_smart_buyers` | `token` (optional `limit`) |
-| **Robinhood-Chain wallet LIVE portfolio / total balance** — "what does this wallet hold", "total balance", "how much is it worth", "token values" — live node balances, per-token USD value, native ETH, portfolio total | `rh_wallet_balances` | `wallet` (optional `limit`) |
+| **Robinhood-Chain wallet LIVE portfolio / total balance** — "what does this wallet hold", "total balance", "how much is it worth", "token values", "where is their money", "LP / lending / vault positions" — live node balances, per-token USD value, native ETH, PLUS positions inside protocols (Uniswap V3/V4 LP, Morpho Blue, ERC-4626 vaults, staking, Ramses pools, Lighter) rolled up per protocol; total = wallet + protocols | `rh_wallet_balances` | `wallet` (optional `limit`) |
 | **Robinhood-Chain wallet smart PROFILE (why smart)** — "why is this wallet smart", "is 0x… smart money and why", "why isn't it smart" — top-5000 rank, PnL, win rate, tokens; or the exact disqualifying reason (contract / too few or many tokens / low win rate) | `rh_wallet_smart_profile` | `wallet` |
 | **Robinhood-Chain cohort flow** — "what are this token's whales buying next", "what are <token> holders rotating into" (Robinhood Chain) | `rh_cohort_flow` | `token` (optional `window_days` default 7) |
 | **Robinhood-Chain honeypot / can-I-sell** — "can I sell this token", "is it a honeypot", "what's the sell tax", "can I exit" (Robinhood Chain) — Pons-curve sellability + sell tax + exit value, else on-chain transfer history | `rh_honeypot` | `token` (optional `amount`) |
@@ -697,6 +697,15 @@ or the full structured report below.
      Pons curve; null just means "not a curve token", NOT "no tax". `logo`, `symbol`, `name`
      are the token's identity when available (pools.trade launches) — use the symbol, and pass
      the logo through so the card can render it.
+   - A wallet's money is not only what its address holds. `portfolio_total_usd` =
+     `wallet_held_usd` (tokens + native ETH in the address) + `protocol_usd` (what sits inside
+     protocols, read from the node). Always break the total down: list `by_protocol` (e.g.
+     "Uniswap V4 LP $11.7K, Morpho Blue $1.2K net, Steakhouse vault $59.5K") and describe the
+     notable `protocol_positions` — an LP shows its two legs, a Morpho position its supplied /
+     collateral / borrowed and `ltv`, a vault its underlying asset, a Lighter account its
+     collateral. A position with `usd: null` could not be priced (no live market for its token,
+     or a broken token): say so by name and that the total excludes it — never fill in a number.
+     A `method` field marked "estimate"/"floor" means a derived value; call it an estimate.
    - Wallet reports also answer the direct questions: `is_bot` (+ `bot_reasons`) is a yes/no on
      "is this a bot", `is_fresh_wallet` / `wallet_age_days` on "is this a brand-new wallet",
      `best_trade_usd` / `worst_trade_usd` (with their tokens) on "biggest win / biggest loss",

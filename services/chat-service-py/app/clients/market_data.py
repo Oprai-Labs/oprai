@@ -2641,9 +2641,17 @@ async def rh_wallet_analysis(wallet: str) -> dict:
     # the wallet is holding right now and what it's worth.
     if isinstance(res.get("facts"), dict) and bal:
         res["facts"]["portfolio_total_usd"] = bal.get("total_usd")
+        res["facts"]["wallet_held_usd"] = bal.get("wallet_usd")
         res["facts"]["native_eth"] = bal.get("native_eth")
         res["facts"]["live_holdings"] = bal.get("holdings", [])[:15]
         res["facts"]["live_token_count"] = bal.get("token_count")
+        # What sits INSIDE protocols (LP, lending, vaults, staking, perps), read from
+        # the node — the part a plain balance check never sees.
+        res["facts"]["protocol_usd"] = bal.get("protocol_usd")
+        res["facts"]["by_protocol"] = bal.get("by_protocol", [])
+        res["facts"]["protocol_positions"] = bal.get("protocol_positions", [])[:12]
+        res["facts"]["unpriced_positions"] = sum(
+            1 for p in bal.get("protocol_positions", []) if p.get("usd") is None)
     return res
 
 
@@ -2651,8 +2659,12 @@ async def rh_wallet_analysis(wallet: str) -> dict:
 async def rh_wallet_balances(wallet: str, limit: int = 40) -> dict:
     """LIVE Robinhood-Chain portfolio of a wallet: what it holds RIGHT NOW (node
     balanceOf, not index history), each token's amount, price and USD value, native
-    ETH, and the TOTAL portfolio value. Use for 'what does this wallet hold', 'total
-    balance', 'how much is this wallet worth', 'token values'."""
+    ETH, PLUS what it has inside protocols — Uniswap V3/V4 LP positions, Morpho Blue
+    supply/borrow/collateral, ERC-4626 vaults (Steakhouse, Spark…), staking gauges,
+    Ramses/GIGA pools, Lighter perps — each priced, rolled up per protocol
+    (`by_protocol`), and the TOTAL = wallet + protocols. Use for 'what does this
+    wallet hold', 'total balance', 'how much is this wallet worth across protocols',
+    'where is their money', 'LP / lending positions'."""
     return await _chain_intel(f"/wallet/{wallet}/balances?limit={int(limit)}")
 
 
