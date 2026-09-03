@@ -16,8 +16,8 @@ from aiogram.types import BotCommand
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import (alpha, bridge, chat, common, launch, perps, portfolio,
-                          send, swap, wallet)
+from app.handlers import (alpha, bridge, chat, common, launch, lend, perps,
+                          portfolio, send, swap, wallet)
 from app.logging_config import configure_logging, log
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
@@ -35,6 +35,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(bridge.router)
     dp.include_router(launch.router)
     dp.include_router(perps.router)
+    dp.include_router(lend.router)
     # Last on purpose: chat's free-text handler is a catch-all, and anything
     # registered after it would never be reached.
     dp.include_router(chat.router)
@@ -58,6 +59,8 @@ COMMANDS = [
     BotCommand(command="short", description="Open a leveraged short"),
     BotCommand(command="perps", description="Perps account and positions"),
     BotCommand(command="close", description="Close a position"),
+    BotCommand(command="lend", description="Earn on USDG / see rates"),
+    BotCommand(command="borrow", description="Borrow against collateral"),
     BotCommand(command="launch", description="Create a token"),
     BotCommand(command="ask", description="Ask OPRAI anything"),
     BotCommand(command="credits", description="Conversation credits left"),
@@ -86,6 +89,26 @@ async def _watch_deposits(bot) -> None:
                     log.warning("deposit_notify_failed", telegram_id=d.telegram_id, error=str(e))
         except Exception as e:  # noqa: BLE001
             log.warning("deposit_watch_failed", error=str(e))
+
+        # A credit top-up whose receipt outlived its confirmation wait is a
+        # debt: the user paid and is owed credits. Settle it here rather than
+        # leaving it for someone to notice.
+        try:
+            from app.services import topups
+
+            for done in await topups.settle_pending():
+                try:
+                    await bot.send_message(
+                        done["telegram_id"],
+                        f"✅ <b>{done['credits']} credits added</b> — your "
+                        "payment confirmed.",
+                    )
+                except Exception as e:  # noqa: BLE001 — one blocked chat is not fatal
+                    log.warning("topup_notify_failed",
+                                telegram_id=done["telegram_id"], error=str(e))
+        except Exception as e:  # noqa: BLE001
+            log.warning("topup_settle_failed", error=str(e))
+
         await asyncio.sleep(DEPOSIT_POLL_SECONDS)
 
 

@@ -154,6 +154,73 @@ async def refund(scope_id: int, telegram_id: int, amount: int = 1,
     await _ledger(scope_id, telegram_id, amount, "refund", {"reason": reason})
 
 
+async def record_payment(scope_id: int, is_group: bool, telegram_id: int,
+                         tx_hash: str, oprai_wei: int, amount: int) -> bool:
+    """Claim a payment's transaction hash before it is credited.
+
+    Returns False when the hash is already known — the payment was seen by
+    another attempt, and the caller must not treat it as new.
+    """
+    row = await pool().fetchrow(
+        """
+        INSERT INTO tg_topups
+            (tx_hash, scope_id, telegram_id, oprai_wei, credits, status)
+        VALUES ($1, $2, $3, $4::numeric, $5, 'pending')
+        ON CONFLICT (tx_hash) DO NOTHING
+        RETURNING tx_hash
+        """,
+        tx_hash.lower(), scope_id, telegram_id, str(oprai_wei), amount,
+    )
+    return row is not None
+
+
+async def settle_payment(tx_hash: str, *, succeeded: bool) -> Balance | None:
+    """Turn a confirmed payment into credits, exactly once.
+
+    The status change and the grant are tied together by the UPDATE: only the
+    attempt that moves the row out of 'pending' grants anything, so a retry, a
+    restart and the reconciler can all race without minting twice. A reverted
+    payment is closed as failed and grants nothing.
+    """
+    row = await pool().fetchrow(
+        """
+        UPDATE tg_topups
+           SET status = $2, updated_at = now()
+         WHERE tx_hash = $1 AND status = 'pending'
+        RETURNING scope_id, telegram_id, credits, oprai_wei
+        """,
+        tx_hash.lower(), "credited" if succeeded else "failed",
+    )
+    if row is None or not succeeded:
+        return None
+
+    is_group = row["scope_id"] < 0  # Telegram group ids are negative
+    return await grant(
+        row["scope_id"], is_group, int(row["credits"]), row["telegram_id"],
+        "topup", {"tx": tx_hash.lower(), "oprai_wei": str(row["oprai_wei"])},
+    )
+
+
+async def pending_payments(older_than_seconds: int = 20) -> list[dict]:
+    """Payments that were sent but whose receipt we never saw.
+
+    Someone paid and is owed credits; the only honest options are to finish
+    the job or to say we didn't. This is the first.
+    """
+    rows = await pool().fetch(
+        """
+        SELECT tx_hash, scope_id, telegram_id, credits
+          FROM tg_topups
+         WHERE status = 'pending'
+           AND created_at < now() - make_interval(secs => $1)
+         ORDER BY created_at
+         LIMIT 25
+        """,
+        older_than_seconds,
+    )
+    return [dict(r) for r in rows]
+
+
 async def grant(scope_id: int, is_group: bool, amount: int,
                 telegram_id: int | None = None, reason: str = "topup",
                 detail: dict | None = None) -> Balance:

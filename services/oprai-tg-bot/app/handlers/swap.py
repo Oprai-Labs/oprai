@@ -24,7 +24,7 @@ from app.services import evm
 from app.services import portfolio as pf
 from app.services import relay
 from app.services import tokens as tok
-from app.services import uniswap
+from app.services import sushi, uniswap
 from app.services import wallet as wallet_svc
 from app.signer_client import SignerError
 
@@ -42,8 +42,93 @@ USAGE = (
 )
 
 
+_VENUE_NAMES = {"uniswap": "Uniswap", "relay": "Relay", "sushi": "SushiSwap"}
+
+
 def _fmt_units(amount: int, decimals: int) -> str:
     return f"{Decimal(amount) / (10**decimals):f}".rstrip("0").rstrip(".") or "0"
+
+
+def _to_float(value) -> float | None:
+    """Quote amounts arrive as strings, numbers, or with thousands separators
+    depending on the venue. A comparison that can't read one of them would
+    silently hand the trade to the other."""
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+async def _best_same_chain_route(jwt, wallet, src_addr, dst_addr, dst_sym,
+                                 amount, dst_decimals):
+    """Quote Relay and Sushi, return whichever fills better.
+
+    -> (venue, params, out_amount, out_symbol, extra, built)
+
+    Both are asked at once because the user is waiting, and a venue that fails
+    simply loses — one route being down is not a reason to refuse a trade the
+    other can do.
+    """
+    import asyncio
+
+    relay_params = relay.build_params(
+        origin_currency=src_addr, destination_currency=dst_addr,
+        amount=str(amount), sender=wallet, recipient=wallet,
+    )
+    sushi_params = {
+        "token_in": src_addr, "token_out": dst_addr, "amount": float(amount),
+    }
+
+    relay_res, sushi_res = await asyncio.gather(
+        relay.quote(jwt, relay_params),
+        sushi.swap(jwt, wallet=wallet, **sushi_params),
+        return_exceptions=True,
+    )
+
+    relay_out = None
+    if not isinstance(relay_res, Exception):
+        relay_summary = relay.summarize(relay_res)
+        relay_out = _to_float(relay_summary["out"]["amount"])
+
+    sushi_out = None
+    if not isinstance(sushi_res, Exception):
+        raw = _to_float(sushi.summarize(sushi_res)["out_amount"])
+        # Sushi answers in base units; Relay in display units. Comparing them
+        # without this is comparing 23997043 with 23.94.
+        sushi_out = raw / (10**dst_decimals) if raw is not None else None
+
+    if sushi_out is None and relay_out is None:
+        raise sushi.SushiError("no route for that pair right now")
+
+    if relay_out is None or (sushi_out is not None and sushi_out > relay_out):
+        extra = ""
+        impact = sushi.summarize(sushi_res)["impact"]
+        if impact is not None:
+            extra += f"\nPrice impact: {float(impact) * 100:.3f}%"
+        if relay_out is not None:
+            extra += f"\n<i>Better than Relay's {relay_out:,.6f}.</i>".replace(
+                ".000000", ""
+            )
+        steps = sushi.transaction_count(sushi_res)
+        if steps > 1:
+            extra += f"\n<i>{steps} transactions — I'll walk through them.</i>"
+        return ("sushi", sushi_params, f"{sushi_out:,.6f}".rstrip("0").rstrip("."),
+                dst_sym, extra, sushi_res)
+
+    summary = relay.summarize(relay_res)
+    extra = ""
+    if summary["out"].get("usd"):
+        extra += f"\nValue: ~${summary['out']['usd']}"
+    if summary.get("eta_s"):
+        extra += f"\nETA: ~{summary['eta_s']}s"
+    if sushi_out is not None:
+        extra += f"\n<i>Better than SushiSwap's {sushi_out:,.6f}.</i>".replace(
+            ".000000", ""
+        )
+    return ("relay", relay_params, summary["out"]["amount"],
+            summary["out"]["symbol"], extra, None)
 
 
 async def _resolve_side(ref: str) -> tuple[str, str, int, bool] | None:
@@ -90,7 +175,7 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
         return
 
     src_addr, src_sym, src_dec, src_stock = src
-    dst_addr, dst_sym, _, dst_stock = dst
+    dst_addr, dst_sym, dst_dec, dst_stock = dst
     addr = await wallet_svc.wallet_address(user.id)
 
     # Tokenized stocks trade on Uniswap; Relay doesn't list them.
@@ -143,22 +228,18 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
                 extra += " + a permit signature" if s["needs_permit"] else ""
                 extra += " — I'll walk through them.</i>"
         else:
-            params = relay.build_params(
-                origin_currency=src_addr,
-                destination_currency=dst_addr,
-                amount=str(amount),
-                sender=addr,
-                recipient=addr,
+            # Two venues can do this trade, and which one is better changes
+            # with the pair and the size — Relay routes value between chains,
+            # Sushi is the chain's own DEX. Ask both and take the better fill
+            # rather than picking a favourite and quietly costing the user the
+            # difference.
+            venue, params, out_amount, out_symbol, extra, sushi_built = (
+                await _best_same_chain_route(
+                    jwt, addr, src_addr, dst_addr, dst_sym, amount, dst_dec
+                )
             )
-            rq = await relay.quote(jwt, params)
-            rs = relay.summarize(rq)
-            out_amount, out_symbol = rs["out"]["amount"], rs["out"]["symbol"]
-            extra = ""
-            if rs["out"].get("usd"):
-                extra += f"\nValue: ~${rs['out']['usd']}"
-            if rs.get("eta_s"):
-                extra += f"\nETA: ~{rs['eta_s']}s"
-    except (relay.RelayError, uniswap.UniswapError, auth_svc.AuthError) as e:
+    except (relay.RelayError, uniswap.UniswapError, sushi.SushiError,
+            auth_svc.AuthError) as e:
         await message.answer(f"⚠️ No route right now: {e}")
         return
 
@@ -170,6 +251,7 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
         "src": src_sym,
         "dst": dst_sym,
         "amount": amount_str,
+        "expected_out": out_amount,
     }
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Confirm swap", callback_data=f"swap:ok:{pid}"),
@@ -180,7 +262,7 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
     await message.answer(
         f"<b>Swap {amount_str} {src_sym} → {dst_sym}</b> · Robinhood Chain\n\n"
         f"You receive: <b>{out_amount} {out_symbol}</b>{extra}\n\n"
-        f"<i>via {'Uniswap' if venue == 'uniswap' else 'Relay'} · quote includes "
+        f"<i>via {_VENUE_NAMES[venue]} · quote includes "
         "OPRAI's fee. Rates move — confirm to execute.</i>",
         reply_markup=kb,
     )
@@ -223,14 +305,25 @@ async def swap_confirm(cb: CallbackQuery) -> None:
                 jwt, w["enc_key_ref"], w["address"], fresh, on_step=progress
             )
             out = f"{fresh.get('outputAmountDisplay')} {p['dst']}"
+        elif p["venue"] == "sushi":
+            # Sushi returns the transactions with the quote, so re-asking is
+            # how the numbers stay honest between the card and the block.
+            fresh = await sushi.swap(
+                jwt, wallet=w["address"], **p["params"]
+            )
+            hashes = await sushi.execute(
+                w["enc_key_ref"], w["address"], fresh,
+                on_step=lambda i, t: progress(i, t, "swap"),
+            )
+            out = f"{p['expected_out']} {p['dst']}"
         else:
             steps, request_id, rq = await relay.build(jwt, p["params"])
             hashes = await relay.execute_steps(
                 w["enc_key_ref"], w["address"], steps, on_step=progress
             )
             out = f"{relay.summarize(rq)['out']['amount']} {p['dst']}"
-    except (relay.RelayError, uniswap.UniswapError, auth_svc.AuthError,
-            evm.EvmError, SignerError) as e:
+    except (relay.RelayError, uniswap.UniswapError, sushi.SushiError,
+            auth_svc.AuthError, evm.EvmError, SignerError) as e:
         log.warning("swap_failed", telegram_id=p["telegram_id"], venue=p["venue"], error=str(e))
         await audit(p["telegram_id"], "swap_failed", {"venue": p["venue"], "error": str(e)[:200]})
         await cb.message.edit_text(f"❌ Swap failed: {e}")

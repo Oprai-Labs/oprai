@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     OPRAI_TG_FREE_GROUP_CREDITS: int = 60
     OPRAI_TG_FREE_WINDOW_HOURS: int = 24
 
+    # $OPRAI on Robinhood Chain — what a top-up is paid in. Verified on chain:
+    # symbol OPRAI, 18 decimals.
+    OPRAI_TG_TOKEN_ADDRESS: str = "0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac"
+    OPRAI_TG_CREDITS_PER_OPRAI: int = 10
+    OPRAI_TG_MIN_TOPUP_OPRAI: int = 1
+
     # ── Server ───────────────────────────────────────────────────────────────
     PORT: int = 3055
     BIND_HOST: str = "127.0.0.1"

@@ -43,6 +43,8 @@ HELP = (
     "    to use it as the image)\n"
     "/long &lt;SYM&gt; &lt;$&gt; [x] · /short — leveraged perps (stocks too)\n"
     "/perps — your perps account and positions · /close &lt;SYM&gt;\n"
+    "/lend &lt;amount&gt; — earn on USDG · /lend on its own shows rates\n"
+    "/borrow &lt;amount&gt; — borrow USDG · /repay · /withdraw\n"
     "/credits — conversation credits left\n"
     "/help — this message\n\n"
     "<b>Just ask.</b> Send me a question — a token, your portfolio, a "

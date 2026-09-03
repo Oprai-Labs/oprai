@@ -13,21 +13,26 @@ people to avoid the assistant.
 from __future__ import annotations
 
 import asyncio
+import secrets
 import time
+from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import (CallbackQuery, InlineKeyboardButton,
+                           InlineKeyboardMarkup, Message)
 
 from app.config import settings
 from app.db import audit, upsert_tg_user
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import chat as chat_svc
-from app.services import credits
+from app.services import credits, topups
 
 router = Router(name="chat")
+
+_topups: dict[str, dict] = {}
 
 # How often the growing answer is edited into the message. Telegram throttles
 # edits, and a message that updates every token reads as a stutter.
@@ -91,17 +96,128 @@ async def credits_cmd(message: Message) -> None:
 
 
 @router.message(Command("topup"))
-async def topup_cmd(message: Message) -> None:
-    _, is_group = _scope(message)
-    who = "this group" if is_group else "your account"
+async def topup_cmd(message: Message, command: CommandObject) -> None:
+    """Buy credits with $OPRAI, paid from the user's own bot wallet.
+
+    The wallet is already ours to sign with, so there is no reason to make
+    someone leave, send a transfer by hand and wait for a human to notice the
+    hash. They name an amount, confirm, and the credits land when the transfer
+    confirms.
+    """
+    user = message.from_user
+    await upsert_tg_user(user.id, user.username)
+    scope_id, is_group = _scope(message)
+    rate = settings.OPRAI_TG_CREDITS_PER_OPRAI
+    minimum = settings.OPRAI_TG_MIN_TOPUP_OPRAI
+
+    if is_group and not await _is_group_admin(message):
+        await message.answer(
+            "Only a group admin can top up this group's credits."
+        )
+        return
+
+    amount = _parse_amount((command.args or "").strip())
+    if amount is None:
+        who = "this group" if is_group else "you"
+        await message.answer(
+            f"<b>Top up credits</b>\n\n"
+            f"<code>/topup &lt;amount&gt;</code> pays $OPRAI from your wallet and "
+            f"credits {who} at <b>{rate} questions per $OPRAI</b>.\n\n"
+            f"Example: <code>/topup 10</code> → {10 * rate} questions\n"
+            f"Minimum: {minimum} $OPRAI\n\n"
+            "<i>Credits are spent only on questions to OPRAI — trading "
+            "commands are never charged for.</i>"
+        )
+        return
+    if amount < minimum:
+        await message.answer(f"The minimum top-up is {minimum} $OPRAI.")
+        return
+
+    granted = int(amount * rate)
+    if granted <= 0:
+        await message.answer("That amount is too small to buy a credit.")
+        return
+
+    pid = secrets.token_urlsafe(8)
+    _topups[pid] = {"telegram_id": user.id, "scope_id": scope_id,
+                    "is_group": is_group, "amount": amount, "credits": granted}
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(amount)} $OPRAI",
+                             callback_data=f"top:ok:{pid}"),
+        InlineKeyboardButton(text="Cancel", callback_data=f"top:no:{pid}"),
+    ]])
     await message.answer(
-        f"<b>Top up {who}</b>\n\n"
-        f"Send $OPRAI to:\n<code>{settings.OPRAI_TG_DEV_WALLET}</code>\n"
-        "on Robinhood Chain, then send the transaction hash here and an admin "
-        "will credit it.\n\n"
-        "<i>Credits are only spent on questions to OPRAI — trading commands "
-        "are never charged for.</i>"
+        f"<b>Top up {'this group' if is_group else 'your credits'}</b>\n\n"
+        f"Pay: <b>{_fmt_amount(amount)} $OPRAI</b> (plus gas)\n"
+        f"Get: <b>{granted}</b> questions\n\n"
+        "<i>Topped-up credits never expire.</i>",
+        reply_markup=kb,
     )
+
+
+@router.callback_query(F.data.startswith("top:"))
+async def topup_confirm(cb: CallbackQuery) -> None:
+    _, action, pid = cb.data.split(":", 2)
+    p = _topups.get(pid)
+    if not p:
+        await cb.answer("This top-up expired. Run /topup again.", show_alert=True)
+        return
+    if cb.from_user.id != p["telegram_id"]:
+        await cb.answer("This isn't your top-up.", show_alert=True)
+        return
+    if action == "no":
+        _topups.pop(pid, None)
+        await cb.answer("Cancelled")
+        await cb.message.edit_text("Cancelled — nothing was paid.")
+        return
+
+    _topups.pop(pid, None)
+    await cb.answer()
+    await cb.message.edit_text("Paying…")
+
+    try:
+        balance = await topups.pay(
+            p["telegram_id"], p["amount"],
+            on_sent=lambda: cb.message.edit_text("⏳ Paid — waiting for the transfer to confirm…"),
+            scope_id=p["scope_id"], is_group=p["is_group"], credits=p["credits"],
+        )
+    except topups.TopupError as e:
+        log.warning("topup_failed", telegram_id=p["telegram_id"], error=str(e)[:200])
+        await audit(p["telegram_id"], "topup_failed", {"error": str(e)[:200]})
+        await cb.message.edit_text(f"❌ {e}")
+        return
+
+    await audit(p["telegram_id"], "topup",
+                {"oprai": p["amount"], "credits": p["credits"], "group": p["is_group"]})
+    await cb.message.edit_text(
+        f"✅ <b>{p['credits']} credits added.</b>\n\n"
+        f"{'This group' if p['is_group'] else 'You'} can now ask "
+        f"<b>{balance.remaining}</b> questions."
+    )
+
+
+def _parse_amount(text: str) -> float | None:
+    try:
+        value = float(Decimal(text.lstrip("$").replace(",", "")))
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None
+    return value if value > 0 else None
+
+
+def _fmt_amount(x: float) -> str:
+    return f"{x:.4f}".rstrip("0").rstrip(".") or "0"
+
+
+async def _is_group_admin(message: Message) -> bool:
+    """Telegram is the authority on who runs a room; asking it beats keeping
+    our own list that drifts the moment someone is promoted."""
+    try:
+        member = await message.bot.get_chat_member(
+            message.chat.id, message.from_user.id
+        )
+    except Exception:  # noqa: BLE001 — an unreadable membership is not an admin
+        return False
+    return member.status in ("creator", "administrator")
 
 
 # ── the assistant ───────────────────────────────────────────────────────────
