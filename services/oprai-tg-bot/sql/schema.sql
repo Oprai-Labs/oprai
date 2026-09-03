@@ -178,3 +178,53 @@ CREATE TABLE IF NOT EXISTS tg_deposit_seen (
     seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tx_hash, log_index)
 );
+
+-- ── Conversation credits ────────────────────────────────────────────────────
+-- Credits meter the MODEL only — asking OPRAI a question, an analysis, a
+-- strategy. On-chain actions are never metered here: they already pay OPRAI's
+-- swap/trade commission, and charging twice for one intent would be a way to
+-- make people avoid the assistant that makes the product worth using.
+--
+-- A balance is per *scope*: a private chat is its own scope, and a group is a
+-- single shared scope, because in a group the quota belongs to the room rather
+-- than to whoever happens to speak. Both live in one table so a group top-up
+-- and a personal top-up can never disagree about who was charged.
+CREATE TABLE IF NOT EXISTS tg_credits (
+    scope_id   BIGINT PRIMARY KEY,   -- telegram chat id: user id, or negative group id
+    is_group   BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Free and purchased credits are counted apart on purpose. If they shared
+    -- one number, an idle scope would carry its unused free allowance into the
+    -- next window and accumulate for ever; free credits are a per-window
+    -- allowance, purchased credits are property and never expire.
+    free_used  BIGINT  NOT NULL DEFAULT 0,   -- spent from THIS window's allowance
+    paid       BIGINT  NOT NULL DEFAULT 0,   -- purchased / topped up, carries over
+    window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Every grant and every spend, so a disputed balance can be reconstructed
+-- rather than argued about. reason: 'free_window' | 'topup' | 'spend' | 'admin'.
+CREATE TABLE IF NOT EXISTS tg_credit_ledger (
+    id          BIGSERIAL PRIMARY KEY,
+    scope_id    BIGINT NOT NULL,
+    telegram_id BIGINT,               -- who caused it (NULL for automatic grants)
+    delta       BIGINT NOT NULL,      -- + granted, - spent
+    reason      TEXT   NOT NULL,
+    detail      JSONB  NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_credit_ledger_scope
+    ON tg_credit_ledger (scope_id, created_at DESC);
+
+-- ── Conversation threads ────────────────────────────────────────────────────
+-- One OPRAI chat session per Telegram scope, so follow-up questions keep their
+-- context ("and what about TSLA?") instead of starting cold every message.
+CREATE TABLE IF NOT EXISTS tg_chat_sessions (
+    scope_id     BIGINT PRIMARY KEY,
+    telegram_id  BIGINT NOT NULL,     -- the session's owner (wallet + JWT used)
+    session_id   TEXT   NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);

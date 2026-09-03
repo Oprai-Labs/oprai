@@ -43,9 +43,13 @@ HELP = (
     "    to use it as the image)\n"
     "/long &lt;SYM&gt; &lt;$&gt; [x] · /short — leveraged perps (stocks too)\n"
     "/perps — your perps account and positions · /close &lt;SYM&gt;\n"
+    "/credits — conversation credits left\n"
     "/help — this message\n\n"
-    "In groups, add me and an admin can top up the group's free quota with "
-    "$OPRAI. Actions always run from your own wallet, confirmed privately."
+    "<b>Just ask.</b> Send me a question — a token, your portfolio, a "
+    "strategy — and I'll answer. In a group, mention me or reply to me.\n\n"
+    "Only questions use credits; trading commands never do. An admin can top "
+    "up a group's credits with $OPRAI (/topup). Actions always run from your "
+    "own wallet, confirmed privately."
 )
 
 
