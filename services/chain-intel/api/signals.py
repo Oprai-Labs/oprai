@@ -332,14 +332,27 @@ async def wallet_balances(wallet: str, limit: int = 60) -> dict:
             "priced": bool(px),
         })
     holdings.sort(key=lambda h: (h["value_usd"] or 0), reverse=True)
+    # What the wallet has parked INSIDE protocols (LP, lending, vaults, staking,
+    # perps) — read from the node, so the total is the wallet's whole balance.
+    from . import positions as _pos
+    try:
+        prot = await _pos.wallet_positions(w)
+    except Exception as e:  # never lose the wallet-held part over a protocol read
+        prot = {"protocol_usd": 0.0, "by_protocol": [], "positions": [], "errors": [str(e)[:80]]}
+    wallet_usd = round(total, 2)
     return {
         "wallet": w,
         "native_eth": round(eth, 6),
         "native_usd": round(eth * eth_usd, 2) if eth_usd else None,
         "token_count": len(holdings),
         "unpriced_tokens": sum(1 for h in holdings if not h["priced"]),
-        "total_usd": round(total, 2) if eth_usd or price else None,
+        "wallet_usd": wallet_usd,
+        "protocol_usd": prot.get("protocol_usd", 0.0),
+        "by_protocol": prot.get("by_protocol", []),
+        "protocol_positions": prot.get("positions", []),
+        "total_usd": round(wallet_usd + float(prot.get("protocol_usd") or 0), 2),
         "holdings": holdings,
+        "position_errors": prot.get("errors", []),
     }
 
 

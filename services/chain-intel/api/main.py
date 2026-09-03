@@ -164,6 +164,17 @@ async def wallet_balances(wallet: str, limit: int = Query(60, ge=1, le=200),
     return await signals.wallet_balances(wallet, limit)
 
 
+@app.get("/wallet/{wallet}/positions")
+async def wallet_positions(wallet: str, x_internal_api_key: str | None = Header(None)):
+    """Protocol positions (Uniswap V3/V4 LP, Morpho Blue, ERC-4626 vaults, staking,
+    Ramses pools, Lighter) priced in USD, read from our node."""
+    _gate(x_internal_api_key)
+    if not ch.is_addr(wallet):
+        raise HTTPException(400, "wallet must be a 0x address")
+    from . import positions
+    return await positions.wallet_positions(wallet)
+
+
 @app.get("/wallet/{wallet}/smart-profile")
 async def wallet_smart_profile(wallet: str, x_internal_api_key: str | None = Header(None)):
     """WHY a wallet is (or isn't) smart — rank, PnL, win rate, tokens; EOA check."""
