@@ -17,6 +17,9 @@ dependencies = [
     "python-json-logger>=2.0.7",
     "redis>=5.0.0",
     "base58>=2.1.1",
+    # pools.trade takes the token image inline as a PNG/WebP data URI, so we
+    # convert Telegram's JPEG rather than making people leave chat to host one.
+    "pillow>=11.0.0",
 ]
 
 [project.optional-dependencies]
