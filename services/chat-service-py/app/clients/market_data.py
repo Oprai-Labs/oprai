@@ -2134,16 +2134,33 @@ _NOT_OFFERED: frozenset[str] = frozenset({
     "solend",       # Save — not live
 })
 
-_SOLANA_NOTE = "Where the protocol integrations and the DeFi analysis live."
+_SOLANA_NOTE = "Where the Solana protocol integrations and the DeFi analysis live."
+
+# Robinhood Chain is an execution network in its own right, not a chain we
+# merely read. Grouping its protocols under "other chains" told the model that
+# lending and perps were Solana-only, and it repeated that to users who were
+# standing on a chain where both are live.
+_ROBINHOOD_PROTOCOLS: frozenset[str] = frozenset(
+    {"morpho", "sushi", "opensea", "pons", "poolstrade", "lighter"}
+)
+
+_ROBINHOOD_NOTE = (
+    "A full execution chain, not a read-only one: swapping, lending and "
+    "borrowing, perps on crypto AND tokenized stocks, liquidity pools, NFTs "
+    "and token launches all happen here, and tokenized stocks trade nowhere "
+    "else. Never describe this chain as view-only. Funds reach it, and leave "
+    "it, through Relay."
+)
 
 _OTHER_CHAINS_NOTE = (
-    "The non-Solana chains a wallet is actually read on: balances, NFTs, "
-    "transaction history and, where a provider covers it, DeFi positions. "
-    "Swapping on the chain itself and moving assets to and from Solana run "
-    "through Relay. Assets can be bridged further afield than this, but these "
-    "are the chains the product can see — so these are the ones to name. The "
-    "lending, staking and liquidity integrations are Solana-only; say so "
-    "rather than letting someone go looking for a lending market on Base."
+    "The remaining EVM chains — Ethereum, Base, Arbitrum and the rest. These "
+    "a wallet is read on rather than traded on: balances, NFTs, transaction "
+    "history and, where a provider covers it, DeFi positions. Moving assets "
+    "to and from them runs through Relay. Assets can be bridged further "
+    "afield than this, but these are the chains the product can see — so "
+    "these are the ones to name. Lending, staking and liquidity integrations "
+    "are not wired on THESE chains; that is not true of Robinhood Chain, "
+    "which has its own entry above."
 )
 
 
@@ -2200,15 +2217,27 @@ _PROTOCOL_LABELS: dict[str, str] = {
     "magic_eden": "Magic Eden", "pumpfun": "pump.fun", "relay": "Relay",
     "debridge": "deBridge", "streamflow": "Streamflow",
     "native_stake": "Native staking",
+    # Robinhood Chain. Without a label these appeared under their raw ids
+    # ("poolstrade"), which reads as an internal key rather than a product.
+    "morpho": "Morpho", "sushi": "SushiSwap", "opensea": "OpenSea",
+    "pons": "Pons", "poolstrade": "pools.trade", "lighter": "Lighter",
+    "uniswap": "Uniswap",
 }
 
 _CAPABILITY_GROUPS: dict[str, tuple[str, ...]] = {
     "Trading and swaps": ("dex", "trading"),
     "Lending and borrowing": ("lending",),
+    # Perps were missing entirely, so "what can you do" never mentioned them —
+    # on either chain — even though they are a headline feature on both.
+    "Perpetuals": ("perp",),
     "Staking": ("staking", "native_stake"),
     "Liquidity pools": ("liquidity",),
     "NFTs": ("nft", "nft_read"),
-    "Token launch": ("token_launch",),
+    # `launch` is carried only by the two Robinhood launchpad actions; without
+    # it this area counted the Solana launchpad alone and Pons and pools.trade
+    # went unmentioned. `launchpad` is deliberately NOT here — it also marks
+    # buying and selling launchpad tokens, which is trading, not launching.
+    "Token launch": ("token_launch", "launch"),
     "Bridging and cross-chain": ("bridge",),
     "Payments and streaming": ("streaming",),
     "Analysis and research": ("analysis", "portfolio", "price"),
@@ -2275,12 +2304,22 @@ async def capabilities() -> dict:
 
     bridged_only = {"relay", "debridge"}
     cross_chain = sorted(p["name"] for p in protocols if p["id"] in bridged_only)
+    robinhood = sorted(p["name"] for p in protocols if p["id"] in _ROBINHOOD_PROTOCOLS)
 
     networks = [{
         "network": "Solana",
         "note": _SOLANA_NOTE,
-        "protocols": [p["name"] for p in protocols if p["id"] not in bridged_only],
+        "protocols": [
+            p["name"] for p in protocols
+            if p["id"] not in bridged_only and p["id"] not in _ROBINHOOD_PROTOCOLS
+        ],
     }]
+    if robinhood:
+        networks.append({
+            "network": "Robinhood Chain",
+            "note": _ROBINHOOD_NOTE,
+            "protocols": robinhood,
+        })
     # Only claim other chains if something actually routes to them.
     if cross_chain:
         live = await _integrated_chains()
