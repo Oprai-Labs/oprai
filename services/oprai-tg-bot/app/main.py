@@ -16,8 +16,8 @@ from aiogram.types import BotCommand
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import (alpha, bridge, chat, common, launch, lend, perps,
-                          portfolio, send, swap, wallet)
+from app.handlers import (alpha, bridge, chat, common, launch, lend, nft,
+                          perps, portfolio, send, swap, wallet)
 from app.logging_config import configure_logging, log
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
@@ -36,6 +36,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(launch.router)
     dp.include_router(perps.router)
     dp.include_router(lend.router)
+    dp.include_router(nft.router)
     # Last on purpose: chat's free-text handler is a catch-all, and anything
     # registered after it would never be reached.
     dp.include_router(chat.router)
@@ -61,6 +62,8 @@ COMMANDS = [
     BotCommand(command="close", description="Close a position"),
     BotCommand(command="lend", description="Earn on USDG / see rates"),
     BotCommand(command="borrow", description="Borrow against collateral"),
+    BotCommand(command="nft", description="NFTs on Robinhood Chain"),
+    BotCommand(command="mynfts", description="NFTs you hold"),
     BotCommand(command="launch", description="Create a token"),
     BotCommand(command="ask", description="Ask OPRAI anything"),
     BotCommand(command="credits", description="Conversation credits left"),
