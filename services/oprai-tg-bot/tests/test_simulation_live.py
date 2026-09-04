@@ -87,9 +87,14 @@ async def test_a_built_swap_executes_on_chain():
         address = await wallet_svc.wallet_address(tg)
         jwt = await auth_svc.get_jwt(tg)
 
-        built = await sushi.swap(
-            jwt, wallet=address, token_in="eth", token_out="usdg", amount=0.05
-        )
+        try:
+            built = await sushi.swap(
+                jwt, wallet=address, token_in="eth", token_out="usdg", amount=0.05
+            )
+        except sushi.SushiError as e:
+            if "no route" not in str(e):
+                raise
+            pytest.skip("Sushi has no ETH/USDG route right now")
         # Native input needs no allowance, so the swap is the only step and it
         # can be run on its own.
         assert sushi.transaction_count(built) == 1

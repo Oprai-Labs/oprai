@@ -213,10 +213,70 @@ async def test_sushi_prices_the_chains_own_pairs():
         assert sushi.transaction_count(native) == 1
         assert float(sushi.summarize(native)["out_amount"]) > 0
 
-        erc20 = await sushi.swap(jwt, wallet=addr, token_in="usdg",
-                                 token_out="usde", amount=100)
+        # An ERC-20 input needs an allowance, so a route through it is two
+        # transactions. Whether Sushi HAS a route for a given pair right now is
+        # theirs, not ours — a missing one is skipped rather than failed, or
+        # the suite reports our code broken when their liquidity moved.
+        try:
+            erc20 = await sushi.swap(jwt, wallet=addr, token_in="usdg",
+                                     token_out="usde", amount=100)
+        except sushi.SushiError as e:
+            if "no route" not in str(e):
+                raise
+            pytest.skip("Sushi has no USDG/USDe route right now")
         assert sushi.transaction_count(erc20) == 2, "the approval is missing"
     finally:
         await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()
+
+
+# ── scale ───────────────────────────────────────────────────────────────────
+def test_position_amounts_are_scaled_out_of_base_units():
+    """Morpho reports base units and gives us the decimals to divide by.
+    Shown raw, 1,480,746 stood in for 1.48 USDG — a million times the truth,
+    on a wallet holding under a dollar."""
+    raw = {
+        "chainId": 4663, "loanDecimals": 6, "collateralDecimals": 18,
+        "supplyAssets": 1480746, "borrowAssets": 50025,
+        "collateral": 2 * 10**18,
+    }
+    scaled = morpho._to_human(raw)
+    assert scaled["supplyAssets"] == pytest.approx(1.480746)
+    assert scaled["borrowAssets"] == pytest.approx(0.050025)
+    assert scaled["collateral"] == pytest.approx(2.0)
+
+
+def test_a_missing_decimal_count_does_not_invent_a_fortune():
+    """Defaulting to 18 is the safe direction: it under-reports rather than
+    turning dust into millions."""
+    scaled = morpho._to_human({"supplyAssets": 1480746})
+    assert scaled["supplyAssets"] < 1
+
+
+@pytest.mark.skipif(not LIVE, reason="gateway/signer not running")
+@pytest.mark.asyncio
+async def test_a_real_position_agrees_with_its_own_usd_value():
+    """The strongest available check: Morpho reports the USD value separately,
+    so for a dollar-pegged loan token the scaled amount and the USD figure have
+    to land in the same place. They differed by a million."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "scale_check")
+    try:
+        jwt = await auth_svc.get_jwt(tg)
+        markets = await morpho.markets(jwt)
+        assert markets, "no markets to check against"
+        # Every market here lends USDG, a dollar — so a scaled amount and its
+        # USD value must agree.
+        for position in await morpho.positions(jwt, "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010"):
+            supply = float(position.get("supplyAssets") or 0)
+            supply_usd = float(position.get("supplyUsd") or 0)
+            if supply_usd > 1:
+                assert supply == pytest.approx(supply_usd, rel=0.2), (
+                    f"amount {supply} and value ${supply_usd} disagree — "
+                    "the amount is probably still in base units"
+                )
+    finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()

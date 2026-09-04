@@ -95,10 +95,14 @@ async def card(telegram_id: int) -> str:
         open_positions = [
             p for p in (perps.get("positions") or []) if float(p.get("size") or 0) > 0
         ]
-        lines.append(
-            f"📈 ${float(perps.get('collateral') or 0):,.2f} collateral"
-            + (f" · {len(open_positions)} open" if open_positions else "")
-        )
+        collateral = float(perps.get("collateral") or 0)
+        # An empty perps account is not a position; a "$0.00" line is noise on
+        # the one screen that should say what you actually have.
+        if collateral > 0 or open_positions:
+            lines.append(
+                f"📈 ${collateral:,.2f} collateral"
+                + (f" · {len(open_positions)} open" if open_positions else "")
+            )
 
     lines += ["", f"<code>{address}</code>"]
     return "\n".join(lines)
