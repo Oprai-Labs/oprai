@@ -361,7 +361,13 @@ def _args_for(action: dict) -> tuple[str, str] | None:
         sell = first("tokenIn", "fromToken", "inputToken", "originCurrency", "from")
         buy = first("tokenOut", "toToken", "outputToken", "destinationCurrency", "to")
         if amount and sell and buy:
-            return "swap", f"{amount} {sell} {buy}"
+            # The action type names the venue the model chose — usually because
+            # the person said so. Carrying it through is the difference between
+            # honouring "swap on Sushi" and quietly re-deciding it.
+            venue = {"sushi_swap": "sushi", "uniswap_swap": "uniswap",
+                     "relay_bridge": "relay", "cross_chain_swap": "relay"}.get(kind)
+            args = f"{amount} {sell} {buy}"
+            return "swap", (f"{args} on {venue}" if venue else args)
         return None
 
     if kind in ("transfer", "send", "evm_transfer"):

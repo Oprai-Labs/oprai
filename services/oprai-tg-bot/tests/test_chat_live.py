@@ -246,10 +246,12 @@ def test_an_action_only_answer_is_not_a_failure():
           "params": {"amount": "0.05", "fromToken": "ETH", "toToken": "NVDA"}},
          ("swap", "0.05 ETH NVDA")),
         # Sushi names them tokenIn/tokenOut; missing that meant a swap the
-        # model had understood was silently dropped.
+        # model had understood was silently dropped. The venue rides along,
+        # because the model picked sushi_swap for a reason — usually because
+        # the person named it.
         ({"type": "sushi_swap",
           "params": {"tokenIn": "ETH", "tokenOut": "USDG", "amount": "0.01"}},
-         ("swap", "0.01 ETH USDG")),
+         ("swap", "0.01 ETH USDG on sushi")),
         ({"type": "morpho_supply", "params": {"amount": "10", "loanSymbol": "USDG"}},
          ("lend", "10")),
         ({"type": "transfer",
