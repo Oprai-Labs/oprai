@@ -165,3 +165,63 @@ async def test_token_transfers_are_announced_once_and_stay_bounded(db):
     finally:
         await pool().execute("DELETE FROM tg_deposit_seen WHERE telegram_id = $1", tg_id)
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg_id)
+
+
+# ── the announcement loop ───────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_an_archived_wallet_does_not_resurrect_a_deposit():
+    """The same deposit was announced every few seconds, for ever.
+
+    Once a person could hold several wallets, the watcher saw every row —
+    archived included — while the baseline was keyed by person. One cycle
+    wrote the active wallet's balance, the next wrote the archived wallet's
+    zero, and the cycle after that read that zero as a fresh deposit.
+    """
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "loop")
+    try:
+        await pool().execute(
+            "INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref, archived_at) "
+            "VALUES ($1,'evm','0xAAaA000000000000000000000000000000000001','r', now())",
+            tg,
+        )
+        await pool().execute(
+            "INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref) "
+            "VALUES ($1,'evm','0xBBbB000000000000000000000000000000000002','r')",
+            tg,
+        )
+        watched = await deposits._wallets()
+        mine = [addr for uid, addr in watched if uid == tg]
+        assert len(mine) == 1, "an archived wallet is still being watched"
+        assert mine[0].lower().startswith("0xbbbb")
+    finally:
+        await pool().execute("DELETE FROM tg_balance_watch WHERE telegram_id = $1", tg)
+        await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_baseline_belongs_to_an_address_not_a_person():
+    """Keyed by person, switching wallets compares the new address's balance
+    against the old one's — a phantom deposit, or a silent loss."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "baseline")
+    try:
+        columns = await pool().fetchval(
+            "SELECT string_agg(column_name, ',') FROM information_schema.columns "
+            "WHERE table_schema = 'tg_schema' AND table_name = 'tg_balance_watch'"
+        )
+        assert "address" in columns
+
+        primary = await pool().fetchval(
+            "SELECT a.attname FROM pg_index i "
+            "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+            "WHERE i.indrelid = 'tg_schema.tg_balance_watch'::regclass AND i.indisprimary"
+        )
+        assert primary == "address", f"the baseline is keyed by {primary}"
+    finally:
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()

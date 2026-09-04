@@ -52,8 +52,17 @@ def _pad_address(addr: str) -> str:
 
 
 async def _wallets() -> list[tuple[int, str]]:
+    """The wallets money is expected to land in — the active one each.
+
+    Archived wallets are excluded deliberately. Including them put the same
+    person in this list twice, and since the balance watch was keyed by person
+    the two rows overwrote each other's baseline every cycle: one wrote the
+    real balance, the next wrote the archived wallet's zero, and the cycle
+    after that announced the whole balance again as a fresh deposit. For ever.
+    """
     rows = await pool().fetch(
-        "SELECT telegram_id, address FROM tg_wallets WHERE chain = 'evm'"
+        "SELECT telegram_id, address FROM tg_wallets "
+        "WHERE chain = 'evm' AND archived_at IS NULL"
     )
     return [(r["telegram_id"], r["address"]) for r in rows]
 
@@ -68,35 +77,40 @@ async def check_native() -> list[Deposit]:
     balances = await evm.rpc_batch(
         [("eth_getBalance", [addr, "latest"]) for _, addr in wallets]
     )
+    # Keyed by address: a person can hold several wallets, and comparing one
+    # address's balance against another's is how a wallet switch became a
+    # phantom deposit.
     known = {
-        r["telegram_id"]: int(r["wei"])
-        for r in await pool().fetch("SELECT telegram_id, wei FROM tg_balance_watch")
+        r["address"].lower(): int(r["wei"])
+        for r in await pool().fetch("SELECT address, wei FROM tg_balance_watch")
     }
 
     deposits: list[Deposit] = []
-    updates: list[tuple[int, str]] = []
-    for (telegram_id, _addr), raw in zip(wallets, balances):
+    updates: list[tuple[str, int, str]] = []
+    for (telegram_id, address), raw in zip(wallets, balances):
         if raw is None:
             continue  # a failed read is not a balance change
         now = evm.to_int(raw)
-        before = known.get(telegram_id)
+        before = known.get(address.lower())
         if before is None:
             # First sighting: record the baseline, never announce it — the money
             # may have been there for weeks.
-            updates.append((telegram_id, str(now)))
+            updates.append((address.lower(), telegram_id, str(now)))
             continue
         if now > before:
             deposits.append(Deposit(telegram_id, now - before, 18, "ETH"))
         if now != before:
-            updates.append((telegram_id, str(now)))
+            updates.append((address.lower(), telegram_id, str(now)))
 
-    for telegram_id, wei in updates:
+    for address, telegram_id, wei in updates:
         await pool().execute(
             """
-            INSERT INTO tg_balance_watch (telegram_id, wei) VALUES ($1, $2::numeric)
-            ON CONFLICT (telegram_id)
+            INSERT INTO tg_balance_watch (address, telegram_id, wei)
+            VALUES ($1, $2, $3::numeric)
+            ON CONFLICT (address)
             DO UPDATE SET wei = EXCLUDED.wei, updated_at = now()
             """,
+            address,
             telegram_id,
             wei,
         )

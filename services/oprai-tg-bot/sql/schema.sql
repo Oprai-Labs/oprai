@@ -317,3 +317,20 @@ ALTER TABLE tg_wallets DROP CONSTRAINT IF EXISTS tg_wallets_telegram_id_chain_ke
 -- One ACTIVE wallet per chain; any number of archived ones behind it.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_wallets_active
     ON tg_wallets (telegram_id, chain) WHERE archived_at IS NULL;
+
+-- The balance watch belongs to an ADDRESS, not a person.
+--
+-- Keyed by telegram_id it broke the moment someone could have more than one
+-- wallet: the watcher saw every row (archived included), so one cycle wrote
+-- the active wallet's balance and the next wrote the archived wallet's zero —
+-- and the cycle after that read that zero as a fresh deposit. The same amount
+-- was announced every few seconds, for ever. Switching wallets had the same
+-- shape: the new address's balance compared against the old one's.
+DROP TABLE IF EXISTS tg_balance_watch;
+
+CREATE TABLE IF NOT EXISTS tg_balance_watch (
+    address     TEXT   PRIMARY KEY,
+    telegram_id BIGINT NOT NULL REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    wei         NUMERIC NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
