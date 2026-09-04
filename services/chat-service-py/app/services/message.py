@@ -634,8 +634,34 @@ _DOTTED_DISPATCH_RE = re.compile(r"^[a-z][a-z0-9_]{4,40}\.[A-Za-z0-9_.\-]{2,50}\
 # (birdeye_*/helius_*/dex_*/gmgn), which would fail on it and make the model report
 # "couldn't fetch data — which chain is it?" instead of running the analysis.
 _BARE_EVM_ADDR_RE = re.compile(r"0x[0-9a-fA-F]{40}\b")
+# A Robinhood-Chain turn without an address: names the chain, a launchpad or a concept
+# that only the chain-intel tools answer. Same narrowing as a bare 0x address.
+_RH_CONTEXT_RE = re.compile(
+    r"\b(robinhood|rh chain|chain 4663|launchpads?|clanker|doppler|pons|noxa|letscash|flaunch|klik|bankr|"
+    r"o1 launchpad|lunch\.fun|livo|pmav|smart[- ]money|smart wallets?|graduat\w*|rug rate|hit rate|"
+    r"dev(eloper)? (track record|history|hit)|ath market cap|drawdown)\b", re.I)
 # Solana-only analysis query_types (take a Solana mint/wallet; error on a 0x addr).
 _SOLANA_ANALYSIS_PREFIXES = ("birdeye_", "helius_", "dex_", "gmgn", "jup_")
+# What survives on a Robinhood-Chain turn: the chain-intel tools plus EVM protocol tools.
+# Generic aliases (token_info, trending, knowledge, price …) are dropped — on this chain
+# they resolve to nothing and the model then reports "no data" instead of calling rh_*.
+_RH_KEEP_PREFIXES = ("rh_", "uniswap", "pools_trade", "poolstrade", "lighter", "morpho", "sushi", "opensea",
+                     "evm", "relay", "pons", "lend_", "perp_", "limit_orders")
+# generic card type → (chain-intel query, param name) on a Robinhood-Chain turn
+_RH_REMAP = {
+    "token_info": ("rh_token_analysis", "token"), "price": ("rh_token_analysis", "token"),
+    "token_safety": ("rh_honeypot", "token"), "honeypot_check": ("rh_honeypot", "token"),
+    "scam_check": ("rh_token_analysis", "token"), "rug_check": ("rh_token_analysis", "token"),
+    "risk": ("rh_token_analysis", "token"),
+    "wallet_info": ("rh_wallet_analysis", "wallet"), "portfolio": ("rh_wallet_balances", "wallet"),
+    "balance": ("rh_wallet_balances", "wallet"), "positions": ("rh_wallet_balances", "wallet"),
+}
+_RH_KEEP_EXACT = frozenset({"balance", "portfolio", "positions", "capabilities", "wallet_info",
+                            "token_safety", "honeypot_check", "scam_check", "rug_check"})
+# A ranking / cohort question: only the chain-intel tools can answer it (the launchpad
+# feeds list launches, not volume/buyer rankings — the model kept picking them).
+_RH_RANK_RE = re.compile(r"\b(top \d+|top ten|most (traded|bought|active)|highest (24h |daily )?volume|biggest|hottest|"
+                         r"best perform\w*|rank(ing|ed)?|compare|graduation rate|hit rate|rug rate|cohort)\b", re.I)
 _SOLANA_ANALYSIS_EXACT = frozenset({
     "bundle_ring_analysis", "kol_discovery_feed", "holders_robust", "tvl_robust",
 })
@@ -1909,16 +1935,20 @@ async def stream_chat_response(
     # action (swap/buy), drop the Solana analysis tools so the Robinhood tools
     # (rh_token_analysis + token_deep_analysis, which routes 0x→rh) are what remain,
     # and force a tool call so the model can't hedge.
-    if _BARE_EVM_ADDR_RE.search(user_content or "") and intent_result.intent != "action":
+    if (_BARE_EVM_ADDR_RE.search(user_content or "") or _RH_CONTEXT_RE.search(user_content or "")) \
+            and intent_result.intent != "action":
         for _tool in tools:
             _fn = _tool.get("function", {})
             if _fn.get("name") != "query_onchain":
                 continue
             _qt = _fn.get("parameters", {}).get("properties", {}).get("query_type", {})
             _enum = _qt.get("enum") or []
+            _rank_turn = bool(_RH_RANK_RE.search(user_content or "")) and "pools.trade" not in (user_content or "").lower()
             _kept = [
                 q for q in _enum
                 if not q.startswith(_SOLANA_ANALYSIS_PREFIXES) and q not in _SOLANA_ANALYSIS_EXACT
+                and (q.startswith(_RH_KEEP_PREFIXES) or q in _RH_KEEP_EXACT)
+                and (not _rank_turn or q.startswith("rh_"))
             ]
             if _kept and len(_kept) < len(_enum):
                 _qt["enum"] = _kept
@@ -2433,6 +2463,22 @@ async def stream_chat_response(
                 yield f"data: {json.dumps({'action': d})}\n\n"
 
             elif isinstance(validated, ValidatedQuery):
+                # Robinhood-Chain remap. On a 0x / Robinhood turn the model still emits
+                # generic self-fetching card types (token_info, price, wallet_info,
+                # portfolio …) — Solana-shaped cards that render empty for an EVM
+                # address and leave the turn without an answer. Route them to the
+                # chain-intel report that actually answers on this chain.
+                _rh_turn = bool(_BARE_EVM_ADDR_RE.search(user_content or "") or _RH_CONTEXT_RE.search(user_content or ""))
+                if _rh_turn and validated.type.value in _RH_REMAP:
+                    _p = dict(validated.params or {})
+                    _addr = next((v for v in _p.values() if isinstance(v, str) and _BARE_EVM_ADDR_RE.fullmatch(v.strip())), None) \
+                        or (_BARE_EVM_ADDR_RE.search(user_content or "") or [None])[0]
+                    if isinstance(_addr, re.Match):
+                        _addr = _addr.group(0)
+                    _target, _key = _RH_REMAP[validated.type.value]
+                    if _addr:
+                        _log.info("rh remap: %s → %s (%s)", validated.type.value, _target, _addr[:12])
+                        validated = ValidatedQuery(type=QueryType(_target), params={_key: _addr.lower()})
                 # NFT-wallet scope guard. When a SINGLE NFT marketplace is tagged
                 # (@OpenSea / @Magic Eden / @Tensor) and the model reaches for the
                 # cross-cutting Solana `portfolio` tool — which is always in the
@@ -2783,15 +2829,19 @@ async def stream_chat_response(
         #     follow-up call WITH tools so the LLM can call execute_action.
         #   • everything else — pure data queries; text-only follow-up is fine.
         if market_data_results:
-            token_resolution = [(n, p, r) for n, p, r in market_data_results if n == "jup_token_search"]
-            text_only = [(n, p, r) for n, p, r in market_data_results if n != "jup_token_search"]
+            def _needs_tools(n, r):
+                # token resolution always; a failed rh_sql once, so the model can rewrite it
+                return n == "jup_token_search" or (n == "rh_sql" and isinstance(r, dict) and r.get("ok") is False)
+            token_resolution = [(n, p, r) for n, p, r in market_data_results if _needs_tools(n, r)]
+            text_only = [(n, p, r) for n, p, r in market_data_results if not _needs_tools(n, r)]
 
             # ── 7b-i. Token resolution: re-run WITH tools ────────────────────
             if token_resolution:
                 token_text = "<untrusted>\n" + "\n\n".join(
-                    f"### Token Search: {params.get('query', '')}\n"
-                    f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:2000]}\n```"
-                    for _, params, result in token_resolution
+                    (f"### Token Search: {params.get('query', '')}\n" if _n == "jup_token_search"
+                     else "### rh_sql FAILED — rewrite the SQL per `error`/`fix`/`hint` and call rh_sql again (once)\n")
+                    + f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:2000]}\n```"
+                    for _n, params, result in token_resolution
                 ) + "\n</untrusted>"
                 token_followup_msgs = list(model_messages) + [
                     {

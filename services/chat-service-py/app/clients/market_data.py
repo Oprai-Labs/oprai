@@ -704,6 +704,15 @@ async def _wallet_pnl_score(wallet: str) -> dict:
 _QUERY_TOOL_REGISTRY: dict[str, tuple] = {}  # name -> (fn, required, optional, tags)
 
 
+_PARAM_ALIASES = {
+    "token": ("address", "token_address", "contract", "contract_address", "mint", "ca", "token_mint"),
+    "address": ("token", "token_address", "contract", "contract_address", "mint", "wallet"),
+    "wallet": ("address", "wallet_address", "account", "owner"),
+    "sql": ("query", "sql_query", "statement"),
+    "dev": ("wallet", "address", "developer"),
+}
+
+
 def query_tool(required: list[str] | None = None,
                optional: list[str] | None = None,
                tags: set[str] | None = None):
@@ -2612,6 +2621,16 @@ async def sns_subdomains(domain: str) -> dict:
 CHAIN_INTEL_BASE = os.environ.get("CHAIN_INTEL_URL", "http://rh-chain-intel-api:3160")
 
 
+def _facts_first(res: dict) -> dict:
+    """Put the narrative-critical keys first. The model sees the first 16k chars of a
+    tool result; a full report is ~19k with `facts` at the end, so volume, ATH and the
+    dev's track record were being cut off. Charts/tables (frontend card) go last."""
+    if not isinstance(res, dict):
+        return res
+    head = ("subject", "status", "facts", "kpis")
+    return {**{k: res[k] for k in head if k in res}, **{k: v for k, v in res.items() if k not in head}}
+
+
 async def _chain_intel(path: str, timeout: float | None = None) -> dict:
     # Deep reports (a wallet's full FIFO P&L replay) legitimately run past the
     # default read timeout — pass a longer one rather than losing the whole report.
@@ -2632,7 +2651,7 @@ async def rh_wallet_analysis(wallet: str) -> dict:
     Robinhood-Chain 0x (EVM) wallet."""
     res, bal = await asyncio.gather(
         _chain_intel(f"/wallet/{wallet}", timeout=45.0),
-        _chain_intel(f"/wallet/{wallet}/balances?limit=40"),
+        _chain_intel(f"/wallet/{wallet}/balances?limit=40", timeout=45.0),
         return_exceptions=True,
     )
     res = res if isinstance(res, dict) else {}
@@ -2652,7 +2671,7 @@ async def rh_wallet_analysis(wallet: str) -> dict:
         res["facts"]["protocol_positions"] = bal.get("protocol_positions", [])[:12]
         res["facts"]["unpriced_positions"] = sum(
             1 for p in bal.get("protocol_positions", []) if p.get("usd") is None)
-    return res
+    return _facts_first(res)
 
 
 @query_tool(required=["wallet"], optional=["limit"], tags={"analysis", "portfolio"})
@@ -2665,7 +2684,7 @@ async def rh_wallet_balances(wallet: str, limit: int = 40) -> dict:
     (`by_protocol`), and the TOTAL = wallet + protocols. Use for 'what does this
     wallet hold', 'total balance', 'how much is this wallet worth across protocols',
     'where is their money', 'LP / lending positions'."""
-    return await _chain_intel(f"/wallet/{wallet}/balances?limit={int(limit)}")
+    return await _chain_intel(f"/wallet/{wallet}/balances?limit={int(limit)}", timeout=45.0)
 
 
 def _fmt_usd(v: float, is_price: bool = False) -> str:
@@ -2763,7 +2782,7 @@ async def rh_token_analysis(token: str) -> dict:
         } for b in top]
         res["facts"]["smart_buyers_still_holding"] = sum(1 for b in top if b.get("still_holding"))
         res["facts"]["smart_buyers_sold"] = sum(1 for b in top if not b.get("still_holding"))
-    return res
+    return _facts_first(res)
 
 
 @query_tool(optional=["limit"], tags={"analysis", "dex"})
@@ -2807,6 +2826,36 @@ async def rh_honeypot(token: str, amount: float | None = None) -> dict:
     return res
 
 
+@query_tool(optional=["by", "limit", "launchpad", "launched_days"], tags={"analysis", "dex"})
+async def rh_top_tokens(by: str = "volume_24h", limit: int = 10, launchpad: str | None = None,
+                        launched_days: int | None = None) -> dict:
+    """Robinhood-Chain TOKEN RANKINGS from the analytics layer: top tokens by
+    `volume_24h` (default) | `volume_7d` | `buyers_24h` | `mcap` | `trades_24h` |
+    `ath_multiple`, with symbol, 24h/7d volume, 24h buyers, mcap, ATH mcap, drawdown,
+    launchpad, holders. Optional `launchpad` (exact name, e.g. Doppler, Pons, Clanker)
+    and `launched_days` (only tokens launched in the last N days). Use for "top / most
+    traded / biggest / hottest tokens", "best performers", "highest volume launches this
+    week"."""
+    q = {"by": by, "limit": int(limit or 10)}
+    if launchpad:
+        q["launchpad"] = launchpad
+    if launched_days:
+        q["launched_days"] = int(launched_days)
+    qs = "&".join(f"{k}={httpx.QueryParams({k: v})[k]}" for k, v in q.items())
+    return await _chain_intel(f"/analytics/top-tokens?{qs}", timeout=20.0)
+
+
+@query_tool(optional=["days"], tags={"analysis", "dex"})
+async def rh_launchpad_stats(days: int = 30) -> dict:
+    """Robinhood-Chain LAUNCHPAD COHORTS over the last `days` (default 30): per
+    launchpad (Pons, Doppler, Clanker, letscash.fun, Klik, Flaunch, o1, LONG, pools.trade,
+    direct pool …) — tokens launched, graduated %, hit $100K / $1M ATH mcap %, 10x
+    runners, rugged % (price collapse), dead % (no trades 3 days), alive 24h, median
+    and best ATH mcap, volume. Use for "compare launchpads", "which launchpad has the
+    best graduation / hit rate / highest rug rate", "is Clanker better than Doppler"."""
+    return await _chain_intel(f"/analytics/launchpads?days={int(days or 30)}", timeout=20.0)
+
+
 @query_tool(required=["sql"], optional=["purpose", "limit"], tags={"analysis", "portfolio", "dex"})
 async def rh_sql(sql: str, purpose: str = "", limit: int = 200) -> dict:
     """Run ONE read-only SQL SELECT over Robinhood-Chain's clean analytics tables
@@ -2817,13 +2866,32 @@ async def rh_sql(sql: str, purpose: str = "", limit: int = 200) -> dict:
     the SQL yourself from the schema in the prompt (ClickHouse dialect). Fast
     (pre-aggregated views, ms-s); a query that would read too much is refused with
     a hint to narrow it. Returns rows + the SQL that ran + rows_read + ms."""
-    body = {"sql": sql, "limit": int(limit or 200), "timeout_s": 6.0}
-    async with httpx.AsyncClient(timeout=12.0) as c:
+    body = {"sql": sql, "limit": int(limit or 200), "timeout_s": 8.0}
+    async with httpx.AsyncClient(timeout=30.0) as c:
         r = await c.post(f"{CHAIN_INTEL_BASE}/analytics/sql", json=body)
-    if r.status_code == 400:
-        return {"ok": False, "error": (r.json() or {}).get("detail"), "purpose": purpose}
-    r.raise_for_status()
-    res = r.json()
+        if r.status_code == 400:
+            return {"ok": False, "error": (r.json() or {}).get("detail"), "purpose": purpose,
+                    "fix": "rewrite the SQL (check table/column names in the schema, alias aggregates with new names) and call rh_sql again"}
+        r.raise_for_status()
+        res = r.json()
+        if res.get("heavy"):
+            # too much to read synchronously — run it as a job and wait up to ~20 s
+            r2 = await c.post(f"{CHAIN_INTEL_BASE}/analytics/sql", json={**body, "allow_async": True})
+            job = (r2.json() or {}).get("job") if r2.status_code == 200 else None
+            for _ in range(20):
+                await asyncio.sleep(1.0)
+                jr = await c.get(f"{CHAIN_INTEL_BASE}/analytics/job/{job}")
+                st = jr.json() if jr.status_code == 200 else {}
+                if st.get("status") == "done":
+                    res = {"ok": True, "sql": st.get("sql"), "columns": st.get("columns"), "rows": st.get("rows"),
+                           "row_count": st.get("row_count"), "rows_read": st.get("rows_read"), "ms": st.get("ms"), "ran_async": True}
+                    break
+                if st.get("status") == "failed":
+                    res = {"ok": False, "error": st.get("error"), "sql": st.get("sql")}
+                    break
+            else:
+                res = {"ok": False, "error": "query too heavy to finish in 20 s", "hint": res.get("hint"), "sql": res.get("sql"),
+                       "fix": "narrow the window (e.g. last 7 days) or filter by token / wallet / launchpad and call rh_sql again"}
     res["purpose"] = purpose
     return res
 
@@ -3396,6 +3464,17 @@ async def call(action_type: str, params: dict, wallet: str | None = None) -> Any
 
     fn, required, optional = _DISPATCH[action_type]
     kwargs: dict = {}
+
+    # Parameter aliases: the model names the same thing differently across tools
+    # (token / address / contract / mint, wallet / account). Fill a missing required
+    # key from its aliases instead of failing the whole turn on a name mismatch.
+    params = dict(params or {})
+    for key, aliases in _PARAM_ALIASES.items():
+        if params.get(key) is None:
+            for a in aliases:
+                if params.get(a) is not None:
+                    params[key] = params[a]
+                    break
 
     for key in required:
         val = params.get(key)
