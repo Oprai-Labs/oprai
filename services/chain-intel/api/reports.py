@@ -940,6 +940,7 @@ async def wallet_report(wallet: str) -> dict:
     daily_series, cum_series = [], []
     pnl_7d = pnl_30d = pnl_total_ts = 0.0
     pnl_truncated = False; pnl_fifo_ok = False
+    realized_by_token: dict = {}; sold_tokens: set = set(); fifo_trades = 0
     if has_prices:
         from collections import defaultdict, deque
         evs = []
@@ -947,25 +948,36 @@ async def wallet_report(wallet: str) -> dict:
             # bounded 12s timeout: a hyper-active infra/router address would otherwise
             # scan ~40s and stall the caller. On timeout/error we skip FIFO and fall
             # back to the avg-cost figure below.
-            # the wallet's transfer ledger via the projection-keyed scans, then the daily price
+            # Every swap leg of this wallet with the USD it actually paid/received — the
+            # decoded trades table (keyed by actor). No price-table join: a token that
+            # traded 10 minutes ago is priced by its own trades.
             evs = await ch.q(f"""
-                SELECT toDate(tt.timestamp) AS day, tt.token AS token, tt.dir AS dir,
-                       toFloat64(tt.value)/1e18 AS qty, p.px AS px
-                FROM (
-                    SELECT timestamp, token, 1 AS dir, value, block_number, log_index FROM rh.token_transfers WHERE to_addr='{w}' AND kind='erc20'
-                    UNION ALL
-                    SELECT timestamp, token, -1 AS dir, value, block_number, log_index FROM rh.token_transfers WHERE from_addr='{w}' AND kind='erc20'
-                ) tt
-                INNER JOIN rh.token_price_daily p ON p.token = tt.token AND p.day = toDate(tt.timestamp)
-                WHERE p.px > 0 AND p.px < 1e6
-                ORDER BY tt.block_number, tt.log_index
-                LIMIT {FIFO_CAP}""", timeout=12.0)
+                SELECT toDate(ts) AS day, token, if(side = 'buy', 1, -1) AS dir,
+                       token_amount AS qty, price_usd AS px, ts
+                FROM rh.trades WHERE actor='{w}' AND usd > 0 AND token_amount > 0
+                ORDER BY block, log_index LIMIT {FIFO_CAP}""", timeout=12.0)
+            if not evs:
+                # older activity that predates decoded swaps: transfer ledger × daily price
+                evs = await ch.q(f"""
+                    SELECT toDate(tt.timestamp) AS day, tt.token AS token, tt.dir AS dir,
+                           toFloat64(tt.value)/1e18 AS qty, p.px AS px
+                    FROM (
+                        SELECT timestamp, token, 1 AS dir, value, block_number, log_index FROM rh.token_transfers WHERE to_addr='{w}' AND kind='erc20'
+                        UNION ALL
+                        SELECT timestamp, token, -1 AS dir, value, block_number, log_index FROM rh.token_transfers WHERE from_addr='{w}' AND kind='erc20'
+                    ) tt
+                    INNER JOIN rh.token_price_daily p ON p.token = tt.token AND p.day = toDate(tt.timestamp)
+                    WHERE p.px > 0 AND p.px < 1e6
+                    ORDER BY tt.block_number, tt.log_index
+                    LIMIT {FIFO_CAP}""", timeout=12.0)
             pnl_fifo_ok = True
             pnl_truncated = len(evs) >= FIFO_CAP
         except Exception:
             evs = []          # too slow / errored → avg-cost fallback kicks in
         lots: dict = defaultdict(deque)   # token -> deque([qty, cost_per_unit])
         realized_by_day: dict = defaultdict(float)
+        realized_by_token = defaultdict(float)
+        fifo_trades = len(evs)
         for e in evs:
             tok = e["token"]; qty = float(e["qty"]); px = float(e["px"])
             if qty <= 0 or px <= 0:
@@ -984,6 +996,8 @@ async def wallet_report(wallet: str) -> dict:
                 # sells beyond tracked lots (airdrops/untracked) contribute no basis
                 if abs(realized) < 1e7:               # drop scam-token artifacts
                     realized_by_day[str(e["day"])] += realized
+                    realized_by_token[tok] += realized
+                    sold_tokens.add(tok)
         daily_series = [(d, round(v, 2)) for d, v in sorted(realized_by_day.items())]
         c = 0.0
         for _, v in daily_series:
@@ -1014,11 +1028,20 @@ async def wallet_report(wallet: str) -> dict:
     else:
         pnl_method = "none"
     kpis.append({"label": "Realized PnL", "value": realized_headline, "fmt": "$"})
+    # win rate: the 4-hourly metrics when they cover the wallet, else straight from the
+    # FIFO replay (a wallet that started trading today has no metrics row yet)
+    win_rate_val = None
+    if metrics:
+        win_rate_val = float(metrics.get("win_rate", 0) or 0)
+    elif sold_tokens:
+        win_rate_val = round(sum(1 for t in sold_tokens if realized_by_token.get(t, 0) > 0) / len(sold_tokens), 3)
     if metrics:
         kpis += [
             {"label": "Win rate", "value": round(100 * float(metrics.get("win_rate", 0)), 1), "fmt": "%"},
             {"label": "ROI", "value": round(100 * float(metrics.get("roi", 0)), 1), "fmt": "%"},
         ]
+    elif win_rate_val is not None:
+        kpis.append({"label": "Win rate", "value": round(100 * win_rate_val, 1), "fmt": "%"})
     if jeet:
         kpis.append({"label": "Left on the table", "value": total_missed, "fmt": "$", "flag": "jeet"})
     if daily_series:
@@ -1061,6 +1084,9 @@ async def wallet_report(wallet: str) -> dict:
             "first_seen": act.get("first_seen"), "last_seen": act.get("last_seen"),
             "total_missed_usd": total_missed, "jeet": jeet[:10],
             "realized_pnl": realized_headline, "pnl_method": pnl_method,
+            "win_rate": win_rate_val, "win_rate_source": "metrics" if metrics else ("fifo" if win_rate_val is not None else None),
+            "trade_count": int(metrics.get("trade_count") or 0) if metrics else (fifo_trades or None),
+            "tokens_sold": len(sold_tokens) or None,
             "pnl_truncated": pnl_truncated,
             **({"pnl_note": f"P&L computed on the earliest {FIFO_CAP:,} events (address too active for a full replay)."} if pnl_truncated else {}),
             **({"pnl_note": "Address too active for on-the-fly FIFO (likely a router/infra contract) — showing avg-cost estimate."} if pnl_method == "avg_cost_fallback_infra" else {}),

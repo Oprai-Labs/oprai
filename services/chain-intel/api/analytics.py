@@ -18,6 +18,7 @@ same concept — "graduated", "hit 100k", "runner 10x" — always maps to the sa
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 import uuid
@@ -41,6 +42,7 @@ MAX_ROWS_TO_READ = 60_000_000       # cost budget for a synchronous query (~1-2 
 DEFAULT_LIMIT, MAX_LIMIT = 200, 2000
 DEFAULT_TIMEOUT, MAX_TIMEOUT = 3.0, 20.0
 _jobs: dict[str, dict] = {}
+_log = logging.getLogger("analytics")
 
 SCHEMA = {
     "notes": [
@@ -200,7 +202,11 @@ async def _run(sql: str, timeout: float) -> dict:
 async def query(sql: str, limit: int = DEFAULT_LIMIT, timeout: float = DEFAULT_TIMEOUT, allow_async: bool = False) -> dict:
     limit = max(1, min(int(limit or DEFAULT_LIMIT), MAX_LIMIT))
     timeout = max(0.5, min(float(timeout or DEFAULT_TIMEOUT), MAX_TIMEOUT))
-    s = validate(sql, limit)
+    try:
+        s = validate(sql, limit)
+    except ValueError as e:
+        _log.warning("analytics_sql_rejected err=%s sql=%s", str(e)[:200], re.sub(r"\s+", " ", sql)[:600])
+        raise
     est = await estimate(s)
     if est > MAX_ROWS_TO_READ:
         if not allow_async:
@@ -217,7 +223,12 @@ async def query(sql: str, limit: int = DEFAULT_LIMIT, timeout: float = DEFAULT_T
                 _jobs[job].update(status="failed", error=str(e)[:300])
         asyncio.create_task(run_job())
         return {"ok": True, "job": job, "estimate_rows": est, "sql": s}
-    res = await _run(s, timeout)
+    try:
+        res = await _run(s, timeout)
+    except ValueError as e:
+        _log.warning("analytics_sql_failed err=%s sql=%s", str(e)[:200], re.sub(r"\s+", " ", s)[:600])
+        raise
+    _log.info("analytics_sql_ok ms=%s rows=%s sql=%s", res.get("ms"), res.get("row_count"), re.sub(r"\s+", " ", s)[:300])
     return {"ok": True, "sql": s, "estimate_rows": est, **res}
 
 
