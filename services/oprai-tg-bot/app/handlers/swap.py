@@ -35,11 +35,13 @@ EXPLORER = "https://robinscan.io/tx/"
 _pending: dict[str, dict] = {}
 
 USAGE = (
-    "Usage: <code>/swap &lt;amount&gt; &lt;from&gt; &lt;to&gt;</code>\n"
+    "Usage: <code>/swap &lt;amount&gt; &lt;from&gt; &lt;to&gt; [on &lt;venue&gt;]</code>\n"
     "Examples:\n"
     "• <code>/swap 0.01 ETH NVDA</code> — buy a stock\n"
     "• <code>/swap 5 NVDA USDG</code> — sell one\n"
-    "• <code>/swap 0.01 ETH USDG</code>"
+    "• <code>/swap 0.01 ETH USDG on sushi</code> — pick the venue\n\n"
+    "<i>Without one I quote SushiSwap and Relay and take the better fill. "
+    "Tokenized stocks trade on Uniswap.</i>"
 )
 
 
@@ -48,6 +50,24 @@ _VENUE_NAMES = {"uniswap": "Uniswap", "relay": "Relay", "sushi": "SushiSwap"}
 
 def _fmt_units(amount: int, decimals: int) -> str:
     return f"{Decimal(amount) / (10**decimals):f}".rstrip("0").rstrip(".") or "0"
+
+
+# What someone can call a venue. The model uses the ids; people use the names.
+_VENUE_WORDS = {
+    "sushi": "sushi", "sushiswap": "sushi",
+    "relay": "relay",
+    "uniswap": "uniswap", "uni": "uniswap",
+}
+
+
+def _named_venue(rest: list[str]) -> str | None:
+    """A venue named after the pair — "on sushi", "via relay", or just the
+    name. Returns None when nothing recognisable was said."""
+    for word in rest:
+        key = word.strip().lower().lstrip("@")
+        if key in _VENUE_WORDS:
+            return _VENUE_WORDS[key]
+    return None
 
 
 def _to_float(value) -> float | None:
@@ -63,8 +83,10 @@ def _to_float(value) -> float | None:
 
 
 async def _best_same_chain_route(jwt, wallet, src_addr, dst_addr, dst_sym,
-                                 amount, dst_decimals):
-    """Quote Relay and Sushi, return whichever fills better.
+                                 amount, dst_decimals, forced: str | None = None):
+    """Quote Relay and Sushi, return whichever fills better — unless a venue
+    was named, in which case that one is used even if it fills worse. Someone
+    who asks for Sushi is asking for Sushi.
 
     -> (venue, params, out_amount, out_symbol, extra, built)
 
@@ -102,8 +124,18 @@ async def _best_same_chain_route(jwt, wallet, src_addr, dst_addr, dst_sym,
 
     if sushi_out is None and relay_out is None:
         raise sushi.SushiError("no route for that pair right now")
+    if forced == "sushi" and sushi_out is None:
+        raise sushi.SushiError("SushiSwap has no route for that pair right now")
+    if forced == "relay" and relay_out is None:
+        raise relay.RelayError("Relay has no route for that pair right now")
 
-    if relay_out is None or (sushi_out is not None and sushi_out > relay_out):
+    take_sushi = (
+        forced == "sushi"
+        or (forced != "relay"
+            and (relay_out is None
+                 or (sushi_out is not None and sushi_out > relay_out)))
+    )
+    if take_sushi:
         extra = ""
         impact = sushi.summarize(sushi_res)["impact"]
         if impact is not None:
@@ -155,6 +187,10 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
         return
 
     amount_str, from_ref, to_ref = args[0], args[1], args[2]
+    # "…on sushi" / "…via relay". Naming a venue has to mean something: the
+    # model emits sushi_swap when someone asks for Sushi, and re-deciding the
+    # route afterwards silently overrides what they asked for.
+    wanted_venue = _named_venue(args[3:])
     try:
         amount = Decimal(amount_str)
         if amount <= 0:
@@ -181,6 +217,12 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
 
     # Tokenized stocks trade on Uniswap; Relay doesn't list them.
     venue = "uniswap" if (src_stock or dst_stock) else "relay"
+    if wanted_venue and (src_stock or dst_stock) and wanted_venue != "uniswap":
+        await message.answer(
+            f"{src_sym if src_stock else dst_sym} only trades on Uniswap here — "
+            f"{_VENUE_NAMES[wanted_venue]} doesn't list tokenized stocks."
+        )
+        return
 
     # Refuse before quoting if the wallet plainly can't fund it — a card the
     # user can't complete is our failure, not theirs.
@@ -238,7 +280,8 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
             # difference.
             venue, params, out_amount, out_symbol, extra, sushi_built = (
                 await _best_same_chain_route(
-                    jwt, addr, src_addr, dst_addr, dst_sym, amount, dst_dec
+                    jwt, addr, src_addr, dst_addr, dst_sym, amount, dst_dec,
+                    forced=wanted_venue,
                 )
             )
     except (relay.RelayError, uniswap.UniswapError, sushi.SushiError,
@@ -256,10 +299,19 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
         "amount": amount_str,
         "expected_out": out_amount,
     }
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
+    rows = [[
         InlineKeyboardButton(text="✅ Confirm swap", callback_data=f"swap:ok:{pid}"),
         InlineKeyboardButton(text="Cancel", callback_data=f"swap:no:{pid}"),
-    ]])
+    ]]
+    # The route is a choice, not a verdict. Both venues were just quoted, so
+    # offering the other one costs nothing and answers "why this one?".
+    other = {"sushi": "relay", "relay": "sushi"}.get(venue)
+    if other and not (src_stock or dst_stock):
+        rows.append([InlineKeyboardButton(
+            text=f"↔ Use {_VENUE_NAMES[other]} instead",
+            callback_data=f"swap:via:{other}:{amount_str}:{src_sym}:{dst_sym}",
+        )])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await audit(user.id, "swap_quoted",
                 {"venue": venue, "from": src_sym, "to": dst_sym, "amount": amount_str})
     await private_answer(
@@ -343,3 +395,29 @@ async def swap_confirm(cb: CallbackQuery) -> None:
         f"✅ Swapped <b>{p['amount']} {p['src']}</b> → <b>{out}</b>\n{link}"
         + (f"\n<i>{len(hashes)} transactions</i>" if len(hashes) > 1 else "")
     )
+
+
+@router.callback_query(F.data.startswith("swap:via:"))
+async def swap_switch_venue(cb: CallbackQuery) -> None:
+    """Re-quote the same trade on the other venue.
+
+    Not a silent switch: it runs the whole flow again, so the person sees the
+    new price and confirms that one — swapping the route under an already-shown
+    quote would have them signing a number they never read.
+    """
+    _, _, venue, amount, sell, buy = cb.data.split(":", 5)
+    await cb.answer()
+    from app.handlers.home import as_person
+
+    await swap_cmd(as_person(cb), _VenueArgs(f"{amount} {sell} {buy} on {venue}"))
+
+
+class _VenueArgs:
+    """A stand-in for aiogram's CommandObject carrying just the arguments."""
+
+    def __init__(self, args: str):
+        self.args = args
+        self.command = None
+        self.prefix = "/"
+        self.mention = None
+        self.magic_result = None

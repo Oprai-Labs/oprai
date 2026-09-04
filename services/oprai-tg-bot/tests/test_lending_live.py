@@ -305,3 +305,64 @@ def test_each_venue_is_read_in_the_units_it_actually_speaks():
 
     # Morpho scales where it reads, so nothing downstream has to remember.
     assert "_to_human" in inspect.getsource(morpho.positions)
+
+
+# ── whose choice the route is ───────────────────────────────────────────────
+def test_naming_a_venue_is_honoured():
+    """Saying "swap on Sushi" and getting Relay is the bot overriding the one
+    instruction it was given."""
+    from app.handlers.swap import _named_venue
+
+    assert _named_venue(["on", "sushi"]) == "sushi"
+    assert _named_venue(["via", "Relay"]) == "relay"
+    assert _named_venue(["uniswap"]) == "uniswap"
+    assert _named_venue([]) is None
+    assert _named_venue(["please"]) is None
+
+
+def test_the_venue_the_model_chose_survives_the_hand_off():
+    """The model emits sushi_swap when someone asks for Sushi. Dropping that
+    on the way to the command means the request was understood and then
+    quietly re-decided."""
+    from app.handlers.chat import _args_for
+
+    _, args = _args_for({
+        "type": "sushi_swap",
+        "params": {"tokenIn": "ETH", "tokenOut": "USDG", "amount": "0.01"},
+    })
+    assert args.endswith("on sushi"), args
+
+    # A generic swap carries no venue, so the better fill still wins.
+    _, plain = _args_for({
+        "type": "swap",
+        "params": {"amount": "1", "fromToken": "ETH", "toToken": "USDG"},
+    })
+    assert "on " not in plain
+
+
+@pytest.mark.asyncio
+async def test_a_forced_venue_wins_even_when_it_fills_worse(monkeypatch):
+    """Best price is the default, not a rule. Someone who asks for a venue is
+    asking for that venue."""
+    from app.handlers import swap as swap_handler
+
+    async def fake_relay_quote(jwt, params):
+        return {"details": {"currencyOut": {
+            "currency": {"symbol": "USDG"}, "amountFormatted": "100.0"}}}
+
+    async def fake_sushi(jwt, **kwargs):
+        return {"transactions": [{"to": "0x1", "data": "0x", "value": "0"}],
+                "expectedAmountOut": 50_000000, "priceImpact": 0.001}
+
+    monkeypatch.setattr(relay, "quote", fake_relay_quote)
+    monkeypatch.setattr(sushi, "swap", fake_sushi)
+
+    # Relay fills better (100 vs 50), so it wins by default...
+    venue, *_ = await swap_handler._best_same_chain_route(
+        "jwt", "0xw", "0xin", "0xout", "USDG", 1, 6)
+    assert venue == "relay"
+
+    # ...but not when Sushi was asked for.
+    venue, *_ = await swap_handler._best_same_chain_route(
+        "jwt", "0xw", "0xin", "0xout", "USDG", 1, 6, forced="sushi")
+    assert venue == "sushi"
