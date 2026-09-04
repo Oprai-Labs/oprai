@@ -634,6 +634,12 @@ _DOTTED_DISPATCH_RE = re.compile(r"^[a-z][a-z0-9_]{4,40}\.[A-Za-z0-9_.\-]{2,50}\
 # (birdeye_*/helius_*/dex_*/gmgn), which would fail on it and make the model report
 # "couldn't fetch data — which chain is it?" instead of running the analysis.
 _BARE_EVM_ADDR_RE = re.compile(r"0x[0-9a-fA-F]{40}\b")
+# A Robinhood-Chain turn without an address: names the chain, a launchpad or a concept
+# that only the chain-intel tools answer. Same narrowing as a bare 0x address.
+_RH_CONTEXT_RE = re.compile(
+    r"\b(robinhood|rh chain|chain 4663|launchpads?|clanker|doppler|pons|noxa|letscash|flaunch|klik|bankr|"
+    r"o1 launchpad|lunch\.fun|livo|pmav|smart[- ]money|smart wallets?|graduat\w*|rug rate|hit rate|"
+    r"dev(eloper)? (track record|history|hit)|ath market cap|drawdown)\b", re.I)
 # Solana-only analysis query_types (take a Solana mint/wallet; error on a 0x addr).
 _SOLANA_ANALYSIS_PREFIXES = ("birdeye_", "helius_", "dex_", "gmgn", "jup_")
 _SOLANA_ANALYSIS_EXACT = frozenset({
@@ -1887,7 +1893,8 @@ async def stream_chat_response(
     # action (swap/buy), drop the Solana analysis tools so the Robinhood tools
     # (rh_token_analysis + token_deep_analysis, which routes 0x→rh) are what remain,
     # and force a tool call so the model can't hedge.
-    if _BARE_EVM_ADDR_RE.search(user_content or "") and intent_result.intent != "action":
+    if (_BARE_EVM_ADDR_RE.search(user_content or "") or _RH_CONTEXT_RE.search(user_content or "")) \
+            and intent_result.intent != "action":
         for _tool in tools:
             _fn = _tool.get("function", {})
             if _fn.get("name") != "query_onchain":
@@ -2761,15 +2768,19 @@ async def stream_chat_response(
         #     follow-up call WITH tools so the LLM can call execute_action.
         #   • everything else — pure data queries; text-only follow-up is fine.
         if market_data_results:
-            token_resolution = [(n, p, r) for n, p, r in market_data_results if n == "jup_token_search"]
-            text_only = [(n, p, r) for n, p, r in market_data_results if n != "jup_token_search"]
+            def _needs_tools(n, r):
+                # token resolution always; a failed rh_sql once, so the model can rewrite it
+                return n == "jup_token_search" or (n == "rh_sql" and isinstance(r, dict) and r.get("ok") is False)
+            token_resolution = [(n, p, r) for n, p, r in market_data_results if _needs_tools(n, r)]
+            text_only = [(n, p, r) for n, p, r in market_data_results if not _needs_tools(n, r)]
 
             # ── 7b-i. Token resolution: re-run WITH tools ────────────────────
             if token_resolution:
                 token_text = "<untrusted>\n" + "\n\n".join(
-                    f"### Token Search: {params.get('query', '')}\n"
+                    (f"### Token Search: {params.get('query', '')}\n" if _n == "jup_token_search"
+                     else "### rh_sql FAILED — rewrite the SQL per `error`/`fix`/`hint` and call rh_sql again (once)\n")
                     f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:2000]}\n```"
-                    for _, params, result in token_resolution
+                    for _n, params, result in token_resolution
                 ) + "\n</untrusted>"
                 token_followup_msgs = list(model_messages) + [
                     {
