@@ -18,11 +18,28 @@ from app.handlers import home
 
 
 def test_every_button_goes_somewhere():
-    """A callback with no handler is a button that does nothing when tapped."""
-    known = set(home.READS) | set(home.PROMPTS) | {"refresh", "help"}
+    """A callback with no handler is a button that does nothing when tapped.
+
+    Three ways a home button can be served: a read that runs a command, a
+    prompt, or an explicit branch in the handler (wallet, refresh, help). The
+    branches are read out of the source so removing one fails here rather than
+    in someone's chat.
+    """
+    import inspect
+
+    source = inspect.getsource(home.home_button)
+    branches = {
+        line.split('"')[1]
+        for line in source.splitlines()
+        if 'what == "' in line
+    }
+    known = set(home.READS) | set(home.PROMPTS) | branches
+
     for row in home.keyboard().inline_keyboard:
         for button in row:
-            what = button.callback_data.split(":", 1)[1]
+            prefix, what = button.callback_data.split(":", 1)
+            if prefix == "menu":
+                continue  # opens a flow menu; covered by the flow tests
             assert what in known, f"{button.text} has no handler ({what})"
 
 

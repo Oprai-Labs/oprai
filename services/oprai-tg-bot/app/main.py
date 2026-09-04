@@ -16,8 +16,9 @@ from aiogram.types import BotCommand
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import (alpha, bridge, chat, common, copy, home, launch,
-                          lend, nft, perps, portfolio, send, swap, wallet)
+from app.handlers import (alpha, bridge, chat, common, copy, flows, home,
+                          launch, lend, nft, perps, portfolio, send, swap,
+                          wallet)
 from app.logging_config import configure_logging, log
 from app.services import notify
 from app.services.alert_store import AlertStore
@@ -29,6 +30,7 @@ def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
     dp.include_router(common.router)
     dp.include_router(home.router)
+    dp.include_router(flows.router)
     dp.include_router(wallet.router)
     dp.include_router(portfolio.router)
     dp.include_router(alpha.router)

@@ -120,6 +120,28 @@ async def new_wallet(telegram_id: int) -> asyncpg.Record:
     return await get_wallet(telegram_id)
 
 
+async def activate(telegram_id: int, address: str) -> asyncpg.Record | None:
+    """Make one of their wallets the one we sign with.
+
+    Archiving is reversible: a wallet stepped aside can be brought back, which
+    is what makes several wallets usable rather than a one-way door. The swap
+    is two statements, so the partial unique index over active rows is what
+    keeps two from ever being active at once — the archive runs first.
+    """
+    target = await pool().fetchrow(
+        "SELECT id FROM tg_wallets WHERE telegram_id = $1 AND chain = $2 "
+        "AND lower(address) = lower($3)",
+        telegram_id, CHAIN, address,
+    )
+    if target is None:
+        return None
+    await archive_active(telegram_id)
+    await pool().execute(
+        "UPDATE tg_wallets SET archived_at = NULL WHERE id = $1", target["id"]
+    )
+    return await get_wallet(telegram_id)
+
+
 async def export_secret(telegram_id: int, address: str | None = None) -> dict:
     """The private key for a wallet of theirs — active by default.
 

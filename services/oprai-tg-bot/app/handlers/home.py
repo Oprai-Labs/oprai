@@ -32,19 +32,11 @@ router = Router(name="home")
 
 
 def keyboard() -> InlineKeyboardMarkup:
-    """Two per row: wide enough to read on a phone, dense enough to see at once."""
-    rows = [
-        [("💼 Portfolio", "home:portfolio"), ("👛 Wallet", "home:wallet")],
-        [("🔄 Swap", "home:swap"), ("📤 Send", "home:send")],
-        [("🏦 Lend & borrow", "home:lend"), ("📈 Perps", "home:perps")],
-        [("🖼 NFTs", "home:nft"), ("🚀 Launch a token", "home:launch")],
-        [("🌉 Bridge in", "home:bridge"), ("🛰 Alpha", "home:alpha")],
-        [("💬 Ask OPRAI", "home:ask"), ("🎟 Credits", "home:credits")],
-        [("🔁 Refresh", "home:refresh"), ("❓ Help", "home:help")],
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t, callback_data=d) for t, d in row] for row in rows
-    ])
+    """The home grid. Defined in `menu` so the icons and the flows that open
+    from them stay in one place."""
+    from app.handlers.menu import home_keyboard
+
+    return home_keyboard()
 
 
 async def card(telegram_id: int) -> str:
@@ -153,7 +145,6 @@ PROMPTS = {
 # Buttons that only read: run the command they stand for, right now.
 READS = {
     "portfolio": ("portfolio", "portfolio_cmd"),
-    "wallet": ("wallet", "wallet_cmd"),
     "lend": ("lend", "lend_router"),
     "perps": ("perps", "perps_cmd"),
     "nft": ("nft", "nft_cmd"),
@@ -194,6 +185,12 @@ async def home_button(cb: CallbackQuery) -> None:
     # this is a copy with the real person on it — assigning raises and takes
     # every update down with it.
     message = as_person(cb)
+
+    if what == "wallet":
+        from app.handlers.flows import wallets_menu
+
+        await wallets_menu(cb)
+        return
 
     if what == "refresh":
         try:
