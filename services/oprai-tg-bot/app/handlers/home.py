@@ -162,6 +162,17 @@ READS = {
 }
 
 
+def as_person(cb: CallbackQuery) -> Message:
+    """The callback's message, attributed to whoever pressed the button.
+
+    aiogram models are frozen, so this has to be a copy — assigning to
+    `from_user` raises a ValidationError that escapes the handler and stops
+    the bot processing updates at all. The bot binding is carried over so the
+    copy can still answer.
+    """
+    return cb.message.model_copy(update={"from_user": cb.from_user}).as_(cb.bot)
+
+
 class _Args:
     """Stand-in for aiogram's CommandObject: a button carries no arguments."""
 
@@ -179,8 +190,10 @@ async def home_button(cb: CallbackQuery) -> None:
     message = cb.message
 
     # The message a callback carries was sent by us, so anything downstream
-    # that reads from_user would see the bot. Point it at the person instead.
-    message.from_user = cb.from_user
+    # that reads from_user would see the bot. aiogram's Message is frozen, so
+    # this is a copy with the real person on it — assigning raises and takes
+    # every update down with it.
+    message = as_person(cb)
 
     if what == "refresh":
         try:
