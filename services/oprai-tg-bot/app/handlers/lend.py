@@ -24,6 +24,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import evm, morpho
@@ -78,11 +79,11 @@ async def lend_router(message: Message, command: CommandObject) -> None:
     try:
         addr, jwt, markets = await _context(user.id)
         if not markets:
-            await message.answer("No lending markets are available right now.")
+            await private_answer(message, "No lending markets are available right now.")
             return
         positions = await morpho.positions(jwt, addr)
     except (morpho.MorphoError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ Couldn't read the lending markets: {e}")
+        await private_answer(message, f"⚠️ Couldn't read the lending markets: {e}")
         return
 
     if verb == "lend":
@@ -149,7 +150,7 @@ async def _lend(message: Message, addr: str, jwt: str, markets: list[dict],
     want = int(Decimal(str(amount)) * (10 ** int(market["loanDecimals"])))
     if held < want:
         have = _human(held, market["loanDecimals"])
-        await message.answer(
+        await private_answer(message, 
             f"You hold <b>{_fmt(have)} {market['loanSymbol']}</b> and asked to "
             f"supply {_fmt(amount)}.\n\n"
             f"Get some with <code>/swap 0.05 ETH {market['loanSymbol']}</code>."
@@ -162,7 +163,7 @@ async def _lend(message: Message, addr: str, jwt: str, markets: list[dict],
     yearly = amount * float(market["supplyApy"] or 0)
     await audit(message.from_user.id, "lend_quoted",
                 {"amount": amount, "market": market["marketId"]})
-    await message.answer(
+    await private_answer(message, 
         f"<b>Supply {_fmt(amount)} {market['loanSymbol']}</b>\n\n"
         f"Rate: <b>{morpho.apy_pct(market['supplyApy']):.2f}%</b> — about "
         f"{_fmt(yearly)} {market['loanSymbol']} a year\n"
@@ -177,7 +178,7 @@ async def _borrow(message: Message, addr: str, jwt: str, markets: list[dict],
                   args: list[str]) -> None:
     amount = _amount(args[0]) if args else None
     if amount is None:
-        await message.answer(
+        await private_answer(message, 
             "Usage: <code>/borrow 50</code> — how much USDG you want.\n\n"
             "<i>I'll work out the collateral needed and check you have it.</i>"
         )
@@ -206,7 +207,7 @@ async def _borrow(message: Message, addr: str, jwt: str, markets: list[dict],
                 f"you have {_fmt(o['have'], 4)}"
             )
         lines += ["", "<i>Buy collateral with /swap, then try again.</i>"]
-        await message.answer("\n".join(lines))
+        await private_answer(message, "\n".join(lines))
         return
 
     pid = secrets.token_urlsafe(8)
@@ -220,7 +221,7 @@ async def _borrow(message: Message, addr: str, jwt: str, markets: list[dict],
     rows.append([InlineKeyboardButton(text="Cancel", callback_data=f"lnd:no:{pid}")])
 
     await audit(message.from_user.id, "borrow_quoted", {"amount": amount})
-    await message.answer(
+    await private_answer(message, 
         f"<b>Borrow {_fmt(amount)} USDG</b>\n\n"
         "Which collateral do you want to post?\n\n"
         f"<i>Sized to about {int(SAFE_LTV_FRACTION * 100)}% of what each market "
@@ -274,7 +275,7 @@ async def _close(message: Message, addr: str, jwt: str, markets: list[dict],
     field = "borrowAssets" if kind == "repay" else "supplyAssets"
     live = [p for p in positions if float(p.get(field) or 0) > 0]
     if not live:
-        await message.answer(
+        await private_answer(message, 
             "You have nothing to repay." if kind == "repay"
             else "You have nothing supplied to withdraw."
         )
@@ -287,12 +288,12 @@ async def _close(message: Message, addr: str, jwt: str, markets: list[dict],
         None,
     )
     if market is None:
-        await message.answer("That market isn't available right now.")
+        await private_answer(message, "That market isn't available right now.")
         return
 
     outstanding = float(position.get(field) or 0)
     if amount is not None and amount > outstanding:
-        await message.answer(
+        await private_answer(message, 
             f"You only have {_fmt(outstanding)} {position['loanSymbol']} "
             f"{'borrowed' if kind == 'repay' else 'supplied'}. "
             f"Send <code>/{kind}</code> on its own to close it out."
@@ -310,7 +311,7 @@ async def _close(message: Message, addr: str, jwt: str, markets: list[dict],
         "block, so the loan actually closes.</i>" if amount is None and kind == "repay"
         else ""
     )
-    await message.answer(
+    await private_answer(message, 
         f"<b>{verb} {shown}</b>\n"
         f"Market: {market['collateralSymbol']} / {market['loanSymbol']}\n\n{note}",
         reply_markup=_confirm_kb(pid, verb),

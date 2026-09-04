@@ -225,6 +225,19 @@ async def check_tokens() -> list[Deposit]:
         if (lg.get("transactionHash") or "", evm.to_int(lg.get("logIndex"))) in claimed
     ]
 
+    # Remember which tokens each wallet has touched. Every arrival passes
+    # through here — a swap's output included, since it lands as a Transfer to
+    # the wallet — so this is the cheap, complete answer to "what might they
+    # hold", and it saves the portfolio from reading the whole registry.
+    if fresh:
+        await pool().executemany(
+            """
+            INSERT INTO tg_wallet_tokens (telegram_id, address)
+            VALUES ($1, $2) ON CONFLICT DO NOTHING
+            """,
+            [(tid, (lg.get("address") or "").lower()) for lg, tid, _ in fresh],
+        )
+
     meta = await _token_meta({(lg.get("address") or "").lower() for lg, _, _ in fresh})
 
     deposits: list[Deposit] = []

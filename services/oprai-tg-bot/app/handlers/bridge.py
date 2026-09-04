@@ -19,6 +19,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import chains
@@ -80,7 +81,7 @@ async def bridge_cmd(message: Message, command: CommandObject) -> None:
     try:
         have = await _native_balance(addr, src.id)
     except (evm.EvmError, KeyError) as e:
-        await message.answer(f"⚠️ Couldn't read your {src.name} balance: {e}")
+        await private_answer(message, f"⚠️ Couldn't read your {src.name} balance: {e}")
         return
 
     if have < value:
@@ -91,7 +92,7 @@ async def bridge_cmd(message: Message, command: CommandObject) -> None:
         )
         return
 
-    await message.answer(f"Pricing {amount_str} ETH from {src.name} → Robinhood Chain…")
+    await private_answer(message, f"Pricing {amount_str} ETH from {src.name} → Robinhood Chain…")
     try:
         jwt = await auth_svc.get_jwt(user.id)
         params = relay.build_params(
@@ -105,7 +106,7 @@ async def bridge_cmd(message: Message, command: CommandObject) -> None:
         )
         q = await relay.quote(jwt, params)
     except (relay.RelayError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ No bridge route right now: {e}")
+        await private_answer(message, f"⚠️ No bridge route right now: {e}")
         return
 
     s = relay.summarize(q)
@@ -121,7 +122,8 @@ async def bridge_cmd(message: Message, command: CommandObject) -> None:
         InlineKeyboardButton(text="Cancel", callback_data=f"br:no:{pid}"),
     ]])
     await audit(user.id, "bridge_quoted", {"from": src.key, "amount": amount_str})
-    await message.answer(
+    await private_answer(
+        message,
         f"<b>Bridge {amount_str} ETH</b>\n{src.name} → Robinhood Chain\n\n"
         f"You receive: <b>{s['out']['amount']} {s['out']['symbol']}</b>{usd}{eta}\n\n"
         "<i>Signed on " + src.name + ", filled on Robinhood. Quote includes "

@@ -22,6 +22,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import evm, opensea
@@ -62,13 +63,13 @@ async def nft_cmd(message: Message, command: CommandObject) -> None:
             return
         await _collection(message, jwt, user.id, query)
     except (opensea.OpenSeaError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ Couldn't reach OpenSea: {e}")
+        await private_answer(message, f"⚠️ Couldn't reach OpenSea: {e}")
 
 
 async def _trending(message: Message, jwt: str) -> None:
     rows = await opensea.trending(jwt, limit=8)
     if not rows:
-        await message.answer("No collections are trading on Robinhood Chain right now.")
+        await private_answer(message, "No collections are trading on Robinhood Chain right now.")
         return
     lines = ["<b>NFTs</b> · trading now on Robinhood Chain", ""]
     for c in rows:
@@ -79,20 +80,22 @@ async def _trending(message: Message, jwt: str) -> None:
             f"{int(float(c.get('volume') or 0)):,} volume"
         )
     lines += ["", "<code>/nft &lt;name&gt;</code> to look at one · <code>/mynfts</code> for yours"]
-    await message.answer("\n".join(lines))
+    await private_answer(message, "\n".join(lines))
 
 
 async def _collection(message: Message, jwt: str, telegram_id: int, query: str) -> None:
     found = await opensea.resolve_collection(jwt, query)
     if not found:
-        await message.answer(
+        await private_answer(message, 
             f"I couldn't find a collection called <b>{query}</b> on Robinhood Chain.\n\n"
             "<code>/nft</code> on its own lists what's trading."
         )
         return
 
     slug = found["slug"]
-    note = await message.answer(f"Looking at <b>{found.get('name')}</b>…")
+    note = await private_answer(message, f"Looking at <b>{found.get('name')}</b>…")
+    if note is None:
+        return  # they haven't started the bot; the room already knows why
     addr = await wallet_svc.wallet_address(telegram_id)
     rows = await opensea.listings(jwt, slug, limit=SCAN_LISTINGS)
 
@@ -157,11 +160,11 @@ async def my_nfts(message: Message) -> None:
         jwt = await auth_svc.get_jwt(user.id)
         rows = await opensea.wallet_nfts(jwt, addr, limit=20)
     except (opensea.OpenSeaError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ Couldn't read your NFTs: {e}")
+        await private_answer(message, f"⚠️ Couldn't read your NFTs: {e}")
         return
 
     if not rows:
-        await message.answer(
+        await private_answer(message, 
             "You don't hold any NFTs on Robinhood Chain yet.\n\n"
             "<code>/nft</code> shows what's trading."
         )
@@ -173,7 +176,7 @@ async def my_nfts(message: Message) -> None:
             f"• <b>{n.get('name') or n.get('collection')}</b> #{n.get('identifier')}"
         )
     lines += ["", "Sell one with <code>/sell &lt;collection&gt; &lt;id&gt; &lt;price&gt;</code>"]
-    await message.answer("\n".join(lines))
+    await private_answer(message, "\n".join(lines))
 
 
 # ── sell ────────────────────────────────────────────────────────────────────
@@ -189,7 +192,7 @@ async def sell_cmd(message: Message, command: CommandObject) -> None:
     await upsert_tg_user(user.id, user.username)
     args = (command.args or "").split()
     if len(args) < 3:
-        await message.answer(
+        await private_answer(message, 
             "Usage: <code>/sell &lt;collection&gt; &lt;token id&gt; &lt;price&gt;</code>\n"
             "Example: <code>/sell rhmachines 8468 0.07</code>\n\n"
             "<i><code>/mynfts</code> lists what you hold.</i>"
@@ -210,14 +213,14 @@ async def sell_cmd(message: Message, command: CommandObject) -> None:
         jwt = await auth_svc.get_jwt(user.id)
         found = await opensea.resolve_collection(jwt, " ".join(name_parts))
         if not found:
-            await message.answer("I couldn't find that collection on Robinhood Chain.")
+            await private_answer(message, "I couldn't find that collection on Robinhood Chain.")
             return
         built = await opensea.build_listing(
             jwt, addr, token=found["contract"], token_id=token_id,
             price=price, slug=found["slug"],
         )
     except (opensea.OpenSeaError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ Couldn't prepare that listing: {e}")
+        await private_answer(message, f"⚠️ Couldn't prepare that listing: {e}")
         return
 
     currency = found.get("floorSymbol") or "ETH"
@@ -226,7 +229,7 @@ async def sell_cmd(message: Message, command: CommandObject) -> None:
                      "name": found.get("name"), "token_id": token_id,
                      "price": price, "currency": currency}
     needs_approval = bool(built.get("nftApprove"))
-    await message.answer(
+    await private_answer(message, 
         f"<b>List {found.get('name')} #{token_id}</b>\n\n"
         f"Price: <b>{_fmt(price)} {currency}</b>\n"
         f"Listing lasts 30 days\n\n"
