@@ -280,3 +280,28 @@ async def test_a_real_position_agrees_with_its_own_usd_value():
     finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+def test_each_venue_is_read_in_the_units_it_actually_speaks():
+    """The scale of an amount is a property of the venue, not a guess.
+
+    Morpho reports base units; Sushi reports base units; Relay and Uniswap
+    report display units (their field names say so); Lighter and OpenSea report
+    human numbers. Reading any of them in the wrong one is a millionfold error,
+    and it shipped once — so the expectation is written down rather than
+    rediscovered.
+    """
+    import inspect
+
+    from app.handlers import swap as swap_handler
+
+    # Sushi's expectedAmountOut is base units; the venue comparison must divide
+    # before it can be compared with Relay's display amount, or Sushi wins
+    # every trade on scale alone.
+    source = inspect.getsource(swap_handler._best_same_chain_route)
+    assert "10**dst_decimals" in source.replace(" ", ""), (
+        "Sushi's base-unit output is compared against Relay's display amount"
+    )
+
+    # Morpho scales where it reads, so nothing downstream has to remember.
+    assert "_to_human" in inspect.getsource(morpho.positions)
