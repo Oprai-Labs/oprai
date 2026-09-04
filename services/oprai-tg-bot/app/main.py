@@ -17,8 +17,8 @@ from aiogram.types import BotCommand
 from app.config import settings
 from app.db import close_pool, init_pool
 from app.handlers import (alpha, bridge, chat, common, copy, flows, home,
-                          launch, lend, nft, perps, portfolio, send, swap,
-                          wallet)
+                          intel, launch, lend, nft, perps, portfolio, send,
+                          swap, wallet)
 from app.logging_config import configure_logging, log
 from app.services import notify
 from app.services.alert_store import AlertStore
@@ -31,6 +31,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(common.router)
     dp.include_router(home.router)
     dp.include_router(flows.router)
+    dp.include_router(intel.router)
     dp.include_router(wallet.router)
     dp.include_router(portfolio.router)
     dp.include_router(alpha.router)
@@ -73,6 +74,7 @@ COMMANDS = [
     BotCommand(command="nft", description="NFTs on Robinhood Chain"),
     BotCommand(command="mynfts", description="NFTs you hold"),
     BotCommand(command="launch", description="Create a token"),
+    BotCommand(command="token", description="Analyse a token"),
     BotCommand(command="ask", description="Ask OPRAI anything"),
     BotCommand(command="credits", description="Conversation credits left"),
     BotCommand(command="help", description="All commands"),

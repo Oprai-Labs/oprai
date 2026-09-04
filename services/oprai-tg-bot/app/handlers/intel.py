@@ -1,0 +1,240 @@
+"""/token — the on-chain X-ray, without waiting on a model.
+
+Asking the assistant to analyse an address works, but it costs two LLM round
+trips on top of the data itself: about thirty seconds against six for the read
+alone. Worse, it varies — the same question sometimes came back "I couldn't
+fetch any data for this address" while the index was answering perfectly.
+
+So a plain address gets the real thing directly: our own index, rendered here.
+The assistant is still there for the open-ended questions that need it; this is
+for the one people ask most, where the answer is a known shape.
+"""
+
+from __future__ import annotations
+
+import re
+
+from aiogram import F, Router
+from aiogram.filters import Command, CommandObject
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
+from app.logging_config import log
+from app.services import tokens as tok
+from app.services.signals_client import SignalsClient, SignalsError
+
+router = Router(name="intel")
+
+ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+EXPLORER = "https://robinscan.io/token/"
+
+# Which risk band gets which mark. The number alone doesn't say whether 23 is
+# good; the word does.
+BANDS = ((30, "🟢", "low"), (60, "🟡", "medium"), (101, "🔴", "high"))
+
+
+def _band(score: float) -> tuple[str, str]:
+    for ceiling, mark, word in BANDS:
+        if score < ceiling:
+            return mark, word
+    return "🔴", "high"
+
+
+def _kpi(report: dict, *labels: str) -> str | None:
+    """KPIs arrive as a list of {label, value, fmt}; pull one out by name."""
+    for row in report.get("kpis") or []:
+        if str(row.get("label", "")).lower() in [x.lower() for x in labels]:
+            value = row.get("value")
+            return f"{value}%" if row.get("fmt") == "%" else str(value)
+    return None
+
+
+def render(report: dict, symbol: str | None, address: str,
+           market: dict | None = None) -> str:
+    facts = report.get("facts") or {}
+    score = facts.get("risk_score")
+    lines = []
+
+    if score is not None:
+        mark, word = _band(float(score))
+        lines.append(f"{mark} <b>Risk {score}/100</b> — {word}")
+    name = symbol or facts.get("symbol") or "Token"
+    lines.insert(0, f"🔬 <b>{name}</b> · Robinhood Chain")
+    lines.append("")
+
+    market = market or {}
+    for label, key in (("Price", "price"), ("Market cap", "mcap"),
+                       ("Liquidity", "liquidity"), ("24h volume", "volume")):
+        value = _usd(market.get(key)) or _kpi(report, label)
+        if value:
+            lines.append(f"• {label}: <b>{value}</b>")
+
+    holders = _kpi(report, "Holders")
+    age = _kpi(report, "Age (days)")
+    if holders:
+        lines.append(f"• Holders: <b>{holders}</b>" + (f" · {age} days old" if age else ""))
+
+    top10 = _kpi(report, "Top-10 wallet concentration")
+    lp = _kpi(report, "In LP pools")
+    burned = _kpi(report, "Burned")
+    if top10 or lp:
+        bits = []
+        if top10:
+            bits.append(f"top-10 {top10}")
+        if lp:
+            bits.append(f"LP {lp}")
+        if burned:
+            bits.append(f"burned {burned}")
+        lines.append("• Supply: " + " · ".join(bits))
+
+    whales = _kpi(report, "Whales (>1%)")
+    if whales:
+        lines.append(f"• Whales over 1%: <b>{whales}</b>")
+
+    launchpad = facts.get("launchpad")
+    if launchpad:
+        lines.append(f"• Launched via <b>{launchpad}</b>")
+
+    smart = facts.get("smart_money_holders")
+    if smart:
+        lines.append(
+            f"• Smart money: <b>{smart}</b> wallets"
+            + (f", {facts['smart_money_holding_pct']}% of supply"
+               if facts.get("smart_money_holding_pct") else "")
+        )
+
+    lines += ["", f"<code>{address}</code>"]
+    return "\n".join(lines)
+
+
+def _keyboard(address: str, symbol: str | None) -> InlineKeyboardMarkup:
+    buy = f"/swap 0.01 ETH {symbol}" if symbol else None
+    rows = [[InlineKeyboardButton(text="🔎 On the explorer",
+                                  url=f"{EXPLORER}{address}")]]
+    if buy:
+        rows.insert(0, [InlineKeyboardButton(
+            text=f"💱 Buy {symbol}", callback_data=f"swap:from:ETH")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _market(address: str) -> dict:
+    """Price, market cap, liquidity and 24h volume.
+
+    Our index carries none of these — it counts holders and traces wallets.
+    An analysis without a price is half an answer, so the pair is fetched
+    together and a failure costs only those four lines.
+    """
+    import httpx
+
+    url = f"https://api.dexscreener.com/latest/dex/tokens/{address}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as c:
+            r = await c.get(url)
+            pairs = (r.json() or {}).get("pairs") or []
+    except Exception as e:  # noqa: BLE001 — the X-ray stands without it
+        log.info("market_data_unavailable", token=address, error=str(e)[:120])
+        return {}
+
+    # The deepest pool is the honest price: a thin pair can quote anything.
+    on_chain = [p for p in pairs if str(p.get("chainId", "")).lower() in
+                ("robinhood", "4663")] or pairs
+    if not on_chain:
+        return {}
+    best = max(on_chain, key=lambda p: float((p.get("liquidity") or {}).get("usd") or 0))
+    return {
+        "price": best.get("priceUsd"),
+        "mcap": best.get("marketCap") or best.get("fdv"),
+        "liquidity": (best.get("liquidity") or {}).get("usd"),
+        "volume": (best.get("volume") or {}).get("h24"),
+    }
+
+
+def _usd(value) -> str | None:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:,.2f}M"
+    if n >= 1_000:
+        return f"${n / 1_000:,.1f}K"
+    return f"${n:,.4f}".rstrip("0").rstrip(".")
+
+
+async def analyse(message: Message, query: str) -> bool:
+    """Look a token up and show the X-ray. Returns whether we could."""
+    query = query.strip()
+    address, symbol = None, None
+
+    if ADDRESS.match(query):
+        address = query
+        found = await tok.resolve(query)
+        symbol = found[0]["symbol"] if found else None
+    else:
+        found = await tok.resolve(query)
+        if found:
+            address, symbol = found[0]["address"], found[0]["symbol"]
+
+    if not address:
+        return False
+
+    note = await private_answer(message, f"🔬 Reading the chain for <b>{symbol or query}</b>…")
+    import asyncio
+
+    try:
+        report, market = await asyncio.gather(
+            SignalsClient().token_report(address), _market(address)
+        )
+    except SignalsError as e:
+        log.warning("token_report_failed", token=address, error=str(e)[:160])
+        if note:
+            await note.edit_text(
+                "⚠️ The on-chain index isn't answering right now — try again shortly."
+            )
+        return True
+
+    await audit(message.from_user.id, "token_analysis", {"token": address})
+    if report.get("status") and report["status"] != "ok":
+        if note:
+            await note.edit_text(
+                f"I have no Robinhood-Chain data for <code>{address}</code>.\n\n"
+                "<i>It may live on another chain, or have no trading history here.</i>"
+            )
+        return True
+
+    text = render(report, symbol, address, market)
+    if note:
+        await note.edit_text(text, reply_markup=_keyboard(address, symbol),
+                             disable_web_page_preview=True)
+    return True
+
+
+@router.message(Command("token", "analyze", "analyse"))
+async def token_cmd(message: Message, command: CommandObject) -> None:
+    user = message.from_user
+    await upsert_tg_user(user.id, user.username)
+    query = (command.args or "").strip()
+    if not query:
+        await message.answer(
+            "🔬 <b>Analyse a token</b>\n\n"
+            "<code>/token NVDA</code> · <code>/token 0xe8ff…</code>\n\n"
+            "<i>Holders, concentration, liquidity, whales, launchpad and a risk "
+            "score — straight from our index.</i>"
+        )
+        return
+    if not await analyse(message, query):
+        await message.answer(
+            f"I don't know a token called <b>{query}</b> on Robinhood Chain."
+        )
+
+
+@router.message(F.text.regexp(ADDRESS))
+async def bare_address(message: Message) -> None:
+    """A bare address on its own is a request to look at it.
+
+    Nobody pastes a contract address to make conversation, and routing it
+    through the model cost thirty seconds to reach data we can read in six.
+    """
+    await upsert_tg_user(message.from_user.id, message.from_user.username)
+    await analyse(message, (message.text or "").strip())

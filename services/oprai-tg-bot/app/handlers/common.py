@@ -52,6 +52,8 @@ HELP = (
     "/nft — NFTs on Robinhood Chain · /mynfts · /sell\n"
     "/alpha — smart-money alerts · /track &lt;wallet&gt;\n"
     "/copy &lt;wallet&gt; [eth] — copy a wallet's buys, within your limits\n"
+    "/token &lt;address|symbol&gt; — on-chain X-ray: holders, whales,\n"
+    "    concentration, launchpad, risk score\n"
     "/credits — conversation credits left\n"
     "/help — this message\n\n"
     "<b>Just ask.</b> Send me a question — a token, your portfolio, a "
