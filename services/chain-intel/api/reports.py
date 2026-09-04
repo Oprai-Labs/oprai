@@ -56,10 +56,12 @@ _HOOK_LAUNCHPAD = {
 
 
 async def _hook_launchpad(t: str) -> str | None:
-    """Launchpad named by the hook of the token's FIRST V4 pool (None if unhooked/unknown)."""
+    """Launchpad named by a KNOWN launchpad hook on one of the token's V4 pools — the
+    earliest such pool wins (a token's very first pool is often an unhooked side pool)."""
+    known = "','".join(_HOOK_LAUNCHPAD)
     try:
         r = await ch.one(f"SELECT hooks FROM rh.dex_pools WHERE (token0='{t}' OR token1='{t}') "
-                         f"AND dex='uniswap-v4' ORDER BY created_block ASC LIMIT 1")
+                         f"AND dex='uniswap-v4' AND hooks IN ('{known}') ORDER BY created_block ASC LIMIT 1")
     except Exception:
         return None
     h = (r or {}).get("hooks") or ""
@@ -382,7 +384,8 @@ async def token_report(token: str) -> dict:
         dev_is_launchpad = launchpad is not None or dev_tokens > 100
         if dev_is_launchpad:
             dev_tokens, dev_rugs = 0, 0
-        launchpad = launchpad or ("a shared launchpad" if dev_is_launchpad else None)
+        if launchpad is None and dev_is_launchpad:
+            launchpad, launchpad_source = "a shared launchpad", "relayer with 100+ launches (unnamed)"
 
     # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
     # or "launched via a shared launchpad" from "dev holds none" (holding / sold /
@@ -610,7 +613,7 @@ async def token_report(token: str) -> dict:
             "volume_7d_usd": round(vol_7d, 2), "volume_total_usd": round(vol_all, 2),
             "swaps_24h": swaps_24h, "swaps_total": swaps_all,
             "venue_hook": venues[0]["hooks"] if venues else None,
-            "venue_hook_name": venues[0].get("hook_name") if venues else None,
+            "venue_hook_name": next((v["hook_name"] for v in venues if v.get("hook_name")), None) or hook_lp,
             "launchpad_source": launchpad_source,
             "scam_verdict": verdict, "scam_red_flags": red, "scam_warnings": amber,
             "sell_tax_bps": tax_bps,
