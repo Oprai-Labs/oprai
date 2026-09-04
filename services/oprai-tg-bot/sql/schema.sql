@@ -264,3 +264,43 @@ CREATE TABLE IF NOT EXISTS tg_wallet_tokens (
     first_seen  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (telegram_id, address)
 );
+
+-- A Telegram handle belongs to one account at a time. People rename, and the
+-- freed handle can be taken by someone else — so without this, two rows end up
+-- claiming the same handle and `/send … @name` resolves to whichever comes back
+-- first, which is how money reaches the person who used to own the name.
+-- Application code releases the handle from the old row; this makes the
+-- database refuse to hold two.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_users_username_unique
+    ON tg_users (lower(username)) WHERE username IS NOT NULL;
+
+-- ── Claimable transfers ─────────────────────────────────────────────────────
+-- Sending to a @handle that has never used the bot used to be a dead end: the
+-- recipient has no wallet, and Telegram will not let a bot message someone
+-- first, so we cannot even tell them. Instead the sender's intent is recorded
+-- and the sender forwards a link; the transfer runs when the recipient opens
+-- it and a wallet exists to receive it.
+--
+-- Nothing is escrowed. The funds stay in the sender's wallet until the claim,
+-- which means a claim can fail because they were spent — honest and
+-- recoverable, and far better than a pooled custody wallet nobody asked for.
+-- The claim is bound to the HANDLE, not to whoever holds the link, so it
+-- delivers to the person the sender named.
+CREATE TABLE IF NOT EXISTS tg_claims (
+    token            TEXT PRIMARY KEY,
+    from_telegram_id BIGINT NOT NULL REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    to_username      TEXT   NOT NULL,
+    token_address    TEXT,                -- NULL means native ETH
+    symbol           TEXT   NOT NULL,
+    amount_base      NUMERIC NOT NULL,
+    decimals         INT    NOT NULL,
+    status           TEXT   NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'claimed', 'expired', 'failed')),
+    tx_hash          TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at       TIMESTAMPTZ NOT NULL,
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_claims_pending
+    ON tg_claims (lower(to_username)) WHERE status = 'pending';
