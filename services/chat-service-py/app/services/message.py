@@ -647,6 +647,15 @@ _SOLANA_ANALYSIS_PREFIXES = ("birdeye_", "helius_", "dex_", "gmgn", "jup_")
 # they resolve to nothing and the model then reports "no data" instead of calling rh_*.
 _RH_KEEP_PREFIXES = ("rh_", "uniswap", "pools_trade", "poolstrade", "lighter", "morpho", "sushi", "opensea",
                      "evm", "relay", "pons", "lend_", "perp_", "limit_orders")
+# generic card type → (chain-intel query, param name) on a Robinhood-Chain turn
+_RH_REMAP = {
+    "token_info": ("rh_token_analysis", "token"), "price": ("rh_token_analysis", "token"),
+    "token_safety": ("rh_honeypot", "token"), "honeypot_check": ("rh_honeypot", "token"),
+    "scam_check": ("rh_token_analysis", "token"), "rug_check": ("rh_token_analysis", "token"),
+    "risk": ("rh_token_analysis", "token"),
+    "wallet_info": ("rh_wallet_analysis", "wallet"), "portfolio": ("rh_wallet_balances", "wallet"),
+    "balance": ("rh_wallet_balances", "wallet"), "positions": ("rh_wallet_balances", "wallet"),
+}
 _RH_KEEP_EXACT = frozenset({"balance", "portfolio", "positions", "capabilities", "wallet_info",
                             "token_safety", "honeypot_check", "scam_check", "rug_check"})
 # A ranking / cohort question: only the chain-intel tools can answer it (the launchpad
@@ -2432,6 +2441,22 @@ async def stream_chat_response(
                 yield f"data: {json.dumps({'action': d})}\n\n"
 
             elif isinstance(validated, ValidatedQuery):
+                # Robinhood-Chain remap. On a 0x / Robinhood turn the model still emits
+                # generic self-fetching card types (token_info, price, wallet_info,
+                # portfolio …) — Solana-shaped cards that render empty for an EVM
+                # address and leave the turn without an answer. Route them to the
+                # chain-intel report that actually answers on this chain.
+                _rh_turn = bool(_BARE_EVM_ADDR_RE.search(user_content or "") or _RH_CONTEXT_RE.search(user_content or ""))
+                if _rh_turn and validated.type.value in _RH_REMAP:
+                    _p = dict(validated.params or {})
+                    _addr = next((v for v in _p.values() if isinstance(v, str) and _BARE_EVM_ADDR_RE.fullmatch(v.strip())), None) \
+                        or (_BARE_EVM_ADDR_RE.search(user_content or "") or [None])[0]
+                    if isinstance(_addr, re.Match):
+                        _addr = _addr.group(0)
+                    _target, _key = _RH_REMAP[validated.type.value]
+                    if _addr:
+                        _log.info("rh remap: %s → %s (%s)", validated.type.value, _target, _addr[:12])
+                        validated = ValidatedQuery(type=QueryType(_target), params={_key: _addr.lower()})
                 # NFT-wallet scope guard. When a SINGLE NFT marketplace is tagged
                 # (@OpenSea / @Magic Eden / @Tensor) and the model reaches for the
                 # cross-cutting Solana `portfolio` tool — which is always in the
