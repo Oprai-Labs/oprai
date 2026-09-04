@@ -304,3 +304,16 @@ CREATE TABLE IF NOT EXISTS tg_claims (
 
 CREATE INDEX IF NOT EXISTS idx_tg_claims_pending
     ON tg_claims (lower(to_username)) WHERE status = 'pending';
+
+-- ── Wallet lifecycle ────────────────────────────────────────────────────────
+-- Creating a fresh wallet must never strand the old one. `UNIQUE (telegram_id,
+-- chain)` allowed exactly one, so a new wallet could only exist by replacing —
+-- and whatever the old address still held would be unreachable, since its key
+-- lives nowhere but that row. Archived wallets stay here, still exportable.
+ALTER TABLE tg_wallets ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
+ALTER TABLE tg_wallets DROP CONSTRAINT IF EXISTS tg_wallets_telegram_id_chain_key;
+
+-- One ACTIVE wallet per chain; any number of archived ones behind it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_wallets_active
+    ON tg_wallets (telegram_id, chain) WHERE archived_at IS NULL;

@@ -52,7 +52,7 @@ DEPOSIT_POLL_SECONDS = 8
 # by what a new user needs first, not alphabetically.
 COMMANDS = [
     BotCommand(command="start", description="Get started"),
-    BotCommand(command="wallet", description="Your Robinhood Chain wallet"),
+    BotCommand(command="wallet", description="Your wallet — new, import, export"),
     BotCommand(command="balance", description="ETH balance"),
     BotCommand(command="portfolio", description="Your holdings"),
     BotCommand(command="send", description="Send ETH, tokens or stocks"),

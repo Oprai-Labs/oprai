@@ -101,6 +101,16 @@ struct SignReq {
     enc_key_ref: String,
     message: String, // UTF-8 message (SIWS/SIWE auth text)
 }
+#[derive(Deserialize)]
+struct ExportReq {
+    chain: String,
+    enc_key_ref: String,
+}
+#[derive(Serialize)]
+struct ExportResp {
+    address: String,
+    secret: String,
+}
 #[derive(Serialize)]
 struct WalletResp {
     address: String,
@@ -228,6 +238,48 @@ async fn wallet_import(
         }),
         Err(e) => upstream(e.to_string()),
     }
+}
+
+/// Hand the user back their own private key.
+///
+/// Custody that cannot be left is not custody, it is a trap: without this a
+/// person's funds are only ever reachable through us. So the key can come out
+/// — but this is the one endpoint that returns plaintext key material, so it
+/// is gated like the others and the caller is expected to warn, confirm and
+/// audit before asking.
+async fn wallet_export(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    body: web::Json<ExportReq>,
+) -> HttpResponse {
+    if let Err(e) = require_auth(&req, &state) {
+        return e;
+    }
+    let vault = match require_vault(&state) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let chain = match Chain::parse(&body.chain) {
+        Ok(c) => c,
+        Err(e) => return bad(e.to_string()),
+    };
+    let secret = match vault.decrypt(&body.enc_key_ref).await {
+        Ok(s) => s,
+        Err(e) => return upstream(e.to_string()),
+    };
+    // Derive the address from the key rather than trusting the caller's: an
+    // exported key that doesn't match the wallet we showed would send someone
+    // to the wrong place with the right-looking confirmation.
+    let address = match crypto::address_from_secret(chain, &secret) {
+        Ok(a) => a,
+        Err(e) => return bad(e.to_string()),
+    };
+    let encoded = crypto::encode_secret(chain, &secret);
+    tracing::warn!(%address, "wallet key exported");
+    HttpResponse::Ok().json(ExportResp {
+        address,
+        secret: encoded,
+    })
 }
 
 async fn sign(
@@ -378,6 +430,7 @@ async fn main() -> anyhow::Result<()> {
             .route("/health", web::get().to(health))
             .route("/wallet/create", web::post().to(wallet_create))
             .route("/wallet/import", web::post().to(wallet_import))
+            .route("/wallet/export", web::post().to(wallet_export))
             // SIWS/SIWE auth signing + (later) tx signing all go through /sign,
             // with `chain` in the body.
             .route("/sign", web::post().to(sign))
