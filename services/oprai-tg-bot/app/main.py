@@ -60,6 +60,7 @@ COMMANDS = [
     BotCommand(command="balance", description="ETH balance"),
     BotCommand(command="portfolio", description="Your holdings"),
     BotCommand(command="send", description="Send ETH, tokens or stocks"),
+    BotCommand(command="pending", description="Transfers waiting to be claimed"),
     BotCommand(command="swap", description="Trade stocks and tokens"),
     BotCommand(command="bridge", description="Bring funds in from another chain"),
     BotCommand(command="long", description="Open a leveraged long"),
@@ -99,6 +100,22 @@ async def _watch_deposits(bot) -> None:
                 )
         except Exception as e:  # noqa: BLE001
             log.warning("deposit_watch_failed", error=str(e))
+
+        # A Lighter deposit the bridge has now credited. The person was told
+        # we would come back to them, so this is where we keep that promise.
+        try:
+            from app.services import auth as _auth
+            from app.services import lighter as _lighter
+
+            for done in await _lighter.settle_deposits(_auth.get_jwt):
+                await notify.send(
+                    bot, done["telegram_id"],
+                    f"✅ <b>Perps account funded</b> — "
+                    f"${float(done.get('collateral') or 0):,.2f} collateral.\n\n"
+                    f"Your {float(done['amount']):,.2f} USDG landed on Lighter.",
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("perps_deposit_settle_failed", error=str(e))
 
         # A payment whose receipt outlived its confirmation wait is a debt:
         # somebody paid and is owed a month. Settle it here rather than leaving

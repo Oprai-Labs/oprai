@@ -237,7 +237,7 @@ async def _offer_claim(message: Message, handle: str, amount_str: str,
         await message.answer(f"{amount_str} is below {symbol}'s smallest unit.")
         return
 
-    _, link = await claims.create(
+    token, link = await claims.create(
         from_telegram_id=user.id, to_username=handle, symbol=symbol,
         amount_base=amount_base, decimals=decimals, token_address=address,
     )
@@ -251,7 +251,55 @@ async def _offer_claim(message: Message, handle: str, amount_str: str,
         f"do — so keep the {symbol} there. Expires in "
         f"{claims.CLAIM_TTL_DAYS} days.</i>",
         disable_web_page_preview=True,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Cancel this transfer",
+                                 callback_data=f"claim:cancel:{token}"),
+        ]]),
     )
+
+
+@router.message(Command("pending"))
+async def pending_cmd(message: Message) -> None:
+    """What the sender still has committed — and a way out of each one."""
+    user = message.from_user
+    await upsert_tg_user(user.id, user.username)
+    waiting = await claims.pending_from(user.id)
+    if not waiting:
+        await private_answer(message, "You have no transfers waiting to be claimed.")
+        return
+
+    for row in waiting:
+        amount = claims.display(int(row["amount_base"]), row["decimals"])
+        await private_answer(
+            message,
+            f"<b>{amount} {row['symbol']}</b> waiting for @{row['to_username']}\n"
+            f"<i>Expires {row['expires_at']:%d %b}. Nothing has left your "
+            f"wallet.</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Cancel",
+                                     callback_data=f"claim:cancel:{row['token']}"),
+            ]]),
+        )
+
+
+@router.callback_query(F.data.startswith("claim:cancel:"))
+async def claim_cancel(cb: CallbackQuery) -> None:
+    token = cb.data.split(":", 2)[2]
+    try:
+        row = await claims.cancel(token, cb.from_user.id)
+    except claims.ClaimError as e:
+        await cb.answer(str(e), show_alert=True)
+        return
+    amount = claims.display(int(row["amount_base"]), row["decimals"])
+    await cb.answer("Cancelled")
+    await audit(cb.from_user.id, "claim_cancelled", {"to": row["to_username"]})
+    try:
+        await cb.message.edit_text(
+            f"Cancelled — <b>{amount} {row['symbol']}</b> is no longer waiting "
+            f"for @{row['to_username']}. The link won't work any more.",
+        )
+    except Exception:  # noqa: BLE001 — an edit that fails is cosmetic
+        pass
 
 
 @router.callback_query(F.data.startswith("send:"))

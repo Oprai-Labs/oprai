@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import datetime, timedelta, timezone
 
 from app.gateway_client import GatewayError, gateway
+from app.logging_config import log
 from app.services import evm
 from app.signer_client import SignerError, signer
 
@@ -152,6 +154,82 @@ async def onboard(jwt: str, enc_key_ref: str, wallet: str) -> dict:
     )
 
 
+async def remember_deposit(telegram_id: int, chat_id: int, wallet: str,
+                           tx_hash: str, amount: float) -> None:
+    """Record a deposit we are waiting on, so the wait outlives this process.
+
+    The bridge is someone else's, and it takes as long as it takes. Holding
+    that wait only in memory meant a restart — or simply a slow sweep — left a
+    person watching "waiting for Lighter to credit it…" for ever while the
+    money was already sitting credited on the other side.
+    """
+    from app.db import pool
+
+    await pool().execute(
+        """
+        INSERT INTO tg_perps_deposits
+            (tx_hash, telegram_id, chat_id, wallet, amount)
+        VALUES ($1, $2, $3, $4, $5::numeric)
+        ON CONFLICT (tx_hash) DO NOTHING
+        """,
+        tx_hash.lower(), telegram_id, chat_id, wallet.lower(), str(amount),
+    )
+
+
+async def mark_credited(tx_hash: str) -> bool:
+    """-> True if THIS call closed it, so only one path ever announces."""
+    from app.db import pool
+
+    row = await pool().fetchrow(
+        "UPDATE tg_perps_deposits SET status = 'credited', updated_at = now() "
+        " WHERE tx_hash = $1 AND status = 'pending' RETURNING tx_hash",
+        tx_hash.lower(),
+    )
+    return row is not None
+
+
+async def settle_deposits(get_jwt) -> list[dict]:
+    """Finish deposits the bridge has now credited.
+
+    Runs beside the deposit watcher. Returns the ones that landed, so the
+    caller can tell the person — which is the whole point of the row.
+    """
+    from app.db import pool
+
+    rows = await pool().fetch(
+        "SELECT tx_hash, telegram_id, chat_id, wallet, amount, created_at "
+        "  FROM tg_perps_deposits WHERE status = 'pending' "
+        " ORDER BY created_at LIMIT 25"
+    )
+    landed: list[dict] = []
+    for row in rows:
+        age = datetime.now(timezone.utc) - row["created_at"]
+        try:
+            jwt = await get_jwt(row["telegram_id"])
+            state = await account(jwt, row["wallet"])
+        except Exception as e:  # noqa: BLE001 — a failed check is not a verdict
+            log.info("perps_deposit_check_failed", tx=row["tx_hash"],
+                     error=str(e)[:120])
+            state = {}
+
+        if state.get("has_account"):
+            # Only the call that moves it out of 'pending' announces it, so the
+            # in-line wait and this reconciler cannot both message the person.
+            if await mark_credited(row["tx_hash"]):
+                landed.append({**dict(row), "collateral": state.get("collateral")})
+        elif age > timedelta(hours=DEPOSIT_GIVE_UP_HOURS):
+            # Still not credited after hours. Stop checking, and say so rather
+            # than leaving the row — and the person — waiting silently.
+            await pool().execute(
+                "UPDATE tg_perps_deposits SET status = 'gave_up', "
+                "updated_at = now() WHERE tx_hash = $1 AND status = 'pending'",
+                row["tx_hash"],
+            )
+            log.warning("perps_deposit_never_credited", tx=row["tx_hash"],
+                        telegram_id=row["telegram_id"])
+    return landed
+
+
 async def wait_for_account(jwt: str, wallet: str, timeout_s: float = 90.0) -> dict:
     """A deposit is swept by Lighter's bridge, not by us, so the account appears
     a little after the transfer confirms."""
@@ -161,6 +239,10 @@ async def wait_for_account(jwt: str, wallet: str, timeout_s: float = 90.0) -> di
         await asyncio.sleep(4)
         state = await account(jwt, wallet)
     return state
+
+
+# How long to keep asking before we admit it isn't coming.
+DEPOSIT_GIVE_UP_HOURS = 6
 
 
 # ── trading ─────────────────────────────────────────────────────────────────

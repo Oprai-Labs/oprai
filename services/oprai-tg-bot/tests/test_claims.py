@@ -240,3 +240,72 @@ async def test_a_claimed_transfer_stops_being_offered():
     finally:
         await _cleanup(sender)
         await close_pool()
+
+
+# ── taking it back ──────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_sender_can_take_back_an_unclaimed_transfer():
+    """Sending to a handle committed the sender to keeping the funds available
+    for a week with no way out — the only "cancel" was to spend the money so
+    the claim would fail, which is a workaround, not a decision."""
+    await init_pool()
+    sender = random.randint(10**10, 10**11)
+    try:
+        await upsert_tg_user(sender, f"sender_{sender}")
+        token, _ = await claims.create(
+            from_telegram_id=sender, to_username="@waiting", symbol="USDG",
+            amount_base=25 * 10**6, decimals=6, token_address="0x5fc5360d04",
+        )
+        assert len(await claims.pending_from(sender)) == 1
+
+        row = await claims.cancel(token, sender)
+        assert row["symbol"] == "USDG"
+        assert await claims.pending_from(sender) == []
+
+        # And the link is dead — with a reason that says what happened.
+        with pytest.raises(claims.ClaimError, match="cancelled"):
+            await claims.take(token, "waiting")
+    finally:
+        await _cleanup(sender)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_only_the_sender_can_cancel():
+    await init_pool()
+    sender = random.randint(10**10, 10**11)
+    stranger = sender + 1
+    try:
+        await upsert_tg_user(sender, f"sender_{sender}")
+        token, _ = await claims.create(
+            from_telegram_id=sender, to_username="@x", symbol="ETH",
+            amount_base=10**17, decimals=18, token_address=None,
+        )
+        with pytest.raises(claims.ClaimError):
+            await claims.cancel(token, stranger)
+        assert (await claims.get(token))["status"] == "pending", (
+            "a stranger cancelled someone else's transfer"
+        )
+    finally:
+        await _cleanup(sender, stranger)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_claim_already_taken_cannot_be_cancelled():
+    """The race that matters: the link is tapped at the same moment the sender
+    hits Cancel. One of them wins cleanly — never both."""
+    await init_pool()
+    sender = random.randint(10**10, 10**11)
+    try:
+        await upsert_tg_user(sender, f"sender_{sender}")
+        token, _ = await claims.create(
+            from_telegram_id=sender, to_username="@fast", symbol="NVDA",
+            amount_base=5 * 10**18, decimals=18, token_address="0xd0601CE157",
+        )
+        await claims.take(token, "fast")
+        with pytest.raises(claims.ClaimError, match="already been claimed"):
+            await claims.cancel(token, sender)
+    finally:
+        await _cleanup(sender)
+        await close_pool()

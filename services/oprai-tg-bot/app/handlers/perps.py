@@ -161,19 +161,28 @@ async def _deposit(message: Message, args: list[str]) -> None:
         return
 
     await audit(user.id, "perps_deposit", {"amount": amount, "hash": tx_hash})
-    await private_answer(message, 
+
+    # Record it BEFORE waiting. Lighter's bridge takes as long as it takes, and
+    # a wait held only in this task dies with a restart or with the timeout —
+    # which left people watching "waiting…" for ever while their money sat
+    # credited on the other side. The row is what lets us come back and say so.
+    await lighter.remember_deposit(user.id, message.chat.id, addr, tx_hash, amount)
+
+    await private_answer(message,
         f"⏳ Sent {_fmt(amount, 2)} USDG — waiting for Lighter to credit it…"
     )
     state = await lighter.wait_for_account(jwt, addr)
     if state.get("has_account"):
-        await private_answer(message, 
+        await lighter.mark_credited(tx_hash)
+        await private_answer(message,
             f"✅ Perps account funded — ${_fmt(float(state.get('collateral') or 0), 2)} "
             f"collateral.\n\n{TRADE_USAGE}"
         )
     else:
-        await private_answer(message, 
-            "⏳ The transfer landed but Lighter hasn't credited it yet. "
-            "It usually takes a moment — check /perps shortly."
+        await private_answer(message,
+            "⏳ Lighter hasn't credited it yet — their bridge sweeps on its own "
+            "schedule. I'll message you the moment it lands; you don't need to "
+            "keep checking."
         )
 
 

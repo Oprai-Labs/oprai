@@ -1286,6 +1286,56 @@ async def _resolve_tier_daily_token_cap(wallet: str) -> int | None:
         return None
 
 
+async def _commit_answer(db, assistant_msg, session_id: str, wallet: str) -> None:
+    """Save the answer, and don't lose it to a dropped connection.
+
+    The model had already produced the whole reply — it is sitting in memory,
+    complete — when the pooled connection went away underneath the session and
+    the commit raised. The work was done and the person got an error, which is
+    the worst way to fail: everything that cost anything had already been paid
+    for.
+
+    So a connection-level failure gets one retry on a session of its own. A
+    genuine constraint violation is not retried — it would fail the same way
+    twice and the second attempt would only delay the error.
+    """
+    from sqlalchemy.exc import DBAPIError, InterfaceError, PendingRollbackError
+
+    try:
+        await db.commit()
+        return
+    except (PendingRollbackError, InterfaceError, DBAPIError) as first:
+        _log.warning("answer_commit_failed — retrying on a fresh session: %s",
+                     str(first)[:200])
+
+    try:
+        await db.rollback()
+    except Exception:  # noqa: BLE001 — the session is already broken
+        pass
+
+    try:
+        from app.db.connection import async_session_factory
+
+        async with async_session_factory() as fresh:
+            fresh.add(
+                ChatMessage(
+                    id=assistant_msg.id,
+                    session_id=assistant_msg.session_id,
+                    wallet_address=assistant_msg.wallet_address,
+                    role="assistant",
+                    content=assistant_msg.content,
+                    metadata_=assistant_msg.metadata_,
+                )
+            )
+            await fresh.commit()
+        _log.info("answer_recovered session=%s", session_id)
+    except Exception:
+        # Nothing left to try. The reply still reaches the client on this
+        # stream; it just won't be in their history.
+        _log.error("answer_lost session=%s wallet=%s", session_id, wallet,
+                   exc_info=True)
+
+
 async def stream_chat_response(
     db: AsyncSession,
     session_id: str,
@@ -3946,7 +3996,7 @@ async def stream_chat_response(
             _log.debug("session counter/updated_at bump failed", exc_info=True)
         # Commit assistant message immediately — client may disconnect before
         # get_session's post-yield commit runs (title generation, [DONE] yield, etc.)
-        await db.commit()
+        await _commit_answer(db, assistant_msg, session_id, wallet)
 
         # Update the session_state snapshot so the next turn sees the latest
         # intent / candidates / pending decision. Best-effort: a model hiccup

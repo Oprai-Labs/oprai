@@ -35,13 +35,35 @@ def rpc_url(chain_id: int = CHAIN_ID) -> str:
     return chains.rpc_for(chain_id)
 
 
+def _why(e: Exception) -> str:
+    """Never report an empty reason.
+
+    Several httpx errors stringify to nothing, so "rpc unreachable: {e}" came
+    out as "rpc unreachable:" — a sentence that stops at the colon and tells a
+    reader less than saying nothing would. It reached the logs during an
+    outage and told us precisely nothing about it.
+    """
+    detail = str(e).strip()
+    return detail or e.__class__.__name__
+
+
 async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID) -> Any:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or []}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as c:
-            r = await c.post(rpc_url(chain_id), json=payload)
-    except httpx.HTTPError as e:
-        raise EvmError(f"rpc unreachable: {e}") from e
+    # One retry on a transport failure: a dropped keep-alive or a node
+    # restarting is a blip, and treating it as an outage stops a whole polling
+    # cycle for something that costs half a second to ride out.
+    last: Exception | None = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as c:
+                r = await c.post(rpc_url(chain_id), json=payload)
+            break
+        except httpx.HTTPError as e:
+            last = e
+            if attempt == 0:
+                await asyncio.sleep(0.4)
+                continue
+            raise EvmError(f"rpc unreachable: {_why(e)}") from e
     if r.status_code != 200:
         raise EvmError(f"rpc HTTP {r.status_code}")
     body = r.json()
@@ -67,7 +89,7 @@ async def rpc_batch(reqs: list[tuple[str, list]], chain_id: int = CHAIN_ID) -> l
             async with httpx.AsyncClient(timeout=30.0) as c:
                 r = await c.post(rpc_url(chain_id), json=payload)
         except httpx.HTTPError as e:
-            raise EvmError(f"rpc unreachable: {e}") from e
+            raise EvmError(f"rpc unreachable: {_why(e)}") from e
         if r.status_code != 429:
             break
         await asyncio.sleep(1.5 * (attempt + 1))

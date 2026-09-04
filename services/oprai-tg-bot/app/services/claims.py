@@ -94,6 +94,8 @@ async def take(token: str, claimer_username: str | None) -> dict:
         raise ClaimError("that link isn't valid.")
     if row["status"] == "claimed":
         raise ClaimError("that has already been claimed.")
+    if row["status"] == "cancelled":
+        raise ClaimError("the sender cancelled that transfer.")
     if row["status"] != "pending":
         raise ClaimError("that link has expired.")
     if row["expires_at"].timestamp() <= __import__("time").time():
@@ -116,6 +118,43 @@ async def take(token: str, claimer_username: str | None) -> dict:
     if claimed is None:
         raise ClaimError("that has already been claimed.")
     return dict(claimed)
+
+
+async def cancel(token: str, from_telegram_id: int) -> dict:
+    """Take it back, before anyone claims it.
+
+    A claim committed the sender to keeping the funds available for a week with
+    no way to change their mind — the only "cancel" was to spend the money so
+    the claim would fail, which is a workaround, not a decision. Only the
+    sender can do this, and only while it is still unclaimed: the same status
+    change that pays a claim is the one that blocks a cancel, so a link being
+    tapped at this exact moment wins or loses cleanly, never both.
+    """
+    row = await pool().fetchrow(
+        "UPDATE tg_claims SET status = 'cancelled', updated_at = now() "
+        " WHERE token = $1 AND from_telegram_id = $2 AND status = 'pending' "
+        "RETURNING token, to_username, symbol, amount_base, decimals",
+        token, from_telegram_id,
+    )
+    if row is None:
+        existing = await get(token)
+        if existing is None or existing["from_telegram_id"] != from_telegram_id:
+            raise ClaimError("that isn't one of your transfers.")
+        if existing["status"] == "claimed":
+            raise ClaimError("too late — that one has already been claimed.")
+        raise ClaimError("that transfer is no longer pending.")
+    return dict(row)
+
+
+async def pending_from(from_telegram_id: int) -> list[dict]:
+    """What a sender still has committed, so they can see it and take it back."""
+    rows = await pool().fetch(
+        "SELECT token, to_username, symbol, amount_base, decimals, expires_at "
+        "  FROM tg_claims WHERE from_telegram_id = $1 AND status = 'pending' "
+        "   AND expires_at > now() ORDER BY created_at",
+        from_telegram_id,
+    )
+    return [dict(r) for r in rows]
 
 
 async def mark_failed(token: str, reason: str = "") -> None:

@@ -420,3 +420,37 @@ CREATE INDEX IF NOT EXISTS idx_tg_topups_inflight
 -- ever seen is 60 questions and the busiest month 213.
 ALTER TABLE tg_credits ADD COLUMN IF NOT EXISTS month_used INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tg_credits ADD COLUMN IF NOT EXISTS month_start TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- A deposit we are waiting for a third party to credit.
+--
+-- Lighter's bridge sweeps the transfer, so the account appears some time after
+-- our transaction confirms. Waiting for that in memory meant the promise
+-- ("waiting for Lighter to credit it…") died with the process, or with the
+-- ninety-second timeout, and the person was left looking at a message that
+-- would never resolve while their money sat credited on the other side.
+--
+-- The row outlives both. A reconciler checks it until the account shows up and
+-- then tells them — a minute later or an hour later, whichever it is.
+CREATE TABLE IF NOT EXISTS tg_perps_deposits (
+    tx_hash     TEXT PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
+    chat_id     BIGINT NOT NULL,
+    wallet      TEXT   NOT NULL,
+    amount      NUMERIC NOT NULL,
+    status      TEXT   NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'credited', 'gave_up')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_perps_deposits_pending
+    ON tg_perps_deposits (created_at) WHERE status = 'pending';
+
+-- A sender's way out.
+--
+-- A claim committed the sender to keeping funds available for seven days with
+-- no way to change their mind: the only "cancel" was to spend the money so the
+-- claim would fail, which is a workaround, not a decision.
+ALTER TABLE tg_claims DROP CONSTRAINT IF EXISTS tg_claims_status_check;
+ALTER TABLE tg_claims ADD CONSTRAINT tg_claims_status_check
+    CHECK (status IN ('pending', 'claimed', 'failed', 'expired', 'cancelled'));
