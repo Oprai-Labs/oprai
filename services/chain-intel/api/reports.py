@@ -287,21 +287,13 @@ async def token_report(token: str) -> dict:
     smart_bought_usd = smart_sold_usd = 0.0
     smart_sellers = 0
     if smart_holders and await ch.table_exists("token_prices"):
+        # smart wallets' buys and sells of this token, in USD at trade time — from the
+        # actor-keyed trades table (projection by token), no price join needed
         sf = await ch.one(f"""
-          SELECT sumIf(usd, side='in') AS bought, sumIf(usd, side='out') AS sold,
-                 uniqExactIf(w, side='out') AS sellers
-          FROM (
-            SELECT x.amt/1e18 * p.price_usd AS usd, x.side AS side, x.w AS w
-            FROM (
-              SELECT tt.token AS tok, tt.timestamp AS ts, toFloat64(tt.value) AS amt,
-                     if(sw.wallet=tt.to_addr,'in','out') AS side,
-                     if(sw.wallet=tt.to_addr, tt.to_addr, tt.from_addr) AS w
-              FROM rh.token_transfers tt
-              INNER JOIN rh.smart_wallets sw ON (sw.wallet=tt.to_addr OR sw.wallet=tt.from_addr)
-              WHERE tt.token='{t}' AND tt.kind='erc20'
-            ) x
-            ASOF INNER JOIN rh.token_prices p ON p.token=x.tok AND p.timestamp <= x.ts
-          )""")
+          SELECT sumIf(t.usd, t.side='buy') AS bought, sumIf(t.usd, t.side='sell') AS sold,
+                 uniqExactIf(t.actor, t.side='sell') AS sellers
+          FROM rh.trades t INNER JOIN rh.smart_wallets sw ON sw.wallet = t.actor
+          WHERE t.token='{t}'""", timeout=10)
         smart_bought_usd = round(float(sf.get("bought") or 0), 2)
         smart_sold_usd = round(float(sf.get("sold") or 0), 2)
         smart_sellers = int(sf.get("sellers") or 0)
@@ -554,23 +546,39 @@ async def token_report(token: str) -> dict:
         dev_moved_to_wallets_pct = dev_sold_to_pool_pct = dev_burned_pct = None
         dev_out_wallets = None
 
+    # on-chain identity + the materialized stats (symbol/name from the node, ATH, mcap, drawdown)
+    sym_row = ts_full = None
+    try:
+        sym_row = await ch.one(f"SELECT symbol, name FROM rh.token_symbols WHERE token='{t}'", timeout=3)
+        ts_full = await ch.one(f"SELECT ath_mcap_usd, mcap_usd, drawdown, ath_multiple FROM rh.token_stats WHERE token='{t}'", timeout=3)
+    except Exception:
+        pass
+
     # Traded volume — every swap of this token, decoded, with the quote-side USD.
     vol_by_venue: list[dict] = []
     vol_24h = vol_7d = vol_all = 0.0
     swaps_24h = swaps_all = 0
     try:
+        # totals from the materialized per-token stats (ms); per-venue split from the
+        # projection-keyed trades table over the last 7 days
+        ts_row = await ch.one(f"SELECT vol_usd, vol_24h_usd, vol_7d_usd, trades, trades_24h FROM rh.token_stats WHERE token='{t}'", timeout=5)
+        if ts_row:
+            vol_all, vol_24h, vol_7d = float(ts_row["vol_usd"] or 0), float(ts_row["vol_24h_usd"] or 0), float(ts_row["vol_7d_usd"] or 0)
+            swaps_all, swaps_24h = int(ts_row["trades"] or 0), int(ts_row["trades_24h"] or 0)
         vr = await ch.q(f"""
-            SELECT dex, count() AS n, sum(usd) AS usd_all,
-                   countIf(timestamp > now() - INTERVAL 1 DAY) AS n24,
-                   sumIf(usd, timestamp > now() - INTERVAL 1 DAY) AS usd_24h,
-                   sumIf(usd, timestamp > now() - INTERVAL 7 DAY) AS usd_7d
-            FROM rh.dex_swaps WHERE token_in='{t}' OR token_out='{t}' GROUP BY dex ORDER BY usd_all DESC""", timeout=20)
+            SELECT venue AS dex, count() AS n, sum(usd) AS usd_7d, sumIf(usd, ts > now() - INTERVAL 1 DAY) AS usd_24h
+            FROM rh.trades WHERE token='{t}' AND ts > now() - INTERVAL 7 DAY GROUP BY venue ORDER BY usd_7d DESC""", timeout=10)
         for r in vr:
-            vol_by_venue.append({"venue": _DEX_LABEL.get(r["dex"], r["dex"]), "swaps": int(r["n"]),
-                                 "volume_usd": round(float(r["usd_all"] or 0), 2),
+            vol_by_venue.append({"venue": _DEX_LABEL.get(r["dex"], r["dex"]), "swaps_7d": int(r["n"]),
+                                 "volume_7d_usd": round(float(r["usd_7d"] or 0), 2),
                                  "volume_24h_usd": round(float(r["usd_24h"] or 0), 2)})
-            vol_all += float(r["usd_all"] or 0); vol_24h += float(r["usd_24h"] or 0); vol_7d += float(r["usd_7d"] or 0)
-            swaps_all += int(r["n"]); swaps_24h += int(r["n24"])
+        if not ts_row:   # token not yet in token_stats (brand new) — fall back to the swap table
+            vr2 = await ch.q(f"""SELECT count() AS n, sum(usd) AS u, countIf(timestamp > now() - INTERVAL 1 DAY) AS n24,
+                sumIf(usd, timestamp > now() - INTERVAL 1 DAY) AS u24, sumIf(usd, timestamp > now() - INTERVAL 7 DAY) AS u7
+                FROM rh.dex_swaps WHERE token_in='{t}' OR token_out='{t}'""", timeout=20)
+            if vr2:
+                r = vr2[0]; vol_all, vol_24h, vol_7d = float(r["u"] or 0), float(r["u24"] or 0), float(r["u7"] or 0)
+                swaps_all, swaps_24h = int(r["n"] or 0), int(r["n24"] or 0)
     except Exception:
         pass
 
@@ -655,6 +663,12 @@ async def token_report(token: str) -> dict:
             "smart_money_net_usd": smart_net_usd,
             "smart_money_sellers": smart_sellers,
             "risk_score": risk, "risk_label": risk_label,
+            "symbol_onchain": sym_row.get("symbol") if sym_row else None,
+            "name_onchain": sym_row.get("name") if sym_row else None,
+            "ath_mcap_usd": float(ts_full.get("ath_mcap_usd") or 0) if ts_full else None,
+            "mcap_usd": float(ts_full.get("mcap_usd") or 0) if ts_full else None,
+            "drawdown_from_ath": round(float(ts_full.get("drawdown") or 0), 3) if ts_full else None,
+            "ath_multiple": round(float(ts_full.get("ath_multiple") or 0), 1) if ts_full else None,
             "venues": venues, "primary_dex": venues[0]["dex"] if venues else None,
             "volume_by_venue": vol_by_venue, "volume_24h_usd": round(vol_24h, 2),
             "volume_7d_usd": round(vol_7d, 2), "volume_total_usd": round(vol_all, 2),
