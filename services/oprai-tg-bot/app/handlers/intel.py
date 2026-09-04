@@ -37,6 +37,12 @@ ADDRESS_IN_TEXT = re.compile(r"0x[0-9a-fA-F]{40}")
 # the dev") is a list that is always one phrasing short. It was: "hangi
 # launchpad'de basıldı, hacmi ne?" went to the model, took twenty-four seconds
 # and came back "no data", while the index held both answers.
+# Words that make an address a wallet question, not a token look-up.
+WALLET_WORDS = (
+    "wallet", "cüzdan", "cuzdan", "p&l", "pnl", "win rate", "portfolio", "portföy", "portfoy",
+    "balance", "bakiye", "holds", "holding", "hold ", "where is", "parked", "positions", "pozisyon",
+    "smart money?", "is it a bot", "bot mu", "kazan", "how much money", "ne kadar para", "net worth",
+)
 ACTION_WORDS = (
     "send", "gönder", "gonder", "transfer", "yolla",
     "swap", "buy", "sell", "satın", "satin", "sat ", "al ",
@@ -61,6 +67,8 @@ def wants_a_look(text: str) -> str | None:
     rest = (text or "").replace(found.group(0), " ").strip().lower()
     if any(w in rest for w in ACTION_WORDS):
         return None
+    if any(w in rest for w in WALLET_WORDS):
+        return None          # a question about a WALLET — the assistant's wallet tools answer it
     return found.group(0)
 EXPLORER = "https://robinscan.io/token/"
 
@@ -231,13 +239,15 @@ async def analyse(message: Message, query: str) -> bool:
 
     await audit(message.from_user.id, "token_analysis", {"token": address})
     if report.get("status") and report["status"] != "ok":
+        # Not a token we know. It may well be a WALLET — hand the message to the
+        # assistant (its wallet tools answer P&L / holdings) instead of declaring
+        # the address dead.
         if note:
-            await note.edit_text(
-                f"Nothing on Robinhood Chain for <code>{address}</code>.\n\n"
-                "<i>Either it hasn't traded here yet, or it isn't a token. I only "
-                "read this chain — that's the whole point of me.</i>"
-            )
-        return True
+            try:
+                await note.delete()
+            except Exception:  # noqa: BLE001
+                pass
+        return False
 
     text = render(report, symbol, address, market)
     if note:
