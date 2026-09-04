@@ -10,11 +10,12 @@ a group is one shared scope, because in a room the quota belongs to the room —
 an admin tops it up once and everyone draws from it, which is how a group bot
 is expected to behave.
 
-Free and purchased credits are counted apart. The free allowance is a per
-window ration: it refills on a rolling window so a quiet week restores a group
-without anyone asking, and it does NOT carry over, or an idle scope would
-accumulate free model calls for ever. Purchased credits are property — they
-never expire and are spent only once the ration is gone.
+The window allowance is a ration: it refills on a rolling window so a quiet
+day restores a group without anyone asking, and it does NOT carry over, or an
+idle scope would accumulate free model calls for ever. A subscription raises
+that ration rather than removing it, so the ceiling that stops a runaway loop
+keeps protecting everyone. Granted credits (an admin gift, an apology) are
+property — they never expire and are spent only once the ration is gone.
 """
 
 from __future__ import annotations
@@ -33,10 +34,16 @@ class Balance:
     is_group: bool
     free_used: int
     paid: int
+    # What this scope is allowed per window. A subscription raises it rather
+    # than bypassing the meter, so the ceiling that stops a runaway loop keeps
+    # working for subscribers too — and every path that already refunds,
+    # reports and enforces goes on working unchanged.
+    allowance: int = 0
+    subscribed: bool = False
 
     @property
     def free_left(self) -> int:
-        return max(free_allowance(self.is_group) - self.free_used, 0)
+        return max(self.allowance - self.free_used, 0)
 
     @property
     def remaining(self) -> int:
@@ -55,13 +62,22 @@ def free_allowance(is_group: bool) -> int:
     )
 
 
+async def allowance_for(scope_id: int, is_group: bool) -> tuple[int, bool]:
+    """-> (questions allowed this window, whether it is a paid allowance)."""
+    from app.services import subscriptions
+
+    if await subscriptions.is_live(scope_id):
+        return settings.OPRAI_TG_SUB_DAILY_CREDITS, True
+    return free_allowance(is_group), False
+
+
 def _window() -> timedelta:
     return timedelta(hours=max(settings.OPRAI_TG_FREE_WINDOW_HOURS, 1))
 
 
-def _balance(row) -> Balance:
+def _balance(row, allowance: int, subscribed: bool = False) -> Balance:
     return Balance(row["scope_id"], row["is_group"], int(row["free_used"]),
-                   int(row["paid"]))
+                   int(row["paid"]), allowance, subscribed)
 
 
 async def _ledger(scope_id: int, telegram_id: int | None, delta: int,
@@ -99,10 +115,11 @@ async def balance(scope_id: int, is_group: bool) -> Balance:
         """,
         scope_id, is_group, _window(),
     )
+    allowance, subscribed = await allowance_for(scope_id, is_group)
     if row["created"]:
-        await _ledger(scope_id, None, free_allowance(is_group), "free_window",
+        await _ledger(scope_id, None, allowance, "free_window",
                       {"group": is_group})
-    return _balance(row)
+    return _balance(row, allowance, subscribed)
 
 
 async def spend(scope_id: int, is_group: bool, telegram_id: int,
@@ -113,8 +130,8 @@ async def spend(scope_id: int, is_group: bool, telegram_id: int,
     The check and the charge are one statement: two messages sent at the same
     moment must not both pass a check against the same last credit.
     """
-    await balance(scope_id, is_group)  # ensure the row exists / window is fresh
-    allowance = free_allowance(is_group)
+    current = await balance(scope_id, is_group)  # row exists / window is fresh
+    allowance, subscribed = current.allowance, current.subscribed
     row = await pool().fetchrow(
         """
         UPDATE tg_credits
@@ -130,7 +147,7 @@ async def spend(scope_id: int, is_group: bool, telegram_id: int,
     if row is None:
         return None
     await _ledger(scope_id, telegram_id, -amount, "spend", detail)
-    return _balance(row)
+    return _balance(row, allowance, subscribed)
 
 
 async def refund(scope_id: int, telegram_id: int, amount: int = 1,
@@ -154,90 +171,16 @@ async def refund(scope_id: int, telegram_id: int, amount: int = 1,
     await _ledger(scope_id, telegram_id, amount, "refund", {"reason": reason})
 
 
-async def record_payment(scope_id: int, is_group: bool, telegram_id: int,
-                         tx_hash: str, paid_wei: int, amount: int,
-                         *, currency: str = "ETH", usd: float | None = None,
-                         rate: float | None = None) -> bool:
-    """Claim a payment's transaction hash before it is credited.
-
-    Returns False when the hash is already known — the payment was seen by
-    another attempt, and the caller must not treat it as new.
-    """
-    row = await pool().fetchrow(
-        """
-        INSERT INTO tg_topups
-            (tx_hash, scope_id, telegram_id, oprai_wei, credits, status,
-             currency, usd, rate_usd)
-        VALUES ($1, $2, $3, $4::numeric, $5, 'pending', $6, $7::numeric, $8::numeric)
-        ON CONFLICT (tx_hash) DO NOTHING
-        RETURNING tx_hash
-        """,
-        tx_hash.lower(), scope_id, telegram_id, str(paid_wei), amount,
-        currency.upper(), None if usd is None else str(usd),
-        None if rate is None else str(rate),
-    )
-    return row is not None
-
-
-async def settle_payment(tx_hash: str, *, succeeded: bool) -> Balance | None:
-    """Turn a confirmed payment into credits, exactly once.
-
-    The status change and the grant are tied together by the UPDATE: only the
-    attempt that moves the row out of 'pending' grants anything, so a retry, a
-    restart and the reconciler can all race without minting twice. A reverted
-    payment is closed as failed and grants nothing.
-    """
-    row = await pool().fetchrow(
-        """
-        UPDATE tg_topups
-           SET status = $2, updated_at = now()
-         WHERE tx_hash = $1 AND status = 'pending'
-        RETURNING scope_id, telegram_id, credits, oprai_wei, currency, usd
-        """,
-        tx_hash.lower(), "credited" if succeeded else "failed",
-    )
-    if row is None or not succeeded:
-        return None
-
-    is_group = row["scope_id"] < 0  # Telegram group ids are negative
-    return await grant(
-        row["scope_id"], is_group, int(row["credits"]), row["telegram_id"],
-        "topup", {"tx": tx_hash.lower(), "paid_wei": str(row["oprai_wei"]),
-                  "currency": row["currency"],
-                  "usd": None if row["usd"] is None else float(row["usd"])},
-    )
-
-
-async def pending_payments(older_than_seconds: int = 20) -> list[dict]:
-    """Payments that were sent but whose receipt we never saw.
-
-    Someone paid and is owed credits; the only honest options are to finish
-    the job or to say we didn't. This is the first.
-    """
-    rows = await pool().fetch(
-        """
-        SELECT tx_hash, scope_id, telegram_id, credits
-          FROM tg_topups
-         WHERE status = 'pending'
-           AND created_at < now() - make_interval(secs => $1)
-         ORDER BY created_at
-         LIMIT 25
-        """,
-        older_than_seconds,
-    )
-    return [dict(r) for r in rows]
-
-
 async def grant(scope_id: int, is_group: bool, amount: int,
                 telegram_id: int | None = None, reason: str = "topup",
                 detail: dict | None = None) -> Balance:
     """Add purchased credits — an admin top-up, or a paid one. These never
     expire, so they are not touched by the window."""
-    await balance(scope_id, is_group)
+    current = await balance(scope_id, is_group)
     row = await pool().fetchrow(
         "UPDATE tg_credits SET paid = paid + $2, updated_at = now() "
         "WHERE scope_id = $1 RETURNING scope_id, is_group, free_used, paid",
         scope_id, amount,
     )
     await _ledger(scope_id, telegram_id, amount, reason, detail)
-    return _balance(row)
+    return _balance(row, current.allowance, current.subscribed)

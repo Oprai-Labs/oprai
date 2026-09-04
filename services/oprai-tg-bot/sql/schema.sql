@@ -357,12 +357,36 @@ CREATE TABLE IF NOT EXISTS tg_inflight (
     PRIMARY KEY (chat_id, message_id)
 );
 
--- What a top-up was actually paid in, and what it was sold for.
+-- What a payment was actually made in, and what it was sold for.
 --
--- Payments started in $OPRAI and are now taken in ETH, so an amount alone no
--- longer says what was received: 0.004 of one asset is not 0.004 of another.
--- The USD figure is the price the pack was sold at, frozen at the moment of
--- sale — a later move in either asset must not rewrite what someone paid.
-ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'OPRAI';
+-- An amount alone does not say what was received once more than one asset can
+-- pay. The USD figure is the price at the moment of sale, frozen: a later move
+-- in ETH must not rewrite what somebody paid for their month.
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'ETH';
 ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS usd NUMERIC;
 ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS rate_usd NUMERIC;
+
+-- A paid month.
+--
+-- One row per scope, extended rather than replaced: paying again while still
+-- subscribed adds to the end instead of throwing away what is left, so an
+-- early renewal never costs somebody days they already bought.
+--
+-- `expires_at` is the whole truth about whether a subscription is live. There
+-- is no "active" flag to drift out of step with it, and no job that has to run
+-- on time for a subscription to lapse — it lapses because the clock passes it.
+CREATE TABLE IF NOT EXISTS tg_subscriptions (
+    scope_id    BIGINT PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
+    is_group    BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    -- Lifetime totals, for deciding how much has come in to buy back with.
+    paid_wei    NUMERIC NOT NULL DEFAULT 0,
+    paid_usd    NUMERIC NOT NULL DEFAULT 0,
+    months      INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_subscriptions_live
+    ON tg_subscriptions (expires_at DESC);

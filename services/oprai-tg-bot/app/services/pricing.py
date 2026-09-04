@@ -1,14 +1,17 @@
-"""What $OPRAI is worth right now.
+"""What ETH is worth right now.
 
-Credits are priced in dollars and paid in $OPRAI. That needs a live rate, and
-the rate has to come from the market rather than from a number written down
-once: pegging a pack to a fixed token amount meant the same ten questions cost
-twice as much after the token doubled and half as much after it dumped, which
-is a price nobody chose.
+The subscription is priced in dollars and paid in ETH, so the rate has to come
+from the market rather than from a number written down once — a fixed ETH
+price would quietly change what a month costs every time ETH moved.
 
-The deepest pool is the price. If it can't be read we do not sell — a top-up
-converted at a guessed rate either overcharges the buyer or hands out credits
-for nothing, and both are worse than asking them to try again in a minute.
+The rate is read from the deepest stablecoin pool on this chain, not from our
+own token's pool: $OPRAI has $29k of liquidity and USDG has $8.1M, and if the
+$OPRAI pool ever thinned out or stopped trading we would lose the ability to
+sell a subscription that has nothing to do with it.
+
+If no trustworthy rate can be read we do not sell. A payment converted at a
+guessed rate either overcharges the buyer or takes their money for less than a
+month, and both are worse than asking them to try again in a minute.
 """
 
 from __future__ import annotations
@@ -22,16 +25,18 @@ from app.logging_config import log
 
 DEXSCREENER = "https://api.dexscreener.com/latest/dex/tokens/{address}"
 
-# Long enough that a burst of top-ups makes one request, short enough that the
+# Long enough that a burst of sign-ups makes one request, short enough that the
 # quoted rate is one someone could still trade at.
 _TTL_SECONDS = 120
 
 # A pool this thin prices nothing: the mid-price of a near-empty pair moves on
 # a single dust trade, so a rate derived from it is noise, not a price.
-_MIN_LIQUIDITY_USD = 1_000.0
+_MIN_LIQUIDITY_USD = 50_000.0
 
-_cached: float | None = None
-_cached_at: float = 0.0
+# How far the stablecoin may drift from a dollar before we stop treating it as
+# one. A depegged anchor would silently rewrite the ETH price we derive from it.
+_PEG_TOLERANCE = 0.05
+
 _eth_cached: float | None = None
 _eth_cached_at: float = 0.0
 
@@ -40,68 +45,13 @@ class PriceUnavailable(RuntimeError):
     """No trustworthy rate. Callers must refuse to price, never guess."""
 
 
-async def oprai_usd(*, force: bool = False) -> float:
-    """Dollars per $OPRAI, from the deepest pool. Raises PriceUnavailable."""
-    global _cached, _cached_at
-
-    now = time.monotonic()
-    if not force and _cached and now - _cached_at < _TTL_SECONDS:
-        return _cached
-
-    price = _deepest_price(await _fetch_pairs())
-    if price is None:
-        raise PriceUnavailable("couldn't read the $OPRAI price")
-
-    _cached, _cached_at = price, now
-    return price
-
-
-async def _fetch_pairs() -> list[dict]:
-    """The market's own record for this token. Raises PriceUnavailable."""
-    url = DEXSCREENER.format(address=settings.OPRAI_TG_TOKEN_ADDRESS)
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.get(url)
-        payload = r.json() if r.status_code == 200 else {}
-    except (httpx.HTTPError, ValueError) as e:
-        log.info("price_source_unavailable", error=str(e)[:120])
-        raise PriceUnavailable("couldn't read the market price") from e
-    return payload.get("pairs") or []
-
-
-def _deepest_price(pairs: list[dict]) -> float | None:
-    """The price from the pool with the most liquidity behind it.
-
-    Several pairs can quote the same token at very different prices; the one
-    with real depth is the one a trade would actually clear against.
-
-    A pool that has not traded in a day is skipped even when it is the
-    deepest: its last price is a memory of the last trade rather than what
-    the token is worth now, and a top-up converted at a remembered price is
-    converted at a made-up one.
-    """
-    best: tuple[float, float] | None = None  # (liquidity, price)
-    for pair in pairs:
-        try:
-            price = float(pair.get("priceUsd") or 0)
-            liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
-            traded = float((pair.get("volume") or {}).get("h24") or 0)
-        except (TypeError, ValueError):
-            continue
-        if price <= 0 or liquidity < _MIN_LIQUIDITY_USD or traded <= 0:
-            continue
-        if best is None or liquidity > best[0]:
-            best = (liquidity, price)
-    return best[1] if best else None
-
-
 async def eth_usd(*, force: bool = False) -> float:
     """Dollars per ETH on this chain. Raises PriceUnavailable.
 
-    Derived from the same pair we already fetch: a DEX quote carries both the
-    native price and the dollar price of the token, and their ratio is what
-    the market says the native asset is worth. Checked against an independent
-    spot price when this was written — 0.17% apart, which is lag, not error.
+    Derived from a stablecoin pair quoted in ETH: the pair says both what the
+    stablecoin costs in dollars and what it costs in ETH, and the ratio of the
+    two is what the market says ETH is worth. Verified against an independent
+    spot price when this was written — 0.2% apart, which is lag, not error.
     """
     global _eth_cached, _eth_cached_at
 
@@ -109,7 +59,35 @@ async def eth_usd(*, force: bool = False) -> float:
     if not force and _eth_cached and now - _eth_cached_at < _TTL_SECONDS:
         return _eth_cached
 
-    pairs = await _fetch_pairs()
+    price = _eth_from(await _fetch_pairs(settings.OPRAI_TG_STABLE_ADDRESS))
+    if price is None:
+        raise PriceUnavailable("couldn't read the ETH price")
+
+    _eth_cached, _eth_cached_at = price, now
+    return price
+
+
+async def _fetch_pairs(address: str) -> list[dict]:
+    """The market's own record for a token. Raises PriceUnavailable."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(DEXSCREENER.format(address=address))
+        payload = r.json() if r.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError) as e:
+        log.info("price_source_unavailable", error=str(e)[:120])
+        raise PriceUnavailable("couldn't read the market price") from e
+    return payload.get("pairs") or []
+
+
+def _eth_from(pairs: list[dict]) -> float | None:
+    """ETH in dollars, from the deepest live stablecoin pair quoted in ETH.
+
+    Three things disqualify a pair, and each one has bitten somebody:
+    a pool too thin to price anything, a pool that has not traded in a day
+    (its last price is a memory of the last trade), and a "stablecoin" that
+    is no longer worth a dollar — the last would rewrite the ETH price
+    without any of the arithmetic looking wrong.
+    """
     best: tuple[float, float] | None = None  # (liquidity, eth price)
     for pair in pairs:
         try:
@@ -119,42 +97,32 @@ async def eth_usd(*, force: bool = False) -> float:
             traded = float((pair.get("volume") or {}).get("h24") or 0)
         except (TypeError, ValueError):
             continue
-        # Only a pair quoted in the native asset says what the native asset is
-        # worth; one quoted in a stablecoin says nothing about ETH.
-        if usd <= 0 or native <= 0 or liquidity < _MIN_LIQUIDITY_USD or traded <= 0:
+        quote = ((pair.get("quoteToken") or {}).get("symbol") or "").upper()
+        if quote not in ("ETH", "WETH"):
             continue
-        if (pair.get("quoteToken") or {}).get("symbol", "").upper() not in ("ETH", "WETH"):
+        if usd <= 0 or native <= 0:
+            continue
+        if liquidity < _MIN_LIQUIDITY_USD or traded <= 0:
+            continue
+        if abs(usd - 1.0) > _PEG_TOLERANCE:
+            log.warning("stable_anchor_depegged", price_usd=usd)
             continue
         if best is None or liquidity > best[0]:
             best = (liquidity, usd / native)
-
-    if best is None:
-        raise PriceUnavailable("couldn't read the ETH price")
-    _eth_cached, _eth_cached_at = best[1], now
-    return best[1]
+    return best[1] if best else None
 
 
-def credits_cost_usd(credits: int) -> float:
-    return credits * settings.OPRAI_TG_CREDIT_PRICE_USD
+def subscription_usd() -> float:
+    return float(settings.OPRAI_TG_SUB_PRICE_USD)
 
 
-async def credits_cost(credits: int, currency: str) -> tuple[float, float, float]:
-    """-> (amount of `currency` to pay, usd price of the pack, rate used).
+async def subscription_cost_eth() -> tuple[float, float, float]:
+    """-> (ETH to pay, dollar price, rate used).
 
-    The rate is returned with the amount so the caller can show what it
-    converted at and record it: a receipt that says only "you paid 0.00406
-    ETH" cannot be checked later by the person who paid it.
+    The rate travels with the amount so it can be shown and recorded: a
+    receipt that says only "you paid 0.004067 ETH" cannot be checked later by
+    the person who paid it.
     """
-    usd = credits_cost_usd(credits)
-    rate = await (eth_usd() if currency.upper() == "ETH" else oprai_usd())
+    usd = subscription_usd()
+    rate = await eth_usd()
     return usd / rate, usd, rate
-
-
-def packs() -> list[int]:
-    """Credit pack sizes, smallest first."""
-    sizes: list[int] = []
-    for chunk in str(settings.OPRAI_TG_CREDIT_PACKS).split(","):
-        chunk = chunk.strip()
-        if chunk.isdigit() and int(chunk) > 0:
-            sizes.append(int(chunk))
-    return sorted(set(sizes))

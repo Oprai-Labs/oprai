@@ -28,29 +28,24 @@ from app.db import audit, upsert_tg_user
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import chat as chat_svc
-from app.services import credits, pricing, topups
+from app.services import credits, pricing, subscriptions
 
 router = Router(name="chat")
-
-_topups: dict[str, dict] = {}
-
-# Which asset someone chose to pay in, until they choose otherwise. ETH is the
-# default: it is the gas token, so a wallet that can transact already holds it.
-_pay_in: dict[int, str] = {}
 
 # How often the growing answer is edited into the message. Telegram throttles
 # edits, and a message that updates every token reads as a stutter.
 EDIT_INTERVAL_SECONDS = 1.6
 
 OUT_OF_CREDITS_PRIVATE = (
-    "You're out of conversation credits for now.\n\n"
-    "They refill every {hours}h. Commands like /swap, /send and /long keep "
-    "working — only asking OPRAI questions uses credits."
+    "That's your questions for today.\n\n"
+    "They refill every {hours}h, or /subscribe raises the daily limit. "
+    "Commands like /swap, /send and /long keep working either way — only "
+    "asking OPRAI questions is metered."
 )
 OUT_OF_CREDITS_GROUP = (
-    "This group is out of conversation credits.\n\n"
-    "They refill every {hours}h, or an admin can top the group up — see "
-    "/topup. Trading commands keep working either way."
+    "That's this group's questions for today.\n\n"
+    "They refill every {hours}h, or an admin can /subscribe to raise the "
+    "daily limit. Trading commands keep working either way."
 )
 
 
@@ -74,223 +69,140 @@ def _strip_mention(text: str, username: str) -> str:
     return text.replace(f"@{username}", " ").strip()
 
 
-# ── credits ─────────────────────────────────────────────────────────────────
-@router.message(Command("credits"))
+# ── the subscription ────────────────────────────────────────────────────────
+_NO_PRICE = (
+    "I can't read a reliable ETH price right now, so I won't quote a "
+    "subscription — converting at a guessed rate would charge you the wrong "
+    "amount. Try again in a minute."
+)
+
+_PITCH = (
+    "<b>OPRAI Pro</b>\n\n"
+    "Questions to OPRAI use one credit each. You get <b>{free}</b> a day for "
+    "free; Pro raises that to <b>{pro}</b> a day for <b>${usd:,.2f}</b> a "
+    "month.\n\n"
+    "Token scans, /swap, /send, /long and every other command are free either "
+    "way — only asking OPRAI questions is metered.\n\n"
+    "Paid in ETH from your wallet at the live rate "
+    "(<code>${rate:,.2f}</code> per ETH)."
+)
+
+
+def _sub_keyboard(eth: float) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"✅ Subscribe · {_fmt_amount(eth)} ETH",
+                             callback_data="sub:go"),
+    ]])
+
+
+@router.message(Command("credits", "subscription", "sub"))
 async def credits_cmd(message: Message) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     scope_id, is_group = _scope(message)
     bal = await credits.balance(scope_id, is_group)
+    sub = await subscriptions.get(scope_id)
 
     where = "This group" if is_group else "You"
-    lines = [
-        f"<b>Conversation credits</b>\n",
-        f"{where} can ask <b>{bal.remaining}</b> more question"
-        f"{'' if bal.remaining == 1 else 's'}.",
-        f"  · {bal.free_left} free (refills every {settings.OPRAI_TG_FREE_WINDOW_HOURS}h)",
-    ]
+    lines = [f"<b>Credits</b>\n"]
+    if sub and sub.live:
+        lines += [
+            f"<b>Pro</b> — {sub.days_left} day"
+            f"{'' if sub.days_left == 1 else 's'} left.",
+            f"{where} can ask <b>{bal.free_left}</b> more today "
+            f"(of {bal.allowance}).",
+        ]
+    else:
+        lines += [
+            f"{where} can ask <b>{bal.free_left}</b> more today "
+            f"(of {bal.allowance} free).",
+            "",
+            f"<i>Pro raises that to {settings.OPRAI_TG_SUB_DAILY_CREDITS} a "
+            f"day — /subscribe</i>",
+        ]
     if bal.paid:
-        lines.append(f"  · {bal.paid} topped up (never expire)")
+        lines.append(f"  · {bal.paid} extra credits (never expire)")
     lines += [
         "",
-        "<i>Only questions to OPRAI use credits. Trading commands don't — "
-        "they already pay the normal trading fee.</i>",
+        "<i>Only questions to OPRAI use credits. Trading commands don't.</i>",
     ]
     await message.answer("\n".join(lines))
 
 
-@router.message(Command("topup"))
-async def topup_cmd(message: Message, command: CommandObject) -> None:
-    """Buy credits, paid from the user's own bot wallet.
+@router.message(Command("subscribe", "topup", "pro"))
+async def subscribe_cmd(message: Message) -> None:
+    """Buy a month, paid in ETH from the user's own bot wallet.
 
-    The wallet is already ours to sign with, so there is no reason to make
-    someone leave, send a transfer by hand and wait for a human to notice the
-    hash. They name an amount, confirm, and the credits land when the transfer
-    confirms.
+    The wallet is already ours to sign with, so nobody has to leave the chat,
+    send a transfer by hand and wait for someone to notice the hash.
     """
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     scope_id, is_group = _scope(message)
 
     if is_group and not await _is_group_admin(message):
-        await message.answer(
-            "Only a group admin can top up this group's credits."
-        )
+        await message.answer("Only a group admin can subscribe this group.")
         return
 
-    currency = _pay_in.get(user.id, "ETH")
-    wanted = _parse_credits((command.args or "").strip())
-    if wanted is None:
-        await _show_packs(message, is_group, currency)
-        return
-    if wanted < settings.OPRAI_TG_MIN_TOPUP_CREDITS:
-        await message.answer(
-            f"The smallest top-up is {settings.OPRAI_TG_MIN_TOPUP_CREDITS} credits."
-        )
-        return
-    await _offer_pack(message, scope_id, is_group, user.id, wanted, currency)
-
-
-_NO_PRICE = (
-    "I can't read a reliable price right now, so I won't quote a top-up — "
-    "converting at a guessed rate would charge you the wrong amount. Try "
-    "again in a minute."
-)
-
-
-async def _show_packs(message: Message, is_group: bool,
-                      currency: str = "ETH") -> None:
-    """The menu. Packs are priced in dollars and converted at the live rate,
-    so the dollar figure is the promise and the token amount follows it."""
-    in_eth = currency.upper() == "ETH"
+    sub = await subscriptions.get(scope_id)
     try:
-        rate = await (pricing.eth_usd() if in_eth else pricing.oprai_usd())
+        eth, usd, rate = await subscriptions.cost()
     except pricing.PriceUnavailable:
         await message.answer(_NO_PRICE)
         return
 
-    rows = []
-    for size in pricing.packs():
-        usd = pricing.credits_cost_usd(size)
-        rows.append([InlineKeyboardButton(
-            text=f"{size:,} credits · ${usd:,.0f}",
-            callback_data=f"top:pack:{size}",
-        )])
-    rows.append([InlineKeyboardButton(
-        text="Pay in $OPRAI instead" if in_eth else "Pay in ETH instead",
-        callback_data="top:cur:OPRAI" if in_eth else "top:cur:ETH",
-    )])
-
-    who = "this group" if is_group else "you"
-    await message.answer(
-        f"<b>Credits</b>\n\n"
-        f"Questions to OPRAI cost <b>1 credit</b> each. Token scans, /swap, "
-        f"/send and every other command stay free.\n\n"
-        f"Paid in {'ETH' if in_eth else '$OPRAI'} from your wallet, priced in "
-        f"dollars at the live rate "
-        f"(<code>{f'${rate:,.2f}' if in_eth else f'${rate:.8f}'}</code> per "
-        f"{'ETH' if in_eth else '$OPRAI'}). Credits never expire, and they "
-        f"land in {who}.\n\n"
-        f"<i>Or name your own: <code>/topup 300</code></i>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-    )
+    text = _PITCH.format(free=credits.free_allowance(is_group),
+                         pro=settings.OPRAI_TG_SUB_DAILY_CREDITS,
+                         usd=usd, rate=rate)
+    if sub and sub.live:
+        text += (f"\n\n<i>Already Pro — {sub.days_left} days left. Paying "
+                 f"again adds a month to the end, it doesn't replace it.</i>")
+    await message.answer(text, reply_markup=_sub_keyboard(eth))
 
 
-async def _offer_pack(message: Message, scope_id: int, is_group: bool,
-                      telegram_id: int, credits_wanted: int,
-                      currency: str = "ETH") -> None:
-    """Quote one pack and hold the quote behind a confirm button.
+@router.callback_query(F.data == "sub:go")
+async def subscribe_confirm(cb: CallbackQuery) -> None:
+    is_group = cb.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    if is_group and not await _is_group_admin(cb.message, cb.from_user.id):
+        await cb.answer("Only a group admin can subscribe this group.",
+                        show_alert=True)
+        return
+    scope_id = cb.message.chat.id if is_group else cb.from_user.id
 
-    The rate is fixed at the moment of quoting and carried through to the
-    payment, so the amount on the button is the amount that leaves the wallet.
-    """
+    # Quote at the moment of paying, not at the moment the message was posted:
+    # a button tapped an hour later must not charge an hour-old ETH price.
     try:
-        amount, usd, rate = await pricing.credits_cost(credits_wanted, currency)
+        eth, usd, _ = await subscriptions.cost()
     except pricing.PriceUnavailable:
-        await message.answer(_NO_PRICE)
-        return
-
-    pid = secrets.token_urlsafe(8)
-    _topups[pid] = {"telegram_id": telegram_id, "scope_id": scope_id,
-                    "is_group": is_group, "amount": amount, "currency": currency,
-                    "credits": credits_wanted, "usd": usd, "rate": rate}
-    label = "ETH" if currency == "ETH" else "$OPRAI"
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(amount)} {label}",
-                             callback_data=f"top:ok:{pid}"),
-        InlineKeyboardButton(text="Cancel", callback_data=f"top:no:{pid}"),
-    ]])
-    rate_shown = f"${rate:,.2f}" if currency == "ETH" else f"${rate:.8f}"
-    await message.answer(
-        f"<b>Top up {'this group' if is_group else 'your credits'}</b>\n\n"
-        f"<b>{credits_wanted:,}</b> credits · <b>${usd:,.2f}</b> "
-        f"· {_fmt_amount(amount)} {label}\n\n"
-        f"Rate: <code>{rate_shown}</code> per {label} (plus gas)\n\n"
-        "<i>Credits never expire.</i>",
-        reply_markup=kb,
-    )
-
-
-@router.callback_query(F.data.startswith("top:"))
-async def topup_confirm(cb: CallbackQuery) -> None:
-    _, action, pid = cb.data.split(":", 2)
-
-    # A pack button opens the quote for that size — the button in the menu is
-    # a choice, not a payment, and the amount is only fixed on the next screen.
-    if action == "cur":
         await cb.answer()
-        _pay_in[cb.from_user.id] = "OPRAI" if pid.upper() == "OPRAI" else "ETH"
-        is_group = cb.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
-        await _show_packs(cb.message, is_group, _pay_in[cb.from_user.id])
+        await cb.message.edit_text(_NO_PRICE)
         return
 
-    if action == "pack":
-        if not pid.isdigit():
-            await cb.answer()
-            return
-        await cb.answer()
-        is_group = cb.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
-        if is_group and not await _is_group_admin(cb.message, cb.from_user.id):
-            await cb.answer("Only a group admin can top up this group.",
-                            show_alert=True)
-            return
-        scope_id = cb.message.chat.id if is_group else cb.from_user.id
-        await _offer_pack(cb.message, scope_id, is_group, cb.from_user.id,
-                          int(pid), _pay_in.get(cb.from_user.id, "ETH"))
-        return
-
-    p = _topups.get(pid)
-    if not p:
-        await cb.answer("This top-up expired. Run /topup again.", show_alert=True)
-        return
-    if cb.from_user.id != p["telegram_id"]:
-        await cb.answer("This isn't your top-up.", show_alert=True)
-        return
-    if action == "no":
-        _topups.pop(pid, None)
-        await cb.answer("Cancelled")
-        await cb.message.edit_text("Cancelled — nothing was paid.")
-        return
-
-    _topups.pop(pid, None)
     await cb.answer()
     await cb.message.edit_text("Paying…")
-
     try:
-        balance = await topups.pay(
-            p["telegram_id"], p["amount"],
-            on_sent=lambda: cb.message.edit_text("⏳ Paid — waiting for the transfer to confirm…"),
-            scope_id=p["scope_id"], is_group=p["is_group"], credits=p["credits"],
-            currency=p.get("currency", "ETH"), usd=p.get("usd"),
-            rate=p.get("rate"),
+        sub = await subscriptions.pay(
+            cb.from_user.id, scope_id=scope_id, is_group=is_group,
+            eth=eth, usd=usd,
+            on_sent=lambda: cb.message.edit_text(
+                "⏳ Paid — waiting for the transfer to confirm…"),
         )
-    except topups.TopupError as e:
-        log.warning("topup_failed", telegram_id=p["telegram_id"], error=str(e)[:200])
-        await audit(p["telegram_id"], "topup_failed", {"error": str(e)[:200]})
+    except subscriptions.SubscriptionError as e:
+        log.warning("subscribe_failed", telegram_id=cb.from_user.id,
+                    error=str(e)[:200])
+        await audit(cb.from_user.id, "subscribe_failed", {"error": str(e)[:200]})
         await cb.message.edit_text(f"❌ {e}")
         return
 
-    await audit(p["telegram_id"], "topup",
-                {"amount": p["amount"], "currency": p.get("currency"),
-                 "credits": p["credits"],
-                 "usd": p.get("usd"), "rate": p.get("rate"),
-                 "group": p["is_group"]})
+    await audit(cb.from_user.id, "subscribe",
+                {"eth": eth, "usd": usd, "group": is_group,
+                 "months": sub.months})
     await cb.message.edit_text(
-        f"✅ <b>{p['credits']:,} credits added.</b>\n\n"
-        f"{'This group' if p['is_group'] else 'You'} can now ask "
-        f"<b>{balance.remaining}</b> questions."
+        f"✅ <b>OPRAI Pro is live.</b>\n\n"
+        f"{settings.OPRAI_TG_SUB_DAILY_CREDITS} questions a day, "
+        f"{sub.days_left} days left.\n\n"
+        f"<i>Thanks — this is what pays for the model.</i>"
     )
-
-
-def _parse_credits(text: str) -> int | None:
-    """How many credits they asked for. `/topup 300` buys 300 questions."""
-    try:
-        value = Decimal(text.lstrip("$").replace(",", "").strip())
-    except (InvalidOperation, ValueError, ArithmeticError):
-        return None
-    if value <= 0:
-        return None
-    return int(value)
 
 
 def _fmt_amount(x: float) -> str:
