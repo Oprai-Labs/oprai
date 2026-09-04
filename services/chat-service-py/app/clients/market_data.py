@@ -2826,6 +2826,36 @@ async def rh_honeypot(token: str, amount: float | None = None) -> dict:
     return res
 
 
+@query_tool(optional=["by", "limit", "launchpad", "launched_days"], tags={"analysis", "dex"})
+async def rh_top_tokens(by: str = "volume_24h", limit: int = 10, launchpad: str | None = None,
+                        launched_days: int | None = None) -> dict:
+    """Robinhood-Chain TOKEN RANKINGS from the analytics layer: top tokens by
+    `volume_24h` (default) | `volume_7d` | `buyers_24h` | `mcap` | `trades_24h` |
+    `ath_multiple`, with symbol, 24h/7d volume, 24h buyers, mcap, ATH mcap, drawdown,
+    launchpad, holders. Optional `launchpad` (exact name, e.g. Doppler, Pons, Clanker)
+    and `launched_days` (only tokens launched in the last N days). Use for "top / most
+    traded / biggest / hottest tokens", "best performers", "highest volume launches this
+    week"."""
+    q = {"by": by, "limit": int(limit or 10)}
+    if launchpad:
+        q["launchpad"] = launchpad
+    if launched_days:
+        q["launched_days"] = int(launched_days)
+    qs = "&".join(f"{k}={httpx.QueryParams({k: v})[k]}" for k, v in q.items())
+    return await _chain_intel(f"/analytics/top-tokens?{qs}", timeout=20.0)
+
+
+@query_tool(optional=["days"], tags={"analysis", "dex"})
+async def rh_launchpad_stats(days: int = 30) -> dict:
+    """Robinhood-Chain LAUNCHPAD COHORTS over the last `days` (default 30): per
+    launchpad (Pons, Doppler, Clanker, letscash.fun, Klik, Flaunch, o1, LONG, pools.trade,
+    direct pool …) — tokens launched, graduated %, hit $100K / $1M ATH mcap %, 10x
+    runners, rugged % (price collapse), dead % (no trades 3 days), alive 24h, median
+    and best ATH mcap, volume. Use for "compare launchpads", "which launchpad has the
+    best graduation / hit rate / highest rug rate", "is Clanker better than Doppler"."""
+    return await _chain_intel(f"/analytics/launchpads?days={int(days or 30)}", timeout=20.0)
+
+
 @query_tool(required=["sql"], optional=["purpose", "limit"], tags={"analysis", "portfolio", "dex"})
 async def rh_sql(sql: str, purpose: str = "", limit: int = 200) -> dict:
     """Run ONE read-only SQL SELECT over Robinhood-Chain's clean analytics tables

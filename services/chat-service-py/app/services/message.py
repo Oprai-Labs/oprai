@@ -642,6 +642,13 @@ _RH_CONTEXT_RE = re.compile(
     r"dev(eloper)? (track record|history|hit)|ath market cap|drawdown)\b", re.I)
 # Solana-only analysis query_types (take a Solana mint/wallet; error on a 0x addr).
 _SOLANA_ANALYSIS_PREFIXES = ("birdeye_", "helius_", "dex_", "gmgn", "jup_")
+# What survives on a Robinhood-Chain turn: the chain-intel tools plus EVM protocol tools.
+# Generic aliases (token_info, trending, knowledge, price …) are dropped — on this chain
+# they resolve to nothing and the model then reports "no data" instead of calling rh_*.
+_RH_KEEP_PREFIXES = ("rh_", "uniswap", "pools_trade", "poolstrade", "lighter", "morpho", "sushi", "opensea",
+                     "evm", "relay", "pons", "lend_", "perp_", "limit_orders")
+_RH_KEEP_EXACT = frozenset({"balance", "portfolio", "positions", "capabilities", "wallet_info",
+                            "token_safety", "honeypot_check", "scam_check", "rug_check"})
 _SOLANA_ANALYSIS_EXACT = frozenset({
     "bundle_ring_analysis", "kol_discovery_feed", "holders_robust", "tvl_robust",
 })
@@ -1904,6 +1911,7 @@ async def stream_chat_response(
             _kept = [
                 q for q in _enum
                 if not q.startswith(_SOLANA_ANALYSIS_PREFIXES) and q not in _SOLANA_ANALYSIS_EXACT
+                and (q.startswith(_RH_KEEP_PREFIXES) or q in _RH_KEEP_EXACT)
             ]
             if _kept and len(_kept) < len(_enum):
                 _qt["enum"] = _kept

@@ -532,6 +532,8 @@ class QueryType(str, Enum):
     RH_WALLET_SMART_PROFILE = "rh_wallet_smart_profile"
     RH_WALLET_BALANCES = "rh_wallet_balances"
     RH_SQL = "rh_sql"
+    RH_TOP_TOKENS = "rh_top_tokens"
+    RH_LAUNCHPAD_STATS = "rh_launchpad_stats"
     BIRDEYE_SEARCH = "birdeye_search"
     BIRDEYE_PRICE_HISTORY = "birdeye_price_history"
     # DexScreener
