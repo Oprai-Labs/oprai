@@ -98,8 +98,14 @@ class Settings(BaseSettings):
     # $OPRAI on Robinhood Chain — what a top-up is paid in. Verified on chain:
     # symbol OPRAI, 18 decimals.
     OPRAI_TG_TOKEN_ADDRESS: str = "0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac"
-    OPRAI_TG_CREDITS_PER_OPRAI: int = 10
-    OPRAI_TG_MIN_TOPUP_OPRAI: int = 1
+
+    # A credit is priced in DOLLARS and paid in $OPRAI at the live rate. The
+    # old peg — a fixed 10 questions per $OPRAI — made the price follow the
+    # token: the same pack cost twice as much after a 2x and half as much
+    # after a dump, which is a price nobody decided on.
+    OPRAI_TG_CREDIT_PRICE_USD: float = 0.02
+    OPRAI_TG_CREDIT_PACKS: str = "500,1000,2500"
+    OPRAI_TG_MIN_TOPUP_CREDITS: int = 50
 
     # ── Server ───────────────────────────────────────────────────────────────
     PORT: int = 3055

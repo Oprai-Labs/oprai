@@ -28,7 +28,7 @@ from app.db import audit, upsert_tg_user
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import chat as chat_svc
-from app.services import credits, topups
+from app.services import credits, pricing, topups
 
 router = Router(name="chat")
 
@@ -107,8 +107,6 @@ async def topup_cmd(message: Message, command: CommandObject) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     scope_id, is_group = _scope(message)
-    rate = settings.OPRAI_TG_CREDITS_PER_OPRAI
-    minimum = settings.OPRAI_TG_MIN_TOPUP_OPRAI
 
     if is_group and not await _is_group_admin(message):
         await message.answer(
@@ -116,41 +114,86 @@ async def topup_cmd(message: Message, command: CommandObject) -> None:
         )
         return
 
-    amount = _parse_amount((command.args or "").strip())
-    if amount is None:
-        who = "this group" if is_group else "you"
+    wanted = _parse_credits((command.args or "").strip())
+    if wanted is None:
+        await _show_packs(message, is_group)
+        return
+    if wanted < settings.OPRAI_TG_MIN_TOPUP_CREDITS:
         await message.answer(
-            f"<b>Top up credits</b>\n\n"
-            f"<code>/topup &lt;amount&gt;</code> pays $OPRAI from your wallet and "
-            f"credits {who} at <b>{rate} questions per $OPRAI</b>.\n\n"
-            f"Example: <code>/topup 10</code> → {10 * rate} questions\n"
-            f"Minimum: {minimum} $OPRAI\n\n"
-            "<i>Credits are spent only on questions to OPRAI — trading "
-            "commands are never charged for.</i>"
+            f"The smallest top-up is {settings.OPRAI_TG_MIN_TOPUP_CREDITS} credits."
         )
         return
-    if amount < minimum:
-        await message.answer(f"The minimum top-up is {minimum} $OPRAI.")
+    await _offer_pack(message, scope_id, is_group, user.id, wanted)
+
+
+def _price_line(credits: int, oprai: float, usd: float) -> str:
+    return (f"<b>{credits:,}</b> credits · <b>${usd:,.2f}</b> "
+            f"· ≈ {_fmt_amount(oprai)} $OPRAI")
+
+
+async def _show_packs(message: Message, is_group: bool) -> None:
+    """The menu. Packs are priced in dollars and converted at the live rate,
+    so the dollar figure is the promise and the token amount follows it."""
+    try:
+        rate = await pricing.oprai_usd()
+    except pricing.PriceUnavailable:
+        await message.answer(
+            "I can't read the $OPRAI price right now, so I can't quote a "
+            "top-up. Try again in a minute."
+        )
         return
 
-    granted = int(amount * rate)
-    if granted <= 0:
-        await message.answer("That amount is too small to buy a credit.")
+    rows = []
+    for size in pricing.packs():
+        usd = pricing.credits_cost_usd(size)
+        rows.append([InlineKeyboardButton(
+            text=f"{size:,} credits · ${usd:,.0f}",
+            callback_data=f"top:pack:{size}",
+        )])
+
+    who = "this group" if is_group else "you"
+    await message.answer(
+        f"<b>Credits</b>\n\n"
+        f"Questions to OPRAI cost <b>1 credit</b> each. Token scans, /swap, "
+        f"/send and every other command stay free.\n\n"
+        f"Paid in $OPRAI from your wallet, priced in dollars at the live rate "
+        f"(<code>${rate:.8f}</code> per $OPRAI). Credits never expire, and "
+        f"they land in {who}.\n\n"
+        f"<i>Or name your own: <code>/topup 300</code></i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def _offer_pack(message: Message, scope_id: int, is_group: bool,
+                      telegram_id: int, credits_wanted: int) -> None:
+    """Quote one pack and hold the quote behind a confirm button.
+
+    The rate is fixed at the moment of quoting and carried through to the
+    payment, so the amount on the button is the amount that leaves the wallet.
+    """
+    try:
+        oprai, usd, rate = await pricing.credits_cost_oprai(credits_wanted)
+    except pricing.PriceUnavailable:
+        await message.answer(
+            "I can't read the $OPRAI price right now, so I can't quote a "
+            "top-up. Try again in a minute."
+        )
         return
 
     pid = secrets.token_urlsafe(8)
-    _topups[pid] = {"telegram_id": user.id, "scope_id": scope_id,
-                    "is_group": is_group, "amount": amount, "credits": granted}
+    _topups[pid] = {"telegram_id": telegram_id, "scope_id": scope_id,
+                    "is_group": is_group, "amount": oprai,
+                    "credits": credits_wanted, "usd": usd, "rate": rate}
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(amount)} $OPRAI",
+        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(oprai)} $OPRAI",
                              callback_data=f"top:ok:{pid}"),
         InlineKeyboardButton(text="Cancel", callback_data=f"top:no:{pid}"),
     ]])
     await message.answer(
         f"<b>Top up {'this group' if is_group else 'your credits'}</b>\n\n"
-        f"Pay: <b>{_fmt_amount(amount)} $OPRAI</b> (plus gas)\n"
-        f"Get: <b>{granted}</b> questions\n\n"
-        "<i>Topped-up credits never expire.</i>",
+        f"{_price_line(credits_wanted, oprai, usd)}\n\n"
+        f"Rate: <code>${rate:.8f}</code> per $OPRAI (plus gas)\n\n"
+        "<i>Credits never expire.</i>",
         reply_markup=kb,
     )
 
@@ -158,6 +201,24 @@ async def topup_cmd(message: Message, command: CommandObject) -> None:
 @router.callback_query(F.data.startswith("top:"))
 async def topup_confirm(cb: CallbackQuery) -> None:
     _, action, pid = cb.data.split(":", 2)
+
+    # A pack button opens the quote for that size — the button in the menu is
+    # a choice, not a payment, and the amount is only fixed on the next screen.
+    if action == "pack":
+        if not pid.isdigit():
+            await cb.answer()
+            return
+        await cb.answer()
+        is_group = cb.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+        if is_group and not await _is_group_admin(cb.message, cb.from_user.id):
+            await cb.answer("Only a group admin can top up this group.",
+                            show_alert=True)
+            return
+        scope_id = cb.message.chat.id if is_group else cb.from_user.id
+        await _offer_pack(cb.message, scope_id, is_group, cb.from_user.id,
+                          int(pid))
+        return
+
     p = _topups.get(pid)
     if not p:
         await cb.answer("This top-up expired. Run /topup again.", show_alert=True)
@@ -188,32 +249,42 @@ async def topup_confirm(cb: CallbackQuery) -> None:
         return
 
     await audit(p["telegram_id"], "topup",
-                {"oprai": p["amount"], "credits": p["credits"], "group": p["is_group"]})
+                {"oprai": p["amount"], "credits": p["credits"],
+                 "usd": p.get("usd"), "rate": p.get("rate"),
+                 "group": p["is_group"]})
     await cb.message.edit_text(
-        f"✅ <b>{p['credits']} credits added.</b>\n\n"
+        f"✅ <b>{p['credits']:,} credits added.</b>\n\n"
         f"{'This group' if p['is_group'] else 'You'} can now ask "
         f"<b>{balance.remaining}</b> questions."
     )
 
 
-def _parse_amount(text: str) -> float | None:
+def _parse_credits(text: str) -> int | None:
+    """How many credits they asked for. `/topup 300` buys 300 questions."""
     try:
-        value = float(Decimal(text.lstrip("$").replace(",", "")))
+        value = Decimal(text.lstrip("$").replace(",", "").strip())
     except (InvalidOperation, ValueError, ArithmeticError):
         return None
-    return value if value > 0 else None
+    if value <= 0:
+        return None
+    return int(value)
 
 
 def _fmt_amount(x: float) -> str:
     return f"{x:.4f}".rstrip("0").rstrip(".") or "0"
 
 
-async def _is_group_admin(message: Message) -> bool:
+async def _is_group_admin(message: Message, user_id: int | None = None) -> bool:
     """Telegram is the authority on who runs a room; asking it beats keeping
-    our own list that drifts the moment someone is promoted."""
+    our own list that drifts the moment someone is promoted.
+
+    `user_id` must be given whenever the message is not the person's own — a
+    button tap arrives on a message the BOT sent, so reading the sender off it
+    checks the bot's membership instead of the tapper's.
+    """
     try:
         member = await message.bot.get_chat_member(
-            message.chat.id, message.from_user.id
+            message.chat.id, user_id if user_id is not None else message.from_user.id
         )
     except Exception:  # noqa: BLE001 — an unreadable membership is not an admin
         return False
