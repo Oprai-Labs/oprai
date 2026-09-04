@@ -14,7 +14,7 @@ from aiogram.types import Message
 
 from app.db import audit, upsert_tg_user
 from app.logging_config import log
-from app.handlers import claim
+from app.handlers import claim, home
 from app.services import linking
 
 router = Router(name="common")
@@ -87,15 +87,17 @@ async def start_with_token(message: Message, command: CommandObject) -> None:
     if account_id:
         await message.answer(
             "✅ <b>Account linked.</b> Your Telegram is now connected to your "
-            "OPRAI account — same wallets, same history.\n\n" + WELCOME
+            "OPRAI account — same wallets, same history."
         )
+        await home.show(message)
     elif token:
         await message.answer(
             "⚠️ That link is invalid or expired. Generate a fresh one from the "
-            "OPRAI app, then tap it again.\n\n" + WELCOME
+            "OPRAI app, then tap it again."
         )
+        await home.show(message)
     else:
-        await message.answer(WELCOME)
+        await home.show(message)
 
 
 @router.message(CommandStart())
@@ -104,7 +106,7 @@ async def start(message: Message) -> None:
     await upsert_tg_user(user.id, user.username)
     await audit(user.id, "start", {})
     log.info("start", telegram_id=user.id, username=user.username)
-    await message.answer(WELCOME)
+    await home.show(message)
 
 
 @router.message(Command("help"))

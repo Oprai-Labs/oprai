@@ -73,7 +73,13 @@ async def lend_router(message: Message, command: CommandObject) -> None:
     same market and position data, so they share the lookup."""
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
-    verb = message.text.split()[0].lstrip("/").split("@")[0].lower()
+    # Which of the four verbs was typed. A button press carries no command in
+    # its text, so anything that isn't a recognised one means "show me where I
+    # stand" — reading the first word blindly turned a tap into /withdraw.
+    first = (message.text or "").split()
+    verb = first[0].lstrip("/").split("@")[0].lower() if first else "lend"
+    if verb not in ("lend", "borrow", "repay", "withdraw"):
+        verb = "lend"
     args = (command.args or "").split()
 
     try:
