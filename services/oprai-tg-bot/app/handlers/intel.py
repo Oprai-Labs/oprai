@@ -27,6 +27,43 @@ from app.services.signals_client import SignalsClient, SignalsError
 router = Router(name="intel")
 
 ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+# The same thing anywhere in a sentence: people write "0x… analiz et", not a
+# bare address on its own line.
+ADDRESS_IN_TEXT = re.compile(r"0x[0-9a-fA-F]{40}")
+
+# Words that mean "tell me about this", in the two languages the bot is used
+# in. Without one, a message containing an address is usually an instruction
+# to DO something with it, and belongs to the assistant.
+LOOK_WORDS = (
+    "analiz", "analyse", "analyze", "analysis", "incele", "rapor", "report",
+    "x-ray", "xray", "kontrol", "check", "bak", "nedir", "what is", "info",
+    "güvenli", "guvenli", "safe", "rug", "scam", "risk", "holder", "sahip",
+)
+# …and words that mean "do something with it", which must NOT be hijacked.
+ACTION_WORDS = (
+    "send", "gönder", "gonder", "transfer", "swap", "buy", "sell", "al ", "sat ",
+    "borrow", "lend", "long", "short", "approve",
+)
+
+
+def wants_a_look(text: str) -> str | None:
+    """The address someone is asking about, if that is what they are doing.
+
+    "0x… analiz et" is a request to look; "send 5 USDG to 0x…" is not, and
+    hijacking it would answer a question nobody asked instead of moving the
+    money.
+    """
+    found = ADDRESS_IN_TEXT.search(text or "")
+    if not found:
+        return None
+    rest = (text or "").replace(found.group(0), " ").strip().lower()
+    if not rest:
+        return found.group(0)          # the address alone
+    if any(w in rest for w in ACTION_WORDS):
+        return None
+    if any(w in rest for w in LOOK_WORDS):
+        return found.group(0)
+    return None
 EXPLORER = "https://robinscan.io/token/"
 
 # Which risk band gets which mark. The number alone doesn't say whether 23 is
@@ -198,8 +235,9 @@ async def analyse(message: Message, query: str) -> bool:
     if report.get("status") and report["status"] != "ok":
         if note:
             await note.edit_text(
-                f"I have no Robinhood-Chain data for <code>{address}</code>.\n\n"
-                "<i>It may live on another chain, or have no trading history here.</i>"
+                f"Nothing on Robinhood Chain for <code>{address}</code>.\n\n"
+                "<i>Either it hasn't traded here yet, or it isn't a token. I only "
+                "read this chain — that's the whole point of me.</i>"
             )
         return True
 
@@ -229,12 +267,19 @@ async def token_cmd(message: Message, command: CommandObject) -> None:
         )
 
 
-@router.message(F.text.regexp(ADDRESS))
-async def bare_address(message: Message) -> None:
-    """A bare address on its own is a request to look at it.
+@router.message(F.text)
+async def address_in_message(message: Message) -> None:
+    """An address someone is asking about, wherever it sits in the sentence.
 
-    Nobody pastes a contract address to make conversation, and routing it
-    through the model cost thirty seconds to reach data we can read in six.
+    Routing this through the model cost thirty seconds to reach data we read
+    in five, and it sometimes gave up and said there was none. Anything that
+    isn't a request to look is handed straight back to the assistant.
     """
+    from aiogram.dispatcher.event.bases import SkipHandler
+
+    address = wants_a_look(message.text or "")
+    if not address:
+        raise SkipHandler
     await upsert_tg_user(message.from_user.id, message.from_user.username)
-    await analyse(message, (message.text or "").strip())
+    if not await analyse(message, address):
+        raise SkipHandler

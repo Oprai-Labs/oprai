@@ -93,3 +93,40 @@ async def test_a_symbol_resolves_to_an_address_before_the_lookup():
         assert found and found[0]["address"].startswith("0x")
     finally:
         await close_pool()
+
+
+# ── an address inside a sentence ────────────────────────────────────────────
+ADDR = "0x14369612d61e638be7bf3b0ac302728d579d33ac"
+
+
+@pytest.mark.parametrize(
+    "text, should_look",
+    [
+        (ADDR, True),                                  # on its own
+        (f"{ADDR} analiz et", True),                   # how people actually write it
+        (f"analyse {ADDR}", True),
+        (f"{ADDR} güvenli mi", True),
+        (f"is {ADDR} a rug?", True),
+        # An address inside an instruction is not a question about it —
+        # hijacking these would answer something nobody asked instead of
+        # moving the money.
+        (f"send 5 USDG to {ADDR}", False),
+        (f"swap 1 ETH to {ADDR}", False),
+        (f"transfer 10 NVDA {ADDR}", False),
+        ("how is NVDA doing?", False),                 # no address at all
+    ],
+)
+def test_only_a_question_about_an_address_is_answered_as_one(text, should_look):
+    from app.handlers.intel import wants_a_look
+
+    assert bool(wants_a_look(text)) is should_look
+
+
+def test_the_address_is_pulled_out_of_the_sentence():
+    """The regex used to require the whole message BE the address, so
+    "0x… analiz et" fell through to the model — thirty seconds to reach data
+    we read in five, and sometimes it gave up."""
+    from app.handlers.intel import wants_a_look
+
+    assert wants_a_look(f"{ADDR} analiz et") == ADDR
+    assert wants_a_look(f"  analyse   {ADDR}  ") == ADDR
