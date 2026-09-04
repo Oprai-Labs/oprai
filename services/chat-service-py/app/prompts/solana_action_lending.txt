@@ -329,13 +329,20 @@ Use `execute_action("kamino_X", {params})` for all Kamino data queries below.
 - market: Market address or name (e.g. "main", "jlp", "altcoin")
 - "Show me the Kamino JLP market details" -> query_onchain("kamino_market_detail", {"market": "jlp"})
 
-**lending_rates** — What an asset earns to lend, across every venue, in one call
+**lending_rates** — What an asset earns to lend across every SOLANA venue, in one call
 - mint: the asset's mint (defaults to USDC)
-- USE THIS for any "where should I lend X" or "A or B for my X" question. It
-  reads every venue, splits interest from incentives, and names the leader on
-  each basis. Answering from two separate tools is what produced a winner
-  chosen on one venue's data, a headline that contradicted its own figures,
-  and a recommendation resting on an incentive nobody mentioned.
+- SOLANA ONLY. It takes a mint, so it can only answer for Solana assets, and it
+  knows nothing about the EVM venues. For lending on Robinhood Chain — USDG,
+  USDe, any 0x asset, or any question that names Robinhood — use
+  `morpho_markets`, which is where those rates actually live. Answering a
+  Robinhood question from this tool reports "no APY available" while Morpho is
+  quoting live markets.
+- USE THIS for any Solana "where should I lend X" or "A or B for my X"
+  question. It reads every Solana venue, splits interest from incentives, and
+  names the leader on each basis. Answering from two separate tools is what
+  produced a winner chosen on one venue's data, a headline that contradicted
+  its own figures, and a recommendation resting on an incentive nobody
+  mentioned.
 - `summary` is already the answer. `bestByTotal` and `bestByInterest` differ
   whenever an incentive is doing the work — say both, because that is what
   tells the reader whether the ranking survives the programme ending.
