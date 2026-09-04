@@ -56,7 +56,7 @@ S = {k: sel(k) for k in (
     "positions(uint256)", "factory()", "getPool(address,address,uint24)", "slot0()",
     "getPoolAndPositionInfo(uint256)", "getPositionLiquidity(uint256)", "extsload(bytes32)",
     "market(bytes32)", "position(bytes32,address)", "idToMarketParams(bytes32)",
-    "convertToAssets(uint256)", "asset()", "earned(address)", "price()", "liquidity()",
+    "convertToAssets(uint256)", "asset()", "earned(address)", "price()", "liquidity()", "positions(bytes32)",
 )}
 
 
@@ -140,7 +140,7 @@ async def price_usd(token: str) -> float | None:
         f"SELECT argMax(price_usd, timestamp) AS px, dateDiff('day', max(toDateTime(timestamp)), now()) AS age "
         f"FROM rh.token_prices WHERE token='{t}'")
     px, age = (row or {}).get("px"), int((row or {}).get("age") or 0)
-    val, src = (float(px) if px else None), "index"
+    val, src = (float(px) if px and float(px) > 0 else None), "index"
     if val is None or age > STALE_DAYS:
         live = await _pool_price_usd(t)
         if live is not None:
@@ -456,6 +456,31 @@ async def _value_cow_lp(lp: str, user_bal: int, total_supply_raw: int) -> tuple[
         usd, unpriced = await _value_pair(c0, c1, a0 / 10 ** d0 * share, a1 / 10 ** d1 * share, sqrt_p)
         return usd, {"method": "cow v4 position", "token0": c0, "token1": c1,
                      "amount0": a0 / 10 ** d0 * share, "amount1": a1 / 10 ** d1 * share, "unpriced": unpriced}
+    if m["mode"] == "v3":
+        pool = m["pool"]
+        sqrt_p = _w(await _call(pool, S["slot0()"]), 0) & ((1 << 160) - 1)
+        t0 = _addr(await _call(pool, S["token0()"]), 0)
+        t1 = _addr(await _call(pool, S["token1()"]), 0)
+        if not sqrt_p or not int(t0, 16):
+            return None, {"method": "cow v3 position", "note": "pool unreadable"}
+        a0 = a1 = 0
+        live = 0
+        for rg in m.get("ranges", []):
+            tl, tu = rg["tl"], rg["tu"]
+            key = keccak(bytes.fromhex(m["owner"][2:]) + (tl & 0xFFFFFF).to_bytes(3, "big") + (tu & 0xFFFFFF).to_bytes(3, "big"))
+            r = await _call(pool, S["positions(bytes32)"] + key.hex())
+            L = _w(r, 0) & ((1 << 128) - 1) if r not in ("0x", "") else 0
+            if not L:
+                continue
+            live += 1
+            x0, x1 = _amounts(L, sqrt_p, tl, tu)
+            a0, a1 = a0 + x0, a1 + x1
+        if not live:
+            return None, {"method": "cow v3 position", "note": "no live liquidity found"}
+        d0, d1 = await decimals(t0), await decimals(t1)
+        usd, unpriced = await _value_pair(t0, t1, a0 / 10 ** d0 * share, a1 / 10 ** d1 * share, sqrt_p)
+        return usd, {"method": "cow v3 position", "token0": t0, "token1": t1,
+                     "amount0": a0 / 10 ** d0 * share, "amount1": a1 / 10 ** d1 * share, "unpriced": unpriced}
     if m["mode"] == "cp":
         x, y = m["x"], m["y"]
         dx, dy = await decimals(x), await decimals(y)
@@ -496,6 +521,44 @@ async def staking_and_pools(wallet: str) -> list[dict]:
     return out
 
 
+async def lockers(wallet: str) -> list[dict]:
+    """Token lockers / vesting escrows (UNCX-style `Locked` emitters). They share no
+    ABI, so the position is read from the ledger itself: what the wallet sent INTO
+    the locker minus what the locker sent back, per token. Priced like any holding."""
+    out = []
+    regs = await _registry("locker")
+    if not regs:
+        return out
+    addrs = "','".join(r["address"] for r in regs)
+    try:
+        rows = await ch.q(f"SELECT locker, token, net FROM rh.locker_positions WHERE wallet='{wallet}' AND net > 0", timeout=10)
+    except Exception:
+        rows = None
+    if rows is None:
+        rows = await ch.q(f"""
+        SELECT locker, token, sumIf(v, dir='in') - sumIf(v, dir='out') AS net FROM (
+            SELECT to_addr AS locker, token, toFloat64(value) AS v, 'in' AS dir FROM rh.token_transfers
+            WHERE from_addr='{wallet}' AND to_addr IN ('{addrs}') AND kind='erc20'
+            UNION ALL
+            SELECT from_addr AS locker, token, toFloat64(value) AS v, 'out' AS dir FROM rh.token_transfers
+            WHERE to_addr='{wallet}' AND from_addr IN ('{addrs}') AND kind='erc20')
+        GROUP BY locker, token HAVING net > 0""", timeout=60)  # noqa: E501
+    proto = {r["address"]: r.get("protocol") or "locker" for r in regs}
+    for r in rows:
+        t = r["token"]
+        d = await decimals(t)
+        amt = float(r["net"]) / 10 ** d
+        px = await price_usd(t)
+        if px is None:
+            usd, detail = await _value_pool_token(t, int(float(r["net"])))
+            usd = usd if usd is not None else None
+        else:
+            usd, detail = amt * px, {}
+        out.append({"protocol": proto.get(r["locker"], "locker"), "kind": "locked", "locker": r["locker"],
+                    "token": t, "amount": amt, "usd": round(usd, 2) if usd is not None else None, **detail})
+    return out
+
+
 async def lighter(wallet: str) -> list[dict]:
     if wallet == ZERO:
         return []
@@ -530,10 +593,10 @@ async def wallet_positions(wallet: str) -> dict:
     _px_source.clear()
     results = await asyncio.gather(
         uniswap_v4(w), uniswap_v3(w), morpho_blue(w), erc4626_vaults(w),
-        staking_and_pools(w), lighter(w), return_exceptions=True)
+        staking_and_pools(w), lockers(w), lighter(w), return_exceptions=True)
     positions: list[dict] = []
     errors: list[str] = []
-    for name, r in zip(("uniswap_v4", "uniswap_v3", "morpho", "vaults", "staking", "lighter"), results):
+    for name, r in zip(("uniswap_v4", "uniswap_v3", "morpho", "vaults", "staking", "lockers", "lighter"), results):
         if isinstance(r, Exception):
             errors.append(f"{name}: {str(r)[:80]}")
         else:

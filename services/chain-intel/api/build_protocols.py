@@ -92,9 +92,10 @@ async def main() -> None:
     #   v4: a ModifyLiquidity in the mint tx → (poolId, owner, tickLower, tickUpper, salt)
     #   cp: both named tokens moved in → constant-product k per LP² from (x0, y0, L0)
     ML = topic("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)")
+    V3_MINT = topic("Mint(address,address,int24,int24,uint128,uint256,uint256)")
     lp_syms = await node.resolve_symbols([r[3] for r in rows if r[1] == "gauge" and r[3]])
     cow_lps = sorted({a for a, sy in lp_syms.items() if sy.lower().startswith("cow")})
-    n_v4 = n_cp = 0
+    n_v4 = n_cp = n_v3 = 0
     for lp in cow_lps:
         sy = lp_syms[lp]
         proto = "UP (cow AMM)" if "up33" in sy.lower() else "CoW AMM (Uniswap)"
@@ -117,6 +118,19 @@ async def main() -> None:
                 meta = json.dumps({"mode": "v4", "pool": pool, "owner": owner, "ranges": ranges})
                 n_v4 += 1
                 break
+            # V3 pool Mint(sender, owner idx, tickLower idx, tickUpper idx, amount, amount0, amount1):
+            # the manager mints straight on the pool → position owner = manager, key (owner,tl,tu)
+            mt = await ch.q(f"SELECT address, topic1, topic2, topic3 FROM rh.logs WHERE block_number={m['block_number']} "
+                            f"AND tx_hash='{m['tx_hash']}' AND topic0='{V3_MINT}' LIMIT 1", timeout=60)
+            if mt:
+                s24 = lambda v: v - (1 << 24) if v >= (1 << 23) else v
+                pool, owner = mt[0]["address"], "0x" + mt[0]["topic1"][-40:]
+                allr = await ch.q(f"SELECT DISTINCT topic2 AS tl, topic3 AS tu FROM rh.logs WHERE address='{pool}' "
+                                  f"AND topic0='{V3_MINT}' AND topic1='{mt[0]['topic1']}' LIMIT 200", timeout=300)
+                ranges = [{"tl": s24(int(r["tl"], 16) & 0xFFFFFF), "tu": s24(int(r["tu"], 16) & 0xFFFFFF)} for r in allr]
+                meta = json.dumps({"mode": "v3", "pool": pool, "owner": owner, "ranges": ranges})
+                n_v3 += 1
+                break
             tr = await ch.q(f"SELECT token, from_addr, to_addr, value FROM rh.token_transfers "
                             f"WHERE block_number={m['block_number']} AND tx_hash='{m['tx_hash']}' AND kind='erc20'", timeout=60)
             tsy = await node.resolve_symbols(list({t["token"] for t in tr}))
@@ -133,7 +147,7 @@ async def main() -> None:
                 n_cp += 1
                 break
         rows.append((lp, "cow_lp", proto, meta))
-    print(f"  cow LPs: {len(cow_lps)} (v4-backed {n_v4}, constant-product {n_cp}, unresolved {len(cow_lps)-n_v4-n_cp})", flush=True)
+    print(f"  cow LPs: {len(cow_lps)} (v4 {n_v4}, v3 {n_v3}, constant-product {n_cp}, unresolved {len(cow_lps)-n_v4-n_v3-n_cp})", flush=True)
 
     # lockers
     lockers = await emitters(topic("Locked(address,uint256,uint256)"), lo, hi, 50)
@@ -160,6 +174,24 @@ async def main() -> None:
     for p in pairs:
         rows.append((p, "pool_token", "Ramses/GIGA", psyms.get(p, "")))
     print(f"  ramses pairs: {len(pairs)}", flush=True)
+
+    # locker ledger: net amount each wallet still has inside each locker (in − out),
+    # computed once here (lockers have few events) so the adapter is a point lookup
+    lockers_in = "','".join(lockers)
+    await ch_write("""CREATE TABLE IF NOT EXISTS rh.locker_positions (
+        wallet String, locker String, token String, net Float64, built_at DateTime DEFAULT now()
+    ) ENGINE = MergeTree ORDER BY (wallet, locker, token)""")
+    await ch_write("TRUNCATE TABLE rh.locker_positions")
+    await ch_write(f"""INSERT INTO rh.locker_positions (wallet, locker, token, net)
+        SELECT wallet, locker, token, sumIf(v, dir='in') - sumIf(v, dir='out') AS net FROM (
+            SELECT from_addr AS wallet, to_addr AS locker, token, toFloat64(value) AS v, 'in' AS dir
+            FROM rh.token_transfers WHERE to_addr IN ('{lockers_in}') AND kind='erc20'
+            UNION ALL
+            SELECT to_addr AS wallet, from_addr AS locker, token, toFloat64(value) AS v, 'out' AS dir
+            FROM rh.token_transfers WHERE from_addr IN ('{lockers_in}') AND kind='erc20')
+        WHERE wallet NOT IN ('{lockers_in}', '{ZERO}')
+        GROUP BY wallet, locker, token HAVING net > 0""")
+    print(f"  locker_positions: {await ch.scalar('SELECT count() FROM rh.locker_positions')} rows", flush=True)
 
     await ch_write("TRUNCATE TABLE rh.protocol_registry")
     esc = lambda x: str(x).replace("\\", "\\\\").replace("'", "\\'")

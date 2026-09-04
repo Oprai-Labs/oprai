@@ -20,7 +20,50 @@ from .ch import addr, USDG
 _LAUNCHPAD_ROUTERS = {
     "0xd9ec2db5f3d1b236843925949fe5bd8a3836fccb": "Noxa",
     "0x22e99278308b393ea1260859b181ad7e78f5eeed": "LONG",
+    # creation-tx callees confirmed from each project's own deployment docs / SDKs
+    "0xc70e510e14710ea535cab7b2414860af63feab79": "Bow",                 # bow.fun V3 factory
+    "0x80a77001456bc986083678f9a112b1ec2aa07281": "StonkBroker",         # Stonk Launcher (curve → V3)
+    "0xd3f2cc1731b7fd17f28798835c2e02f0a1839a94": "Clanker",             # clanker-sdk clanker_v4_robinhood
+    "0x16cf6788b762ee8969744586ed16fc5705140dd7": "Klik",                # Klik launch factory
+    "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862": "Doppler (Airlock)",   # Bankr / LONG / Zora route here
+    "0x0000ffffbe8efe702c8703ae3477ff5de3d319c0": "pools.trade",        # Uniswap liquidity launchpad launcher
 }
+
+# Uniswap V4 HOOK → the launchpad that deployed it. On this chain most launchpads are
+# a V4 hook, so the hook of a token's first pool names the launchpad even when the
+# creation tx went through an unknown relayer. Sources: each project's deployment
+# JSON / SDK, the Uniswap hooklist, DefiLlama adapters (verified 2026-09-04).
+_HOOK_LAUNCHPAD = {
+    "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544": "Doppler (Bankr / LONG / Zora launches)",
+    "0x48b8f6ad3a1b4aa477314c9a23035b8f84dde8cc": "Clanker",
+    "0x65efdf8cce99b53c925df878df275df21cb6e8cc": "Clanker",
+    "0x75a54357d9c78a2db19004a5fdc76c50f9242aec": "letscash.fun",
+    "0xefe669814e5eec33406bd50ffa8331618d076aec": "letscash.fun (v1)",
+    "0x745d717620052a97a22deee2e5eba59583f3e0cc": "Klik",
+    "0x5cf8e499c7c466c7e2cf127bdf129f57151e65dc": "Flaunch",
+    "0x07f7850aa55ffb4a6f2693d493c4477747ec6fdc": "Flaunch",
+    "0x14bcc18fdb0e7a427122b9c2f1a40ff7d63eaacc": "PumpV4Hook launchpad (brand unconfirmed)",
+    "0x778b0c4eea7d35d66513b587ba87fc9084b0eacc": "o1 Launchpad (stocks/RWA)",
+    "0x441f773b3bb1ed4c6457d0528624112e43c02acc": "o1 Launchpad",
+    "0x0310cfebe1d7a69f2414f6595bbe9d17c5342acc": "o1 Launchpad",
+    "0x16d1560630ce74af4478d9b8ad46548a092a2000": "PAIR (pair.fund)",
+    "0xe5e702641ea86f4ae6cc3cdaed2b886f976be044": "Pons V2",
+    "0xf7521cf0bb7c11e2d2794189412614cf2e29a0cc": "lunch.fun",
+    "0xbffe76cc9e506285032b2e5d1b74b579e39ac0cc": "Livo",
+    "0x54198ff2fce9b0df255051d49748fe53a8e428cc": "pmav.fun",
+    "0x2380abf72c17aabab76480244759ac7e2932eecc": "Bags",
+}
+
+
+async def _hook_launchpad(t: str) -> str | None:
+    """Launchpad named by the hook of the token's FIRST V4 pool (None if unhooked/unknown)."""
+    try:
+        r = await ch.one(f"SELECT hooks FROM rh.dex_pools WHERE (token0='{t}' OR token1='{t}') "
+                         f"AND dex='uniswap-v4' ORDER BY created_block ASC LIMIT 1")
+    except Exception:
+        return None
+    h = (r or {}).get("hooks") or ""
+    return _HOOK_LAUNCHPAD.get(h.lower())
 _ZERO = "0x0000000000000000000000000000000000000000"
 _DEAD = "0x000000000000000000000000000000000000dead"
 # Uniswap V4 is a SINGLETON: every V4 trade on this chain moves tokens against this
@@ -30,6 +73,7 @@ _V4_POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951"
 # settles with flash accounting, so the ERC20 counterparty is a router, not the pool.
 # Confirmed on-chain (top callees by tx volume + method signature).
 # Venue is identified by the SWAP EVENT a tx emits, not the contract it called.
+_DEX_LABEL = {"uniswap-v4": "Uniswap V4", "uniswap-v3": "Uniswap V3", "uniswap-v2": "Uniswap V2"}
 _SWAP_SIGS = {
     "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f": "Uniswap V4",
     "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "Uniswap V4",
@@ -44,6 +88,17 @@ _PLATFORM_CONTRACTS = {
     "0x22e99278308b393ea1260859b181ad7e78f5eeed": "LONG (launchpad)",
     "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e": "Pons (launchpad)",
     "0xa5aab3f0c6eeadf30ef1d3eb997108e976351feb": "Pons V1 (launchpad)",
+    "0xd3f2cc1731b7fd17f28798835c2e02f0a1839a94": "Clanker (launchpad)",
+    "0x16cf6788b762ee8969744586ed16fc5705140dd7": "Klik (launchpad)",
+    "0xc70e510e14710ea535cab7b2414860af63feab79": "Bow (launchpad)",
+    "0x80a77001456bc986083678f9a112b1ec2aa07281": "StonkBroker (launchpad)",
+    "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862": "Doppler Airlock (Bankr/LONG launches)",
+    "0x0000ffffbe8efe702c8703ae3477ff5de3d319c0": "pools.trade (launchpad)",
+    "0x5cf8e499c7c466c7e2cf127bdf129f57151e65dc": "Flaunch (launchpad)",
+    "0x07f7850aa55ffb4a6f2693d493c4477747ec6fdc": "Flaunch (launchpad)",
+    "0x0310cfebe1d7a69f2414f6595bbe9d17c5342acc": "o1 Launchpad",
+    "0x9d53d5e3bd5e8d4cbfa6db1ca238aea02e651010": "Morpho Blue",
+    "0x73991a25c818bf1f1128deaab1492d45638de0d3": "Uniswap V3 (positions)",
 }
 
 
@@ -304,7 +359,10 @@ async def token_report(token: str) -> dict:
     #     creator's ACTUAL holding rather than hiding behind the launchpad.
     onchain_lp = await node.detect_launchpad(t)          # e.g. "Pons", else None
     router_lp = await _router_launchpad(t)               # e.g. "Noxa"/"LONG", else None
+    hook_lp = await _hook_launchpad(t)                   # e.g. "Clanker"/"Flaunch"/"o1", else None
     pt = await node.pools_trade_launch(t)                # {'launchpad','creator'} | None
+    launchpad_source = ("factory" if onchain_lp else "creation router" if router_lp else
+                        "uniswap-v4 hook" if hook_lp else "pools.trade" if pt else None)
     pt_creator = (pt or {}).get("creator")
 
     if pt and pt_creator:
@@ -320,7 +378,7 @@ async def token_report(token: str) -> dict:
         # On-chain launchpad (Pons/…) or a "dev" credited with 100s+ launches — a
         # shared factory relayer, NOT this token's individual creator. Its aggregate
         # launch/rug counts belong to the launchpad, not this project — drop them.
-        launchpad = onchain_lp or router_lp or (pt["launchpad"] if pt else None)
+        launchpad = onchain_lp or router_lp or hook_lp or (pt["launchpad"] if pt else None)
         dev_is_launchpad = launchpad is not None or dev_tokens > 100
         if dev_is_launchpad:
             dev_tokens, dev_rugs = 0, 0
@@ -403,6 +461,7 @@ async def token_report(token: str) -> dict:
                             else round(int(r.get("fee") or 0) / 10000, 4)),
                 "dynamic_fee": int(r.get("fee") or 0) == 0x800000,
                 "hooks": hooks if hooks and int(hooks, 16) != 0 else None,
+                "hook_name": _HOOK_LAUNCHPAD.get(hooks.lower()) if hooks else None,
             })
 
     # SCAM VERDICT — a plain answer to "is this a scam?", assembled from the signals
@@ -444,6 +503,26 @@ async def token_report(token: str) -> dict:
         dev_holding_pct = None
         dev_moved_to_wallets_pct = dev_sold_to_pool_pct = dev_burned_pct = None
         dev_out_wallets = None
+
+    # Traded volume — every swap of this token, decoded, with the quote-side USD.
+    vol_by_venue: list[dict] = []
+    vol_24h = vol_7d = vol_all = 0.0
+    swaps_24h = swaps_all = 0
+    try:
+        vr = await ch.q(f"""
+            SELECT dex, count() AS n, sum(usd) AS usd_all,
+                   countIf(timestamp > now() - INTERVAL 1 DAY) AS n24,
+                   sumIf(usd, timestamp > now() - INTERVAL 1 DAY) AS usd_24h,
+                   sumIf(usd, timestamp > now() - INTERVAL 7 DAY) AS usd_7d
+            FROM rh.dex_swaps WHERE token_in='{t}' OR token_out='{t}' GROUP BY dex ORDER BY usd_all DESC""", timeout=20)
+        for r in vr:
+            vol_by_venue.append({"venue": _DEX_LABEL.get(r["dex"], r["dex"]), "swaps": int(r["n"]),
+                                 "volume_usd": round(float(r["usd_all"] or 0), 2),
+                                 "volume_24h_usd": round(float(r["usd_24h"] or 0), 2)})
+            vol_all += float(r["usd_all"] or 0); vol_24h += float(r["usd_24h"] or 0); vol_7d += float(r["usd_7d"] or 0)
+            swaps_all += int(r["n"]); swaps_24h += int(r["n24"])
+    except Exception:
+        pass
 
     return {
         "subject": {"type": "token", "address": t},
@@ -527,7 +606,12 @@ async def token_report(token: str) -> dict:
             "smart_money_sellers": smart_sellers,
             "risk_score": risk, "risk_label": risk_label,
             "venues": venues, "primary_dex": venues[0]["dex"] if venues else None,
+            "volume_by_venue": vol_by_venue, "volume_24h_usd": round(vol_24h, 2),
+            "volume_7d_usd": round(vol_7d, 2), "volume_total_usd": round(vol_all, 2),
+            "swaps_24h": swaps_24h, "swaps_total": swaps_all,
             "venue_hook": venues[0]["hooks"] if venues else None,
+            "venue_hook_name": venues[0].get("hook_name") if venues else None,
+            "launchpad_source": launchpad_source,
             "scam_verdict": verdict, "scam_red_flags": red, "scam_warnings": amber,
             "sell_tax_bps": tax_bps,
             "logo": (pt or {}).get("image"),
@@ -647,7 +731,17 @@ async def wallet_report(wallet: str) -> dict:
         for r in vrows:
             name = _SWAP_SIGS[r["topic0"]]
             agg_v[name] = agg_v.get(name, 0) + int(r["n"])
-        venue_trades = [{"venue": k, "trades": v} for k, v in
+        # traded USD per venue — decoded swaps (dex_swaps carries the quote-side USD)
+        usd_v: dict[str, float] = {}
+        try:
+            srows = await ch.q(f"""
+                SELECT dex, sum(usd) AS usd_sum FROM rh.dex_swaps
+                WHERE block_number IN ({binl}) AND tx_hash IN ({hinl}) GROUP BY dex""")
+            for r in srows:
+                usd_v[_DEX_LABEL.get(r["dex"], r["dex"])] = float(r["usd_sum"] or 0)
+        except Exception:
+            pass
+        venue_trades = [{"venue": k, "trades": v, "volume_usd": round(usd_v.get(k, 0.0), 2)} for k, v in
                         sorted(agg_v.items(), key=lambda kv: kv[1], reverse=True)]
 
     platforms: list[dict] = []
