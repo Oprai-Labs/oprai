@@ -1570,7 +1570,21 @@ async def stream_chat_response(
     #   • If no tag is set, fall back to whatever the classifier inferred.
     _explicit = {p.lower().replace("-", "_") for p in (protocols or [])}
     if _explicit:
-        _all_protocols = sorted(_explicit)
+        # An explicit list is a PERMISSION list, not a load list.
+        #
+        # A caller that can only execute on one chain sends every protocol it
+        # supports on every message — that is how it says "these and nothing
+        # else". Treating it as the set the turn is ABOUT defeated the
+        # classifier entirely: a Morpho lend loaded the launchpad fragment, the
+        # cross-chain fragment and every other venue's docs, because they were
+        # all on the permission list. Narrow to what the turn is actually
+        # about, and fall back to the whole list when nothing narrower is
+        # known — never to something outside it.
+        _narrowed = {p for p in intent_result.protocols if p in _explicit}
+        _all_protocols = sorted(_narrowed or _explicit)
+        if _narrowed and _narrowed != _explicit:
+            _log_turn("protocols_narrowed_within_permission",
+                      allowed=sorted(_explicit), used=sorted(_narrowed))
     else:
         _inferred = set(intent_result.protocols)
         # Carry the protocol the conversation is already inside.
@@ -1738,6 +1752,14 @@ async def stream_chat_response(
         prefetched_knowledge=prefetched_knowledge,
         category_context=category_context,
         is_chitchat=intent_result.is_chitchat,
+        # Same signal that unlocks the wallet-analysis path and the stronger
+        # responder. If it is false the composite report cannot be produced
+        # on this turn, so its 11K of layout rules are unreachable text.
+        wants_analysis=(
+            intent_result.wants_analysis
+            or len(user_content or "")
+            >= settings.OPRAI_RESPONDER_ANALYSIS_LENGTH_THRESHOLD
+        ),
     )
 
     # ── Language enforcement (per-turn, high-priority, language-agnostic)

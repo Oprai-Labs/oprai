@@ -653,6 +653,7 @@ async def build_llm_context(
     prefetched_knowledge: str | None = None,
     category_context: str | None = None,
     is_chitchat: bool = False,
+    wants_analysis: bool = False,
 ) -> list[dict[str, str]]:
     """Build the full messages array for an LLM call.
 
@@ -682,6 +683,7 @@ async def build_llm_context(
         protocols or [],
         intent=intent,
         is_chitchat=is_chitchat,
+        wants_analysis=wants_analysis,
     )
 
     # The prompt fragments are the large, STABLE prefix — byte-identical across
