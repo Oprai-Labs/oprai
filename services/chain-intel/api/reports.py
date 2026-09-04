@@ -679,7 +679,8 @@ async def token_report(token: str) -> dict:
             "scam_verdict": verdict, "scam_red_flags": red, "scam_warnings": amber,
             "sell_tax_bps": tax_bps,
             "logo": (pt or {}).get("image"),
-            "symbol": (pt or {}).get("symbol"), "name": (pt or {}).get("name"),
+            "symbol": (pt or {}).get("symbol") or (sym_row or {}).get("symbol") or None,
+            "name": (pt or {}).get("name") or (sym_row or {}).get("name") or None,
         },
     }
 
