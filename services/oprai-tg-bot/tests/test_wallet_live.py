@@ -252,3 +252,36 @@ async def test_an_unreachable_rpc_never_reports_an_empty_reason():
         text = _why(e)
         assert text.strip(), "an empty reason survived"
         assert not text.endswith(":"), text
+
+
+@pytest.mark.asyncio
+async def test_the_batch_path_falls_back_too(monkeypatch):
+    """The deposit watcher reads every wallet's balance through rpc_batch, not
+    rpc — so a fallback that only covered single calls left the one job that
+    runs every eight seconds still blind."""
+    import httpx
+
+    from app.services import evm
+
+    seen: list[str] = []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def post(self, url, json=None):
+            seen.append(url)
+            if "rh-nitro" in url:
+                raise httpx.ConnectError("All connection attempts failed")
+            return httpx.Response(200, json=[{"id": 0, "result": "0x1"}])
+
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_OVERRIDE", "http://rh-nitro:8547")
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_FALLBACK",
+                        "https://rpc.mainnet.chain.robinhood.com")
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    out = await evm.rpc_batch([("eth_getBalance", ["0xabc", "latest"])])
+    assert out == ["0x1"], f"the batch fallback did not answer: {out}"
+    assert any("rh-nitro" in u for u in seen), "our own node was never tried"
+    assert any("robinhood.com" in u for u in seen), "no fallback was attempted"

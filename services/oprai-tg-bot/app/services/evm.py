@@ -28,6 +28,20 @@ class EvmError(RuntimeError):
     pass
 
 
+def rpc_urls(chain_id: int = CHAIN_ID) -> list[str]:
+    """Every endpoint worth trying for this chain, best first.
+
+    Our own node is fastest and freshest, and it is also the one that goes
+    quiet for an hour while it prunes. The fallback exists so that hour costs
+    latency rather than every chain read the bot makes.
+    """
+    urls = [rpc_url(chain_id)]
+    fallback = settings.OPRAI_TG_RPC_FALLBACK
+    if int(chain_id) == CHAIN_ID and fallback and fallback not in urls:
+        urls.append(fallback)
+    return urls
+
+
 def rpc_url(chain_id: int = CHAIN_ID) -> str:
     """Home chain honours the bot's override (our own node in prod); every other
     chain comes from the shared registry."""
@@ -53,10 +67,7 @@ async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID)
     # One retry on a transport failure: a dropped keep-alive or a node
     # restarting is a blip, and treating it as an outage stops a whole polling
     # cycle for something that costs half a second to ride out.
-    urls = [rpc_url(chain_id)]
-    fallback = settings.OPRAI_TG_RPC_FALLBACK
-    if int(chain_id) == CHAIN_ID and fallback and fallback not in urls:
-        urls.append(fallback)
+    urls = rpc_urls(chain_id)
 
     r = None
     for index, url in enumerate(urls):
@@ -97,16 +108,26 @@ async def rpc_batch(reqs: list[tuple[str, list]], chain_id: int = CHAIN_ID) -> l
     ]
     # Public RPCs rate-limit batches; back off and retry rather than losing the
     # whole sync. Our own node (prod ROBINHOOD_RPC) doesn't hit this.
+    urls = rpc_urls(chain_id)
     r = None
-    for attempt in range(4):
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as c:
-                r = await c.post(rpc_url(chain_id), json=payload)
-        except httpx.HTTPError as e:
-            raise EvmError(f"rpc unreachable: {_why(e)}") from e
-        if r.status_code != 429:
+    unreachable: Exception | None = None
+    for index, url in enumerate(urls):
+        for attempt in range(4):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as c:
+                    r = await c.post(url, json=payload)
+            except httpx.HTTPError as e:
+                unreachable, r = e, None
+                break
+            if r.status_code != 429:
+                break
+            await asyncio.sleep(1.5 * (attempt + 1))
+        if r is not None:
             break
-        await asyncio.sleep(1.5 * (attempt + 1))
+        if index + 1 < len(urls):
+            log.info("rpc_batch_fallback", why=_why(unreachable))
+    if r is None and unreachable is not None:
+        raise EvmError(f"rpc unreachable: {_why(unreachable)}") from unreachable
     if r is None or r.status_code != 200:
         raise EvmError(f"rpc HTTP {r.status_code if r else 'no response'}")
     body = r.json()
