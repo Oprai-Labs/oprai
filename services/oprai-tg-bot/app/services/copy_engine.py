@@ -72,11 +72,17 @@ class CopyEngine:
     wallet) CopyConfig + today's spend and records fills; `execute(user, token,
     amount_eth)` builds+signs+submits via the signer; `notify(user, text)` pings."""
 
-    def __init__(self, store, execute, notify, eth_price_usd: float = 2500.0):
+    def __init__(self, store, execute, notify, eth_price_usd: float = 2500.0,
+                 price_provider=None):
         self._store = store
         self._execute = execute
         self._notify = notify
         self._eth = eth_price_usd
+        # A daily spend cap is denominated in dollars, so it is only a cap if
+        # the ETH price behind it is real. `price_provider(uid) -> float|None`
+        # reads it live; without one the fallback constant is a guess, and a
+        # guess drifts until the cap means something else entirely.
+        self._price_provider = price_provider
 
     async def on_buy(self, leader: str, token: str, eth_spent: float, tx_hash: str) -> None:
         # every user copying THIS leader wallet
@@ -84,7 +90,20 @@ class CopyEngine:
             uid = sub["telegram_id"]
             cfg = sub["config"]
             spent = await self._store.spent_today_usd(uid)
-            d = decide(token, eth_spent, cfg, spent, self._eth)
+            price = self._eth
+            if self._price_provider is not None:
+                live = await self._price_provider(uid)
+                if live is None:
+                    # No price means no enforceable cap. Skipping a copy costs
+                    # a trade; spending against a stale number costs money.
+                    await self._notify(
+                        uid,
+                        "⚠️ Skipped a copy-buy — couldn't price ETH just now, "
+                        "so your daily limit couldn't be checked.",
+                    )
+                    continue
+                price = live
+            d = decide(token, eth_spent, cfg, spent, price)
             if not d.execute:
                 continue
             try:
@@ -93,7 +112,7 @@ class CopyEngine:
                 await self._notify(uid, f"⚠️ Copy-buy failed: {str(e)[:100]}")
                 continue
             await self._store.record_fill(uid, leader, token, d.amount_eth,
-                                          d.amount_eth * self._eth, tx_hash)
+                                          d.amount_eth * price, tx_hash)
             await self._notify(
                 uid,
                 f"🤖 <b>Copied</b> {leader[:8]}… → bought <code>{token}</code> "
