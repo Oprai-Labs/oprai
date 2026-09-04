@@ -16,6 +16,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.services import wallet as wallet_svc
 from app.services.copy_store import CopyStore
 
@@ -43,20 +44,20 @@ async def copy_cmd(message: Message, command: CommandObject) -> None:
     if args[0] == "list":
         rows = await _store.list_copies(u.id)
         if not rows:
-            await message.answer("No copies yet.\n\n" + USAGE)
+            await private_answer(message, "No copies yet.\n\n" + USAGE)
             return
         lines = ["<b>Your copies</b>"]
         for r in rows:
             st = "🟢" if r["enabled"] else "⏸"
             lines.append(f"{st} <code>{r['leader']}</code> — {float(r['amount_eth']):.4f} ETH/buy, "
                          f"max {float(r['max_per_trade_eth']):.3f} ETH, cap ${float(r['daily_cap_usd']):.0f}/day")
-        await message.answer("\n".join(lines))
+        await private_answer(message, "\n".join(lines))
         return
 
     if args[0] == "off" and len(args) > 1 and _EVM_RE.match(args[1]):
         await _store.set_copy(u.id, args[1], enabled=False)
         await audit(u.id, "copy_off", {"leader": args[1]})
-        await message.answer(f"⏸ Stopped copying <code>{args[1]}</code>.")
+        await private_answer(message, f"⏸ Stopped copying <code>{args[1]}</code>.")
         return
 
     if args[0] == "limits" and len(args) >= 4 and _EVM_RE.match(args[1]):
@@ -66,7 +67,7 @@ async def copy_cmd(message: Message, command: CommandObject) -> None:
             await message.answer(USAGE)
             return
         await _store.set_copy(u.id, args[1], enabled=True, max_per_trade_eth=mx, daily_cap_usd=cap)
-        await message.answer(f"✅ Limits for <code>{args[1]}</code>: max {mx} ETH/trade, ${cap:.0f}/day.")
+        await private_answer(message, f"✅ Limits for <code>{args[1]}</code>: max {mx} ETH/trade, ${cap:.0f}/day.")
         return
 
     if _EVM_RE.match(args[0]):
