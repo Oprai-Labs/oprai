@@ -50,6 +50,27 @@ def rpc_url(chain_id: int = CHAIN_ID) -> str:
     return chains.rpc_for(chain_id)
 
 
+# Which endpoint we are currently getting answers from. A fallback that logs
+# every call writes two lines a second for as long as the primary is down —
+# thousands of identical lines that bury the one thing worth reading. Log the
+# transitions instead: we left the primary, and later we came back.
+_on_fallback = False
+
+
+def _note_fallback(url: str, why: str) -> None:
+    global _on_fallback
+    if not _on_fallback:
+        _on_fallback = True
+        log.warning("rpc_using_fallback", fallback=url, why=why)
+
+
+def _note_primary_ok() -> None:
+    global _on_fallback
+    if _on_fallback:
+        _on_fallback = False
+        log.info("rpc_primary_recovered")
+
+
 def _why(e: Exception) -> str:
     """Never report an empty reason.
 
@@ -74,6 +95,8 @@ async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID)
         try:
             async with httpx.AsyncClient(timeout=15.0) as c:
                 r = await c.post(url, json=payload)
+            if index == 0:
+                _note_primary_ok()
             break
         except httpx.HTTPError as e:
             if index == 0 and len(urls) == 1:
@@ -86,7 +109,7 @@ async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID)
                 except httpx.HTTPError as again:
                     raise EvmError(f"rpc unreachable: {_why(again)}") from again
             if index + 1 < len(urls):
-                log.info("rpc_fallback", why=_why(e))
+                _note_fallback(urls[index + 1], _why(e))
                 continue
             raise EvmError(f"rpc unreachable: {_why(e)}") from e
     if r.status_code != 200:
@@ -123,9 +146,11 @@ async def rpc_batch(reqs: list[tuple[str, list]], chain_id: int = CHAIN_ID) -> l
                 break
             await asyncio.sleep(1.5 * (attempt + 1))
         if r is not None:
+            if index == 0:
+                _note_primary_ok()
             break
         if index + 1 < len(urls):
-            log.info("rpc_batch_fallback", why=_why(unreachable))
+            _note_fallback(urls[index + 1], _why(unreachable))
     if r is None and unreachable is not None:
         raise EvmError(f"rpc unreachable: {_why(unreachable)}") from unreachable
     if r is None or r.status_code != 200:

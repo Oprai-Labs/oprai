@@ -285,3 +285,46 @@ async def test_the_batch_path_falls_back_too(monkeypatch):
     assert out == ["0x1"], f"the batch fallback did not answer: {out}"
     assert any("rh-nitro" in u for u in seen), "our own node was never tried"
     assert any("robinhood.com" in u for u in seen), "no fallback was attempted"
+
+
+@pytest.mark.asyncio
+async def test_a_long_outage_is_two_log_lines_not_thousands(monkeypatch):
+    """The fallback works, and that is exactly why it must be quiet about it.
+    Logging every call wrote two lines a second for as long as the node was
+    pruning — thousands of identical lines burying the one thing worth
+    reading. Log the transitions: we left the primary, and we came back."""
+    import httpx
+
+    from app.services import evm
+
+    lines: list[str] = []
+    monkeypatch.setattr(evm.log, "warning", lambda ev, **kw: lines.append(ev))
+    monkeypatch.setattr(evm.log, "info", lambda ev, **kw: lines.append(ev))
+    monkeypatch.setattr(evm, "_on_fallback", False)
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_OVERRIDE", "http://rh-nitro:8547")
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_FALLBACK",
+                        "https://rpc.mainnet.chain.robinhood.com")
+
+    down = {"primary": True}
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def post(self, url, json=None):
+            if "rh-nitro" in url and down["primary"]:
+                raise httpx.ConnectError("All connection attempts failed")
+            return httpx.Response(200, json={"result": "0x1"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    for _ in range(50):
+        await evm.rpc("eth_blockNumber", [])
+    assert lines == ["rpc_using_fallback"], f"50 calls wrote {len(lines)} lines"
+
+    down["primary"] = False
+    await evm.rpc("eth_blockNumber", [])
+    assert lines == ["rpc_using_fallback", "rpc_primary_recovered"], (
+        "coming back to our own node went unrecorded"
+    )
