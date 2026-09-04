@@ -243,6 +243,25 @@ async def analytics_schema(x_internal_api_key: str | None = Header(None)):
     return analytics.SCHEMA
 
 
+@app.get("/analytics/top-tokens")
+async def analytics_top_tokens(by: str = Query("volume_24h"), limit: int = Query(10, ge=1, le=100),
+                               launchpad: str | None = Query(None), launched_days: int | None = Query(None, ge=1, le=365),
+                               min_vol_24h: float = Query(0.0, ge=0), x_internal_api_key: str | None = Header(None)):
+    """Top tokens by 24h/7d volume, 24h buyers, mcap, trades or ATH multiple (optionally one launchpad / launch window)."""
+    _gate(x_internal_api_key)
+    from . import analytics
+    return await analytics.top_tokens(by, limit, launchpad, launched_days, min_vol_24h)
+
+
+@app.get("/analytics/launchpads")
+async def analytics_launchpads(days: int = Query(30, ge=1, le=365), min_tokens: int = Query(20, ge=1),
+                               x_internal_api_key: str | None = Header(None)):
+    """Per-launchpad cohort stats: tokens, graduation %, ≥$100K / ≥$1M ATH %, 10x runners, rug %, alive."""
+    _gate(x_internal_api_key)
+    from . import analytics
+    return await analytics.launchpad_stats(days, min_tokens)
+
+
 @app.get("/analytics/job/{job_id}")
 async def analytics_job(job_id: str, x_internal_api_key: str | None = Header(None)):
     _gate(x_internal_api_key)

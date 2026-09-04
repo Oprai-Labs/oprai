@@ -74,7 +74,7 @@ SCHEMA = {
             "columns": {
                 "token": "String", "dev": "creator wallet = the launch tx sender (Pons, Doppler, Clanker… all indexed) or the contract deployer; '' only when neither is known",
                 "dev_source": "'launch event' | 'contract deployer' | ''",
-                "launchpad": "Pons | Doppler (Bankr / LONG / Zora launches) | Clanker | letscash.fun | Klik | Flaunch | o1 Launchpad | PAIR (pair.fund) | Pons V2 | lunch.fun | Livo | pmav.fun | Bags | Bow | StonkBroker | Noxa | LONG | direct pool | unknown",
+                "launchpad": "exact values: Pons | Doppler (Bankr, LONG and Zora launches route through Doppler) | Clanker | letscash.fun | Klik | Flaunch | o1 Launchpad | PAIR | Pons V2 | lunch.fun | Livo | pmav.fun | Bags | Bow | StonkBroker | Noxa | LONG | pools.trade | direct pool | unknown — filter with = on these exact strings",
                 "launchpad_source": "factory | uniswap-v4 hook | creation router | first pool",
                 "launch_ts": "DateTime", "launch_block": "UInt64", "curve": "Pons curve contract or ''", "hook": "V4 hook or ''",
                 "first_pool": "String", "graduated": "1 if the token got an open (non-curve / non-launch-hook) pool after launch = migrated",
@@ -131,8 +131,9 @@ SCHEMA = {
         "hit_100k": "token_stats.ath_mcap_usd >= 100000",
         "hit_1m": "token_stats.ath_mcap_usd >= 1000000",
         "runner_10x": "token_stats.ath_multiple >= 10",
-        "rugged": "token_stats.drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY",
+        "rugged": "token_stats.drawdown >= 0.9 AND vol_24h_usd < 100",
         "alive": "token_stats.last_trade_ts >= now() - INTERVAL 1 DAY",
+        "dead": "token_stats.last_trade_ts < now() - INTERVAL 3 DAY (quietly abandoned, distinct from rugged)",
         "dev_hit_rate": "countIf(ath_mcap_usd >= 100000) / count() over a dev's tokens in token_stats",
         "wallet_pnl_window": "sum(realized_pnl) from wallet_token_positions WHERE last_ts > now() - INTERVAL n DAY",
         "entry_mcap": "join trades (side='buy') to token_state_v: price_usd * supply at the buy",
@@ -144,7 +145,7 @@ SCHEMA = {
         {"q": "smart wallets' buys in the last hour, by token",
          "sql": "SELECT t.token, count() AS buys, uniq(t.actor) AS smart_buyers, round(sum(t.usd)) AS usd FROM trades t INNER JOIN smart_wallets s ON s.wallet = t.actor WHERE t.side = 'buy' AND t.ts > now() - INTERVAL 1 HOUR GROUP BY t.token ORDER BY smart_buyers DESC LIMIT 20"},
         {"q": "Doppler launches of the last 7 days that fell 70%+ from ATH",
-         "sql": "SELECT token, symbol, launch_ts, round(ath_mcap_usd) AS ath, round(mcap_usd) AS mcap, round(drawdown, 2) AS dd FROM token_stats WHERE launchpad LIKE 'Doppler%' AND launch_ts > now() - INTERVAL 7 DAY AND drawdown >= 0.7 ORDER BY ath DESC LIMIT 50"},
+         "sql": "SELECT token, symbol, launch_ts, round(ath_mcap_usd) AS ath, round(mcap_usd) AS mcap, round(drawdown, 2) AS dd FROM token_stats WHERE launchpad = 'Doppler' AND launch_ts > now() - INTERVAL 7 DAY AND drawdown >= 0.7 ORDER BY ath DESC LIMIT 50"},
     ],
 }
 
@@ -222,3 +223,52 @@ async def query(sql: str, limit: int = DEFAULT_LIMIT, timeout: float = DEFAULT_T
 
 def job(job_id: str) -> dict:
     return _jobs.get(job_id) or {"status": "unknown"}
+
+
+# ── deterministic views over token_stats for the two most common asks ────────
+_TOP_BY = {"volume_24h": "vol_24h_usd", "volume_7d": "vol_7d_usd", "buyers_24h": "buyers_24h",
+           "mcap": "mcap_usd", "trades_24h": "trades_24h", "ath_multiple": "ath_multiple"}
+
+
+async def top_tokens(by: str = "volume_24h", limit: int = 10, launchpad: str | None = None,
+                     launched_days: int | None = None, min_vol_24h: float = 0.0) -> dict:
+    col = _TOP_BY.get(by, "vol_24h_usd")
+    where = ["1"]
+    if launchpad:
+        where.append(f"launchpad = '{launchpad.replace(chr(39), '')}'")
+    if launched_days:
+        where.append(f"launch_ts > now() - INTERVAL {int(launched_days)} DAY")
+    if min_vol_24h:
+        where.append(f"vol_24h_usd >= {float(min_vol_24h)}")
+    rows = await ch.q(f"""
+        SELECT token, symbol, name, launchpad, round(vol_24h_usd) AS vol_24h_usd, round(vol_7d_usd) AS vol_7d_usd,
+               buyers_24h, trades_24h, round(mcap_usd) AS mcap_usd, round(ath_mcap_usd) AS ath_mcap_usd,
+               round(drawdown, 3) AS drawdown, round(ath_multiple, 1) AS ath_multiple, holders, launch_ts, graduated
+        FROM rh.token_stats WHERE {' AND '.join(where)} ORDER BY {col} DESC LIMIT {max(1, min(int(limit), 100))}""", timeout=10)
+    return {"by": by, "limit": limit, "launchpad": launchpad, "launched_days": launched_days, "rows": rows,
+            "source": "token_stats (materialized every ~3 min from decoded trades)"}
+
+
+async def launchpad_stats(days: int = 30, min_tokens: int = 20) -> dict:
+    """Per-launchpad cohort over tokens launched in the window: how many, graduated,
+    ≥$100K / ≥$1M ATH, 10x runners, rugged (≥95% off ATH and silent 3 days), alive."""
+    rows = await ch.q(f"""
+        SELECT launchpad, count() AS tokens, countIf(graduated = 1) AS graduated_n,
+               round(100 * countIf(graduated = 1) / count(), 1) AS graduation_pct,
+               countIf(ath_mcap_usd >= 100000) AS hit_100k, round(100 * countIf(ath_mcap_usd >= 100000) / count(), 1) AS hit_100k_pct,
+               countIf(ath_mcap_usd >= 1e6) AS hit_1m, round(100 * countIf(ath_mcap_usd >= 1e6) / count(), 2) AS hit_1m_pct,
+               countIf(ath_multiple >= 10) AS runners_10x,
+               countIf(drawdown >= 0.9 AND vol_24h_usd < 100) AS rugged_n,
+               round(100 * countIf(drawdown >= 0.9 AND vol_24h_usd < 100) / count(), 1) AS rug_pct,
+               countIf(last_trade_ts < now() - INTERVAL 3 DAY) AS dead_n,
+               round(100 * countIf(last_trade_ts < now() - INTERVAL 3 DAY) / count(), 1) AS dead_pct,
+               countIf(last_trade_ts >= now() - INTERVAL 1 DAY) AS alive_24h,
+               round(median(ath_mcap_usd)) AS median_ath_mcap_usd, round(max(ath_mcap_usd)) AS best_ath_mcap_usd,
+               round(sum(vol_usd)) AS volume_usd
+        FROM rh.token_stats WHERE launch_ts > now() - INTERVAL {int(days)} DAY AND launchpad NOT IN ('', 'unknown')
+        GROUP BY launchpad HAVING count() >= {int(min_tokens)} ORDER BY count() DESC""", timeout=10)
+    return {"days": days, "rows": rows, "definitions": {
+        "graduated": "got a pool beyond its launch venue (migrated)", "hit_100k/hit_1m": "ATH market cap (hourly VWAP × supply)",
+        "runners_10x": "ATH ≥ 10× first traded price", "rugged": "price collapsed: ≥90% below ATH and under $100 of volume in 24h",
+        "dead": "no trade for 3 days (most launchpad tokens die quietly rather than rug)",
+        "alive_24h": "traded in the last 24h"}}

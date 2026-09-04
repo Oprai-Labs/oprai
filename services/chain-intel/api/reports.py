@@ -25,7 +25,7 @@ _LAUNCHPAD_ROUTERS = {
     "0x80a77001456bc986083678f9a112b1ec2aa07281": "StonkBroker",         # Stonk Launcher (curve → V3)
     "0xd3f2cc1731b7fd17f28798835c2e02f0a1839a94": "Clanker",             # clanker-sdk clanker_v4_robinhood
     "0x16cf6788b762ee8969744586ed16fc5705140dd7": "Klik",                # Klik launch factory
-    "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862": "Doppler (Airlock)",   # Bankr / LONG / Zora route here
+    "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862": "Doppler",   # Airlock — Bankr / LONG / Zora route here
     "0x0000ffffbe8efe702c8703ae3477ff5de3d319c0": "pools.trade",        # Uniswap liquidity launchpad launcher
 }
 
@@ -34,19 +34,19 @@ _LAUNCHPAD_ROUTERS = {
 # creation tx went through an unknown relayer. Sources: each project's deployment
 # JSON / SDK, the Uniswap hooklist, DefiLlama adapters (verified 2026-09-04).
 _HOOK_LAUNCHPAD = {
-    "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544": "Doppler (Bankr / LONG / Zora launches)",
+    "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544": "Doppler",   # Bankr / LONG / Zora launches route through Doppler
     "0x48b8f6ad3a1b4aa477314c9a23035b8f84dde8cc": "Clanker",
     "0x65efdf8cce99b53c925df878df275df21cb6e8cc": "Clanker",
     "0x75a54357d9c78a2db19004a5fdc76c50f9242aec": "letscash.fun",
-    "0xefe669814e5eec33406bd50ffa8331618d076aec": "letscash.fun (v1)",
+    "0xefe669814e5eec33406bd50ffa8331618d076aec": "letscash.fun",
     "0x745d717620052a97a22deee2e5eba59583f3e0cc": "Klik",
     "0x5cf8e499c7c466c7e2cf127bdf129f57151e65dc": "Flaunch",
     "0x07f7850aa55ffb4a6f2693d493c4477747ec6fdc": "Flaunch",
-    "0x14bcc18fdb0e7a427122b9c2f1a40ff7d63eaacc": "PumpV4Hook launchpad (brand unconfirmed)",
-    "0x778b0c4eea7d35d66513b587ba87fc9084b0eacc": "o1 Launchpad (stocks/RWA)",
+    "0x14bcc18fdb0e7a427122b9c2f1a40ff7d63eaacc": "PumpV4Hook (unnamed)",
+    "0x778b0c4eea7d35d66513b587ba87fc9084b0eacc": "o1 Launchpad",
     "0x441f773b3bb1ed4c6457d0528624112e43c02acc": "o1 Launchpad",
     "0x0310cfebe1d7a69f2414f6595bbe9d17c5342acc": "o1 Launchpad",
-    "0x16d1560630ce74af4478d9b8ad46548a092a2000": "PAIR (pair.fund)",
+    "0x16d1560630ce74af4478d9b8ad46548a092a2000": "PAIR",
     "0xe5e702641ea86f4ae6cc3cdaed2b886f976be044": "Pons V2",
     "0xf7521cf0bb7c11e2d2794189412614cf2e29a0cc": "lunch.fun",
     "0xbffe76cc9e506285032b2e5d1b74b579e39ac0cc": "Livo",
@@ -374,7 +374,7 @@ async def token_report(token: str) -> dict:
         dev_is_launchpad = False
         launchpad_source = launchpad_source or "launch event"
         try:
-            dev_rugs = int(await ch.scalar(f"""SELECT countIf(drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY)
+            dev_rugs = int(await ch.scalar(f"""SELECT countIf(drawdown >= 0.9 AND vol_24h_usd < 100)
                 FROM rh.token_stats WHERE dev='{dev}'""") or 0)
         except Exception:
             pass
@@ -408,7 +408,8 @@ async def token_report(token: str) -> dict:
                 SELECT count() AS n, countIf(graduated) AS graduated_n,
                        countIf(ath_mcap_usd >= 100000) AS hit_100k, countIf(ath_mcap_usd >= 1e6) AS hit_1m,
                        countIf(ath_multiple >= 10) AS runners_10x,
-                       countIf(drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY) AS dead,
+                       countIf(drawdown >= 0.9 AND vol_24h_usd < 100) AS rugged,
+                       countIf(last_trade_ts < now() - INTERVAL 3 DAY) AS dead,
                        round(median(ath_mcap_usd)) AS median_ath_mcap_usd, round(max(ath_mcap_usd)) AS best_ath_mcap_usd,
                        groupArray(8)(launchpad) AS launchpads_sample, min(launch_ts) AS first_launch, max(launch_ts) AS last_launch
                 FROM rh.token_stats WHERE dev='{dev}'""", timeout=10)
@@ -417,7 +418,7 @@ async def token_report(token: str) -> dict:
                 by_lp = await ch.q(f"SELECT launchpad, count() AS n FROM rh.token_stats WHERE dev='{dev}' GROUP BY launchpad ORDER BY n DESC LIMIT 6", timeout=10)
                 dev_history = {
                     "tokens": n, "graduated": int(dh["graduated_n"]), "hit_100k": int(dh["hit_100k"]), "hit_1m": int(dh["hit_1m"]),
-                    "runners_10x": int(dh["runners_10x"]), "dead": int(dh["dead"]),
+                    "runners_10x": int(dh["runners_10x"]), "rugged": int(dh["rugged"]), "dead": int(dh["dead"]),
                     "hit_100k_rate": round(int(dh["hit_100k"]) / n, 3), "graduation_rate": round(int(dh["graduated_n"]) / n, 3),
                     "median_ath_mcap_usd": float(dh["median_ath_mcap_usd"] or 0), "best_ath_mcap_usd": float(dh["best_ath_mcap_usd"] or 0),
                     "by_launchpad": [{"launchpad": r["launchpad"], "tokens": int(r["n"])} for r in by_lp],
