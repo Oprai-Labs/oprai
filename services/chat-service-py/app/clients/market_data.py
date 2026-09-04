@@ -2612,6 +2612,16 @@ async def sns_subdomains(domain: str) -> dict:
 CHAIN_INTEL_BASE = os.environ.get("CHAIN_INTEL_URL", "http://rh-chain-intel-api:3160")
 
 
+def _facts_first(res: dict) -> dict:
+    """Put the narrative-critical keys first. The model sees the first 16k chars of a
+    tool result; a full report is ~19k with `facts` at the end, so volume, ATH and the
+    dev's track record were being cut off. Charts/tables (frontend card) go last."""
+    if not isinstance(res, dict):
+        return res
+    head = ("subject", "status", "facts", "kpis")
+    return {**{k: res[k] for k in head if k in res}, **{k: v for k, v in res.items() if k not in head}}
+
+
 async def _chain_intel(path: str, timeout: float | None = None) -> dict:
     # Deep reports (a wallet's full FIFO P&L replay) legitimately run past the
     # default read timeout — pass a longer one rather than losing the whole report.
@@ -2652,7 +2662,7 @@ async def rh_wallet_analysis(wallet: str) -> dict:
         res["facts"]["protocol_positions"] = bal.get("protocol_positions", [])[:12]
         res["facts"]["unpriced_positions"] = sum(
             1 for p in bal.get("protocol_positions", []) if p.get("usd") is None)
-    return res
+    return _facts_first(res)
 
 
 @query_tool(required=["wallet"], optional=["limit"], tags={"analysis", "portfolio"})
@@ -2763,7 +2773,7 @@ async def rh_token_analysis(token: str) -> dict:
         } for b in top]
         res["facts"]["smart_buyers_still_holding"] = sum(1 for b in top if b.get("still_holding"))
         res["facts"]["smart_buyers_sold"] = sum(1 for b in top if not b.get("still_holding"))
-    return res
+    return _facts_first(res)
 
 
 @query_tool(optional=["limit"], tags={"analysis", "dex"})
