@@ -75,7 +75,8 @@ _V4_POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951"
 # settles with flash accounting, so the ERC20 counterparty is a router, not the pool.
 # Confirmed on-chain (top callees by tx volume + method signature).
 # Venue is identified by the SWAP EVENT a tx emits, not the contract it called.
-_DEX_LABEL = {"uniswap-v4": "Uniswap V4", "uniswap-v3": "Uniswap V3", "uniswap-v2": "Uniswap V2"}
+_DEX_LABEL = {"uniswap-v4": "Uniswap V4", "uniswap-v3": "Uniswap V3", "uniswap-v2": "Uniswap V2",
+              "pons-curve": "Pons curve"}
 _SWAP_SIGS = {
     "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f": "Uniswap V4",
     "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "Uniswap V4",
