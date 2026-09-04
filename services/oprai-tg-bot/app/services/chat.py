@@ -17,6 +17,7 @@ Robinhood question with a Solana answer.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import re
@@ -99,6 +100,55 @@ async def stream(
     nobody chose — a turn that has not answered by forty-five is not about to.
     Anything worth a longer wait belongs on a path that doesn't need a model.
     """
+    # One retry on a transport failure. A redeploy, a dropped keep-alive or a
+    # reset connection is not "OPRAI is unreachable" — it is a blip that costs
+    # a second to ride out, and the alternative is telling someone their
+    # question failed when nothing was wrong with it.
+    for attempt in range(2):
+        try:
+            return await _ask(jwt, session_id, content, on_progress, timeout)
+        except _Transport as e:
+            if attempt == 0 and not e.streamed:
+                await asyncio.sleep(0.6)
+                continue
+            raise ChatError(_transport_message(e)) from e
+
+
+class _Transport(Exception):
+    """A failure to reach the service at all, as opposed to a bad answer.
+
+    `streamed` says whether any of the answer had already arrived. If it had,
+    the model already ran — asking again would run it a second time and charge
+    the person twice for one question, so that case is not retried.
+    """
+
+    def __init__(self, cause: Exception, streamed: bool = False) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.streamed = streamed
+
+
+def _transport_message(e: Exception) -> str:
+    """Never show a dangling colon.
+
+    Some httpx errors stringify to nothing, so "couldn't reach OPRAI: {e}"
+    rendered as "couldn't reach OPRAI:" — a sentence that stops mid-thought and
+    tells the reader less than saying nothing would.
+    """
+    detail = str(e).strip()
+    if not detail:
+        return "I couldn't reach OPRAI just then — try again."
+    return f"I couldn't reach OPRAI just then ({detail[:80]}) — try again."
+
+
+async def _ask(
+    jwt: str,
+    session_id: str,
+    content: str,
+    on_progress,
+    timeout: float,
+) -> Answer:
+    """One attempt. Raises `_Transport` when the service could not be reached."""
     url = f"{settings.GATEWAY_URL.rstrip('/')}/chat/messages/stream"
     headers = {
         "Authorization": f"Bearer {jwt}",
@@ -136,7 +186,7 @@ async def stream(
                         except Exception:  # noqa: BLE001 — display is not the answer
                             pass
     except httpx.HTTPError as e:
-        raise ChatError(f"couldn't reach OPRAI: {e}") from e
+        raise _Transport(e, streamed=bool(answer.text.strip() or answer.actions)) from e
 
     if answer.error:
         raise ChatError(answer.error)
