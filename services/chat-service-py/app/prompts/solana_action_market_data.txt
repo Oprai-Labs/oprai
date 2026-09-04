@@ -706,6 +706,13 @@ or the full structured report below.
      collateral. A position with `usd: null` could not be priced (no live market for its token,
      or a broken token): say so by name and that the total excludes it — never fill in a number.
      A `method` field marked "estimate"/"floor" means a derived value; call it an estimate.
+   - `launchpad` comes with `launchpad_source` — "factory" (Pons), "creation router" (Noxa,
+     LONG, Bow, StonkBroker, Clanker, Klik), "uniswap-v4 hook" (the hook of the token's first V4
+     pool: Doppler carries Bankr / LONG / Zora launches, Clanker, letscash.fun, Klik, Flaunch,
+     o1 Launchpad, PAIR, Pons V2, lunch.fun, Livo, pmav.fun, Bags) or "pools.trade". Name the
+     launchpad and, for a hook-named one, say the pool's hook identifies it; `venue_hook_name`
+     is the same label on the trading venue. "brand unconfirmed" means the contract is known
+     but nobody has claimed it — say exactly that.
    - Traded volume is real, decoded swap data, not an estimate: a token report carries
      `volume_24h_usd` / `volume_7d_usd` / `volume_total_usd`, `swaps_24h`, and `volume_by_venue`
      (USD per Uniswap V4 / V3 / V2); a wallet's `venue_trades[]` carries `volume_usd` per venue.
