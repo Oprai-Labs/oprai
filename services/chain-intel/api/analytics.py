@@ -72,7 +72,7 @@ SCHEMA = {
         "launches": {
             "grain": "one row per launched token",
             "columns": {
-                "token": "String", "dev": "creator wallet ('' when only a relayer is visible, e.g. Pons)",
+                "token": "String", "dev": "creator wallet = the launch tx sender (Pons, Doppler, Clanker… all indexed) or the contract deployer; '' only when neither is known",
                 "dev_source": "'launch event' | 'contract deployer' | ''",
                 "launchpad": "Pons | Doppler (Bankr / LONG / Zora launches) | Clanker | letscash.fun | Klik | Flaunch | o1 Launchpad | PAIR (pair.fund) | Pons V2 | lunch.fun | Livo | pmav.fun | Bags | Bow | StonkBroker | Noxa | LONG | direct pool | unknown",
                 "launchpad_source": "factory | uniswap-v4 hook | creation router | first pool",

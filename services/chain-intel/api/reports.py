@@ -368,7 +368,25 @@ async def token_report(token: str) -> dict:
                         "uniswap-v4 hook" if hook_lp else "pools.trade" if pt else None)
     pt_creator = (pt or {}).get("creator")
 
-    if pt and pt_creator:
+    # The launch tx sender is the dev — for Pons (and every launchpad whose launch event
+    # we index) it is a real EOA, verified: launch_creators.dev == tx.from on 300/300 launches.
+    lc = await ch.one(f"SELECT dev FROM rh.launch_creators WHERE token='{t}' ORDER BY block DESC LIMIT 1")
+    lc_dev = (lc or {}).get("dev") or ""
+    if lc_dev and not (pt and pt_creator):
+        launchpad = onchain_lp or router_lp or hook_lp or (pt["launchpad"] if pt else None)
+        dev, dev_src = lc_dev, "launch tx sender"
+        dev_tokens = int(await ch.scalar(f"SELECT uniqExact(token) FROM rh.launch_creators WHERE dev='{dev}'") or 0)
+        dev_bal = await ch.scalar(
+            f"SELECT sumIf(toFloat64(value), to_addr='{dev}') - sumIf(toFloat64(value), from_addr='{dev}') {base}") or 0
+        dev_holding_pct = round(min(100.0, max(0.0, 100 * float(dev_bal) / minted)), 1) if minted else 0.0
+        dev_is_launchpad = False
+        launchpad_source = launchpad_source or "launch event"
+        try:
+            dev_rugs = int(await ch.scalar(f"""SELECT countIf(drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY)
+                FROM rh.token_stats WHERE dev='{dev}'""") or 0)
+        except Exception:
+            pass
+    elif pt and pt_creator:
         # pools.trade launch with a KNOWN creator — treat that EOA as the dev, drop
         # any shared-relayer launch/rug stats, and report its real holding.
         launchpad, dev_src, dev_tokens, dev_rugs = pt["launchpad"], "pools.trade", 0, 0
@@ -387,6 +405,34 @@ async def token_report(token: str) -> dict:
             dev_tokens, dev_rugs = 0, 0
         if launchpad is None and dev_is_launchpad:
             launchpad, launchpad_source = "a shared launchpad", "relayer with 100+ launches (unnamed)"
+
+    # The dev's track record from token_stats (all their launches, any launchpad):
+    # how many, where, how many graduated / reached $100K / $1M ATH, median ATH,
+    # how many are dead. Absent when the dev is unknown.
+    dev_history = None
+    if dev and not dev_is_launchpad:
+        try:
+            dh = await ch.one(f"""
+                SELECT count() AS n, countIf(graduated) AS graduated_n,
+                       countIf(ath_mcap_usd >= 100000) AS hit_100k, countIf(ath_mcap_usd >= 1e6) AS hit_1m,
+                       countIf(ath_multiple >= 10) AS runners_10x,
+                       countIf(drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY) AS dead,
+                       round(median(ath_mcap_usd)) AS median_ath_mcap_usd, round(max(ath_mcap_usd)) AS best_ath_mcap_usd,
+                       groupArray(8)(launchpad) AS launchpads_sample, min(launch_ts) AS first_launch, max(launch_ts) AS last_launch
+                FROM rh.token_stats WHERE dev='{dev}'""", timeout=10)
+            if dh and int(dh.get("n") or 0):
+                n = int(dh["n"])
+                by_lp = await ch.q(f"SELECT launchpad, count() AS n FROM rh.token_stats WHERE dev='{dev}' GROUP BY launchpad ORDER BY n DESC LIMIT 6", timeout=10)
+                dev_history = {
+                    "tokens": n, "graduated": int(dh["graduated_n"]), "hit_100k": int(dh["hit_100k"]), "hit_1m": int(dh["hit_1m"]),
+                    "runners_10x": int(dh["runners_10x"]), "dead": int(dh["dead"]),
+                    "hit_100k_rate": round(int(dh["hit_100k"]) / n, 3), "graduation_rate": round(int(dh["graduated_n"]) / n, 3),
+                    "median_ath_mcap_usd": float(dh["median_ath_mcap_usd"] or 0), "best_ath_mcap_usd": float(dh["best_ath_mcap_usd"] or 0),
+                    "by_launchpad": [{"launchpad": r["launchpad"], "tokens": int(r["n"])} for r in by_lp],
+                    "first_launch": str(dh["first_launch"]), "last_launch": str(dh["last_launch"]),
+                }
+        except Exception:
+            dev_history = None
 
     # Dev status — distinguish "we don't know who the dev is" (identity not indexed)
     # or "launched via a shared launchpad" from "dev holds none" (holding / sold /
@@ -594,7 +640,7 @@ async def token_report(token: str) -> dict:
             "dev_known": bool(dev), "dev_status": dev_status,
             "dev_is_launchpad": dev_is_launchpad, "launchpad": launchpad,
             "launchpad_creator_known": bool(pt and pt_creator),
-            "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs,
+            "dev_tokens_created": dev_tokens, "dev_rug_count": dev_rugs, "dev_history": dev_history,
             "dev_holding_pct": dev_holding_pct,
             "dev_moved_to_wallets_pct": dev_moved_to_wallets_pct,
             "dev_sold_to_pool_pct": dev_sold_to_pool_pct,

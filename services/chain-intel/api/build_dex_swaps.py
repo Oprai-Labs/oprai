@@ -125,7 +125,7 @@ def pons_sql(lo: int, hi: int) -> str:
     ) AS s LEFT JOIN rh.token_price_daily tp ON tp.token = s.quote AND tp.day = toDate(s.timestamp)"""
 
 
-async def build_weth_price() -> None:
+async def build_weth_price(days: int | None = None) -> None:
     """ETH/USD per day from the chain's OWN WETH↔USDG (and ETH↔USDG) swaps: the daily
     median of usdg/weth over every such swap. Gaps (no swaps) are filled forward, and
     today is always present, so nothing quoted in ETH stays unpriced. Exposed to the
@@ -138,7 +138,7 @@ async def build_weth_price() -> None:
         FROM rh.dex_swaps
         WHERE dex IN ('uniswap-v3', 'uniswap-v4')
           AND ((token_in = '{USDG}' AND token_out IN ('{WETH}', '{ZERO}')) OR (token_out = '{USDG}' AND token_in IN ('{WETH}', '{ZERO}')))
-          AND amount_in > 0 AND amount_out > 0
+          AND amount_in > 0 AND amount_out > 0 {f"AND timestamp > now() - INTERVAL {days} DAY" if days else ""}
         GROUP BY day HAVING n >= 5 ORDER BY day""", timeout=1800)
     if not rows:
         return
@@ -177,40 +177,40 @@ async def reprice_eth_legs() -> None:
     print("  reprice mutation submitted", flush=True)
 
 
-async def build_pons_curves() -> None:
-    """curve → (token, quote) map. The curve emits the launch event and the token is
-    minted to it in the same tx; the QUOTE is whatever ERC20 the curve pays out that is
-    not its own token (Pons V2 curves are quoted in ETH, USDG or another token) —
-    ZERO when it only ever pays native ETH. Rebuilt whole each run."""
+async def build_pons_curves(full: bool = False) -> None:
+    """curve → (token, quote) map. Incremental by default: only curves launched after
+    the newest one we know (the launch event is emitted BY the new curve, the token is
+    minted to it in the same tx, the QUOTE is the ERC20 it pays out that is not its own
+    token — ZERO when it only pays native ETH). `full` rebuilds everything."""
     await w("""CREATE TABLE IF NOT EXISTS rh.pons_curves (curve String, token String, quote String DEFAULT '', created_block UInt64)
                ENGINE = ReplacingMergeTree ORDER BY curve""")
     await w("ALTER TABLE rh.pons_curves ADD COLUMN IF NOT EXISTS quote String DEFAULT ''")
-    await w("TRUNCATE TABLE rh.pons_curves")
-    await w(f"""INSERT INTO rh.pons_curves (curve, token, created_block)
-        SELECT t.to_addr AS curve, t.token, min(t.block_number)
-        FROM rh.token_transfers t
-        WHERE t.kind = 'erc20' AND t.from_addr = '{ZERO}' AND t.to_addr IN (
-            SELECT DISTINCT address FROM rh.logs WHERE topic0 = '{PONS_LAUNCH}')
-        GROUP BY curve, t.token""", timeout=3600)
-    # quote token: the ERC20 the curve pays OUT most often that is not its own token
-    await w("CREATE TABLE IF NOT EXISTS rh.pons_curve_quotes (curve String, quote String) ENGINE = ReplacingMergeTree ORDER BY curve")
-    await w("TRUNCATE TABLE rh.pons_curve_quotes")
-    await w("""INSERT INTO rh.pons_curve_quotes
-        SELECT curve, argMax(token, n) FROM (
-            SELECT t.from_addr AS curve, t.token AS token, count() AS n
-            FROM rh.token_transfers t INNER JOIN rh.pons_curves c ON c.curve = t.from_addr
-            WHERE t.kind = 'erc20' AND t.token != c.token
-            GROUP BY curve, token)
-        GROUP BY curve""", timeout=3600)
+    since = 0 if full else int(await ch.scalar("SELECT max(created_block) FROM rh.pons_curves") or 0)
+    if full:
+        await w("TRUNCATE TABLE rh.pons_curves")
     await w(f"""INSERT INTO rh.pons_curves (curve, token, quote, created_block)
-        SELECT c.curve, c.token, if(q.quote = '', '{ZERO}', q.quote), c.created_block
-        FROM rh.pons_curves c LEFT JOIN rh.pons_curve_quotes q ON q.curve = c.curve""", timeout=3600)
+        SELECT t.to_addr AS curve, t.token, '{ZERO}', min(t.block_number)
+        FROM rh.token_transfers t
+        WHERE t.kind = 'erc20' AND t.from_addr = '{ZERO}' AND t.block_number > {since} AND t.to_addr IN (
+            SELECT DISTINCT address FROM rh.logs WHERE topic0 = '{PONS_LAUNCH}' AND block_number > {since})
+        GROUP BY curve, t.token""", timeout=3600)
+    # quote token for curves that have paid something out but are still marked ETH: the
+    # ERC20 they pay OUT most that is not their own token (bounded to new curves)
+    await w(f"""INSERT INTO rh.pons_curves (curve, token, quote, created_block)
+        SELECT c.curve, c.token, q.quote, c.created_block FROM rh.pons_curves c
+        INNER JOIN (
+            SELECT curve, argMax(token, n) AS quote FROM (
+                SELECT t.from_addr AS curve, t.token AS token, count() AS n
+                FROM rh.token_transfers t INNER JOIN rh.pons_curves c2 ON c2.curve = t.from_addr
+                WHERE t.kind = 'erc20' AND t.token != c2.token AND c2.created_block > {since}
+                GROUP BY curve, token) GROUP BY curve) q ON q.curve = c.curve
+        WHERE c.created_block > {since}""", timeout=3600)
     await w("OPTIMIZE TABLE rh.pons_curves FINAL")
-    # daily token prices as a join table for quotes that are neither ETH nor a stable
-    await w("""CREATE TABLE IF NOT EXISTS rh.token_price_daily (token String, day Date, px Float64)
-               ENGINE = ReplacingMergeTree ORDER BY (token, day)""")
-    await w("TRUNCATE TABLE rh.token_price_daily")
-    await w("INSERT INTO rh.token_price_daily SELECT token, toDate(timestamp), argMax(price_usd, timestamp) FROM rh.token_prices GROUP BY token, toDate(timestamp)", timeout=3600)
+    if full:
+        await w("""CREATE TABLE IF NOT EXISTS rh.token_price_daily (token String, day Date, px Float64)
+                   ENGINE = ReplacingMergeTree ORDER BY (token, day)""")
+        await w("TRUNCATE TABLE rh.token_price_daily")
+        await w("INSERT INTO rh.token_price_daily SELECT token, toDate(timestamp), argMax(price_usd, timestamp) FROM rh.token_prices GROUP BY token, toDate(timestamp)", timeout=3600)
 
 
 async def build_v4_pool_keys() -> None:
@@ -241,7 +241,7 @@ async def main() -> None:
         return
     if "--pons-only" in sys.argv or "--keys-only" in sys.argv:
         if "--pons-only" in sys.argv:
-            await build_pons_curves()
+            await build_pons_curves(full=True)
             n = await ch.scalar("SELECT count() FROM rh.pons_curves")
             hi = int(await ch.scalar("SELECT max(block_number) FROM rh.logs"))
             lo = int(args.get("--from", 1))
@@ -264,8 +264,8 @@ async def main() -> None:
     start = int(args.get("--from", 0) or (int(await ch.scalar("SELECT max(block_number) FROM rh.dex_swaps") or 0) + 1))
     end = int(args.get("--to", hi_logs))
     print(f"dex_swaps: {start}..{end} in {chunk}-block chunks", flush=True)
-    await build_weth_price()
-    await build_pons_curves()
+    await build_weth_price(days=3)
+    await build_pons_curves(full="--full-curves" in sys.argv)
     await build_v4_pool_keys()
     lo = start
     while lo <= end:
