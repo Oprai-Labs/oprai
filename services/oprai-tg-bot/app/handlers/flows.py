@@ -171,6 +171,139 @@ class _ArgString:
         self.magic_result = None
 
 
+# ── bridge ──────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "menu:bridge")
+async def bridge_start(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await _edit(cb, "🌉 <b>Bring funds in</b>\n\nWhich chain are they on now?",
+                menu.bridge_menu())
+
+
+@router.callback_query(F.data.startswith("br:from:"))
+async def bridge_from(cb: CallbackQuery) -> None:
+    chain = cb.data.split(":", 2)[2]
+    await cb.answer()
+    _draft_for(cb.from_user.id)["chain"] = chain
+    await _edit(cb, f"🌉 <b>From {chain.title()}</b>\n\nHow much ETH?",
+                menu.bridge_amount_menu(chain))
+
+
+@router.callback_query(F.data.startswith("br:amt:"))
+async def bridge_amount(cb: CallbackQuery) -> None:
+    choice = cb.data.split(":", 2)[2]
+    await cb.answer()
+    chain = _draft_for(cb.from_user.id).get("chain")
+    if not chain:
+        await _edit(cb, "That expired — start again.", menu.home_keyboard())
+        return
+    if choice == "?":
+        expect(cb.from_user.id, "bridge_amount", chain=chain)
+        await _edit(cb, f"🌉 <b>From {chain.title()}</b>\n\nHow much ETH? "
+                        "Send the number.")
+        return
+    await _run_bridge(cb, choice, chain)
+
+
+async def _run_bridge(cb: CallbackQuery, amount: str, chain: str) -> None:
+    from app.handlers.bridge import bridge_cmd
+
+    await _edit(cb, f"🌉 Quoting <b>{amount} ETH</b> from {chain.title()}…")
+    await bridge_cmd(as_person(cb), _ArgString(f"{amount} ETH from {chain}"))
+
+
+# ── send ────────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "menu:send")
+async def send_start(cb: CallbackQuery) -> None:
+    await cb.answer()
+    tokens, native = await _holdings(cb.from_user.id)
+    _draft.pop(cb.from_user.id, None)
+    await _edit(cb, "📤 <b>Send</b>\n\nWhat are you sending?",
+                menu.send_token_menu(tokens, native))
+
+
+@router.callback_query(F.data.startswith("snd:tok:"))
+async def send_token(cb: CallbackQuery) -> None:
+    symbol = cb.data.split(":", 2)[2]
+    await cb.answer()
+    _draft_for(cb.from_user.id)["send_token"] = symbol
+    await _edit(cb, f"📤 <b>Send {symbol}</b>\n\nHow much?",
+                menu.send_amount_menu())
+
+
+@router.callback_query(F.data.startswith("snd:amt:"))
+async def send_amount(cb: CallbackQuery) -> None:
+    choice = cb.data.split(":", 2)[2]
+    await cb.answer()
+    draft = _draft_for(cb.from_user.id)
+    symbol = draft.get("send_token")
+    if not symbol:
+        await _edit(cb, "That expired — start again.", menu.home_keyboard())
+        return
+
+    if choice == "?":
+        expect(cb.from_user.id, "send_amount", symbol=symbol)
+        await _edit(cb, f"📤 <b>Send {symbol}</b>\n\nHow much? Send the number.")
+        return
+
+    amount = await _share_of_balance(cb.from_user.id, symbol, int(choice))
+    if amount is None or amount <= 0:
+        await _edit(cb, f"You don't have enough {symbol} to send.",
+                    menu.home_keyboard())
+        return
+
+    text = f"{amount:.8f}".rstrip("0").rstrip(".")
+    expect(cb.from_user.id, "send_to", symbol=symbol, amount=text)
+    await _edit(
+        cb,
+        f"📤 <b>Send {text} {symbol}</b>\n\nWho to? Send a 0x address or a "
+        "@username.\n\n<i>They don't need an account — if they've never used "
+        "me I'll give you a link to pass on.</i>",
+    )
+
+
+# ── launch ──────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "menu:launch")
+async def launch_start(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await _edit(
+        cb,
+        "🚀 <b>Launch a token</b>\n\nHow should it trade?\n\n"
+        "📈 <b>Bonding curve</b> — price starts low and climbs as people buy; "
+        "it graduates to a pool later.\n"
+        "⚡ <b>Instant pool</b> — a Uniswap pool from the first block, trading "
+        "like any other token straight away.",
+        menu.launch_menu(),
+    )
+
+
+@router.callback_query(F.data.startswith("lnm:venue:"))
+async def launch_venue(cb: CallbackQuery) -> None:
+    venue = cb.data.split(":", 2)[2]
+    await cb.answer()
+    expect(cb.from_user.id, "launch_name", venue=venue)
+    await _edit(
+        cb,
+        f"🚀 <b>{'Pons' if venue == 'pons' else 'pools.trade'}</b>\n\n"
+        "Send me the ticker and the name:\n<code>SLR Solar Token</code>\n\n"
+        "<i>Reply to a photo with it and that picture becomes the token's "
+        "image.</i>",
+    )
+
+
+# ── ask ─────────────────────────────────────────────────────────────────────
+@router.callback_query(F.data == "menu:ask")
+async def ask_start(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await _edit(
+        cb,
+        "💬 <b>Ask me anything</b>\n\nJust type it — no command needed:\n\n"
+        "<i>\"is NVDA worth holding here?\"</i>\n"
+        "<i>\"what can I earn on USDG?\"</i>\n"
+        "<i>\"analyse 0xabc…\"</i>",
+        menu.grid([], back="home:refresh"),
+    )
+
+
 # ── wallets ─────────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "menu:wallets")
 async def wallets_menu(cb: CallbackQuery) -> None:
@@ -232,12 +365,12 @@ async def _edit(cb: CallbackQuery, text: str, keyboard=None) -> None:
 # ── typed answers ───────────────────────────────────────────────────────────
 @router.message(F.text & ~F.text.startswith("/"))
 async def catch_expected_reply(message: Message) -> None:
-    """The one piece a button couldn't offer: an amount, or a ticker we don't
-    hold yet.
+    """The one piece a button couldn't offer: an amount, a recipient, a ticker
+    we don't hold yet, a token's name.
 
     Registered ahead of chat's catch-all, so it must hand back anything it
-    wasn't waiting for — otherwise every question to OPRAI would be read as a
-    swap amount.
+    wasn't waiting for — otherwise every question to OPRAI would be read as
+    whatever the last menu asked for.
     """
     from aiogram.dispatcher.event.bases import SkipHandler
 
@@ -247,40 +380,90 @@ async def catch_expected_reply(message: Message) -> None:
 
     text = (message.text or "").strip()
     kind = waiting["kind"]
+    who = message.from_user.id
 
+    def amount_or_none(raw: str) -> Decimal | None:
+        try:
+            value = Decimal(raw.replace(",", "."))
+            return value if value > 0 else None
+        except Exception:  # noqa: BLE001 — anything unparseable is not a number
+            return None
+
+    # ── swap ────────────────────────────────────────────────────────────────
     if kind in ("swap_from", "swap_to"):
-        clear_expect(message.from_user.id)
-        draft = _draft_for(message.from_user.id)
+        clear_expect(who)
+        draft = _draft_for(who)
         draft["from" if kind == "swap_from" else "to"] = text.upper().lstrip("$")
         if draft["from"] and draft["to"]:
             await message.answer(
-                f"⇄ <b>{draft['from']} → {draft['to']}</b>\n\nHow much "
+                f"💱 <b>{draft['from']} → {draft['to']}</b>\n\nHow much "
                 f"{draft['from']}?",
                 reply_markup=menu.amount_menu(draft["from"]),
             )
         else:
-            tokens, _ = await _holdings(message.from_user.id)
+            tokens, _ = await _holdings(who)
             await message.answer(
-                f"⇄ <b>Swap {draft['from']} →</b>\n\nWhat do you want?",
+                f"💱 <b>Swap {draft['from']} →</b>\n\nWhat do you want?",
                 reply_markup=menu.buy_menu(draft["from"] or "", tokens),
             )
         return
 
     if kind == "swap_amount":
-        try:
-            amount = Decimal(text.replace(",", "."))
-            if amount <= 0:
-                raise ValueError
-        except Exception:  # noqa: BLE001 — anything unparseable is just not a number
+        amount = amount_or_none(text)
+        if amount is None:
             await message.answer("That doesn't look like an amount — try again.")
             return
-        clear_expect(message.from_user.id)
+        clear_expect(who)
         from app.handlers.swap import swap_cmd
 
-        amount_text = f"{amount:f}".rstrip("0").rstrip(".")
-        await swap_cmd(
-            message, _ArgString(f"{amount_text} {waiting['from']} {waiting['to']}")
+        await swap_cmd(message, _ArgString(
+            f"{_plain(amount)} {waiting['from']} {waiting['to']}"))
+        return
+
+    # ── bridge ──────────────────────────────────────────────────────────────
+    if kind == "bridge_amount":
+        amount = amount_or_none(text)
+        if amount is None:
+            await message.answer("That doesn't look like an amount — try again.")
+            return
+        clear_expect(who)
+        from app.handlers.bridge import bridge_cmd
+
+        await bridge_cmd(message, _ArgString(
+            f"{_plain(amount)} ETH from {waiting['chain']}"))
+        return
+
+    # ── send ────────────────────────────────────────────────────────────────
+    if kind == "send_amount":
+        amount = amount_or_none(text)
+        if amount is None:
+            await message.answer("That doesn't look like an amount — try again.")
+            return
+        expect(who, "send_to", symbol=waiting["symbol"], amount=_plain(amount))
+        await message.answer(
+            f"📤 <b>Send {_plain(amount)} {waiting['symbol']}</b>\n\nWho to? "
+            "Send a 0x address or a @username."
         )
         return
 
+    if kind == "send_to":
+        clear_expect(who)
+        from app.handlers.send import send_cmd
+
+        await send_cmd(message, _ArgString(
+            f"{waiting['amount']} {waiting['symbol']} {text}"))
+        return
+
+    # ── launch ──────────────────────────────────────────────────────────────
+    if kind == "launch_name":
+        clear_expect(who)
+        from app.handlers.launch import launch_cmd
+
+        await launch_cmd(message, _ArgString(text))
+        return
+
     raise SkipHandler
+
+
+def _plain(amount: Decimal) -> str:
+    return f"{amount:f}".rstrip("0").rstrip(".")

@@ -148,3 +148,53 @@ def percent_of(amount: Decimal, percent: int, *, leave_gas: bool) -> Decimal:
 # Enough for a swap or two at Robinhood Chain fees; the point is that Max never
 # empties the wallet below what the transaction itself costs.
 GAS_RESERVE_ETH = Decimal("0.0005")
+
+
+# Chains Relay can bring funds in from. Named, so nobody has to know a chain id.
+BRIDGE_SOURCES = (
+    ("Ethereum", "ethereum"), ("Base", "base"), ("Arbitrum", "arbitrum"),
+    ("Optimism", "optimism"), ("Polygon", "polygon"), ("BNB", "bsc"),
+)
+
+
+def bridge_menu() -> InlineKeyboardMarkup:
+    return grid([(name, f"br:from:{slug}") for name, slug in BRIDGE_SOURCES],
+                3, back="home:refresh")
+
+
+def bridge_amount_menu(chain: str) -> InlineKeyboardMarkup:
+    """Fixed sizes, because the balance being spent lives on another chain and
+    a percentage of it is not something we can read from here."""
+    return grid([
+        ("0.01 ETH", "br:amt:0.01"), ("0.05 ETH", "br:amt:0.05"),
+        ("0.1 ETH", "br:amt:0.1"), ("0.25 ETH", "br:amt:0.25"),
+        ("Type an amount…", "br:amt:?"),
+    ], 2, back="menu:bridge")
+
+
+def send_token_menu(holdings: list, native_eth) -> InlineKeyboardMarkup:
+    pairs = []
+    if native_eth > 0:
+        pairs.append((f"ETH · {native_eth:.4f}", "snd:tok:ETH"))
+    for h in holdings[:9]:
+        pairs.append((f"{h['symbol']} · {h['display']}", f"snd:tok:{h['symbol']}"))
+    if not pairs:
+        return grid([("Fund the wallet first", "home:wallet")], 1, back="home:refresh")
+    return grid(pairs, 2, back="home:refresh")
+
+
+def send_amount_menu() -> InlineKeyboardMarkup:
+    return grid([
+        ("25%", "snd:amt:25"), ("50%", "snd:amt:50"),
+        ("75%", "snd:amt:75"), ("Max", "snd:amt:100"),
+        ("Type an amount…", "snd:amt:?"),
+    ], 2, back="menu:send")
+
+
+def launch_menu() -> InlineKeyboardMarkup:
+    """The venue choice is the real decision, so it is made first and
+    explained — the two produce genuinely different tokens."""
+    return grid([
+        ("📈 Bonding curve (Pons)", "lnm:venue:pons"),
+        ("⚡ Instant pool (pools.trade)", "lnm:venue:pools"),
+    ], 1, back="home:refresh")

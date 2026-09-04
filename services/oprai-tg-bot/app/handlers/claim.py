@@ -89,3 +89,49 @@ async def handle_claim(message, token: str) -> bool:
         f"✅ @{row['to_username']} claimed your {amount} {row['symbol']}.\n{link}",
     )
     return True
+
+
+async def offer_pending(message) -> bool:
+    """Tell someone what is waiting for them, when they arrive on their own.
+
+    A claim link is how the sender reaches a stranger, but the recipient often
+    just opens the bot — and then the transfer sat there unseen, because
+    nothing looked for it. Once they have started us we can speak first, so
+    this runs on /start.
+
+    Returns whether anything was waiting.
+    """
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    username = message.from_user.username
+    if not username:
+        return False
+    waiting = await claims.pending_for(username)
+    if not waiting:
+        return False
+
+    for row in waiting[:5]:
+        amount = claims.display(int(row["amount_base"]), row["decimals"])
+        await message.answer(
+            f"🎁 <b>{amount} {row['symbol']}</b> is waiting for you.\n\n"
+            "<i>Someone sent it before you had a wallet. Tap to collect it.</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=f"Claim {amount} {row['symbol']}",
+                                     callback_data=f"clm:{row['token']}"),
+            ]]),
+        )
+    return True
+
+
+def register(router) -> None:
+    """Wire the claim button onto a router that is already registered."""
+    from aiogram import F
+    from aiogram.types import CallbackQuery
+
+    @router.callback_query(F.data.startswith("clm:"))
+    async def claim_button(cb: CallbackQuery) -> None:
+        from app.handlers.home import as_person
+
+        await cb.answer()
+        token = cb.data.split(":", 1)[1]
+        await handle_claim(as_person(cb), token)
