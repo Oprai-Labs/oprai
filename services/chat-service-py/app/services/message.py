@@ -1928,9 +1928,15 @@ async def stream_chat_response(
                 and (q.startswith(_RH_KEEP_PREFIXES) or q in _RH_KEEP_EXACT)
                 and (not _rank_turn or q.startswith("rh_"))
             ]
-            if _kept and len(_kept) < len(_enum):
+            # the chain-intel tools must be offered on every Robinhood turn — a client that
+            # scopes by `protocols` (the Telegram bot) otherwise has no rh_* in the enum
+            _rh_all = [q.value for q in QueryType if q.value.startswith("rh_") and q.value in _md.SOLANA_ACTION_DATA_TYPES]
+            for q in _rh_all:
+                if q not in _kept and (not _rank_turn or q.startswith("rh_")):
+                    _kept.append(q)
+            if _kept and _kept != _enum:
                 _qt["enum"] = _kept
-                _log.info("evm-addr turn: narrowed query enum %d→%d (dropped Solana analysis tools)",
+                _log.info("evm-addr turn: narrowed query enum %d→%d (dropped Solana analysis tools, rh_* ensured)",
                           len(_enum), len(_kept))
         if intent_result.intent != "query":
             import dataclasses as _dc_evm
