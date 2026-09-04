@@ -42,11 +42,11 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     "pumpfun":      ["solana_action_pumpfun.txt", "solana_action_market_data.txt"],
     # Cross-chain bridges + Uniswap (same-chain EVM swap; guidance lives in the
     # same crosschain fragment).
-    "relay":        ["solana_action_crosschain.txt"],
-    "uniswap":      ["solana_action_crosschain.txt"],
+    "relay":        ["solana_action_crosschain.txt", "solana_action_market_data.txt"],
+    "uniswap":      ["solana_action_crosschain.txt", "solana_action_market_data.txt"],
     # pools.trade + Pons launchpads live in the crosschain fragment (Robinhood).
-    "poolstrade":   ["solana_action_crosschain.txt"],
-    "pons":         ["solana_action_crosschain.txt"],
+    "poolstrade":   ["solana_action_crosschain.txt", "solana_action_market_data.txt"],
+    "pons":         ["solana_action_crosschain.txt", "solana_action_market_data.txt"],
     # Morpho Blue — lending on Robinhood Chain (its own fragment). market_data
     # loads too so the market-list / positions reads render.
     "morpho":       ["solana_action_morpho.txt", "solana_action_market_data.txt"],
