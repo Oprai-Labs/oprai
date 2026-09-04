@@ -12,6 +12,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import wallet as wallet_svc
 from app.signer_client import SignerError
@@ -52,7 +53,8 @@ async def wallet_cmd(message: Message, command: CommandObject) -> None:
             await message.answer(f"Import failed: {e}")
             return
         await audit(user.id, "wallet_import", {})
-        await message.answer(
+        await private_answer(
+            message,
             f"✅ Imported your Robinhood wallet:\n<code>{row['address']}</code>\n\n"
             "⚠️ Delete your previous message so the secret isn't left in this chat."
         )
@@ -68,4 +70,6 @@ async def wallet_cmd(message: Message, command: CommandObject) -> None:
         )
         return
     await audit(user.id, "wallet_show", {})
-    await message.answer(_fmt(address))
+    # A wallet address in a group ties someone's Telegram identity to an
+    # on-chain one, permanently and for everyone reading.
+    await private_answer(message, _fmt(address))

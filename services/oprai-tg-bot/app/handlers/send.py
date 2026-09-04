@@ -16,6 +16,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, pool, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import evm
 from app.services import portfolio as pf
@@ -155,7 +156,7 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
 
         balance = (await pf.native_balance(user.id))["wei"]
     except (evm.EvmError, pf.PortfolioError, tok.TokenError) as e:
-        await message.answer(f"⚠️ Couldn't prepare that transfer: {e}")
+        await private_answer(message, f"⚠️ Couldn't prepare that transfer: {e}")
         return
 
     gas_cost = int(tx["gas"]) * int(tx["max_fee_per_gas"])
@@ -177,7 +178,8 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
         "to": to,
     }
     await audit(user.id, "send_prepared", {"what": spend_display, "to": to})
-    await message.answer(
+    await private_answer(
+        message,
         f"<b>Send {spend_display}</b> · Robinhood Chain\n\n"
         f"To: <code>{label}</code>\n"
         f"Network fee (max): {_fmt_eth(gas_cost)} ETH\n"

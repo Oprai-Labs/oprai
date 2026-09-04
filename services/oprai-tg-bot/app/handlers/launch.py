@@ -25,6 +25,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import evm, launch
@@ -102,7 +103,8 @@ async def launch_cmd(message: Message, command: CommandObject) -> None:
         [InlineKeyboardButton(text="Cancel", callback_data=f"lnch:no:{pid}")],
     ])
     await audit(user.id, "launch_started", {"symbol": symbol, "name": name})
-    await message.answer(
+    await private_answer(
+        message,
         f"<b>${symbol}</b> — {name}\n"
         f"Image: {'attached ✅' if image else 'none'}\n"
         f"About: <i>{description[:120]}</i>\n\n"

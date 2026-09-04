@@ -250,3 +250,17 @@ CREATE TABLE IF NOT EXISTS tg_topups (
 
 CREATE INDEX IF NOT EXISTS idx_tg_topups_pending
     ON tg_topups (created_at) WHERE status = 'pending';
+
+-- Which tokens a wallet has actually touched.
+--
+-- Listing holdings by reading every registered token was ~200 contract calls
+-- per /portfolio — slow enough to time out and enough to be rate-limited. The
+-- deposit watcher already sees every ERC-20 arrival (a swap's output included,
+-- since it lands as a Transfer to the wallet), so it records the token here and
+-- the portfolio reads only this handful.
+CREATE TABLE IF NOT EXISTS tg_wallet_tokens (
+    telegram_id BIGINT NOT NULL REFERENCES tg_users(telegram_id) ON DELETE CASCADE,
+    address     TEXT   NOT NULL,
+    first_seen  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (telegram_id, address)
+);

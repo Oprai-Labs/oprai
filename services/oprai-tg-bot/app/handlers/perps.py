@@ -19,6 +19,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import evm, lighter
@@ -77,12 +78,12 @@ async def perps_cmd(message: Message, command: CommandObject) -> None:
         jwt = await auth_svc.get_jwt(user.id)
         state = await lighter.account(jwt, addr)
     except (lighter.LighterError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ Couldn't read your perps account: {e}")
+        await private_answer(message, f"⚠️ Couldn't read your perps account: {e}")
         return
 
     await audit(user.id, "perps_status", {})
     if not state.get("has_account"):
-        await message.answer(
+        await private_answer(message, 
             "<b>Perps</b> · Lighter\n\nYou don't have a perps account yet — a USDG "
             "deposit creates one.\n\n"
             "<code>/perps deposit 50</code>\n\n"
@@ -138,39 +139,39 @@ async def _deposit(message: Message, args: list[str]) -> None:
         usdg = (await tok.resolve("USDG"))[0]
         held = await tok.token_balance(usdg["address"], addr)
     except Exception as e:  # noqa: BLE001
-        await message.answer(f"⚠️ Couldn't check your USDG: {e}")
+        await private_answer(message, f"⚠️ Couldn't check your USDG: {e}")
         return
 
     want = int(amount * 10 ** usdg["decimals"])
     if held < want:
         have = Decimal(held) / (10 ** usdg["decimals"])
-        await message.answer(
+        await private_answer(message, 
             f"You hold <b>{_fmt(float(have), 2)} USDG</b> and tried to deposit "
             f"{_fmt(amount, 2)}.\n\nGet some with <code>/swap 0.02 ETH USDG</code>."
         )
         return
 
-    await message.answer(f"Depositing {_fmt(amount, 2)} USDG to Lighter…")
+    await private_answer(message, f"Depositing {_fmt(amount, 2)} USDG to Lighter…")
     try:
         w = await wallet_svc.get_or_create_wallet(user.id)
         tx_hash = await lighter.deposit(jwt, w["enc_key_ref"], addr, amount)
     except (lighter.LighterError, evm.EvmError, SignerError) as e:
         await audit(user.id, "perps_deposit_failed", {"error": str(e)[:200]})
-        await message.answer(f"❌ Deposit failed: {e}")
+        await private_answer(message, f"❌ Deposit failed: {e}")
         return
 
     await audit(user.id, "perps_deposit", {"amount": amount, "hash": tx_hash})
-    await message.answer(
+    await private_answer(message, 
         f"⏳ Sent {_fmt(amount, 2)} USDG — waiting for Lighter to credit it…"
     )
     state = await lighter.wait_for_account(jwt, addr)
     if state.get("has_account"):
-        await message.answer(
+        await private_answer(message, 
             f"✅ Perps account funded — ${_fmt(float(state.get('collateral') or 0), 2)} "
             f"collateral.\n\n{TRADE_USAGE}"
         )
     else:
-        await message.answer(
+        await private_answer(message, 
             "⏳ The transfer landed but Lighter hasn't credited it yet. "
             "It usually takes a moment — check /perps shortly."
         )
@@ -206,7 +207,7 @@ async def open_cmd(message: Message, command: CommandObject) -> None:
 
     max_lev = int(market.get("max_leverage") or 1)
     if leverage > max_lev:
-        await message.answer(
+        await private_answer(message, 
             f"{symbol} allows up to <b>{max_lev}x</b> — you asked for {leverage}x."
         )
         return
@@ -215,7 +216,7 @@ async def open_cmd(message: Message, command: CommandObject) -> None:
     # reject it: the floor is the larger of Lighter's two minimums.
     floor = lighter.min_collateral_usd(market, leverage)
     if collateral < floor:
-        await message.answer(
+        await private_answer(message, 
             f"${_fmt(collateral, 2)} is below {symbol}'s minimum at {leverage}x.\n"
             f"You need at least <b>${_fmt(floor, 2)}</b> collateral "
             f"(or more leverage)."
@@ -223,14 +224,14 @@ async def open_cmd(message: Message, command: CommandObject) -> None:
         return
 
     if not state.get("has_account"):
-        await message.answer(
+        await private_answer(message, 
             "You need a perps account first — a USDG deposit creates one:\n"
             "<code>/perps deposit 50</code>"
         )
         return
     available = float(state.get("available_balance") or state.get("collateral") or 0)
     if available < collateral:
-        await message.answer(
+        await private_answer(message, 
             f"Your perps account has <b>${_fmt(available, 2)}</b> available and "
             f"you asked to use ${_fmt(collateral, 2)}.\n\n"
             f"Top up with <code>/perps deposit {int(collateral)}</code>."
@@ -261,7 +262,7 @@ async def open_cmd(message: Message, command: CommandObject) -> None:
     detail += (
         "\n<i>Market order, gas-free. Leverage magnifies losses as well as gains.</i>"
     )
-    await message.answer(detail, reply_markup=kb)
+    await private_answer(message, detail, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("perp:"))
@@ -329,17 +330,17 @@ async def close_cmd(message: Message, command: CommandObject) -> None:
         jwt = await auth_svc.get_jwt(user.id)
         state = await lighter.account(jwt, addr)
     except (lighter.LighterError, auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ Couldn't read your positions: {e}")
+        await private_answer(message, f"⚠️ Couldn't read your positions: {e}")
         return
 
     pos = lighter.position_for(state, symbol)
     if not pos:
-        await message.answer(f"You have no open {symbol} position.")
+        await private_answer(message, f"You have no open {symbol} position.")
         return
 
     size = float(pos.get("size") or 0)
     pnl = float(pos.get("unrealized_pnl") or 0)
-    await message.answer(f"Closing {_fmt(size)} {symbol} ({pos.get('side')})…")
+    await private_answer(message, f"Closing {_fmt(size)} {symbol} ({pos.get('side')})…")
 
     try:
         # Lighter has no "close all" — the size must be named, so it comes from
@@ -350,12 +351,12 @@ async def close_cmd(message: Message, command: CommandObject) -> None:
     except lighter.LighterError as e:
         log.warning("perp_close_failed", telegram_id=user.id, error=str(e))
         await audit(user.id, "perp_close_failed", {"error": str(e)[:200]})
-        await message.answer(f"❌ Couldn't close it: {e}")
+        await private_answer(message, f"❌ Couldn't close it: {e}")
         return
 
     await audit(user.id, "perp_closed", {"symbol": symbol, "size": size})
     sign = "+" if pnl >= 0 else ""
-    await message.answer(
+    await private_answer(message, 
         f"✅ Closed <b>{_fmt(float(res.get('base_amount') or size))} {symbol}</b>\n"
         f"Unrealised PnL at close: {sign}${_fmt(pnl, 2)}\n\n"
         "See what's left with /perps"

@@ -18,6 +18,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import evm
@@ -187,7 +188,7 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
         native = (await pf.native_balance(user.id))["wei"]
         have = native if src_addr == relay.NATIVE else await tok.token_balance(src_addr, addr)
     except (pf.PortfolioError, evm.EvmError) as e:
-        await message.answer(f"⚠️ Couldn't read your balance: {e}")
+        await private_answer(message, f"⚠️ Couldn't read your balance: {e}")
         return
 
     want = int(amount * (10**src_dec))
@@ -204,7 +205,7 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
         )
         return
 
-    await message.answer(f"Getting the best route for {amount_str} {src_sym} → {dst_sym}…")
+    await private_answer(message, f"Getting the best route for {amount_str} {src_sym} → {dst_sym}…")
     try:
         jwt = await auth_svc.get_jwt(user.id)
         if venue == "uniswap":
@@ -240,7 +241,7 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
             )
     except (relay.RelayError, uniswap.UniswapError, sushi.SushiError,
             auth_svc.AuthError) as e:
-        await message.answer(f"⚠️ No route right now: {e}")
+        await private_answer(message, f"⚠️ No route right now: {e}")
         return
 
     pid = secrets.token_urlsafe(8)
@@ -259,7 +260,8 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
     ]])
     await audit(user.id, "swap_quoted",
                 {"venue": venue, "from": src_sym, "to": dst_sym, "amount": amount_str})
-    await message.answer(
+    await private_answer(
+        message,
         f"<b>Swap {amount_str} {src_sym} → {dst_sym}</b> · Robinhood Chain\n\n"
         f"You receive: <b>{out_amount} {out_symbol}</b>{extra}\n\n"
         f"<i>via {_VENUE_NAMES[venue]} · quote includes "
