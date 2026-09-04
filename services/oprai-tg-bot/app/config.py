@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     ROBINHOOD_RPC: str = "https://rpc.mainnet.chain.robinhood.com"
     # Optional explicit override (e.g. an internal node URL).
     OPRAI_TG_RPC_OVERRIDE: str = ""
+    # Where to go when our own node isn't answering. It is a full node doing
+    # real work: it prunes, it re-syncs, it traverses its trie database for an
+    # hour at a time, and it does not serve RPC while it does. Without a
+    # fallback the bot goes blind for that hour — balances, deposits, copy
+    # trades, everything — for a reason that has nothing to do with the chain.
+    OPRAI_TG_RPC_FALLBACK: str = "https://rpc.mainnet.chain.robinhood.com"
 
     def robinhood_rpc(self) -> str:
         return self.OPRAI_TG_RPC_OVERRIDE or self.ROBINHOOD_RPC

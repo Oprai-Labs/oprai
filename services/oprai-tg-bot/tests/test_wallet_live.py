@@ -200,3 +200,55 @@ async def test_a_wallet_can_be_named_and_unnamed():
         await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+# ── when our own node is busy ───────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_rpc_falls_back_when_our_node_is_not_answering(monkeypatch):
+    """Our node is a real full node: it prunes and re-syncs and traverses its
+    trie database for an hour at a time, serving nothing while it does. That
+    hour used to blind the bot completely — balances, deposits, copy trades —
+    for a reason that had nothing to do with the chain."""
+    import httpx
+
+    from app.services import evm
+
+    seen: list[str] = []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def post(self, url, json=None):
+            seen.append(url)
+            if "rh-nitro" in url:
+                raise httpx.ConnectError("All connection attempts failed")
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1,
+                                             "result": "0x340a04b"})
+
+    # Production shape: our own node first, a public one behind it.
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_OVERRIDE",
+                        "http://rh-nitro:8547")
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_FALLBACK",
+                        "https://rpc.mainnet.chain.robinhood.com")
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    result = await evm.rpc("eth_blockNumber", [])
+
+    assert result == "0x340a04b", "the fallback did not answer"
+    assert len(seen) >= 2, f"no fallback was attempted: {seen}"
+    assert seen[0] != seen[-1], "the same endpoint was tried twice"
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_rpc_never_reports_an_empty_reason():
+    """The log read 'rpc unreachable:' and stopped at the colon — several
+    httpx errors stringify to nothing, so it said less than silence."""
+    import httpx
+
+    from app.services.evm import _why
+
+    for e in (httpx.ConnectError(""), httpx.ReadTimeout(""), httpx.HTTPError("")):
+        text = _why(e)
+        assert text.strip(), "an empty reason survived"
+        assert not text.endswith(":"), text

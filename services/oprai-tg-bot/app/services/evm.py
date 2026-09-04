@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.logging_config import log
 from app.services import chains
 from app.signer_client import signer
 
@@ -52,16 +53,29 @@ async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID)
     # One retry on a transport failure: a dropped keep-alive or a node
     # restarting is a blip, and treating it as an outage stops a whole polling
     # cycle for something that costs half a second to ride out.
-    last: Exception | None = None
-    for attempt in range(2):
+    urls = [rpc_url(chain_id)]
+    fallback = settings.OPRAI_TG_RPC_FALLBACK
+    if int(chain_id) == CHAIN_ID and fallback and fallback not in urls:
+        urls.append(fallback)
+
+    r = None
+    for index, url in enumerate(urls):
         try:
             async with httpx.AsyncClient(timeout=15.0) as c:
-                r = await c.post(rpc_url(chain_id), json=payload)
+                r = await c.post(url, json=payload)
             break
         except httpx.HTTPError as e:
-            last = e
-            if attempt == 0:
+            if index == 0 and len(urls) == 1:
+                # Nothing to fall back to: ride out a blip, then give up.
                 await asyncio.sleep(0.4)
+                try:
+                    async with httpx.AsyncClient(timeout=15.0) as c:
+                        r = await c.post(url, json=payload)
+                    break
+                except httpx.HTTPError as again:
+                    raise EvmError(f"rpc unreachable: {_why(again)}") from again
+            if index + 1 < len(urls):
+                log.info("rpc_fallback", why=_why(e))
                 continue
             raise EvmError(f"rpc unreachable: {_why(e)}") from e
     if r.status_code != 200:
