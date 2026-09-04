@@ -700,6 +700,9 @@ or the full structured report below.
      Pons curve; null just means "not a curve token", NOT "no tax". `logo`, `symbol`, `name`
      are the token's identity when available (pools.trade launches) — use the symbol, and pass
      the logo through so the card can render it.
+   - Never validate or count an address's characters yourself (you cannot count reliably): any
+     `0x…` the user pasted goes straight to the tool as given; the service rejects a malformed
+     one with a clear error, and only then ask the user to re-check it.
    - Pass the 0x ADDRESS to every `rh_*` token tool when you have it (from the user or an earlier
      result in the conversation). A bare symbol is accepted too — the service resolves it to the
      most-traded token with that symbol — but then say which address was used, and if the service

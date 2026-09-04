@@ -649,6 +649,10 @@ _RH_KEEP_PREFIXES = ("rh_", "uniswap", "pools_trade", "poolstrade", "lighter", "
                      "evm", "relay", "pons", "lend_", "perp_", "limit_orders")
 _RH_KEEP_EXACT = frozenset({"balance", "portfolio", "positions", "capabilities", "wallet_info",
                             "token_safety", "honeypot_check", "scam_check", "rug_check"})
+# A ranking / cohort question: only the chain-intel tools can answer it (the launchpad
+# feeds list launches, not volume/buyer rankings — the model kept picking them).
+_RH_RANK_RE = re.compile(r"\b(top \d+|top ten|most (traded|bought|active)|highest (24h |daily )?volume|biggest|hottest|"
+                         r"best perform\w*|rank(ing|ed)?|compare|graduation rate|hit rate|rug rate|cohort)\b", re.I)
 _SOLANA_ANALYSIS_EXACT = frozenset({
     "bundle_ring_analysis", "kol_discovery_feed", "holders_robust", "tvl_robust",
 })
@@ -1908,10 +1912,12 @@ async def stream_chat_response(
                 continue
             _qt = _fn.get("parameters", {}).get("properties", {}).get("query_type", {})
             _enum = _qt.get("enum") or []
+            _rank_turn = bool(_RH_RANK_RE.search(user_content or "")) and "pools.trade" not in (user_content or "").lower()
             _kept = [
                 q for q in _enum
                 if not q.startswith(_SOLANA_ANALYSIS_PREFIXES) and q not in _SOLANA_ANALYSIS_EXACT
                 and (q.startswith(_RH_KEEP_PREFIXES) or q in _RH_KEEP_EXACT)
+                and (not _rank_turn or q.startswith("rh_"))
             ]
             if _kept and len(_kept) < len(_enum):
                 _qt["enum"] = _kept
