@@ -215,6 +215,9 @@ async def run() -> None:
     me = await bot.get_me()
     log.info("bot_starting", username=me.username, id=me.id, mode="long-polling")
 
+    # Anyone left on "Thinking…" by the restart that just happened.
+    await chat.close_orphaned_turns(bot)
+
     try:
         await bot.set_my_commands(COMMANDS)
     except Exception as e:  # noqa: BLE001 — a missing menu must not stop the bot
