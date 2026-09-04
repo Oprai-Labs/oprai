@@ -19,6 +19,7 @@ from app.db import close_pool, init_pool
 from app.handlers import (alpha, bridge, chat, common, copy, launch, lend,
                           nft, perps, portfolio, send, swap, wallet)
 from app.logging_config import configure_logging, log
+from app.services import notify
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
 from app.services.signals_client import SignalsClient
@@ -86,14 +87,11 @@ async def _watch_deposits(bot) -> None:
     while True:
         try:
             for d in await deposits.poll():
-                try:
-                    await bot.send_message(
-                        d.telegram_id,
-                        f"💰 <b>{d.display}</b> landed in your OPRAI wallet.\n"
-                        "Check /balance, or put it to work with /swap.",
-                    )
-                except Exception as e:  # noqa: BLE001 — one blocked chat is not fatal
-                    log.warning("deposit_notify_failed", telegram_id=d.telegram_id, error=str(e))
+                await notify.send(
+                    bot, d.telegram_id,
+                    f"💰 <b>{d.display}</b> landed in your OPRAI wallet.\n"
+                    "Check /balance, or put it to work with /swap.",
+                )
         except Exception as e:  # noqa: BLE001
             log.warning("deposit_watch_failed", error=str(e))
 
@@ -104,15 +102,11 @@ async def _watch_deposits(bot) -> None:
             from app.services import topups
 
             for done in await topups.settle_pending():
-                try:
-                    await bot.send_message(
-                        done["telegram_id"],
-                        f"✅ <b>{done['credits']} credits added</b> — your "
-                        "payment confirmed.",
-                    )
-                except Exception as e:  # noqa: BLE001 — one blocked chat is not fatal
-                    log.warning("topup_notify_failed",
-                                telegram_id=done["telegram_id"], error=str(e))
+                await notify.send(
+                    bot, done["telegram_id"],
+                    f"✅ <b>{done['credits']} credits added</b> — your "
+                    "payment confirmed.",
+                )
         except Exception as e:  # noqa: BLE001
             log.warning("topup_settle_failed", error=str(e))
 
@@ -138,14 +132,11 @@ async def _run_copy_trading(bot) -> None:
 
     store = CopyStore()
 
-    async def notify(telegram_id: int, text: str) -> None:
-        try:
-            await bot.send_message(telegram_id, text)
-        except Exception as e:  # noqa: BLE001 — one blocked chat is not fatal
-            log.warning("copy_notify_failed", telegram_id=telegram_id, error=str(e))
+    async def tell(telegram_id: int, text: str) -> None:
+        await notify.send(bot, telegram_id, text)
 
     engine = CopyEngine(
-        store, copy_executor.buy, notify,
+        store, copy_executor.buy, tell,
         price_provider=copy_executor.eth_price_usd,
     )
 
