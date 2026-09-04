@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -148,8 +150,27 @@ func NewGlobalRateLimiterStore(ctx context.Context) *rateLimiterStore {
 // (re)connect, and the sidebar load; the old 20/min-burst-5 429'd during a
 // reconnect and starved the very re-auth that would recover it. Still strict
 // enough to blunt SIWS-nonce brute force.
+//
+// The rate is env-overridable (GATEWAY_AUTH_RATE_PER_MIN / _BURST) with the
+// production numbers as the default. A test suite authenticating a fresh user
+// per case runs at hundreds a minute and 429s on a limit sized for humans;
+// raising it in dev beats every live test failing for a reason unrelated to
+// what it checks.
 func NewAuthRateLimiterStore(ctx context.Context) *rateLimiterStore {
-	return newRateLimiterStore(ctx, rate.Limit(40.0/60.0), 12)
+	perMin := envInt("GATEWAY_AUTH_RATE_PER_MIN", 40)
+	burst := envInt("GATEWAY_AUTH_RATE_BURST", 12)
+	return newRateLimiterStore(ctx, rate.Limit(float64(perMin)/60.0), burst)
+}
+
+// envInt reads a positive integer from the environment, falling back when it
+// is unset or unreadable — a malformed override must not disable the limiter.
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return fallback
 }
 
 // NewWalletRateLimiterStore creates the per-wallet store for the wallet (200/min) limiter.
