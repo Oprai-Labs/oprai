@@ -143,12 +143,32 @@ async def price_usd(token: str) -> float | None:
     val, src = (float(px) if px and float(px) > 0 else None), "index"
     if val is None or age > STALE_DAYS:
         live = await _pool_price_usd(t)
-        if live is not None:
+        if live is None:
+            live = await _curve_price_usd(t)
+            if live is not None:
+                val, src = live, "pons-curve"
+        else:
             val, src = live, "pool"
-        elif val is not None:
+        if live is None and val is not None:
             val, src = None, f"index-stale({age}d)-no-live-market"
     _px_cache[t], _px_source[t] = val, src
     return val
+
+
+async def _curve_price_usd(t: str) -> float | None:
+    """A token still on its Pons bonding curve has no pool — its price is the curve's
+    virtual quote/token reserve ratio (what the next buyer pays), in ETH → USD."""
+    try:
+        cv = await ch.one(f"SELECT curve FROM rh.pons_curves WHERE token='{t}'")
+        if not cv:
+            return None
+        st = await node.pons_curve_state(t)
+    except Exception:
+        return None
+    if not st or st.get("graduated") or not st.get("token_reserve"):
+        return None
+    eth = await eth_usd()
+    return float(st["quote_reserve"]) / float(st["token_reserve"]) * eth if eth else None
 
 
 MIN_POOL_TVL_USD = 300.0  # below this a pool is not a market and must not set a price
@@ -158,11 +178,24 @@ async def _pool_price_usd(t: str) -> float | None:
     """Price from the deepest LIVE USDG/WETH pool of this token (V4 slot0 by poolId via
     extsload, V3 slot0() by address). A pool with no liquidity or under
     MIN_POOL_TVL_USD is ignored — a dead pool's sqrtPrice is not a price."""
-    quotes = "','".join(STABLES | {WETH})
-    rows = await ch.q(
-        f"SELECT pool, token0, token1, dex FROM rh.dex_pools WHERE "
-        f"(token0='{t}' AND token1 IN ('{quotes}')) OR (token1='{t}' AND token0 IN ('{quotes}')) "
-        f"LIMIT 12", timeout=20)
+    quotes = "','".join(STABLES | {WETH, ZERO})
+    # candidates = the pools that actually traded recently (dex_swaps), else any pool
+    rows = []
+    try:
+        hi = int(await ch.scalar("SELECT max(block_number) FROM rh.dex_swaps") or 0)
+        active = await ch.q(f"SELECT pool, count() AS n FROM rh.dex_swaps WHERE (token_in='{t}' OR token_out='{t}') "
+                            f"AND block_number > {hi - 1_800_000} AND (token_in IN ('{quotes}') OR token_out IN ('{quotes}')) "
+                            f"GROUP BY pool ORDER BY n DESC LIMIT 8", timeout=15)
+        if active:
+            pin = "','".join(r["pool"] for r in active)
+            rows = await ch.q(f"SELECT pool, token0, token1, dex FROM rh.dex_pools WHERE pool IN ('{pin}')", timeout=20)
+    except Exception:
+        rows = []
+    if not rows:
+        rows = await ch.q(
+            f"SELECT pool, token0, token1, dex FROM rh.dex_pools WHERE "
+            f"(token0='{t}' AND token1 IN ('{quotes}')) OR (token1='{t}' AND token0 IN ('{quotes}')) "
+            f"LIMIT 12", timeout=20)
     best: tuple[float, float] | None = None
     for r in rows:
         if r["dex"] == "uniswap-v4":

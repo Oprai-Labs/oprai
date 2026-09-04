@@ -175,6 +175,29 @@ async def wallet_positions(wallet: str, x_internal_api_key: str | None = Header(
     return await positions.wallet_positions(wallet)
 
 
+@app.get("/decode/tx/{tx_hash}")
+async def decode_tx(tx_hash: str, x_internal_api_key: str | None = Header(None)):
+    """One receipt → every swap leg (venue, pool key, tokens, amounts) and the sender's
+    net buy/sell with USD — read from the node, for copy-trade decisions."""
+    _gate(x_internal_api_key)
+    if not (tx_hash.startswith("0x") and len(tx_hash) == 66):
+        raise HTTPException(400, "tx_hash must be a 0x…64-hex hash")
+    from . import decode
+    return await decode.decode_tx(tx_hash.lower())
+
+
+@app.get("/simulate/sell/{token}")
+async def simulate_sell(token: str, usd: float = Query(10.0, gt=0, le=100000),
+                        x_internal_api_key: str | None = Header(None)):
+    """Can this token be sold right now and at what cost? Quotes a small sell and buy
+    through the venue's own quoter (V4Quoter / QuoterV2 / Pons curve) vs spot."""
+    _gate(x_internal_api_key)
+    if not ch.is_addr(token):
+        raise HTTPException(400, "token must be a 0x address")
+    from . import decode
+    return await decode.simulate_sell(token, usd)
+
+
 @app.get("/wallet/{wallet}/smart-profile")
 async def wallet_smart_profile(wallet: str, x_internal_api_key: str | None = Header(None)):
     """WHY a wallet is (or isn't) smart — rank, PnL, win rate, tokens; EOA check."""
