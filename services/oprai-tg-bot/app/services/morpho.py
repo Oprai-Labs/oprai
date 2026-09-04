@@ -65,7 +65,36 @@ async def positions(jwt: str, wallet: str) -> list[dict]:
         {"type": "morpho_positions", "params": {"wallet": wallet}},
     )
     rows = ((res.get("data") or {}).get("positions")) or []
-    return [p for p in rows if int(p.get("chainId") or 0) == CHAIN_ID]
+    return [
+        _to_human(p) for p in rows if int(p.get("chainId") or 0) == CHAIN_ID
+    ]
+
+
+def _to_human(position: dict) -> dict:
+    """Scale the amounts once, here, rather than in every place that shows them.
+
+    Morpho reports supply, borrow and collateral in BASE units and hands us the
+    decimals to divide by. Showing them raw made 1,480,746 out of 1.48 USDG —
+    a million times the truth, on a wallet holding under a dollar. Every
+    consumer got it wrong because each was trusting a number that looked
+    already scaled.
+    """
+    out = dict(position)
+    loan_decimals = int(position.get("loanDecimals") or 18)
+    collateral_decimals = int(position.get("collateralDecimals") or 18)
+    for field, decimals in (
+        ("supplyAssets", loan_decimals),
+        ("borrowAssets", loan_decimals),
+        ("collateral", collateral_decimals),
+    ):
+        raw = position.get(field)
+        if raw is None:
+            continue
+        try:
+            out[field] = float(Decimal(str(raw)) / (10 ** decimals))
+        except (ArithmeticError, ValueError):
+            out[field] = 0.0
+    return out
 
 
 def market_for_collateral(rows: list[dict], symbol: str) -> dict | None:

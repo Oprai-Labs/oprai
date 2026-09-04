@@ -141,8 +141,14 @@ func AuthRateLimit(store *rateLimiterStore, trustProxy bool) func(http.Handler) 
 // transaction parsing AND re-auth. These are cheap cached reads; abuse is still
 // bounded (a bot can't sustain 10/s), and auth stays separately throttled.
 // Pass the application root context so the background cleanup goroutine stops on shutdown.
+// Env-overridable (GATEWAY_RATE_PER_MIN / _BURST) with the production numbers
+// as the default, for the same reason as the auth limiter: a live test suite
+// runs far faster than a person, and 429s there report our code as broken when
+// nothing is.
 func NewGlobalRateLimiterStore(ctx context.Context) *rateLimiterStore {
-	return newRateLimiterStore(ctx, rate.Limit(600.0/60.0), 200)
+	perMin := envInt("GATEWAY_RATE_PER_MIN", 600)
+	burst := envInt("GATEWAY_RATE_BURST", 200)
+	return newRateLimiterStore(ctx, rate.Limit(float64(perMin)/60.0), burst)
 }
 
 // NewAuthRateLimiterStore creates the per-IP store for the auth limiter.
