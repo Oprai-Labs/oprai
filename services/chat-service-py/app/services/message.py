@@ -2002,7 +2002,8 @@ async def stream_chat_response(
             ]
             # the chain-intel tools must be offered on every Robinhood turn — a client that
             # scopes by `protocols` (the Telegram bot) otherwise has no rh_* in the enum
-            _rh_all = [q.value for q in QueryType if q.value.startswith("rh_") and q.value in _md.SOLANA_ACTION_DATA_TYPES]
+            from app.clients import market_data as _mdq  # local alias: `_md` is rebound later in this function
+            _rh_all = [q.value for q in QueryType if q.value.startswith("rh_") and q.value in _mdq.SOLANA_ACTION_DATA_TYPES]
             for q in _rh_all:
                 if q not in _kept and (not _rank_turn or q.startswith("rh_")):
                     _kept.append(q)
