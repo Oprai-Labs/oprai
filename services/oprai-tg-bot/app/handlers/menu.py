@@ -17,13 +17,26 @@ from decimal import Decimal
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Icons that read at a glance on a phone and don't fight each other: one
-# visual weight, no mixed styles, and none that mean something else.
+# One visual weight throughout — all emoji, no thin text glyphs mixed in —
+# and each one meaning the thing it sits on. Swap is the currency-exchange
+# symbol rather than the recycling arrows, which refresh already uses: two
+# buttons that look alike are two buttons you press wrong.
 ICONS = {
-    "portfolio": "📊", "wallet": "🔑", "swap": "⇄", "send": "→",
-    "lend": "🏦", "perps": "📈", "nft": "🖼", "launch": "✦",
-    "bridge": "⇥", "alpha": "◎", "ask": "💬", "credits": "◆",
-    "refresh": "↻", "help": "?", "back": "‹ Back",
+    "portfolio": "📊",   # holdings at a glance
+    "wallet": "👛",      # the wallet itself, not a key
+    "swap": "💱",        # exchanging one thing for another
+    "send": "📤",        # out of your wallet
+    "lend": "🏦",
+    "perps": "📈",
+    "nft": "🖼",
+    "launch": "🚀",
+    "bridge": "🌉",
+    "alpha": "📡",       # signals coming in
+    "ask": "💬",
+    "credits": "🎟",     # what you spend to ask
+    "refresh": "🔄",
+    "help": "❓",
+    "back": "◀️ Back",
 }
 
 # What a token is likely to be swapped into, when we have nothing better to go
