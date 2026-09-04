@@ -267,6 +267,13 @@ async def _answer(message: Message, question: str) -> None:
     placeholder = await message.answer("💭 <i>Thinking…</i>")
     await message.bot.send_chat_action(message.chat.id, "typing")
 
+    # A question that needs live chain data takes twenty-odd seconds, and the
+    # answer arrives in one burst at the end — so nothing we stream can fill
+    # that gap. Saying what is happening, as it happens, is the difference
+    # between a wait and a hang. These are elapsed-time stages, not invented
+    # progress: each one only claims that the previous is still running.
+    ticker = asyncio.create_task(_keep_company(placeholder, message.bot, message.chat.id))
+
     session_id = await chat_svc.session_for(scope_id, user.id)
     last_edit = time.monotonic()
 
@@ -288,6 +295,7 @@ async def _answer(message: Message, question: str) -> None:
             jwt, session_id, question, on_progress=on_progress
         )
     except (chat_svc.ChatError, auth_svc.AuthError) as e:
+        ticker.cancel()
         # Nothing was delivered, so nothing should be charged.
         await credits.refund(scope_id, user.id, 1, reason=type(e).__name__)
         log.warning("chat_failed", telegram_id=user.id, error=str(e)[:200])
@@ -298,6 +306,7 @@ async def _answer(message: Message, question: str) -> None:
             await message.answer(f"⚠️ {e}")
         return
 
+    ticker.cancel()
     await chat_svc.remember_session(scope_id, user.id, answer.session_id or "")
     await audit(user.id, "chat_answered",
                 {"chars": len(answer.text), "group": is_group})
@@ -448,6 +457,39 @@ class _Args:
         self.prefix = "/"
         self.mention = None
         self.magic_result = None
+
+
+# What the wait actually consists of, in the order it happens. Each line is
+# shown once the one before it has been true for a while — so the message is
+# always a fair description of where the turn has got to, never a promise.
+STAGES = (
+    (4, "🔎 <i>Working out what you need…</i>"),
+    (9, "⛓ <i>Reading the chain…</i>"),
+    (16, "🧮 <i>Going through the numbers…</i>"),
+    (26, "✍️ <i>Writing it up…</i>"),
+    (40, "⏳ <i>Still going — this one is taking a while.</i>"),
+)
+
+
+async def _keep_company(placeholder, bot, chat_id: int) -> None:
+    """Say what is happening while the model works.
+
+    The answer arrives in a single burst at the end, so there is nothing to
+    stream into the gap. Twenty seconds of an unchanging "Thinking…" reads as
+    a hang; the same twenty seconds narrated reads as work.
+    """
+    waited = 0.0
+    for after, text in STAGES:
+        try:
+            await asyncio.sleep(after - waited)
+        except asyncio.CancelledError:
+            return
+        waited = after
+        try:
+            await placeholder.edit_text(text)
+            await bot.send_chat_action(chat_id, "typing")
+        except Exception:  # noqa: BLE001 — the notice is courtesy, not the answer
+            return
 
 
 # What to say when we cannot run it faithfully — the command that would.
