@@ -281,3 +281,52 @@ def test_every_command_the_mapper_emits_has_a_handler():
     for command, (module_name, func_name) in _HANDLERS.items():
         module = __import__(f"app.handlers.{module_name}", fromlist=[func_name])
         assert hasattr(module, func_name), f"/{command} -> {module_name}.{func_name}"
+
+
+# ── the wait ────────────────────────────────────────────────────────────────
+def test_the_wait_is_narrated_in_order():
+    """A tool-using turn takes twenty-odd seconds and the answer arrives in one
+    burst at the end, so there is nothing to stream into the gap. An
+    unchanging "Thinking…" reads as a hang."""
+    from app.handlers.chat import STAGES
+
+    times = [t for t, _ in STAGES]
+    assert times == sorted(times), "the stages would fire out of order"
+    assert times[0] <= 5, "the first sign of life comes too late"
+    # Each stage only claims the previous one is still running — no stage may
+    # promise the answer is nearly ready.
+    for _, text in STAGES:
+        assert "…" in text or "while" in text
+
+
+@pytest.mark.asyncio
+async def test_the_narration_stops_when_the_answer_lands():
+    """A ticker left running would overwrite the answer with "still going"."""
+    import asyncio
+    import inspect
+
+    from app.handlers import chat as chat_handler
+
+    source = inspect.getsource(chat_handler._answer)
+    assert source.count("ticker.cancel()") >= 2, (
+        "the ticker outlives at least one exit path and would overwrite the answer"
+    )
+
+    # And cancelling it really does stop it.
+    edits: list[str] = []
+
+    class _Placeholder:
+        async def edit_text(self, text, **kwargs):
+            edits.append(text)
+
+    class _Bot:
+        async def send_chat_action(self, *a, **k):
+            return None
+
+    task = asyncio.create_task(
+        chat_handler._keep_company(_Placeholder(), _Bot(), 1)
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await asyncio.sleep(0.05)
+    assert edits == [], "the first stage fired before anyone could have waited"
