@@ -2784,12 +2784,27 @@ async def rh_cohort_flow(token: str, window_days: int = 7) -> dict:
 
 @query_tool(required=["token"], optional=["amount"], tags={"analysis"})
 async def rh_honeypot(token: str, amount: float | None = None) -> dict:
-    """Can you EXIT this Robinhood-Chain token? For Pons curve tokens resolves the
-    live curve via our node — sellable?, sell tax (fee + creator tax), and the ETH
-    you'd get for `amount` tokens; for others uses on-chain transfer history
-    (distinct sellers). Use for 'can I sell / is it a honeypot / sell tax / exit'."""
+    """Can you EXIT this Robinhood-Chain token? Simulates a small SELL and BUY right now
+    through the venue's own quoter (Uniswap V4Quoter / V3 QuoterV2 / Pons curve) —
+    `can_sell_now`, `sell_cost_pct` vs spot (LP fee + any hook tax + impact),
+    `buy_cost_pct`, `hook_tax_pct_est` — plus, for Pons curve tokens, the live curve
+    (sell tax, ETH you'd get for `amount`) and on-chain distinct-seller history.
+    Use for 'can I sell / is it a honeypot / sell tax / exit / is it safe to buy'."""
     path = f"/honeypot/{token}" + (f"?amount={float(amount)}" if amount else "")
-    return await _chain_intel(path)
+    res, sim = await asyncio.gather(_chain_intel(path), _chain_intel(f"/simulate/sell/{token}"),
+                                    return_exceptions=True)
+    res = res if isinstance(res, dict) else {"token": token}
+    # Live quote through the venue's own quoter (Uniswap V4Quoter / QuoterV2 / Pons
+    # curve): can a small sell fill right now, at what cost vs spot, any hook tax.
+    if isinstance(sim, dict):
+        res["simulation"] = sim
+        if sim.get("can_sell") is not None:
+            res["can_sell_now"] = sim["can_sell"]
+            res["sell_cost_pct"] = sim.get("sell_cost_pct")
+            res["buy_cost_pct"] = sim.get("buy_cost_pct")
+            res["hook_tax_pct_est"] = sim.get("hook_tax_pct_est")
+            res["sim_note"] = sim.get("note")
+    return res
 
 
 @query_tool(optional=["window_blocks", "min_smart"], tags={"analysis", "dex"})

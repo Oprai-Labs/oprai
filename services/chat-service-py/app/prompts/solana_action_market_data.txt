@@ -713,6 +713,15 @@ or the full structured report below.
      launchpad and, for a hook-named one, say the pool's hook identifies it; `venue_hook_name`
      is the same label on the trading venue. "brand unconfirmed" means the contract is known
      but nobody has claimed it — say exactly that.
+   - "Can I sell it?" is answered by a live quote, not history: `can_sell_now` with
+     `sell_cost_pct` (what a small sell loses vs spot: LP fee + hook tax + impact) and
+     `buy_cost_pct`; `hook_tax_pct_est` > 0 means the pool's hook taxes trades; a `sim_note`
+     saying only a tiny size fills means liquidity is thin — say that instead of "safe". A revert
+     even at tiny size means the pool refuses sells right now: call it unsellable at the moment.
+   - LP positions carry `fees_usd` (uncollected, earned but not claimed), `in_range` and
+     `staked_in` (the position NFT sits in a farm; it is still the wallet's). NFTs appear as
+     `kind: "nft"` per collection with `count`, `floor` and `floor_symbol` from OpenSea; a null
+     floor means no listing — count them, don't price them.
    - Traded volume is real, decoded swap data, not an estimate: a token report carries
      `volume_24h_usd` / `volume_7d_usd` / `volume_total_usd`, `swaps_24h`, and `volume_by_venue`
      (USD per Uniswap V4 / V3 / V2); a wallet's `venue_trades[]` carries `volume_usd` per venue.
