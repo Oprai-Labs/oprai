@@ -33,7 +33,8 @@ WELCOME = (
 HELP = (
     "<b>OPRAI bot — Robinhood Chain</b>\n\n"
     "/start — get started / link your account\n"
-    "/wallet — your custodial Robinhood wallet (create or import)\n"
+    "/wallet — your wallet · <code>new</code> · <code>import</code> · "
+    "<code>export</code> · <code>list</code>\n"
     "/balance — your ETH balance on Robinhood Chain\n"
     "/portfolio — your holdings\n"
     "/send &lt;amount&gt; &lt;token&gt; &lt;0xaddress|@user&gt; — send ETH, tokens or\n"

@@ -47,6 +47,12 @@ class SignerClient:
             "/wallet/import", {"chain": chain, "secret": secret}
         )
 
+    async def export_wallet(self, chain: str, enc_key_ref: str) -> dict:
+        """-> {address, secret}. The only call that returns key material."""
+        return await self._post(
+            "/wallet/export", {"chain": chain, "enc_key_ref": enc_key_ref}
+        )
+
     async def sign(self, chain: str, enc_key_ref: str, message: str) -> dict:
         """-> {address, signature}"""
         return await self._post(

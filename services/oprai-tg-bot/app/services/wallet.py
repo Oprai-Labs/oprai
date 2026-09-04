@@ -20,9 +20,37 @@ CHAIN = "evm"  # secp256k1 key, used on Robinhood Chain (4663)
 
 
 async def get_wallet(telegram_id: int) -> asyncpg.Record | None:
+    """The wallet in use. Archived ones are still here but no longer active."""
     return await pool().fetchrow(
         "SELECT chain, address, enc_key_ref, imported FROM tg_wallets "
-        "WHERE telegram_id = $1 AND chain = $2",
+        "WHERE telegram_id = $1 AND chain = $2 AND archived_at IS NULL",
+        telegram_id,
+        CHAIN,
+    )
+
+
+async def archive_active(telegram_id: int) -> asyncpg.Record | None:
+    """Step the current wallet aside without destroying it.
+
+    Replacing a wallet row outright loses the only copy of its key, and with it
+    anything the old address still holds. Archived rows keep their key, stay
+    exportable, and simply stop being the one we sign with.
+    """
+    return await pool().fetchrow(
+        "UPDATE tg_wallets SET archived_at = now() "
+        "WHERE telegram_id = $1 AND chain = $2 AND archived_at IS NULL "
+        "RETURNING chain, address, enc_key_ref, imported",
+        telegram_id,
+        CHAIN,
+    )
+
+
+async def list_wallets(telegram_id: int) -> list[asyncpg.Record]:
+    """Active first, then archived newest-first."""
+    return await pool().fetch(
+        "SELECT address, imported, archived_at, created_at FROM tg_wallets "
+        "WHERE telegram_id = $1 AND chain = $2 "
+        "ORDER BY archived_at IS NOT NULL, archived_at DESC NULLS FIRST, created_at DESC",
         telegram_id,
         CHAIN,
     )
@@ -43,7 +71,7 @@ async def get_or_create_wallet(telegram_id: int) -> asyncpg.Record:
         """
         INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref, imported)
         VALUES ($1, $2, $3, $4, FALSE)
-        ON CONFLICT (telegram_id, chain) DO NOTHING
+        ON CONFLICT (telegram_id, chain) WHERE archived_at IS NULL DO NOTHING
         """,
         telegram_id,
         CHAIN,
@@ -54,16 +82,18 @@ async def get_or_create_wallet(telegram_id: int) -> asyncpg.Record:
 
 
 async def import_wallet(telegram_id: int, secret: str) -> asyncpg.Record:
-    """Import an existing key (hex). Overwrites the current Robinhood wallet."""
+    """Import an existing key and make it the wallet in use.
+
+    The previous wallet is archived, not overwritten. Overwriting discarded the
+    only copy of its key — so anything still sitting at the old address became
+    unreachable the moment someone imported.
+    """
     imported = await signer.import_wallet(CHAIN, secret)
+    await archive_active(telegram_id)
     await pool().execute(
         """
         INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref, imported)
         VALUES ($1, $2, $3, $4, TRUE)
-        ON CONFLICT (telegram_id, chain)
-        DO UPDATE SET address = EXCLUDED.address,
-                      enc_key_ref = EXCLUDED.enc_key_ref,
-                      imported = TRUE
         """,
         telegram_id,
         CHAIN,
@@ -71,6 +101,42 @@ async def import_wallet(telegram_id: int, secret: str) -> asyncpg.Record:
         imported["enc_key_ref"],
     )
     return await get_wallet(telegram_id)
+
+
+async def new_wallet(telegram_id: int) -> asyncpg.Record:
+    """Generate a fresh wallet, archiving whatever was in use."""
+    created = await signer.create_wallet(CHAIN)
+    await archive_active(telegram_id)
+    await pool().execute(
+        """
+        INSERT INTO tg_wallets (telegram_id, chain, address, enc_key_ref, imported)
+        VALUES ($1, $2, $3, $4, FALSE)
+        """,
+        telegram_id,
+        CHAIN,
+        created["address"],
+        created["enc_key_ref"],
+    )
+    return await get_wallet(telegram_id)
+
+
+async def export_secret(telegram_id: int, address: str | None = None) -> dict:
+    """The private key for a wallet of theirs — active by default.
+
+    Archived wallets are exportable too: that is the whole point of keeping
+    them, so funds left at an old address can still be recovered.
+    """
+    if address:
+        row = await pool().fetchrow(
+            "SELECT chain, address, enc_key_ref FROM tg_wallets "
+            "WHERE telegram_id = $1 AND chain = $2 AND lower(address) = lower($3)",
+            telegram_id, CHAIN, address,
+        )
+    else:
+        row = await get_wallet(telegram_id)
+    if row is None:
+        raise ValueError("no such wallet")
+    return await signer.export_wallet(CHAIN, row["enc_key_ref"])
 
 
 async def wallet_address(telegram_id: int) -> str:

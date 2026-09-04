@@ -527,3 +527,48 @@ mod tests {
         assert!(Chain::parse("dogechain").is_err());
     }
 }
+
+/// Render secret bytes in the form each chain's wallets expect on import:
+/// base58 for Solana, 0x-prefixed hex for EVM. The inverse of `import`, so a
+/// key exported here can be pasted straight into MetaMask or back into us.
+pub fn encode_secret(chain: Chain, secret: &[u8]) -> String {
+    match chain {
+        Chain::Solana => bs58::encode(secret).into_string(),
+        Chain::Evm => format!("0x{}", hex::encode(secret)),
+    }
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    /// An exported key has to be importable again — by us and by any normal
+    /// wallet. Encode it in the wrong shape and someone restores a wallet at a
+    /// different address, finds it empty, and has no way back.
+    #[test]
+    fn export_round_trips_through_import() {
+        for (chain, input) in [
+            (Chain::Evm,
+             "0x4c0883a69102937d6231471b5dbb6204fe512961708279f2e3e8a5d4b8f43a01"),
+            (Chain::Solana,
+             "4NMwxzmYj2uvHuq8xoqhY8RXg63KSVJM1DXkpbmkUY7YQWuoyQgFnnzn6yo3CMnqZasnNPNuAT2TLwQsCaKkUddp"),
+        ] {
+            let imported = import(chain, input).expect("import");
+            let exported = encode_secret(chain, &imported.secret);
+            let again = import(chain, &exported).expect("re-import");
+            assert_eq!(
+                imported.address, again.address,
+                "exported key restores a different address"
+            );
+        }
+    }
+
+    #[test]
+    fn an_evm_export_is_the_hex_form_wallets_expect() {
+        let key = "0x4c0883a69102937d6231471b5dbb6204fe512961708279f2e3e8a5d4b8f43a01";
+        let km = import(Chain::Evm, key).unwrap();
+        let out = encode_secret(Chain::Evm, &km.secret);
+        assert_eq!(out, key, "MetaMask would refuse a differently-shaped key");
+        assert!(out.starts_with("0x") && out.len() == 66);
+    }
+}
