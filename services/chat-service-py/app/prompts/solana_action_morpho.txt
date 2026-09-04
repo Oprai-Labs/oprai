@@ -58,6 +58,12 @@ Reads (use query_onchain — these render as cards, do NOT also narrate them in 
   supply/borrow APY, liquidity, TVL) with per-row Lend / Borrow buttons.
   "morpho markets", "morpho pools", "morpho lending rates", "what can I lend on
   morpho", "list morpho pools" → morpho_markets.
+  This is ALSO the answer when the chain is named instead of the protocol —
+  nobody says "morpho" when they mean "lending on Robinhood". "lending rates on
+  Robinhood Chain", "where can I earn on USDG", "best borrow rate on Robinhood",
+  "what can I lend here" → morpho_markets. Do NOT answer these from
+  `lending_rates`: that tool is Solana-only and reports no APY for this chain,
+  which reads as "there are no rates" when four markets are quoting.
 - `morpho_positions` {wallet} — the user's Morpho positions (supplied, collateral,
   borrowed, health factor per market). Use wallet="self".
   "my morpho positions", "my morpho loans", "how much have I borrowed on morpho"

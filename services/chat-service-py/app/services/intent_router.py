@@ -151,6 +151,42 @@ _EVM_CHAIN_WORDS: tuple[str, ...] = (
     "robinhood", "ethereum", "base", "arbitrum", "optimism", "polygon", "bsc",
     "bnb chain", "avalanche", "evm",
 )
+_LEND_WORDS: tuple[str, ...] = (
+    "lend", "lending", "borrow", "borrowing", "repay", "collateral",
+    "loan", "supply apy", "lending rate", "lending rates", "ltv",
+)
+_PERP_WORDS: tuple[str, ...] = (
+    "perp", "perps", "perpetual", "perpetuals", "leverage", "leveraged",
+    "long", "short", "liquidation price", "funding rate",
+)
+_SWAP_WORDS: tuple[str, ...] = (
+    "swap", "trade", "buy", "sell", "exchange", "convert",
+)
+
+# Naming a chain has to select the CHAIN, not one protocol on it.
+#
+# "robinhood" is matched as a `relay` keyword so that naming an EVM chain
+# never drops a request into the Solana flow. That works, but it had a side
+# effect nobody wanted: our own chain's venues became invisible the moment
+# someone said its name. "Best lending rates on Robinhood Chain" resolved to
+# the bridge alone and was answered from the Solana lending aggregator, which
+# has no rates for it — the user got "no APYs available" while four Morpho
+# markets were quoting.
+#
+# So when a verb names something Robinhood Chain actually does, put that
+# chain's venue on the table. The Solana venue is dropped only when the user
+# did NOT type its name: an explicit "kamino on base" is a question about
+# Kamino and stays theirs to ask.
+_CHAIN_VENUE_RULES: tuple[tuple[tuple[str, ...], str, tuple[str, ...]], ...] = (
+    (_NFT_WORDS, "opensea", ("magic_eden", "tensor")),
+    (_LEND_WORDS, "morpho", ("kamino", "solend")),
+    # Jupiter is the Solana perps venue but also its DEX, so it is added to,
+    # never dropped — removing it would take swapping away with it.
+    (_PERP_WORDS, "lighter", ()),
+    # Purely additive: Relay does route same-chain trades, so this widens the
+    # choice to the chain's own DEXes rather than replacing anything.
+    (_SWAP_WORDS, "sushi", ()),
+)
 
 
 # Compiled regex cache for word-boundary matching. Built lazily on first use.
@@ -186,18 +222,20 @@ def _augment_protocols_from_keywords(
         if any(_kw_regex(kw).search(msg) for kw in keywords):
             augmented.add(proto)
 
-    # NFTs are chain-specific. Magic Eden / Tensor are SOLANA NFT marketplaces;
-    # OpenSea is the NFT marketplace on Robinhood Chain (EVM). The classifier is
-    # Solana-biased and answers a bare "trending nfts" with Magic Eden — so when
-    # an NFT ask ALSO names Robinhood / an EVM chain, pin it to OpenSea and drop
-    # the wrong-chain Solana venues. ("trend'de neler var nft, robinhood ağında"
-    # was coming back as Magic Eden.)
-    _nft_here = any(_kw_regex(w).search(msg) for w in _NFT_WORDS)
-    _evm_here = any(_kw_regex(w).search(msg) for w in _EVM_CHAIN_WORDS)
-    if _nft_here and _evm_here:
-        augmented.add("opensea")
-        augmented.discard("magic_eden")
-        augmented.discard("tensor")
+    # Venues are chain-specific, and the classifier is Solana-biased: a bare
+    # "trending nfts" comes back as Magic Eden, and a lending question that
+    # names Robinhood came back as the bridge. When a verb ALSO names an EVM
+    # chain, bring that chain's venue into scope — see _CHAIN_VENUE_RULES.
+    if any(_kw_regex(w).search(msg) for w in _EVM_CHAIN_WORDS):
+        typed = named_protocols(msg)
+        for words, venue, solana_venues in _CHAIN_VENUE_RULES:
+            if not any(_kw_regex(w).search(msg) for w in words):
+                continue
+            augmented.add(venue)
+            for wrong_chain in solana_venues:
+                # Never drop a protocol the user named themselves.
+                if wrong_chain not in typed:
+                    augmented.discard(wrong_chain)
 
     # Token hints are the weak signal and only speak when nobody else has:
     # naming an asset picks a venue only if no venue is on the table yet.
