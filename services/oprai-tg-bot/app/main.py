@@ -16,8 +16,8 @@ from aiogram.types import BotCommand
 
 from app.config import settings
 from app.db import close_pool, init_pool
-from app.handlers import (alpha, bridge, chat, common, launch, lend, nft,
-                          perps, portfolio, send, swap, wallet)
+from app.handlers import (alpha, bridge, chat, common, copy, launch, lend,
+                          nft, perps, portfolio, send, swap, wallet)
 from app.logging_config import configure_logging, log
 from app.services.alert_store import AlertStore
 from app.services.alert_worker import run_forever as run_alert_worker
@@ -30,6 +30,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(wallet.router)
     dp.include_router(portfolio.router)
     dp.include_router(alpha.router)
+    dp.include_router(copy.router)
     dp.include_router(send.router)
     dp.include_router(swap.router)
     dp.include_router(bridge.router)
@@ -62,6 +63,9 @@ COMMANDS = [
     BotCommand(command="close", description="Close a position"),
     BotCommand(command="lend", description="Earn on USDG / see rates"),
     BotCommand(command="borrow", description="Borrow against collateral"),
+    BotCommand(command="alpha", description="Smart-money alerts"),
+    BotCommand(command="track", description="Watch a wallet"),
+    BotCommand(command="copy", description="Copy-trade a wallet"),
     BotCommand(command="nft", description="NFTs on Robinhood Chain"),
     BotCommand(command="mynfts", description="NFTs you hold"),
     BotCommand(command="launch", description="Create a token"),
@@ -115,6 +119,54 @@ async def _watch_deposits(bot) -> None:
         await asyncio.sleep(DEPOSIT_POLL_SECONDS)
 
 
+LEADER_REFRESH_SECONDS = 20
+
+
+async def _run_copy_trading(bot) -> None:
+    """Watch the wallets people copy, and copy their buys.
+
+    Everything for this existed — the store, the risk engine, the block
+    watcher — but nothing ever started it, so /copy accepted subscriptions
+    that could never fire. The engine's own limits (per-trade ETH, daily USD)
+    are what make auto-execution safe, so they are applied before every buy
+    and the ETH price behind the dollar cap is read live rather than assumed.
+    """
+    from app.services import copy_executor
+    from app.services.copy_engine import CopyEngine
+    from app.services.copy_store import CopyStore
+    from app.services.copy_watcher import watch_buys
+
+    store = CopyStore()
+
+    async def notify(telegram_id: int, text: str) -> None:
+        try:
+            await bot.send_message(telegram_id, text)
+        except Exception as e:  # noqa: BLE001 — one blocked chat is not fatal
+            log.warning("copy_notify_failed", telegram_id=telegram_id, error=str(e))
+
+    engine = CopyEngine(
+        store, copy_executor.buy, notify,
+        price_provider=copy_executor.eth_price_usd,
+    )
+
+    # The watcher asks for the live set on every block, and asking the database
+    # that often would be wasteful — so it is refreshed on its own cadence and
+    # read from memory. A wallet added now starts being copied within seconds.
+    leaders: set[str] = set()
+
+    async def refresh() -> None:
+        nonlocal leaders
+        while True:
+            try:
+                leaders = {w.lower() for w in await store.all_leaders()}
+            except Exception as e:  # noqa: BLE001
+                log.warning("copy_leaders_refresh_failed", error=str(e))
+            await asyncio.sleep(LEADER_REFRESH_SECONDS)
+
+    asyncio.create_task(refresh())
+    await watch_buys(settings.robinhood_rpc(), lambda: leaders, engine.on_buy)
+
+
 async def _keep_token_registry_fresh() -> None:
     """Seed the token registry on first boot, then refresh it periodically.
 
@@ -163,6 +215,7 @@ async def run() -> None:
         run_alert_worker(SignalsClient(), AlertStore(), make_alert_sender(bot)))
     registry_task = asyncio.create_task(_keep_token_registry_fresh())
     deposit_task = asyncio.create_task(_watch_deposits(bot))
+    copy_task = asyncio.create_task(_run_copy_trading(bot))
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
@@ -170,6 +223,7 @@ async def run() -> None:
         worker.cancel()
         registry_task.cancel()
         deposit_task.cancel()
+        copy_task.cancel()
         await bot.session.close()
         await close_pool()
 

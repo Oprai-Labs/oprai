@@ -170,10 +170,17 @@ async def cb_analyze(cq: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(cq: CallbackQuery) -> None:
+    """Buy the token an alert is about.
+
+    This used to say one-tap buying was "coming next" and send people to
+    /wallet, which does not trade. The trade flow exists now, so the button
+    quotes a real swap: the point of an alert is to be able to act on it while
+    it is still worth acting on.
+    """
     token = cq.data.split(":", 1)[1]
-    # Hand off to the bot's existing trade flow (gateway build → signer). Until that
-    # entry point is wired here, guide the user to it rather than silently no-op.
     await cq.answer()
     await cq.message.answer(
-        f"🟢 To buy <code>{token}</code>, use your OPRAI wallet trade flow "
-        f"(/wallet). One-tap buy from alerts is coming next.")
+        f"To buy it, name your size:\n\n"
+        f"<code>/swap 0.01 ETH {token}</code>\n\n"
+        "<i>You'll get a quote to confirm before anything is signed.</i>"
+    )
