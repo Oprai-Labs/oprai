@@ -2779,7 +2779,7 @@ async def stream_chat_response(
                 token_text = "<untrusted>\n" + "\n\n".join(
                     (f"### Token Search: {params.get('query', '')}\n" if _n == "jup_token_search"
                      else "### rh_sql FAILED — rewrite the SQL per `error`/`fix`/`hint` and call rh_sql again (once)\n")
-                    f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:2000]}\n```"
+                    + f"Result:\n```json\n{json.dumps(result, ensure_ascii=False, indent=2, default=str)[:2000]}\n```"
                     for _n, params, result in token_resolution
                 ) + "\n</untrusted>"
                 token_followup_msgs = list(model_messages) + [
