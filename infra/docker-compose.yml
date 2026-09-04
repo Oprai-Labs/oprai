@@ -594,8 +594,103 @@ services:
       retries: 3
       start_period: 10s
 
+  # ============== Telegram bot ==============
+
+  # Holds the Transit key that wraps every custodial private key. Losing it
+  # loses every wallet, permanently — so storage is a persistent volume (never
+  # `server -dev`, which is in-memory) and vault-data belongs in the off-site
+  # backup. Reachable only on the internal network; no host port is published.
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: oprai-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    # Just `server`: the image's entrypoint already appends
+    # -config=/vault/config, and passing the file as well loads the same
+    # listener twice ("address already in use" on a fresh container).
+    command: server
+    volumes:
+      - vault-data:/vault/file
+      - ./vault/vault.hcl:/vault/config/vault.hcl:ro
+    expose:
+      - "8200"
+    healthcheck:
+      # 501 = unsealed but uninitialised, 503 = sealed. Both mean the process
+      # answers; only a connection failure is unhealthy, because a sealed Vault
+      # still needs to be reachable for us to unseal it.
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8200/v1/sys/health?standbyok=true\\&sealedcode=200\\&uninitcode=200 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # The ONLY process that touches key material. Stateless: the bot stores the
+  # Vault ciphertext and hands it back per request. Fails closed without Vault.
+  oprai-tg-signer:
+    build:
+      context: ..
+      dockerfile: services/oprai-tg-signer/Dockerfile
+    container_name: oprai-tg-signer
+    mem_limit: 512m
+    pids_limit: 256
+    restart: unless-stopped
+    depends_on:
+      vault:
+        condition: service_healthy
+    expose:
+      - "3060"
+    environment:
+      PORT: 3060
+      BIND_HOST: 0.0.0.0
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:?VAULT_TOKEN is required — see infra/vault/README}
+      VAULT_TRANSIT_MOUNT: transit
+      VAULT_TRANSIT_KEY: oprai-tg-keys
+      RUST_LOG: ${RUST_LOG:-info}
+
+  oprai-tg-bot:
+    build:
+      context: ../services/oprai-tg-bot
+      dockerfile: Dockerfile
+    container_name: oprai-tg-bot
+    mem_limit: 768m
+    pids_limit: 512
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      oprai-tg-signer:
+        condition: service_started
+    environment:
+      OPRAI_TELEGRAM_BOT_TOKEN: ${OPRAI_TELEGRAM_BOT_TOKEN:?OPRAI_TELEGRAM_BOT_TOKEN is required}
+      OPRAI_TG_BOT_USERNAME: ${OPRAI_TG_BOT_USERNAME:-Oprai_Labs_Bot}
+      DATABASE_URL: postgresql://postgres:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
+      DB_SCHEMA: tg_schema
+      GATEWAY_URL: http://gateway-go:3001
+      OPRAI_TG_SIGNER_URL: http://oprai-tg-signer:3060
+      OPRAI_INTERNAL_API_KEY: ${OPRAI_INTERNAL_API_KEY:?OPRAI_INTERNAL_API_KEY is required}
+      # Our own node: the deposit watcher and every balance read go through it.
+      ROBINHOOD_RPC: ${ROBINHOOD_RPC:-}
+      CHAIN_INTEL_URL: ${CHAIN_INTEL_URL:-http://rh-chain-intel-api:3160}
+      OPRAI_TG_DEV_WALLET: ${OPRAI_TG_DEV_WALLET:-0xb0E580Cf95E2B045b99b31ddF3137D3D88d55b8E}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Our own Nitro node and the chain-intel API live on the node's network,
+    # published only on the host's loopback — so name resolution, not a host
+    # port, is how the bot reaches them.
+    networks:
+      - default
+      - rhnode
+
+networks:
+  rhnode:
+    external: true
+    name: rhnode_default
+
 volumes:
   gateway-uploads:
+  vault-data:
   postgres-data:
   redis-data:
   qdrant-storage:
