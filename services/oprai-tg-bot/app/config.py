@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Copy-trade. The watcher must read OUR node directly (sequencer-feed fed, ~1s
     # fresh) — never the index — so a copy fires ~1-2s behind the leader.
     COPY_NODE_RPC: str = "http://rh-nitro:8547"
+    COPY_NODE_WS: str = "ws://rh-nitro:8548"      # newHeads stream; poll fallback if down
     COPY_POLL_MS: int = 400
     COPY_SLIPPAGE_PCT: float = 15.0
     COPY_ETH_USD_FALLBACK: float = 2500.0   # daily-cap accounting when no live price
