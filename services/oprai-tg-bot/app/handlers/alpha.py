@@ -15,6 +15,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
 
 from app.db import audit, upsert_tg_user
+from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services.alert_store import AlertStore
 from app.services.signals_client import SignalsClient, SignalsError
@@ -78,7 +79,7 @@ async def alpha_menu(message: Message) -> None:
     u = message.from_user
     await upsert_tg_user(u.id, u.username)
     sub = await _store.get_sub(u.id)
-    await message.answer(MENU, reply_markup=_menu_kb(sub))
+    await private_answer(message, MENU, reply_markup=_menu_kb(sub))
 
 
 @router.message(Command("track"))
@@ -131,14 +132,15 @@ async def cb_toggle_smart(cq: CallbackQuery) -> None:
 async def cb_my_wallets(cq: CallbackQuery) -> None:
     rows = await _store.list_tracked(cq.from_user.id)
     if not rows:
-        await cq.message.answer("No tracked wallets yet. Add one: <code>/track 0x…</code>")
+        await private_answer(cq.message, "No tracked wallets yet. Add one: <code>/track 0x…</code>",
+                             to_user_id=cq.from_user.id)
     else:
         lines = ["<b>Tracked wallets</b>"]
         for r in rows:
             lbl = f" — {r['label']}" if r.get("label") else ""
             lines.append(f"• <code>{r['address']}</code>{lbl}")
         lines.append("\nRemove one with <code>/untrack 0x…</code>")
-        await cq.message.answer("\n".join(lines))
+        await private_answer(cq.message, "\n".join(lines), to_user_id=cq.from_user.id)
     await cq.answer()
 
 

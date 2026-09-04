@@ -142,7 +142,8 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
 
             held = await tok.token_balance(t["address"], from_addr)
             if held < units:
-                await message.answer(
+                await private_answer(
+                    message,
                     f"Not enough {t['symbol']}. You hold "
                     f"<b>{_fmt_units(held, t['decimals'])}</b> and tried to send "
                     f"{_fmt_units(units, t['decimals'])}."
@@ -161,7 +162,8 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
 
     gas_cost = int(tx["gas"]) * int(tx["max_fee_per_gas"])
     if balance < native_needed:
-        await message.answer(
+        await private_answer(
+            message,
             f"Not enough ETH for {'the transfer' if is_native else 'gas'}. This needs "
             f"up to <b>{_fmt_eth(native_needed)} ETH</b>, your balance is "
             f"{_fmt_eth(balance)} ETH.\n\nFund <code>{from_addr}</code> on "

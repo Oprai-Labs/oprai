@@ -34,12 +34,18 @@ async def private_answer(
     reply_markup: InlineKeyboardMarkup | None = None,
     *,
     public_note: str | None = None,
+    to_user_id: int | None = None,
     **kwargs,
 ) -> Message | None:
     """Reply where the reply belongs.
 
     In a private chat this is just `message.answer`. In a group the content
-    goes to the sender's DM and the room gets a short, contentless note.
+    goes to the person's DM and the room gets a short, contentless note.
+
+    `to_user_id` must be given when replying to a button press: the message a
+    callback carries was sent by the BOT, so its `from_user` is the bot, and
+    the DM would go to ourselves. Pass `callback.from_user.id` — the person who
+    actually pressed it.
 
     Returns the message that carries the content (so a caller can edit it), or
     None when the person could not be reached — in which case the room has
@@ -48,10 +54,10 @@ async def private_answer(
     if not in_group(message):
         return await message.answer(text, reply_markup=reply_markup, **kwargs)
 
-    user = message.from_user
+    target = to_user_id if to_user_id is not None else message.from_user.id
     try:
         sent = await message.bot.send_message(
-            user.id, text, reply_markup=reply_markup, **kwargs
+            target, text, reply_markup=reply_markup, **kwargs
         )
     except TelegramForbiddenError:
         # Telegram will not let a bot speak first. Say so in the room, without
@@ -63,7 +69,7 @@ async def private_answer(
         )
         return None
     except Exception as e:  # noqa: BLE001 — never lose the room's turn to a send error
-        log.warning("private_answer_failed", telegram_id=user.id, error=str(e))
+        log.warning("private_answer_failed", telegram_id=target, error=str(e))
         await message.reply("I couldn't message you privately just now.")
         return None
 

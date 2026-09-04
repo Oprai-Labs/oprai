@@ -193,13 +193,15 @@ async def swap_cmd(message: Message, command: CommandObject) -> None:
 
     want = int(amount * (10**src_dec))
     if have < want:
-        await message.answer(
+        await private_answer(
+            message,
             f"Not enough {src_sym}. You hold <b>{_fmt_units(have, src_dec)}</b> "
             f"and tried to swap {amount_str}."
         )
         return
     if native == 0:
-        await message.answer(
+        await private_answer(
+            message,
             "You have no ETH on Robinhood Chain, so there's nothing to pay gas "
             f"with.\n\nFund <code>{addr}</code> and try again."
         )

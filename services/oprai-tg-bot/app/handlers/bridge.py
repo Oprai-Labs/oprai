@@ -85,7 +85,8 @@ async def bridge_cmd(message: Message, command: CommandObject) -> None:
         return
 
     if have < value:
-        await message.answer(
+        await private_answer(
+            message,
             f"You hold <b>{_fmt_eth(have)} ETH</b> on {src.name}, so {amount_str} "
             f"isn't there to bridge.\n\nYour address is the same on every chain — "
             f"send ETH to <code>{addr}</code> on {src.name} first."

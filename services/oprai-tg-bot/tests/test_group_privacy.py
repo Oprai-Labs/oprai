@@ -107,21 +107,68 @@ def test_group_detection_covers_both_kinds_of_group():
     assert not privacy.in_group(_Message("private", _Bot()))
 
 
-def test_every_money_handler_answers_through_the_helper():
-    """A handler that calls message.answer directly with a balance or a card
-    is how this regresses — one new command and the room sees everything
-    again. Confirmation cards are the tell: they carry the amounts."""
+HANDLERS = ("send", "swap", "bridge", "lend", "nft", "perps", "launch",
+            "portfolio", "wallet", "alpha", "copy")
+
+# Phrases that only appear when a reply is about this person's money or
+# position. Crude on purpose: the test has to fail on a new command that
+# forgets, and these are the words such a reply reaches for.
+PERSONAL = ("You hold", "you hold", "You have", "you have",
+            "your balance", "Your balance", "you own")
+
+
+def _sources():
     import pathlib
-    import re
 
     root = pathlib.Path(__file__).resolve().parents[1] / "app" / "handlers"
-    offenders = []
-    for name in ("send", "swap", "bridge", "lend", "nft", "perps", "launch",
-                 "portfolio", "wallet"):
-        src = (root / f"{name}.py").read_text()
-        # A reply_markup on a plain message.answer means a card went to the
-        # chat the command was typed in.
-        for match in re.finditer(r"message\.answer\((?:[^()]|\([^()]*\))*\)", src):
-            if "reply_markup" in match.group(0):
-                offenders.append(f"{name}: {match.group(0)[:60]}")
-    assert not offenders, "confirmation cards posted publicly:\n" + "\n".join(offenders)
+    return {name: (root / f"{name}.py").read_text() for name in HANDLERS}
+
+
+def _public_answers(src: str):
+    """Every `message.answer(...)` that isn't going through the helper."""
+    import re
+
+    return [
+        m.group(0)
+        for m in re.finditer(r"(?<!private_)message\.answer\((?:[^()]|\([^()]*\))*\)", src)
+    ]
+
+
+def test_no_confirmation_card_is_posted_into_the_room():
+    """A card carries the amount, the token and the wallet. One new command
+    that forgets is all it takes for a room to see someone's position."""
+    offenders = [
+        f"{name}: {call[:70]}"
+        for name, src in _sources().items()
+        for call in _public_answers(src)
+        if "reply_markup" in call
+    ]
+    assert not offenders, "cards posted publicly:\n" + "\n".join(offenders)
+
+
+def test_no_balance_is_disclosed_in_the_room():
+    """'Not enough NVDA — you hold 3.5' is a balance, and it was public until
+    this test existed."""
+    offenders = [
+        f"{name}: {call[:70]}"
+        for name, src in _sources().items()
+        for call in _public_answers(src)
+        if any(p in call for p in PERSONAL)
+    ]
+    assert not offenders, "balances disclosed publicly:\n" + "\n".join(offenders)
+
+
+def test_a_button_press_is_answered_to_the_presser_not_the_bot():
+    """The message a callback carries was sent by the BOT, so its from_user is
+    the bot — a DM addressed from it would go to ourselves and the person
+    would see nothing. Callback sites must name the presser."""
+    import re
+
+    for name, src in _sources().items():
+        for match in re.finditer(
+            r"private_answer\(\s*cq\.message(?:[^()]|\([^()]*\))*\)", src
+        ):
+            assert "to_user_id" in match.group(0), (
+                f"{name}: a callback reply would be sent to the bot itself:\n"
+                f"{match.group(0)[:90]}"
+            )
