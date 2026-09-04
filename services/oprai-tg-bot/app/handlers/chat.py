@@ -472,7 +472,7 @@ STAGES = (
     (9, "⛓ <i>Reading the chain…</i>"),
     (16, "🧮 <i>Going through the numbers…</i>"),
     (26, "✍️ <i>Writing it up…</i>"),
-    (40, "⏳ <i>Still going — this one is taking a while.</i>"),
+    (38, "⏳ <i>Still going — if this doesn't land shortly I'll say so.</i>"),
 )
 
 

@@ -107,12 +107,22 @@ ADDR = "0x14369612d61e638be7bf3b0ac302728d579d33ac"
         (f"analyse {ADDR}", True),
         (f"{ADDR} güvenli mi", True),
         (f"is {ADDR} a rug?", True),
+        # The phrasing that exposed the old rule: neither "launchpad" nor
+        # "hacim" was on the list of words that counted as asking, so a
+        # question the index answers in seven seconds took twenty-four and
+        # came back "no data".
+        (f"{ADDR} hangi launchpad'de basıldı, hacmi ne?", True),
+        (f"{ADDR} kaç holder var", True),
+        (f"{ADDR} dev kim", True),
+        (f"who launched {ADDR}", True),
         # An address inside an instruction is not a question about it —
         # hijacking these would answer something nobody asked instead of
         # moving the money.
         (f"send 5 USDG to {ADDR}", False),
         (f"swap 1 ETH to {ADDR}", False),
         (f"transfer 10 NVDA {ADDR}", False),
+        (f"{ADDR} adresine 10 NVDA yolla", False),
+        (f"{ADDR} adresine gönder", False),
         ("how is NVDA doing?", False),                 # no address at all
     ],
 )
@@ -120,6 +130,18 @@ def test_only_a_question_about_an_address_is_answered_as_one(text, should_look):
     from app.handlers.intel import wants_a_look
 
     assert bool(wants_a_look(text)) is should_look
+
+
+def test_the_rule_is_which_ones_are_instructions_not_which_are_questions():
+    """Listing the ways people ask is a list that is always one phrasing
+    short. Only the instructions are enumerated; everything else carrying an
+    address is a question about it."""
+    from app.handlers import intel
+
+    assert not hasattr(intel, "LOOK_WORDS"), (
+        "back to enumerating the ways people ask — that list can't be complete"
+    )
+    assert intel.ACTION_WORDS
 
 
 def test_the_address_is_pulled_out_of_the_sentence():

@@ -293,10 +293,22 @@ def test_the_wait_is_narrated_in_order():
     times = [t for t, _ in STAGES]
     assert times == sorted(times), "the stages would fire out of order"
     assert times[0] <= 5, "the first sign of life comes too late"
-    # Each stage only claims the previous one is still running — no stage may
-    # promise the answer is nearly ready.
+    # Each stage may only say what is happening. None may promise the answer
+    # is imminent — we don't know that, and a broken promise is worse than a
+    # long wait.
+    promises = ("almost", "nearly", "any second", "any moment", "just about",
+                "finishing", "wrapping up")
     for _, text in STAGES:
-        assert "…" in text or "while" in text
+        lowered = text.lower()
+        assert not any(p in lowered for p in promises), f"promises an ending: {text}"
+
+    # And the last one must not outlast the timeout, or it claims to be working
+    # after the request has already been given up on.
+    from app.services import chat as chat_service
+    import inspect
+
+    timeout = inspect.signature(chat_service.stream).parameters["timeout"].default
+    assert times[-1] < timeout, "the last stage fires after the turn has timed out"
 
 
 @pytest.mark.asyncio

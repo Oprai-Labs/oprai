@@ -87,12 +87,17 @@ async def stream(
     content: str,
     *,
     on_progress=None,
-    timeout: float = 180.0,
+    timeout: float = 45.0,
 ) -> Answer:
     """Ask a question and collect the answer.
 
     `on_progress(text)` is called as the answer grows so a caller can show it
     arriving; it is advisory and its failures never break the stream.
+
+    Forty-five seconds, not three minutes. A timeout is the point at which
+    waiting longer stops being reasonable, and three minutes was a number
+    nobody chose — a turn that has not answered by forty-five is not about to.
+    Anything worth a longer wait belongs on a path that doesn't need a model.
     """
     url = f"{settings.GATEWAY_URL.rstrip('/')}/chat/messages/stream"
     headers = {
