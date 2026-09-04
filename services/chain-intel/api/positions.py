@@ -25,6 +25,8 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
+import time
 from functools import lru_cache
 
 import httpx
@@ -57,6 +59,7 @@ S = {k: sel(k) for k in (
     "getPoolAndPositionInfo(uint256)", "getPositionLiquidity(uint256)", "extsload(bytes32)",
     "market(bytes32)", "position(bytes32,address)", "idToMarketParams(bytes32)",
     "convertToAssets(uint256)", "asset()", "earned(address)", "price()", "liquidity()", "positions(bytes32)",
+    "collect((uint256,address,uint128,uint128))", "name()", "getPool(address,address,int24)",
 )}
 
 
@@ -268,16 +271,30 @@ def _amounts(L: int, sqrt_p: int, tl: int, tu: int) -> tuple[int, int]:
 
 # ── enumeration from the index ─────────────────────────────────────────────
 async def _owned_nfts(wallet: str, nft: str, limit: int = 300) -> list[int]:
-    """Position NFT ids the wallet still owns = ids whose LAST transfer went to it."""
+    return [tid for tid, _ in await _owned_or_staked_nfts(wallet, nft, limit)]
+
+
+async def _owned_or_staked_nfts(wallet: str, nft: str, limit: int = 300) -> list[tuple[int, str]]:
+    """(token_id, holder) for position NFTs that are the wallet's: held directly, or
+    handed by the wallet to a CONTRACT (a farm / staking gauge) that has not passed
+    them on — the wallet is still the economic owner. Burns are never included."""
     rows = await ch.q(f"""
-        SELECT token_id, argMax(to_addr, (block_number, log_index)) AS owner
+        SELECT token_id, argMax(to_addr, (block_number, log_index)) AS owner,
+               argMax(from_addr, (block_number, log_index)) AS last_from
         FROM rh.token_transfers
         WHERE token='{nft}' AND kind='erc721' AND token_id IN (
             SELECT DISTINCT token_id FROM rh.token_transfers
             WHERE token='{nft}' AND kind='erc721' AND to_addr='{wallet}'
             ORDER BY block_number DESC LIMIT {limit})
         GROUP BY token_id""", timeout=60)
-    return [int(r["token_id"]) for r in rows if r["owner"] == wallet]
+    direct = [(int(r["token_id"]), wallet) for r in rows if r["owner"] == wallet]
+    handed = [r for r in rows if r["owner"] != wallet and r["last_from"] == wallet and r["owner"] not in (ZERO, DEAD)]
+    staked: list[tuple[int, str]] = []
+    if handed:
+        holders = {r["owner"] for r in handed}
+        contracts = await node.contract_addresses(list(holders))
+        staked = [(int(r["token_id"]), r["owner"]) for r in handed if r["owner"] in contracts]
+    return direct + staked
 
 
 async def _registry(kind: str) -> list[dict]:
@@ -290,7 +307,7 @@ async def _registry(kind: str) -> list[dict]:
 # ── adapters ───────────────────────────────────────────────────────────────
 async def uniswap_v4(wallet: str) -> list[dict]:
     out = []
-    for tid in await _owned_nfts(wallet, V4_POSM):
+    for tid, holder in await _owned_or_staked_nfts(wallet, V4_POSM):
         L = _w(await _call(V4_POSM, S["getPositionLiquidity(uint256)"] + _u(tid)), 0)
         if not L:
             continue
@@ -314,36 +331,84 @@ async def uniswap_v4(wallet: str) -> list[dict]:
         out.append({"protocol": "Uniswap V4", "kind": "lp", "id": tid,
                     "token0": c0, "token1": c1, "amount0": a0 / 10 ** d0, "amount1": a1 / 10 ** d1,
                     "fee": fee, "hooks": hooks if int(hooks, 16) else None,
+                    "staked_in": holder if holder != wallet else None,
                     "usd": round(usd, 2) if usd is not None else None, "unpriced": unpriced})
+    return out
+
+
+# Every Uniswap-V3-style position manager on the chain (same ABI, own factory).
+# Discovered from ERC-721 contract names on-chain; add here when a new fork appears.
+V3_LIKE = (
+    (V3_NPM, "0x1f7d7550b1b028f7571e69a784071f0205fd2efa", "Uniswap V3"),
+    ("0x07f44c47743a2f36414a82b9f558ecfcf0eedcef", "0x1ac9db4a2608ba45d6127b1737949b51bb54b7f3", "UP (V3 positions)"),
+    ("0xf04df3392066e74713abc548da3cb7cf5be5ae0a", "0x0ec554f0bff0be6c99d1e95c8015bb0950f6a2c7", "PancakeSwap V3"),
+)
+NODE_URL = os.environ.get("NODE_RPC", "http://rh-nitro:8547")
+
+
+async def _call_from(to: str, data: str, frm: str) -> str:
+    """eth_call with an explicit `from` — needed to simulate owner-only views such as
+    NonfungiblePositionManager.collect (uncollected fees)."""
+    try:
+        async with httpx.AsyncClient(timeout=6) as c:
+            r = await c.post(NODE_URL, json={"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+                                             "params": [{"from": frm, "to": to, "data": data}, "latest"]})
+            return (r.json() or {}).get("result") or "0x"
+    except Exception:
+        return "0x"
+
+
+async def _v3_fees(npm: str, tid: int, owner: str) -> tuple[int, int]:
+    """Uncollected fees = what collect(max, max) WOULD return, simulated from the owner."""
+    data = (S["collect((uint256,address,uint128,uint128))"] + _u(tid) + _a(owner)
+            + _u(2 ** 128 - 1) + _u(2 ** 128 - 1))
+    r = await _call_from(npm, data, owner)
+    return (_w(r, 0), _w(r, 1)) if len(r) >= 2 + 128 else (0, 0)
+
+
+async def v3_like(wallet: str, npm: str, factory: str, label: str) -> list[dict]:
+    out = []
+    ids = await _owned_or_staked_nfts(wallet, npm)
+    if not ids:
+        return out
+    for tid, holder in ids:
+        p = await _call(npm, S["positions(uint256)"] + _u(tid))
+        if len(p) < 2 + 64 * 8:
+            continue
+        L = _w(p, 7)
+        t0, t1, fee = _addr(p, 2), _addr(p, 3), _w(p, 4)
+        f0, f1 = await _v3_fees(npm, tid, holder)
+        if not L and not (f0 or f1):
+            continue
+        tl, tu = _s24(_w(p, 5)), _s24(_w(p, 6))
+        pool = _addr(await _call(factory, S["getPool(address,address,uint24)"] + _a(t0) + _a(t1) + _u(fee)), 0)
+        if len(pool) != 42 or not int(pool, 16):   # CL forks key pools by tickSpacing (int24), stored in the fee slot
+            pool = _addr(await _call(factory, S["getPool(address,address,int24)"] + _a(t0) + _a(t1) + _u(fee)), 0)
+        sqrt_p = _w(await _call(pool, S["slot0()"]), 0) & ((1 << 160) - 1)
+        if not sqrt_p:
+            continue
+        a0, a1 = _amounts(L, sqrt_p, tl, tu) if L else (0, 0)
+        d0, d1 = await decimals(t0), await decimals(t1)
+        usd, unpriced = await _value_pair(t0, t1, a0 / 10 ** d0, a1 / 10 ** d1, sqrt_p)
+        fees_usd, _ = await _value_pair(t0, t1, f0 / 10 ** d0, f1 / 10 ** d1, sqrt_p)
+        tick = _s24((_w(await _call(pool, S["slot0()"]), 1)) & 0xFFFFFF)
+        out.append({"protocol": label, "kind": "lp", "id": tid, "token0": t0, "token1": t1,
+                    "amount0": a0 / 10 ** d0, "amount1": a1 / 10 ** d1, "fee": fee,
+                    "in_range": tl <= tick < tu, "tick_lower": tl, "tick_upper": tu,
+                    "fees0": f0 / 10 ** d0, "fees1": f1 / 10 ** d1,
+                    "fees_usd": round(fees_usd, 2) if fees_usd is not None else None,
+                    "staked_in": holder if holder != wallet else None,
+                    "usd": round((usd or 0) + (fees_usd or 0), 2) if (usd is not None or fees_usd is not None) else None,
+                    "unpriced": unpriced})
     return out
 
 
 async def uniswap_v3(wallet: str) -> list[dict]:
-    out = []
-    ids = await _owned_nfts(wallet, V3_NPM)
-    if not ids:
-        return out
-    factory = _addr(await _call(V3_NPM, S["factory()"]), 0)
-    for tid in ids:
-        p = await _call(V3_NPM, S["positions(uint256)"] + _u(tid))
-        if len(p) < 2 + 64 * 8:
-            continue
-        L = _w(p, 7)
-        if not L:
-            continue
-        t0, t1, fee = _addr(p, 2), _addr(p, 3), _w(p, 4)
-        tl, tu = _s24(_w(p, 5)), _s24(_w(p, 6))
-        pool = _addr(await _call(factory, S["getPool(address,address,uint24)"] + _a(t0) + _a(t1) + _u(fee)), 0)
-        sqrt_p = _w(await _call(pool, S["slot0()"]), 0) & ((1 << 160) - 1)
-        if not sqrt_p:
-            continue
-        a0, a1 = _amounts(L, sqrt_p, tl, tu)
-        d0, d1 = await decimals(t0), await decimals(t1)
-        usd, unpriced = await _value_pair(t0, t1, a0 / 10 ** d0, a1 / 10 ** d1, sqrt_p)
-        out.append({"protocol": "Uniswap V3", "kind": "lp", "id": tid, "token0": t0, "token1": t1,
-                    "amount0": a0 / 10 ** d0, "amount1": a1 / 10 ** d1, "fee": fee,
-                    "usd": round(usd, 2) if usd is not None else None, "unpriced": unpriced})
-    return out
+    res = await asyncio.gather(*(v3_like(wallet, npm, fac, label) for npm, fac, label in V3_LIKE), return_exceptions=True)
+    errs = [r for r in res if isinstance(r, Exception)]
+    if errs and not any(isinstance(r, list) and r for r in res):
+        raise errs[0]          # surface a failing family instead of silently reporting nothing
+    return [p for r in res if isinstance(r, list) for p in r]
 
 
 async def morpho_blue(wallet: str) -> list[dict]:
@@ -554,6 +619,74 @@ async def staking_and_pools(wallet: str) -> list[dict]:
     return out
 
 
+OPENSEA_KEY = os.environ.get("OPENSEA_API_KEY", "")
+_os_cache: dict[str, tuple[float, dict]] = {}   # collection address → (ts, {slug, name, floor, symbol})
+POSITION_NFTS = {V4_POSM} | {npm for npm, _, _ in V3_LIKE}
+
+
+async def _opensea_collection(addr: str) -> dict:
+    """OpenSea v2 (chain slug 'robinhood'): contract → collection slug → floor. Cached
+    10 min per collection; empty dict when no key / not listed."""
+    now = time.time()
+    if addr in _os_cache and now - _os_cache[addr][0] < 600:
+        return _os_cache[addr][1]
+    info: dict = {}
+    if OPENSEA_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=6, headers={"x-api-key": OPENSEA_KEY}) as c:
+                r = await c.get(f"https://api.opensea.io/api/v2/chain/robinhood/contract/{addr}")
+                if r.status_code == 200:
+                    j = r.json()
+                    info = {"slug": j.get("collection"), "name": j.get("name")}
+                    if info["slug"]:
+                        st = await c.get(f"https://api.opensea.io/api/v2/collections/{info['slug']}/stats")
+                        if st.status_code == 200:
+                            tot = (st.json() or {}).get("total") or {}
+                            info["floor"] = tot.get("floor_price")
+                            info["floor_symbol"] = tot.get("floor_price_symbol")
+        except Exception:
+            pass
+    _os_cache[addr] = (now, info)
+    return info
+
+
+async def nft_holdings(wallet: str) -> list[dict]:
+    """NFTs the wallet holds (index: last recipient of each token id), grouped by
+    collection, valued at the OpenSea floor when one exists."""
+    excl = "','".join(POSITION_NFTS)
+    # ids the wallet ever received (bloom on to_addr), then the CURRENT owner of exactly
+    # those (token, id) pairs — never a scan keyed on bare token ids
+    rows = await ch.q(f"""
+        WITH mine AS (
+            SELECT DISTINCT token, token_id FROM rh.token_transfers
+            WHERE kind='erc721' AND to_addr='{wallet}' AND token NOT IN ('{excl}')
+            ORDER BY block_number DESC LIMIT 3000)
+        SELECT token, count() AS n, groupArray(3)(token_id) AS sample FROM (
+            SELECT token, token_id, argMax(to_addr, (block_number, log_index)) AS owner
+            FROM rh.token_transfers
+            WHERE kind='erc721' AND token IN (SELECT token FROM mine) AND (token, token_id) IN (SELECT token, token_id FROM mine)
+            GROUP BY token, token_id)
+        WHERE owner='{wallet}' GROUP BY token ORDER BY n DESC LIMIT 40""", timeout=60)
+    if not rows:
+        return []
+    names = {}
+    for r in rows:
+        v = await _call(r["token"], S["name()"])
+        names[r["token"]] = node._decode_str(v) if v not in ("0x", "") else None
+    eth = await eth_usd()
+    out = []
+    for r in rows:
+        info = await _opensea_collection(r["token"])
+        floor, sym = info.get("floor"), (info.get("floor_symbol") or "").upper()
+        unit = eth if sym in ("ETH", "WETH") else 1.0 if sym in ("USDG", "USDC", "USDT") else None
+        usd = round(float(floor) * unit * int(r["n"]), 2) if (floor and unit) else None
+        out.append({"protocol": "NFTs", "kind": "nft", "collection": r["token"],
+                    "name": info.get("name") or names.get(r["token"]), "count": int(r["n"]),
+                    "sample_ids": [str(x) for x in r["sample"]], "opensea_slug": info.get("slug"),
+                    "floor": floor, "floor_symbol": sym or None, "usd": usd})
+    return out
+
+
 async def lockers(wallet: str) -> list[dict]:
     """Token lockers / vesting escrows (UNCX-style `Locked` emitters). They share no
     ABI, so the position is read from the ledger itself: what the wallet sent INTO
@@ -626,10 +759,10 @@ async def wallet_positions(wallet: str) -> dict:
     _px_source.clear()
     results = await asyncio.gather(
         uniswap_v4(w), uniswap_v3(w), morpho_blue(w), erc4626_vaults(w),
-        staking_and_pools(w), lockers(w), lighter(w), return_exceptions=True)
+        staking_and_pools(w), lockers(w), lighter(w), nft_holdings(w), return_exceptions=True)
     positions: list[dict] = []
     errors: list[str] = []
-    for name, r in zip(("uniswap_v4", "uniswap_v3", "morpho", "vaults", "staking", "lockers", "lighter"), results):
+    for name, r in zip(("uniswap_v4", "uniswap_v3", "morpho", "vaults", "staking", "lockers", "lighter", "nfts"), results):
         if isinstance(r, Exception):
             errors.append(f"{name}: {str(r)[:80]}")
         else:

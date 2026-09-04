@@ -362,8 +362,8 @@ async def wallet_smart_profile(wallet: str) -> dict:
     in the set, its raw wallet_metrics so the answer is 'not smart because …'."""
     w = ch.addr(wallet)
     sm = await ch.one(
-        f"SELECT rank, smart_score, realized_pnl, win_rate, n_tokens "
-        f"FROM rh.smart_wallets WHERE wallet='{w}'")
+        f"SELECT rank, smart_score, realized_pnl, win_rate, n_tokens, pnl_30d, win_rate_30d, "
+        f"n_tokens_30d, last_active, score_rolling FROM rh.smart_wallets WHERE wallet='{w}'")
     wm = await ch.one(
         f"SELECT realized_pnl, win_rate, n_tokens, trade_count, archetype, "
         f"first_seen, last_seen FROM rh.wallet_metrics WHERE wallet='{w}'")
@@ -374,9 +374,18 @@ async def wallet_smart_profile(wallet: str) -> dict:
             "rank": int(sm["rank"]), "smart_score": round(float(sm["smart_score"]), 2),
             "realized_pnl_usd": round(float(sm["realized_pnl"]), 2),
             "win_rate": round(float(sm["win_rate"]), 3), "n_tokens": int(sm["n_tokens"]),
-            "why": (f"top-5000 by realized PnL × win rate (rank #{int(sm['rank'])}): "
-                    f"${float(sm['realized_pnl']):,.0f} realized over {int(sm['n_tokens'])} "
-                    f"tokens at a {float(sm['win_rate'])*100:.0f}% win rate; EOA (not a contract)"),
+            "pnl_30d_usd": round(float(sm.get("pnl_30d") or 0), 2),
+            "win_rate_30d": round(float(sm.get("win_rate_30d") or 0), 3),
+            "n_tokens_30d": int(sm.get("n_tokens_30d") or 0),
+            "last_active": str(sm.get("last_active") or ""),
+            "score_rolling": round(float(sm.get("score_rolling") or 0), 2),
+            "active_30d": int(sm.get("n_tokens_30d") or 0) > 0,
+            "why": (f"rank #{int(sm['rank'])} of 5000 by rolling score (all-time PnL × win rate, "
+                    f"decaying with a 14-day half-life of inactivity, plus the last 30 days): "
+                    f"${float(sm['realized_pnl']):,.0f} realized over {int(sm['n_tokens'])} tokens at "
+                    f"{float(sm['win_rate'])*100:.0f}% all-time; last 30d ${float(sm.get('pnl_30d') or 0):,.0f} "
+                    f"over {int(sm.get('n_tokens_30d') or 0)} tokens at {float(sm.get('win_rate_30d') or 0)*100:.0f}%; "
+                    f"last active {str(sm.get('last_active') or '')[:10]}; EOA (not a contract)"),
         })
     elif wm:
         reasons = []
