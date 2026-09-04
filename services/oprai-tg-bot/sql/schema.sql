@@ -341,3 +341,18 @@ CREATE TABLE IF NOT EXISTS tg_balance_watch (
 -- W1 became W2 and back again. A label that moves is worse than no label —
 -- it is the one thing someone uses to tell two addresses apart.
 ALTER TABLE tg_wallets ADD COLUMN IF NOT EXISTS label TEXT;
+
+-- Turns that were in flight when the process stopped.
+--
+-- A restart — a deploy, a crash — leaves the "Thinking…" placeholder on screen
+-- for ever: the task that would have answered it is gone, and so is the task
+-- that would have reported the failure. The row is written when the wait
+-- starts and deleted when it ends, so whatever is still here on boot is
+-- something a person is still staring at.
+CREATE TABLE IF NOT EXISTS tg_inflight (
+    chat_id     BIGINT NOT NULL,
+    message_id  BIGINT NOT NULL,
+    telegram_id BIGINT NOT NULL,
+    started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (chat_id, message_id)
+);

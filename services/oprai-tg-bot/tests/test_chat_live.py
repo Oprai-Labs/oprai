@@ -330,3 +330,67 @@ async def test_the_narration_stops_when_the_answer_lands():
     task.cancel()
     await asyncio.sleep(0.05)
     assert edits == [], "the first stage fired before anyone could have waited"
+
+
+# ── nobody is left waiting for ever ─────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_timeout_becomes_something_the_person_can_read():
+    """While the bot is alive, a stuck turn ends in a message rather than in
+    silence — 180 seconds, then an explanation."""
+    import inspect
+
+    from app.services import chat as chat_service
+
+    signature = inspect.signature(chat_service.stream)
+    assert signature.parameters["timeout"].default <= 300, "the wait is unbounded"
+
+    with pytest.raises(chat_service.ChatError):
+        await chat_service.stream("bad", chat_service.new_local_session(),
+                                  "hi", timeout=0.001)
+
+
+@pytest.mark.asyncio
+async def test_a_restart_does_not_strand_someone_on_thinking():
+    """A deploy takes the task that would have answered AND the task that
+    would have reported the failure, so the placeholder sat on "Thinking…"
+    for ever. What is still recorded on boot is someone still staring at it."""
+    import random
+
+    from app.db import close_pool, init_pool, pool
+    from app.handlers.chat import _done_waiting, _mark_waiting, close_orphaned_turns
+
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "orphan")
+    chat_id, message_id = -4242, random.randint(1, 10**6)
+    try:
+        await _mark_waiting(chat_id, message_id, tg)
+        assert await pool().fetchval(
+            "SELECT count(*) FROM tg_inflight WHERE chat_id = $1 AND message_id = $2",
+            chat_id, message_id,
+        ) == 1
+
+        # A turn that finishes normally leaves nothing behind to sweep.
+        await _done_waiting(chat_id, message_id)
+        assert await pool().fetchval(
+            "SELECT count(*) FROM tg_inflight WHERE chat_id = $1", chat_id
+        ) == 0
+
+        # One that doesn't is found on the next boot and answered.
+        await _mark_waiting(chat_id, message_id, tg)
+        told: list[tuple[int, int]] = []
+
+        class _Bot:
+            async def edit_message_text(self, chat_id, message_id, text, **kwargs):
+                told.append((chat_id, message_id))
+                assert "restarted" in text.lower()
+
+        await close_orphaned_turns(_Bot())
+        assert (chat_id, message_id) in told, "nobody was told"
+        assert await pool().fetchval(
+            "SELECT count(*) FROM tg_inflight WHERE chat_id = $1", chat_id
+        ) == 0, "the sweep would repeat itself on every boot"
+    finally:
+        await pool().execute("DELETE FROM tg_inflight WHERE chat_id = $1", chat_id)
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()

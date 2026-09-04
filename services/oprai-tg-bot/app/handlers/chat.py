@@ -273,6 +273,10 @@ async def _answer(message: Message, question: str) -> None:
     # between a wait and a hang. These are elapsed-time stages, not invented
     # progress: each one only claims that the previous is still running.
     ticker = asyncio.create_task(_keep_company(placeholder, message.bot, message.chat.id))
+    # Remember that someone is waiting on this exact message. If the process
+    # stops before the answer lands, nothing in here survives to tell them —
+    # so the fact has to outlive the process.
+    await _mark_waiting(message.chat.id, placeholder.message_id, user.id)
 
     session_id = await chat_svc.session_for(scope_id, user.id)
     last_edit = time.monotonic()
@@ -307,6 +311,7 @@ async def _answer(message: Message, question: str) -> None:
         return
 
     ticker.cancel()
+    await _done_waiting(message.chat.id, placeholder.message_id)
     await chat_svc.remember_session(scope_id, user.id, answer.session_id or "")
     await audit(user.id, "chat_answered",
                 {"chars": len(answer.text), "group": is_group})
@@ -469,6 +474,62 @@ STAGES = (
     (26, "✍️ <i>Writing it up…</i>"),
     (40, "⏳ <i>Still going — this one is taking a while.</i>"),
 )
+
+
+async def _mark_waiting(chat_id: int, message_id: int, telegram_id: int) -> None:
+    from app.db import pool
+
+    try:
+        await pool().execute(
+            "INSERT INTO tg_inflight (chat_id, message_id, telegram_id) "
+            "VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            chat_id, message_id, telegram_id,
+        )
+    except Exception as e:  # noqa: BLE001 — bookkeeping must not break the turn
+        log.warning("inflight_mark_failed", error=str(e)[:160])
+
+
+async def _done_waiting(chat_id: int, message_id: int) -> None:
+    from app.db import pool
+
+    try:
+        await pool().execute(
+            "DELETE FROM tg_inflight WHERE chat_id = $1 AND message_id = $2",
+            chat_id, message_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("inflight_clear_failed", error=str(e)[:160])
+
+
+async def close_orphaned_turns(bot) -> None:
+    """Tell anyone left waiting by a restart.
+
+    A deploy or a crash takes the task that would have answered AND the task
+    that would have reported the failure, so the placeholder sits on "Thinking…"
+    for ever. Nobody should have to guess whether a bot is working or dead.
+    """
+    from app.db import pool
+
+    try:
+        rows = await pool().fetch(
+            "DELETE FROM tg_inflight RETURNING chat_id, message_id, telegram_id"
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("inflight_sweep_failed", error=str(e)[:160])
+        return
+
+    for row in rows:
+        try:
+            await bot.edit_message_text(
+                chat_id=row["chat_id"], message_id=row["message_id"],
+                text="⚠️ <i>I was restarted while working on that — ask me again "
+                     "and I'll pick it straight up.</i>",
+            )
+        except Exception as e:  # noqa: BLE001 — an unreachable chat is not fatal
+            log.info("inflight_notice_failed", chat_id=row["chat_id"],
+                     error=str(e)[:120])
+    if rows:
+        log.info("inflight_swept", count=len(rows))
 
 
 async def _keep_company(placeholder, bot, chat_id: int) -> None:
