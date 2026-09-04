@@ -693,13 +693,25 @@ async def wallet_report(wallet: str) -> dict:
         FROM rh.transactions WHERE from_addr='{w}'""")
 
     # per-token: received/sent, net holding, first-in→last-out hold window
+    # (to=w) and (from=w) as two scans so each can use its wallet-keyed projection
+    # (p_to / p_from on token_transfers); an OR over both columns forces a full scan.
     tokens = await ch.q(f"""
-        SELECT token, countIf(to_addr='{w}') AS received, countIf(from_addr='{w}') AS sent,
-               (sumIf(toFloat64(value), to_addr='{w}') - sumIf(toFloat64(value), from_addr='{w}'))/1e18 AS net,
-               minIf(timestamp, to_addr='{w}') AS first_in,
-               maxIf(timestamp, from_addr='{w}') AS last_out
-        FROM rh.token_transfers WHERE (to_addr='{w}' OR from_addr='{w}') AND kind='erc20'
-        GROUP BY token ORDER BY (received+sent) DESC LIMIT 40""")
+        SELECT token, sum(r) AS received, sum(s) AS sent, (sum(vin) - sum(vout))/1e18 AS net,
+               min(fi) AS first_in, max(lo) AS last_out
+        FROM (
+            SELECT token, count() AS r, 0 AS s, sum(toFloat64(value)) AS vin, 0.0 AS vout,
+                   min(timestamp) AS fi, toDateTime(0) AS lo
+            FROM rh.token_transfers WHERE to_addr='{w}' AND kind='erc20' GROUP BY token
+            UNION ALL
+            SELECT token, 0 AS r, count() AS s, 0.0 AS vin, sum(toFloat64(value)) AS vout,
+                   toDateTime('2100-01-01') AS fi, max(timestamp) AS lo
+            FROM rh.token_transfers WHERE from_addr='{w}' AND kind='erc20' GROUP BY token)
+        GROUP BY token ORDER BY (received+sent) DESC LIMIT 40""", timeout=45)
+    for tk in tokens:
+        if str(tk.get("first_in", "")).startswith("2100"):
+            tk["first_in"] = None
+        if str(tk.get("last_out", "")).startswith("1970"):
+            tk["last_out"] = None
 
     # current holdings (still holds a positive net) — the portfolio
     holdings = [tk for tk in tokens if float(tk["net"]) > 0]
@@ -761,9 +773,11 @@ async def wallet_report(wallet: str) -> dict:
     # never degenerates into a scan of 1.8B rows.
     venue_trades: list[dict] = []
     txr = await ch.q(f"""
-        SELECT DISTINCT tx_hash, block_number FROM rh.token_transfers
-        WHERE kind='erc20' AND (to_addr='{w}' OR from_addr='{w}')
-        ORDER BY block_number DESC LIMIT 250""")
+        SELECT tx_hash, max(block_number) AS block_number FROM (
+            SELECT tx_hash, block_number FROM rh.token_transfers WHERE to_addr='{w}' AND kind='erc20' ORDER BY block_number DESC LIMIT 250
+            UNION ALL
+            SELECT tx_hash, block_number FROM rh.token_transfers WHERE from_addr='{w}' AND kind='erc20' ORDER BY block_number DESC LIMIT 250)
+        GROUP BY tx_hash ORDER BY block_number DESC LIMIT 250""", timeout=45)
     if txr:
         # block_number IN (...) — an explicit block list lets the primary key pick
         # just those granules. A BETWEEN over an active wallet's first..last block
@@ -917,15 +931,17 @@ async def wallet_report(wallet: str) -> dict:
             # bounded 12s timeout: a hyper-active infra/router address would otherwise
             # scan ~40s and stall the caller. On timeout/error we skip FIFO and fall
             # back to the avg-cost figure below.
+            # the wallet's transfer ledger via the projection-keyed scans, then the daily price
             evs = await ch.q(f"""
-                SELECT toDate(tt.timestamp) AS day, tt.token AS token,
-                       if(tt.to_addr='{w}', 1, -1) AS dir,
-                       toFloat64(tt.value)/1e18 AS qty, p.price_usd AS px
-                FROM rh.token_transfers tt
-                INNER JOIN rh.token_prices p
-                       ON tt.token=p.token AND toDate(tt.timestamp)=toDate(p.timestamp)
-                WHERE (tt.to_addr='{w}' OR tt.from_addr='{w}') AND tt.kind='erc20'
-                  AND p.price_usd > 0 AND p.price_usd < 1e6
+                SELECT toDate(tt.timestamp) AS day, tt.token AS token, tt.dir AS dir,
+                       toFloat64(tt.value)/1e18 AS qty, p.px AS px
+                FROM (
+                    SELECT timestamp, token, 1 AS dir, value, block_number, log_index FROM rh.token_transfers WHERE to_addr='{w}' AND kind='erc20'
+                    UNION ALL
+                    SELECT timestamp, token, -1 AS dir, value, block_number, log_index FROM rh.token_transfers WHERE from_addr='{w}' AND kind='erc20'
+                ) tt
+                INNER JOIN rh.token_price_daily p ON p.token = tt.token AND p.day = toDate(tt.timestamp)
+                WHERE p.px > 0 AND p.px < 1e6
                 ORDER BY tt.block_number, tt.log_index
                 LIMIT {FIFO_CAP}""", timeout=12.0)
             pnl_fifo_ok = True
