@@ -124,3 +124,64 @@ def test_what_the_bot_is_waiting_for_expires():
     assert flows.expects(who) is not None
     flows._expecting[who]["expires"] = 0  # as if the window had passed
     assert flows.expects(who) is None, "an expired prompt still captures input"
+
+
+# ── no button may be a dead end ─────────────────────────────────────────────
+def _callbacks(keyboard) -> list[str]:
+    return [b.callback_data for row in keyboard.inline_keyboard for b in row]
+
+
+def test_no_button_in_any_menu_is_dead():
+    """Launch, Send, Bridge and Ask were rendered with `menu:` callbacks that
+    nothing handled — tapping them did nothing at all, silently. Every
+    callback a keyboard produces must be claimed by a handler somewhere."""
+    import inspect
+
+    from app.handlers import flows, home, wallet
+
+    handled = " ".join(
+        inspect.getsource(module)
+        for module in (flows, home, wallet)
+    )
+
+    keyboards = [
+        menu.home_keyboard(),
+        menu.sell_menu([{"symbol": "NVDA", "display": "5"}], Decimal("1")),
+        menu.buy_menu("ETH", []),
+        menu.amount_menu("ETH"),
+        menu.bridge_menu(),
+        menu.bridge_amount_menu("base"),
+        menu.send_token_menu([{"symbol": "NVDA", "display": "5"}], Decimal("1")),
+        menu.send_amount_menu(),
+        menu.launch_menu(),
+    ]
+
+    dead = []
+    for keyboard in keyboards:
+        for data in _callbacks(keyboard):
+            prefix = data.split(":", 1)[0]
+            # Either an exact match, or a handler keyed on the prefix.
+            if f'"{data}"' in handled or f'startswith("{prefix}:' in handled:
+                continue
+            dead.append(data)
+    assert not dead, "buttons that do nothing when tapped: " + ", ".join(sorted(set(dead)))
+
+
+def test_every_menu_the_flows_open_has_a_reply_branch():
+    """A menu that asks for something typed and has no branch to catch it
+    leaves the person stuck, with their answer going to the assistant."""
+    import inspect
+
+    from app.handlers import flows
+
+    asked = set()
+    for line in inspect.getsource(flows).splitlines():
+        if "expect(" in line and '"' in line and "clear_expect" not in line:
+            parts = [p for p in line.split('"') if p]
+            for p in parts:
+                if p.replace("_", "").isalpha() and "_" in p:
+                    asked.add(p)
+
+    reply_source = inspect.getsource(flows.catch_expected_reply)
+    for kind in asked:
+        assert f'"{kind}"' in reply_source, f"nothing catches the answer to {kind}"

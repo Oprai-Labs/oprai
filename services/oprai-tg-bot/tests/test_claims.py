@@ -195,3 +195,48 @@ def test_amounts_are_shown_at_the_tokens_own_scale():
     assert claims.display(5 * 10**18, 18) == "5"
     assert claims.display(10 * 10**6, 6) == "10"
     assert claims.display(1, 18) == "0"  # dust rounds to nothing at 6 places
+
+
+@pytest.mark.asyncio
+async def test_a_pending_transfer_is_found_when_they_arrive_on_their_own():
+    """The link is how a sender reaches a stranger — but the recipient usually
+    just opens the bot. Nothing looked for a waiting transfer then, so it sat
+    there unseen while both people assumed it had been sent."""
+    await init_pool()
+    sender = random.randint(10**10, 10**11)
+    handle = f"arrives_{random.randint(1000, 9999)}"
+    try:
+        await upsert_tg_user(sender, f"sender_{sender}")
+        await claims.create(
+            from_telegram_id=sender, to_username=f"@{handle}", symbol="NVDA",
+            amount_base=5 * 10**18, decimals=18, token_address="0xd0601CE157",
+        )
+        found = await claims.pending_for(handle)
+        assert len(found) == 1
+        assert found[0]["symbol"] == "NVDA"
+
+        # Case matters not at all — Telegram handles are case-insensitive.
+        assert await claims.pending_for(handle.upper())
+    finally:
+        await _cleanup(sender)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_claimed_transfer_stops_being_offered():
+    await init_pool()
+    sender = random.randint(10**10, 10**11)
+    handle = f"once_{random.randint(1000, 9999)}"
+    try:
+        await upsert_tg_user(sender, f"sender_{sender}")
+        token, _ = await claims.create(
+            from_telegram_id=sender, to_username=f"@{handle}", symbol="ETH",
+            amount_base=10**17, decimals=18, token_address=None,
+        )
+        await claims.take(token, handle)
+        assert await claims.pending_for(handle) == [], (
+            "a claimed transfer is still offered"
+        )
+    finally:
+        await _cleanup(sender)
+        await close_pool()

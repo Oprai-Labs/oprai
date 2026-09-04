@@ -19,6 +19,8 @@ from app.services import linking
 
 router = Router(name="common")
 
+claim.register(router)
+
 WELCOME = (
     "👋 <b>OPRAI</b> — conversational DeFi on <b>Robinhood Chain</b>, on Telegram.\n\n"
     "Trade tokenized stocks and tokens, swap, lend, launch, trade perps, run "
@@ -107,6 +109,9 @@ async def start(message: Message) -> None:
     await audit(user.id, "start", {})
     log.info("start", telegram_id=user.id, username=user.username)
     await home.show(message)
+    # Someone may have sent them something before they had a wallet. Now that
+    # they have started us we can finally say so.
+    await claim.offer_pending(message)
 
 
 @router.message(Command("help"))
