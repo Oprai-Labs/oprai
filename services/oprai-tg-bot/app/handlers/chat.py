@@ -109,12 +109,12 @@ async def credits_cmd(message: Message) -> None:
         lines += [
             f"<b>Pro</b> — {sub.days_left} day"
             f"{'' if sub.days_left == 1 else 's'} left.",
-            f"{where} can ask <b>{bal.free_left}</b> more today "
-            f"(of {bal.allowance}).",
+            f"{where} can ask <b>{bal.remaining}</b> more today "
+            f"(of {bal.allowance} a day, {bal.month_left} left this month).",
         ]
     else:
         lines += [
-            f"{where} can ask <b>{bal.free_left}</b> more today "
+            f"{where} can ask <b>{bal.remaining}</b> more today "
             f"(of {bal.allowance} free).",
             "",
             f"<i>Pro raises that to {settings.OPRAI_TG_SUB_DAILY_CREDITS} a "

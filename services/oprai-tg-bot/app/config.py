@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     # A subscriber's daily ceiling. Not a budget — a runaway loop stopper. The
     # busiest day any real wallet has ever had is 60 questions.
     OPRAI_TG_SUB_DAILY_CREDITS: int = 200
+    # And the ceiling that actually bounds the bill. 200/day is 6,000 a month;
+    # at what a question costs that is hundreds of dollars against a $9.99
+    # subscription. The busiest month any real wallet has had is 213.
+    OPRAI_TG_SUB_MONTHLY_CREDITS: int = 1_000
     # Falls back to the dev wallet until a dedicated address is set.
     OPRAI_TG_TREASURY_WALLET: str = ""
 

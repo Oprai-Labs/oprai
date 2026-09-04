@@ -34,20 +34,27 @@ class Balance:
     is_group: bool
     free_used: int
     paid: int
+    month_used: int = 0
     # What this scope is allowed per window. A subscription raises it rather
     # than bypassing the meter, so the ceiling that stops a runaway loop keeps
     # working for subscribers too — and every path that already refunds,
     # reports and enforces goes on working unchanged.
     allowance: int = 0
     subscribed: bool = False
+    month_allowance: int = 0
 
     @property
     def free_left(self) -> int:
         return max(self.allowance - self.free_used, 0)
 
     @property
+    def month_left(self) -> int:
+        return max(self.month_allowance - self.month_used, 0)
+
+    @property
     def remaining(self) -> int:
-        return self.free_left + self.paid
+        """What can still be asked — whichever ceiling is nearer."""
+        return min(self.free_left + self.paid, self.month_left)
 
     @property
     def exhausted(self) -> bool:
@@ -71,13 +78,29 @@ async def allowance_for(scope_id: int, is_group: bool) -> tuple[int, bool]:
     return free_allowance(is_group), False
 
 
+def month_allowance(subscribed: bool, is_group: bool) -> int:
+    """The ceiling that actually bounds what a month can cost us.
+
+    A daily cap bounds a burst, not a bill: 200 a day is 6,000 a month, which
+    at what a question costs is many times what the month was sold for. This
+    is the number that keeps the price an upper bound on the cost. It is far
+    above any real usage — the busiest month ever recorded is 213 questions.
+    """
+    if subscribed:
+        return settings.OPRAI_TG_SUB_MONTHLY_CREDITS
+    return free_allowance(is_group) * 31
+
+
 def _window() -> timedelta:
     return timedelta(hours=max(settings.OPRAI_TG_FREE_WINDOW_HOURS, 1))
 
 
 def _balance(row, allowance: int, subscribed: bool = False) -> Balance:
-    return Balance(row["scope_id"], row["is_group"], int(row["free_used"]),
-                   int(row["paid"]), allowance, subscribed)
+    return Balance(
+        row["scope_id"], row["is_group"], int(row["free_used"]),
+        int(row["paid"]), int(row["month_used"]), allowance, subscribed,
+        month_allowance(subscribed, row["is_group"]),
+    )
 
 
 async def _ledger(scope_id: int, telegram_id: int | None, delta: int,
@@ -110,8 +133,17 @@ async def balance(scope_id: int, is_group: bool) -> Balance:
                 WHEN tg_credits.window_start < now() - $3::interval
                 THEN now() ELSE tg_credits.window_start
             END,
+            month_used = CASE
+                WHEN tg_credits.month_start < now() - interval '30 days' THEN 0
+                ELSE tg_credits.month_used
+            END,
+            month_start = CASE
+                WHEN tg_credits.month_start < now() - interval '30 days'
+                THEN now() ELSE tg_credits.month_start
+            END,
             updated_at = now()
-        RETURNING scope_id, is_group, free_used, paid, (xmax = 0) AS created
+        RETURNING scope_id, is_group, free_used, paid, month_used,
+                  (xmax = 0) AS created
         """,
         scope_id, is_group, _window(),
     )
@@ -135,14 +167,16 @@ async def spend(scope_id: int, is_group: bool, telegram_id: int,
     row = await pool().fetchrow(
         """
         UPDATE tg_credits
-           SET free_used = free_used + LEAST($2, GREATEST($3 - free_used, 0)),
-               paid      = paid - GREATEST($2 - GREATEST($3 - free_used, 0), 0),
+           SET free_used  = free_used + LEAST($2, GREATEST($3 - free_used, 0)),
+               paid       = paid - GREATEST($2 - GREATEST($3 - free_used, 0), 0),
+               month_used = month_used + $2,
                updated_at = now()
          WHERE scope_id = $1
            AND GREATEST($3 - free_used, 0) + paid >= $2
-        RETURNING scope_id, is_group, free_used, paid
+           AND month_used + $2 <= $4
+        RETURNING scope_id, is_group, free_used, paid, month_used
         """,
-        scope_id, amount, allowance,
+        scope_id, amount, allowance, current.month_allowance,
     )
     if row is None:
         return None
@@ -161,8 +195,9 @@ async def refund(scope_id: int, telegram_id: int, amount: int = 1,
     await pool().execute(
         """
         UPDATE tg_credits
-           SET free_used = GREATEST(free_used - $2, 0),
-               paid      = paid + GREATEST($2 - free_used, 0),
+           SET free_used  = GREATEST(free_used - $2, 0),
+               paid       = paid + GREATEST($2 - free_used, 0),
+               month_used = GREATEST(month_used - $2, 0),
                updated_at = now()
          WHERE scope_id = $1
         """,
@@ -179,7 +214,8 @@ async def grant(scope_id: int, is_group: bool, amount: int,
     current = await balance(scope_id, is_group)
     row = await pool().fetchrow(
         "UPDATE tg_credits SET paid = paid + $2, updated_at = now() "
-        "WHERE scope_id = $1 RETURNING scope_id, is_group, free_used, paid",
+        "WHERE scope_id = $1 "
+        "RETURNING scope_id, is_group, free_used, paid, month_used",
         scope_id, amount,
     )
     await _ledger(scope_id, telegram_id, amount, reason, detail)

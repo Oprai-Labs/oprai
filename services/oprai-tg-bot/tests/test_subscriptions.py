@@ -169,3 +169,170 @@ def test_the_treasury_falls_back_rather_than_paying_nobody():
     treasury = settings.treasury_wallet()
     assert treasury.startswith("0x") and len(treasury) == 42
     assert int(treasury, 16) != 0
+
+
+# ── the risky parts ─────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_month_cannot_cost_more_than_it_was_sold_for():
+    """A daily cap bounds a burst, not a bill. 200 a day is 6,000 a month, and
+    at what a question costs that is hundreds of dollars against $9.99. The
+    month cap is what makes the price an upper bound on the cost."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    try:
+        await upsert_tg_user(tg, f"cap_{tg}")
+        await subscriptions.extend(tg, tg, False, wei=10**16, usd=9.99)
+
+        bal = await credits.balance(tg, False)
+        worst_case = bal.month_allowance * 0.02  # cost per question, cached
+        assert worst_case < settings.OPRAI_TG_SUB_PRICE_USD * 3, (
+            f"a subscriber could burn ${worst_case:.2f} on a "
+            f"${settings.OPRAI_TG_SUB_PRICE_USD} month"
+        )
+        assert bal.month_allowance > 213, "a real month would hit the cap"
+
+        # And it is enforced, not merely displayed.
+        await pool().execute(
+            "UPDATE tg_credits SET month_used = $2 WHERE scope_id = $1",
+            tg, bal.month_allowance,
+        )
+        assert await credits.spend(tg, False, tg, 1) is None, (
+            "the monthly ceiling did not stop the spend"
+        )
+    finally:
+        await _cleanup(tg)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_the_monthly_count_survives_the_daily_reset():
+    """The day resetting must not reset the month, or the month cap is
+    decorative: 30 daily resets would let 6,000 through."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    try:
+        await upsert_tg_user(tg, f"roll_{tg}")
+        await credits.spend(tg, False, tg, 5)
+
+        # A day passes.
+        await pool().execute(
+            "UPDATE tg_credits SET window_start = now() - interval '2 days' "
+            "WHERE scope_id = $1", tg,
+        )
+        bal = await credits.balance(tg, False)
+        assert bal.free_used == 0, "the daily ration did not refill"
+        assert bal.month_used == 5, "the month forgot what was spent"
+    finally:
+        await _cleanup(tg)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_payment_in_flight_blocks_a_second_one():
+    """Two taps on Subscribe a second apart sent two transfers and charged
+    twice for one month."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    try:
+        await upsert_tg_user(tg, f"double_{tg}")
+        assert not await subscriptions.in_flight(tg)
+
+        key = await subscriptions._open_intent(tg, tg, False, "0xabc", 10**16, 9.99)
+        assert await subscriptions.in_flight(tg), "a second payment could start"
+
+        await subscriptions._close_intent(key, "failed")
+        assert not await subscriptions.in_flight(tg), (
+            "a finished payment still blocks the next one"
+        )
+    finally:
+        await pool().execute("DELETE FROM tg_topups WHERE scope_id = $1", tg)
+        await _cleanup(tg)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_the_intent_is_recorded_before_the_money_moves():
+    """The window this closes: the process dying between the broadcast and
+    recording it left a payment that existed on chain and nowhere else, so no
+    reconciler could ever find it and the person got nothing."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    try:
+        await upsert_tg_user(tg, f"intent_{tg}")
+        key = await subscriptions._open_intent(tg, tg, False, "0xWaLLeT", 10**16, 9.99)
+
+        row = await pool().fetchrow(
+            "SELECT status, wallet, from_block, oprai_wei FROM tg_topups "
+            "WHERE tx_hash = $1", key,
+        )
+        assert row["status"] == "sending"
+        assert row["wallet"] == "0xwallet", "the payer was not recorded"
+        assert row["from_block"] is not None, "nowhere to start looking"
+        assert int(row["oprai_wei"]) == 10**16
+
+        # Once broadcast, the row is keyed by the hash — everything after must
+        # address it that way.
+        new_key = await subscriptions._attach_hash(key, "0xDEADBEEF")
+        assert new_key == "0xdeadbeef"
+        assert await subscriptions._close_intent(new_key, "credited")
+        assert not await subscriptions._close_intent(new_key, "credited"), (
+            "a settled payment could be settled twice"
+        )
+    finally:
+        await pool().execute("DELETE FROM tg_topups WHERE scope_id = $1", tg)
+        await _cleanup(tg)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_lost_payment_is_matched_exactly_or_not_at_all():
+    """Recovery scans blocks for the transfer. A near miss — right wallet,
+    wrong amount, or right amount to the wrong address — must not be taken for
+    the payment and grant a month nobody paid for."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    treasury = settings.treasury_wallet().lower()
+    try:
+        await upsert_tg_user(tg, f"lost_{tg}")
+        key = await subscriptions._open_intent(tg, tg, False, "0xPayer", 10**16, 9.99)
+        await pool().execute(
+            "UPDATE tg_topups SET from_block = 98 WHERE tx_hash = $1", key)
+        row = await pool().fetchrow(
+            "SELECT * FROM tg_topups WHERE tx_hash = $1", key)
+
+        blocks = {
+            "head": 100,
+            100: [
+                {"from": "0xpayer", "to": treasury, "value": hex(10**15),
+                 "hash": "0xwrong_amount"},
+                {"from": "0xsomeone", "to": treasury, "value": hex(10**16),
+                 "hash": "0xwrong_payer"},
+                {"from": "0xpayer", "to": "0xelsewhere", "value": hex(10**16),
+                 "hash": "0xwrong_destination"},
+            ],
+        }
+
+        async def fake_rpc(method, params):
+            if method == "eth_blockNumber":
+                return hex(blocks["head"])
+            return {"transactions": blocks.get(int(params[0], 16), [])}
+
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr(subscriptions.evm, "rpc", fake_rpc)
+            found = await subscriptions._find_lost_payment(row)
+            assert found is None, f"a near miss was taken for the payment: {found}"
+
+            blocks[100].append({"from": "0xpayer", "to": treasury,
+                                "value": hex(10**16), "hash": "0xtheone"})
+            assert await subscriptions._find_lost_payment(row) == "0xtheone"
+
+        # A start block ahead of the head must not silently scan nothing.
+        ahead = dict(row)
+        ahead["from_block"] = 10_000
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr(subscriptions.evm, "rpc", fake_rpc)
+            assert await subscriptions._find_lost_payment(ahead) == "0xtheone"
+    finally:
+        await pool().execute("DELETE FROM tg_topups WHERE scope_id = $1", tg)
+        await _cleanup(tg)
+        await close_pool()

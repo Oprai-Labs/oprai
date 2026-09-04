@@ -390,3 +390,33 @@ CREATE TABLE IF NOT EXISTS tg_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_tg_subscriptions_live
     ON tg_subscriptions (expires_at DESC);
+
+-- A payment we are about to make, written BEFORE it is signed.
+--
+-- The money leaves the wallet the moment the signer broadcasts. If the process
+-- died between the broadcast and recording it, the payment existed and we had
+-- no idea: no row, so the reconciler could never find it, and the person had
+-- paid for a month nobody would ever grant them. The row is now written first
+-- with a placeholder key and the block we were at, so a crash leaves evidence
+-- and the transaction can be found by scanning forward from there.
+--
+-- It doubles as the lock against paying twice: a scope with a payment already
+-- in flight cannot start another.
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS wallet TEXT;
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS from_block BIGINT;
+ALTER TABLE tg_topups DROP CONSTRAINT IF EXISTS tg_topups_status_check;
+ALTER TABLE tg_topups ADD CONSTRAINT tg_topups_status_check
+    CHECK (status IN ('sending', 'pending', 'credited', 'failed'));
+
+CREATE INDEX IF NOT EXISTS idx_tg_topups_inflight
+    ON tg_topups (scope_id) WHERE status IN ('sending', 'pending');
+
+-- A month's ceiling, alongside the day's.
+--
+-- A daily cap alone bounds nothing that matters: 200 a day is 6,000 a month,
+-- and at what a question costs us that is several hundred dollars against a
+-- ten dollar subscription. The month cap is what makes the price an actual
+-- bound on the cost. Neither is a budget anyone should feel — the busiest day
+-- ever seen is 60 questions and the busiest month 213.
+ALTER TABLE tg_credits ADD COLUMN IF NOT EXISTS month_used INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tg_credits ADD COLUMN IF NOT EXISTS month_start TIMESTAMPTZ NOT NULL DEFAULT now();
