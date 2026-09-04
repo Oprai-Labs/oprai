@@ -2807,6 +2807,27 @@ async def rh_honeypot(token: str, amount: float | None = None) -> dict:
     return res
 
 
+@query_tool(required=["sql"], optional=["purpose", "limit"], tags={"analysis", "portfolio", "dex"})
+async def rh_sql(sql: str, purpose: str = "", limit: int = 200) -> dict:
+    """Run ONE read-only SQL SELECT over Robinhood-Chain's clean analytics tables
+    (trades, launches, token_state_v, wallet_state_v, token_hour_v, wallet_hour_v,
+    smart_wallets, wallet_token_positions, wallet_metrics, token_metrics, dex_pools …)
+    for any question the fixed reports don't cover: dev histories and hit rates,
+    launchpad cohorts, custom filters/windows/rankings, cross-entity stats. Write
+    the SQL yourself from the schema in the prompt (ClickHouse dialect). Fast
+    (pre-aggregated views, ms-s); a query that would read too much is refused with
+    a hint to narrow it. Returns rows + the SQL that ran + rows_read + ms."""
+    body = {"sql": sql, "limit": int(limit or 200), "timeout_s": 6.0}
+    async with httpx.AsyncClient(timeout=12.0) as c:
+        r = await c.post(f"{CHAIN_INTEL_BASE}/analytics/sql", json=body)
+    if r.status_code == 400:
+        return {"ok": False, "error": (r.json() or {}).get("detail"), "purpose": purpose}
+    r.raise_for_status()
+    res = r.json()
+    res["purpose"] = purpose
+    return res
+
+
 @query_tool(optional=["window_blocks", "min_smart"], tags={"analysis", "dex"})
 async def rh_smart_flow(window_blocks: int = 3000, min_smart: int = 2) -> dict:
     """Robinhood-Chain smart money BUYS vs SELLS per token over the last
