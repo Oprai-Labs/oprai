@@ -2724,7 +2724,7 @@ async def rh_token_analysis(token: str) -> dict:
     'analyze this token / is it a rug / who is the dev / bundle / snipers / dev
     holdings / risk' on Robinhood Chain."""
     res, md, buyers = await asyncio.gather(
-        _chain_intel(f"/token/{token}"),
+        _chain_intel(f"/token/{token}", timeout=45.0),
         _dexscreener_evm_market(token),
         _chain_intel(f"/signals/token-buyers/{token}?since_block=0&limit=10"),
         return_exceptions=True,
@@ -2791,7 +2791,7 @@ async def rh_honeypot(token: str, amount: float | None = None) -> dict:
     (sell tax, ETH you'd get for `amount`) and on-chain distinct-seller history.
     Use for 'can I sell / is it a honeypot / sell tax / exit / is it safe to buy'."""
     path = f"/honeypot/{token}" + (f"?amount={float(amount)}" if amount else "")
-    res, sim = await asyncio.gather(_chain_intel(path), _chain_intel(f"/simulate/sell/{token}"),
+    res, sim = await asyncio.gather(_chain_intel(path, timeout=30.0), _chain_intel(f"/simulate/sell/{token}", timeout=30.0),
                                     return_exceptions=True)
     res = res if isinstance(res, dict) else {"token": token}
     # Live quote through the venue's own quoter (Uniswap V4Quoter / QuoterV2 / Pons

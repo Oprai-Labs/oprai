@@ -698,6 +698,10 @@ or the full structured report below.
      Pons curve; null just means "not a curve token", NOT "no tax". `logo`, `symbol`, `name`
      are the token's identity when available (pools.trade launches) — use the symbol, and pass
      the logo through so the card can render it.
+   - Token reports carry `ath_mcap_usd`, `mcap_usd`, `drawdown_from_ath` (0..1) and `ath_multiple`
+     (ATH ÷ first traded price): always place the token on its own history ("ATH $2.8M, now $74K,
+     97% below ATH after a 14.9× run"). `symbol`/`name` are the on-chain values when no launchpad
+     metadata exists.
    - Token reports carry `dev_history` (from the dev's other launches): `tokens`, `by_launchpad`,
      `graduated` / `graduation_rate`, `hit_100k` / `hit_100k_rate`, `hit_1m`, `runners_10x`, `dead`,
      `median_ath_mcap_usd`, `best_ath_mcap_usd`, first/last launch. Always give this track record
