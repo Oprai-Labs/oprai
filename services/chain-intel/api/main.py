@@ -17,6 +17,26 @@ app = FastAPI(title="OPRAI chain-intel", version="0.1.0")
 _KEY = os.environ.get("OPRAI_INTERNAL_API_KEY", "")
 
 
+async def _token(x: str) -> str:
+    """Accept a 0x address or a SYMBOL: a symbol resolves to the most-traded (24h)
+    token carrying it in token_stats, so 'CASHCAT' works as well as its address."""
+    if ch.is_addr(x):
+        return ch.addr(x)
+    sym = x.strip().lstrip("$")
+    if not (1 <= len(sym) <= 32):
+        raise HTTPException(400, "token must be a 0x address or a symbol")
+    safe = sym.replace("'", "").replace("\\", "")
+    try:
+        row = await ch.one(
+            f"SELECT token, symbol, vol_24h_usd FROM rh.token_stats WHERE upperUTF8(symbol) = upperUTF8('{safe}') "
+            f"ORDER BY vol_24h_usd DESC, vol_usd DESC LIMIT 1", timeout=5)
+    except Exception:
+        row = None
+    if not row:
+        raise HTTPException(404, f"no traded token with symbol '{sym}' — pass the 0x address")
+    return row["token"]
+
+
 def _gate(x_internal_api_key: str | None):
     if _KEY and x_internal_api_key != _KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -34,8 +54,7 @@ async def health():
 @app.get("/token/{token}")
 async def token(token: str, x_internal_api_key: str | None = Header(None)):
     _gate(x_internal_api_key)
-    if not ch.is_addr(token):
-        raise HTTPException(400, "token must be a 0x address")
+    token = await _token(token)
     return await reports.token_report(token)
 
 
@@ -59,8 +78,7 @@ async def early_catchers(token: str, max_price: float | None = Query(None),
                          limit: int = Query(50, ge=1, le=200),
                          x_internal_api_key: str | None = Header(None)):
     _gate(x_internal_api_key)
-    if not ch.is_addr(token):
-        raise HTTPException(400, "token must be a 0x address")
+    token = await _token(token)
     return await reports.early_catchers(token, max_price, limit)
 
 
@@ -78,8 +96,7 @@ async def cohort(token: str, window_days: int = Query(7, ge=1, le=90),
                  x_internal_api_key: str | None = Header(None)):
     """What are this token's whales buying next? — follow the cohort's money."""
     _gate(x_internal_api_key)
-    if not ch.is_addr(token):
-        raise HTTPException(400, "token must be a 0x address")
+    token = await _token(token)
     return await reports.cohort_flow(token, window_days, limit)
 
 
@@ -88,8 +105,7 @@ async def honeypot(token: str, amount: float | None = Query(None),
                    x_internal_api_key: str | None = Header(None)):
     """Can you exit this token? Resolves the live Pons curve via the node."""
     _gate(x_internal_api_key)
-    if not ch.is_addr(token):
-        raise HTTPException(400, "token must be a 0x address")
+    token = await _token(token)
     return await reports.honeypot(token, amount)
 
 
@@ -149,8 +165,7 @@ async def signals_token_buyers(token: str, since_block: int = Query(0, ge=0),
                                x_internal_api_key: str | None = Header(None)):
     """WHICH smart wallets bought this token, with why each is smart."""
     _gate(x_internal_api_key)
-    if not ch.is_addr(token):
-        raise HTTPException(400, "token must be a 0x address")
+    token = await _token(token)
     return await signals.token_smart_buyers(token, since_block, limit)
 
 
@@ -192,8 +207,7 @@ async def simulate_sell(token: str, usd: float = Query(10.0, gt=0, le=100000),
     """Can this token be sold right now and at what cost? Quotes a small sell and buy
     through the venue's own quoter (V4Quoter / QuoterV2 / Pons curve) vs spot."""
     _gate(x_internal_api_key)
-    if not ch.is_addr(token):
-        raise HTTPException(400, "token must be a 0x address")
+    token = await _token(token)
     from . import decode
     return await decode.simulate_sell(token, usd)
 
