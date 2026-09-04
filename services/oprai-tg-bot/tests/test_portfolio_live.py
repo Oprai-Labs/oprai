@@ -115,3 +115,50 @@ async def test_a_real_holder_is_reported_with_the_right_scale():
         assert 1_000 < amount < 1_000_000_000, f"implausible USDG balance {amount}"
     finally:
         await close_pool()
+
+
+# ── one client, not three ───────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_balance_reads_use_the_shared_client_with_its_fallback(monkeypatch):
+    """Portfolio had its own copy of the RPC client — no retry, no fallback —
+    so an hour of node maintenance turned every balance read into "Couldn't
+    read your balance: rpc unreachable" while the shared client two modules
+    over was falling back and working fine."""
+    import httpx
+
+    from app.services import evm, portfolio
+
+    seen: list[str] = []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def post(self, url, json=None):
+            seen.append(url)
+            if "rh-nitro" in url:
+                raise httpx.ConnectError("All connection attempts failed")
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1,
+                                             "result": "0x2386f26fc10000"})
+
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_OVERRIDE", "http://rh-nitro:8547")
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_FALLBACK",
+                        "https://rpc.mainnet.chain.robinhood.com")
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    body = await portfolio._rpc("eth_getBalance", ["0xabc", "latest"])
+    assert int(body["result"], 16) == 10**16, "the balance read did not fall back"
+    assert any("robinhood.com" in u for u in seen), "no fallback was attempted"
+
+
+def test_portfolio_has_no_rpc_client_of_its_own():
+    """The rule this encodes: a second copy of a client is a second set of
+    failure modes nobody remembers to fix."""
+    import inspect
+
+    from app.services import portfolio
+
+    source = inspect.getsource(portfolio)
+    assert "httpx" not in source, "portfolio grew its own HTTP client again"
+    assert "robinhood_rpc()" not in source, "portfolio is picking its own endpoint"

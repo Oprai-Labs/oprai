@@ -1,15 +1,14 @@
-"""Read-only balances on Robinhood Chain, straight from our node.
+"""Read-only balances on Robinhood Chain.
 
-Reads go to settings.robinhood_rpc() — OUR self-hosted Nitro full node in prod —
-so a balance is the current on-chain state with no indexer lag. Actions still
-flow through the gateway with the on-behalf JWT (see auth.py).
+Reads go through the shared RPC client, which prefers OUR self-hosted Nitro
+full node — a balance is then the current on-chain state with no indexer lag —
+and falls back to a public endpoint while that node is busy. Actions still flow
+through the gateway with the on-behalf JWT (see auth.py).
 """
 
 from __future__ import annotations
 
-import httpx
-
-from app.config import settings
+from app.services import evm
 from app.services import wallet as wallet_svc
 
 WEI_PER_ETH = 10**18
@@ -20,18 +19,19 @@ class PortfolioError(RuntimeError):
 
 
 async def _rpc(method: str, params: list) -> dict:
-    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    """One RPC client, not three.
+
+    This used to post straight at the configured node with no retry and no
+    fallback, so an hour of node maintenance turned every balance read into
+    "Couldn't read your balance: rpc unreachable" — while the shared client
+    two modules over was quietly falling back and working fine. A second copy
+    of a client is a second set of failure modes to remember.
+    """
     try:
-        async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.post(settings.robinhood_rpc(), json=payload)
-    except httpx.HTTPError as e:
-        raise PortfolioError(f"rpc unreachable: {e}") from e
-    if r.status_code != 200:
-        raise PortfolioError(f"rpc HTTP {r.status_code}")
-    body = r.json()
-    if "error" in body:
-        raise PortfolioError(f"rpc error: {body['error']}")
-    return body
+        result = await evm.rpc(method, params)
+    except evm.EvmError as e:
+        raise PortfolioError(str(e)) from e
+    return {"result": result}
 
 
 async def native_balance(telegram_id: int) -> dict:
@@ -72,7 +72,6 @@ async def token_holdings(wallet: str, telegram_id: int | None = None) -> list[di
     balance is a number that means nothing.
     """
     from app.db import pool
-    from app.services import evm
 
     rows = await pool().fetch(
         """
