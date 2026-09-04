@@ -135,7 +135,11 @@ async def stream(
 
     if answer.error:
         raise ChatError(answer.error)
-    if not answer.text.strip():
+    # An answer made only of an action is a complete answer — "buy 0.01 NVDA"
+    # is meant to DO something, and the model says so by emitting the action
+    # and no prose. Treating that as failure threw away the very thing the
+    # person asked for and told them to rephrase.
+    if not answer.text.strip() and not answer.actions:
         raise ChatError("OPRAI didn't have an answer for that — try rephrasing it.")
     return answer
 
