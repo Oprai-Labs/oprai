@@ -68,15 +68,21 @@ def _deepest_price(pairs: list[dict]) -> float | None:
 
     Several pairs can quote the same token at very different prices; the one
     with real depth is the one a trade would actually clear against.
+
+    A pool that has not traded in a day is skipped even when it is the
+    deepest: its last price is a memory of the last trade rather than what
+    the token is worth now, and a top-up converted at a remembered price is
+    converted at a made-up one.
     """
     best: tuple[float, float] | None = None  # (liquidity, price)
     for pair in pairs:
         try:
             price = float(pair.get("priceUsd") or 0)
             liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
+            traded = float((pair.get("volume") or {}).get("h24") or 0)
         except (TypeError, ValueError):
             continue
-        if price <= 0 or liquidity < _MIN_LIQUIDITY_USD:
+        if price <= 0 or liquidity < _MIN_LIQUIDITY_USD or traded <= 0:
             continue
         if best is None or liquidity > best[0]:
             best = (liquidity, price)

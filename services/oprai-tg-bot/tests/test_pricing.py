@@ -15,8 +15,9 @@ from app.config import settings
 from app.services import pricing
 
 
-def _pair(price: float, liquidity: float) -> dict:
-    return {"priceUsd": str(price), "liquidity": {"usd": liquidity}}
+def _pair(price: float, liquidity: float, volume: float = 5_000.0) -> dict:
+    return {"priceUsd": str(price), "liquidity": {"usd": liquidity},
+            "volume": {"h24": volume}}
 
 
 # ── which pool sets the price ───────────────────────────────────────────────
@@ -39,11 +40,23 @@ def test_a_near_empty_pool_prices_nothing():
 
 def test_a_broken_quote_is_skipped_not_crashed():
     assert pricing._deepest_price([
-        {"priceUsd": None, "liquidity": {"usd": 99_999}},
-        {"priceUsd": "not a number", "liquidity": {"usd": 99_999}},
-        {"priceUsd": "-1", "liquidity": {"usd": 99_999}},
+        {"priceUsd": None, "liquidity": {"usd": 99_999}, "volume": {"h24": 1}},
+        {"priceUsd": "x", "liquidity": {"usd": 99_999}, "volume": {"h24": 1}},
+        {"priceUsd": "-1", "liquidity": {"usd": 99_999}, "volume": {"h24": 1}},
         _pair(0.001, 50_000),
     ]) == pytest.approx(0.001)
+
+
+def test_a_pool_that_stopped_trading_prices_nothing():
+    """Deep but dead: the last price is a memory of the last trade. Converting
+    a top-up at it charges whatever the token was worth whenever that was."""
+    assert pricing._deepest_price([_pair(0.001, 500_000, volume=0)]) is None
+
+    # And a live-but-smaller pool beats a dead deep one.
+    assert pricing._deepest_price([
+        _pair(0.001, 500_000, volume=0),
+        _pair(0.002, 20_000, volume=3_242),
+    ]) == pytest.approx(0.002)
 
 
 # ── the dollar is the promise ───────────────────────────────────────────────
