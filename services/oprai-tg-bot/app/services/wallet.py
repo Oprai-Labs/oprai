@@ -46,14 +46,30 @@ async def archive_active(telegram_id: int) -> asyncpg.Record | None:
 
 
 async def list_wallets(telegram_id: int) -> list[asyncpg.Record]:
-    """Active first, then archived newest-first."""
+    """In the order they were created, oldest first — always.
+
+    Sorting by which one is active renumbered them on every switch: W1 became
+    W2 and back again. The number is how someone tells two addresses apart, so
+    it has to belong to the wallet, not to its current state.
+    """
     return await pool().fetch(
-        "SELECT address, imported, archived_at, created_at FROM tg_wallets "
+        "SELECT address, imported, archived_at, created_at, label FROM tg_wallets "
         "WHERE telegram_id = $1 AND chain = $2 "
-        "ORDER BY archived_at IS NOT NULL, archived_at DESC NULLS FIRST, created_at DESC",
+        "ORDER BY created_at, id",
         telegram_id,
         CHAIN,
     )
+
+
+async def rename(telegram_id: int, address: str, label: str | None) -> bool:
+    """Give a wallet a name of the user's choosing. An empty name clears it,
+    falling back to its number."""
+    result = await pool().execute(
+        "UPDATE tg_wallets SET label = $3 WHERE telegram_id = $1 AND chain = $2 "
+        "AND lower(address) = lower($4)",
+        telegram_id, CHAIN, (label or None), address,
+    )
+    return result.endswith("1")
 
 
 async def get_or_create_wallet(telegram_id: int) -> asyncpg.Record:
