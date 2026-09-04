@@ -31,39 +31,37 @@ ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 # bare address on its own line.
 ADDRESS_IN_TEXT = re.compile(r"0x[0-9a-fA-F]{40}")
 
-# Words that mean "tell me about this", in the two languages the bot is used
-# in. Without one, a message containing an address is usually an instruction
-# to DO something with it, and belongs to the assistant.
-LOOK_WORDS = (
-    "analiz", "analyse", "analyze", "analysis", "incele", "rapor", "report",
-    "x-ray", "xray", "kontrol", "check", "bak", "nedir", "what is", "info",
-    "güvenli", "guvenli", "safe", "rug", "scam", "risk", "holder", "sahip",
-)
-# …and words that mean "do something with it", which must NOT be hijacked.
+# Words that mean "do something with it". Everything else that carries an
+# address is a question about that address — nobody pastes a contract to make
+# conversation, and listing the ways people ask ("launchpad", "hacim", "who is
+# the dev") is a list that is always one phrasing short. It was: "hangi
+# launchpad'de basıldı, hacmi ne?" went to the model, took twenty-four seconds
+# and came back "no data", while the index held both answers.
 ACTION_WORDS = (
-    "send", "gönder", "gonder", "transfer", "swap", "buy", "sell", "al ", "sat ",
-    "borrow", "lend", "long", "short", "approve",
+    "send", "gönder", "gonder", "transfer", "yolla",
+    "swap", "buy", "sell", "satın", "satin", "sat ", "al ",
+    "borrow", "lend", "ödünç", "odunc",
+    "long", "short", "approve", "onayla", "bridge", "köprü", "kopru",
 )
-
 
 def wants_a_look(text: str) -> str | None:
-    """The address someone is asking about, if that is what they are doing.
+    """The address someone is asking about — which is most of the time.
 
-    "0x… analiz et" is a request to look; "send 5 USDG to 0x…" is not, and
-    hijacking it would answer a question nobody asked instead of moving the
-    money.
+    An address plus anything that isn't an instruction is a question about it.
+    Deciding the other way round, by listing the words that count as asking,
+    means every phrasing nobody thought of takes the slow path and often comes
+    back with nothing.
+
+    "send 5 USDG to 0x…" is the exception that matters: hijacking it would
+    answer a question nobody asked instead of moving the money.
     """
     found = ADDRESS_IN_TEXT.search(text or "")
     if not found:
         return None
     rest = (text or "").replace(found.group(0), " ").strip().lower()
-    if not rest:
-        return found.group(0)          # the address alone
     if any(w in rest for w in ACTION_WORDS):
         return None
-    if any(w in rest for w in LOOK_WORDS):
-        return found.group(0)
-    return None
+    return found.group(0)
 EXPLORER = "https://robinscan.io/token/"
 
 # Which risk band gets which mark. The number alone doesn't say whether 23 is
