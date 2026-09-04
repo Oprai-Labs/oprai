@@ -28,7 +28,7 @@ from . import ch
 from .ch import CH_URL, CH_USER, CH_PASS, CH_DB
 
 ALLOWED_TABLES = {
-    "trades", "launches", "token_state_v", "wallet_state_v", "token_hour_v", "wallet_hour_v",
+    "trades", "launches", "token_stats", "token_state_v", "wallet_state_v", "token_hour_v", "wallet_hour_v",
     "token_supply", "token_decimals", "smart_wallets", "wallet_token_positions", "wallet_metrics",
     "token_metrics", "dex_pools", "v4_pool_keys", "pons_curves", "protocol_registry", "locker_positions",
     "weth_price", "token_price_daily", "dex_swaps", "launch_creators", "contracts", "blocks",
@@ -37,7 +37,7 @@ FORBIDDEN = re.compile(r"\b(INSERT|ALTER|DROP|CREATE|SYSTEM|TRUNCATE|OPTIMIZE|KI
                        r"url|file|s3|remote|remoteSecure|input|mysql|postgresql|jdbc|odbc|hdfs|azureBlobStorage|executable|"
                        r"cluster|clusterAllReplicas|view|merge|numbers|generateRandom|dictionary)\s*\(?", re.I)
 TABLE_REF = re.compile(r"\b(?:FROM|JOIN|IN)\s+\(?\s*(?:rh\.)?([A-Za-z_][A-Za-z0-9_]*)", re.I)
-MAX_ROWS_TO_READ = 400_000_000      # cost budget for a synchronous query
+MAX_ROWS_TO_READ = 60_000_000       # cost budget for a synchronous query (~1-2 s)
 DEFAULT_LIMIT, MAX_LIMIT = 200, 2000
 DEFAULT_TIMEOUT, MAX_TIMEOUT = 3.0, 20.0
 _jobs: dict[str, dict] = {}
@@ -50,7 +50,9 @@ SCHEMA = {
         "Amounts in trades/token_state_v are HUMAN units (decimals applied). usd = quote-side USD at the trade's time; "
         "usd = 0 means the quote could not be priced — filter usd > 0 for money questions.",
         "Chain runs ~10 blocks/s. Times are UTC DateTime. Use now() - INTERVAL n DAY/HOUR for windows.",
-        "Prefer token_state_v / wallet_state_v / *_hour_v (pre-aggregated) over scanning trades when a per-entity number is enough.",
+        "Prefer token_stats (materialized, refreshed every few minutes, ms) for anything per token — dev/launchpad cohorts, ATH, mcap, "
+        "drawdown, 24h/7d volume. token_state_v is the live view (slower, ~1 s when not filtered by token). wallet_state_v / *_hour_v for wallets and series.",
+        "Full-table aggregates over trades (145M rows) are refused as heavy — use token_stats / wallet_state_v / hourly views, or add a token/actor/time filter.",
         "Always alias aggregates with names that differ from column names (ClickHouse resolves aliases first).",
     ],
     "tables": {
@@ -79,8 +81,20 @@ SCHEMA = {
                 "graduated_ts": "DateTime (1970 if not)",
             },
         },
+        "token_stats": {
+            "grain": "one row per token, materialized every few minutes — THE table for token questions and cohorts",
+            "columns": {
+                "token": "", "symbol": "", "name": "", "trades": "", "buys": "", "sells": "", "vol_usd": "", "buy_usd": "", "sell_usd": "",
+                "traders": "", "buyers": "", "first_trade_ts": "", "last_trade_ts": "",
+                "price_usd": "latest hourly VWAP", "first_price_usd": "first hour's VWAP", "ath_price_usd": "max hourly VWAP (hours ≥ $20)", "ath_ts": "",
+                "supply": "", "mcap_usd": "", "ath_mcap_usd": "", "first_mcap_usd": "", "drawdown": "1 − price/ath", "ath_multiple": "ath / first price",
+                "vol_24h_usd": "", "trades_24h": "", "buyers_24h": "", "vol_7d_usd": "",
+                "holders": "", "dev": "creator ('' if unknown)", "launchpad": "", "launch_ts": "", "graduated": "", "graduated_ts": "", "venues": "", "updated_at": "",
+            },
+            "fast_filters": ["token = …", "dev = … (bloom index)", "launchpad = …", "launch_ts > …"],
+        },
         "token_state_v": {
-            "grain": "one row per token (all-time, live)",
+            "grain": "one row per token (all-time, live view; prefer token_stats)",
             "columns": {
                 "token": "", "trades": "", "buys": "", "sells": "", "vol_usd": "", "buy_usd": "", "sell_usd": "",
                 "traders": "distinct actors", "buyers": "distinct buyers", "first_trade_ts": "", "last_trade_ts": "",
@@ -114,23 +128,23 @@ SCHEMA = {
     },
     "metrics": {
         "graduated": "launches.graduated = 1",
-        "hit_100k": "token_state_v.ath_mcap_usd >= 100000",
-        "hit_1m": "token_state_v.ath_mcap_usd >= 1000000",
-        "runner_10x": "token_state_v.ath_price_usd >= 10 * token_state_v.first_price_usd AND first_price_usd > 0",
-        "rugged": "token_state_v.drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY",
-        "alive": "token_state_v.last_trade_ts >= now() - INTERVAL 1 DAY",
-        "dev_hit_rate": "countIf(ath_mcap_usd >= 100000) / count() over a dev's tokens in token_state_v",
+        "hit_100k": "token_stats.ath_mcap_usd >= 100000",
+        "hit_1m": "token_stats.ath_mcap_usd >= 1000000",
+        "runner_10x": "token_stats.ath_multiple >= 10",
+        "rugged": "token_stats.drawdown >= 0.95 AND last_trade_ts < now() - INTERVAL 3 DAY",
+        "alive": "token_stats.last_trade_ts >= now() - INTERVAL 1 DAY",
+        "dev_hit_rate": "countIf(ath_mcap_usd >= 100000) / count() over a dev's tokens in token_stats",
         "wallet_pnl_window": "sum(realized_pnl) from wallet_token_positions WHERE last_ts > now() - INTERVAL n DAY",
         "entry_mcap": "join trades (side='buy') to token_state_v: price_usd * supply at the buy",
         "smart_inflow_24h": "sum(usd) from trades t JOIN smart_wallets s ON s.wallet = t.actor WHERE side='buy' AND ts > now() - INTERVAL 1 DAY",
     },
     "examples": [
         {"q": "this dev's tokens by launchpad with graduation and hit rates",
-         "sql": "SELECT launchpad, count() AS n, countIf(graduated) AS graduated_n, countIf(ath_mcap_usd >= 100000) AS hit_100k, countIf(ath_mcap_usd >= 1e6) AS hit_1m, round(median(ath_mcap_usd)) AS median_ath FROM token_state_v WHERE dev = '0x…' GROUP BY launchpad ORDER BY n DESC"},
+         "sql": "SELECT launchpad, count() AS n, countIf(graduated) AS graduated_n, countIf(ath_mcap_usd >= 100000) AS hit_100k, countIf(ath_mcap_usd >= 1e6) AS hit_1m, round(median(ath_mcap_usd)) AS median_ath FROM token_stats WHERE dev = '0x…' GROUP BY launchpad ORDER BY n DESC"},
         {"q": "smart wallets' buys in the last hour, by token",
          "sql": "SELECT t.token, count() AS buys, uniq(t.actor) AS smart_buyers, round(sum(t.usd)) AS usd FROM trades t INNER JOIN smart_wallets s ON s.wallet = t.actor WHERE t.side = 'buy' AND t.ts > now() - INTERVAL 1 HOUR GROUP BY t.token ORDER BY smart_buyers DESC LIMIT 20"},
         {"q": "Doppler launches of the last 7 days that fell 70%+ from ATH",
-         "sql": "SELECT token, launch_ts, round(ath_mcap_usd) AS ath, round(mcap_usd) AS mcap, round(drawdown, 2) AS dd FROM token_state_v WHERE launchpad LIKE 'Doppler%' AND launch_ts > now() - INTERVAL 7 DAY AND drawdown >= 0.7 ORDER BY ath DESC LIMIT 50"},
+         "sql": "SELECT token, symbol, launch_ts, round(ath_mcap_usd) AS ath, round(mcap_usd) AS mcap, round(drawdown, 2) AS dd FROM token_stats WHERE launchpad LIKE 'Doppler%' AND launch_ts > now() - INTERVAL 7 DAY AND drawdown >= 0.7 ORDER BY ath DESC LIMIT 50"},
     ],
 }
 

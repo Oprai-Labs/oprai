@@ -100,15 +100,19 @@ async def init() -> None:
         vol_usd AggregateFunction(sum, Float64), buy_usd AggregateFunction(sumIf, Float64, UInt8), sell_usd AggregateFunction(sumIf, Float64, UInt8),
         traders AggregateFunction(uniq, String), buyers AggregateFunction(uniqIf, String, UInt8),
         hi AggregateFunction(max, Float64), lo AggregateFunction(min, Float64),
-        open AggregateFunction(argMin, Float64, DateTime), close AggregateFunction(argMax, Float64, DateTime)
+        open AggregateFunction(argMin, Float64, DateTime), close AggregateFunction(argMax, Float64, DateTime),
+        tok_amt AggregateFunction(sum, Float64)
     ) ENGINE = AggregatingMergeTree ORDER BY (token, hour)""")
+    await w("ALTER TABLE rh.token_hour ADD COLUMN IF NOT EXISTS tok_amt AggregateFunction(sum, Float64)")
+    await w("DROP VIEW IF EXISTS rh.token_hour_mv")
     await w("""CREATE MATERIALIZED VIEW IF NOT EXISTS rh.token_hour_mv TO rh.token_hour AS
         SELECT token, toStartOfHour(ts) AS hour,
                countState() AS trades, countIfState(side = 'buy') AS buys, countIfState(side = 'sell') AS sells,
                sumState(usd) AS vol_usd, sumIfState(usd, side = 'buy') AS buy_usd, sumIfState(usd, side = 'sell') AS sell_usd,
                uniqState(actor) AS traders, uniqIfState(actor, side = 'buy') AS buyers,
                maxState(price_usd) AS hi, minState(if(price_usd > 0, price_usd, inf)) AS lo,
-               argMinState(price_usd, ts) AS open, argMaxState(price_usd, ts) AS close
+               argMinState(price_usd, ts) AS open, argMaxState(price_usd, ts) AS close,
+               sumState(token_amount) AS tok_amt
         FROM rh.trades WHERE usd >= 1 GROUP BY token, hour""")
 
     await w("""CREATE TABLE IF NOT EXISTS rh.wallet_hour (
@@ -191,12 +195,24 @@ async def init() -> None:
         SELECT token, hour, countMerge(trades) AS trades, countIfMerge(buys) AS buys, countIfMerge(sells) AS sells,
                sumMerge(vol_usd) AS vol_usd, sumIfMerge(buy_usd) AS buy_usd, sumIfMerge(sell_usd) AS sell_usd,
                uniqMerge(traders) AS traders, uniqIfMerge(buyers) AS buyers,
-               maxMerge(hi) AS high, minMerge(lo) AS low, argMinMerge(open) AS open, argMaxMerge(close) AS close
+               maxMerge(hi) AS high, minMerge(lo) AS low, argMinMerge(open) AS open, argMaxMerge(close) AS close,
+               vol_usd / nullIf(sumMerge(tok_amt), 0) AS vwap   -- vol_usd = the merged alias above
         FROM rh.token_hour GROUP BY token, hour""")
     await w("""CREATE OR REPLACE VIEW rh.wallet_hour_v AS
         SELECT actor AS wallet, hour, countMerge(trades) AS trades, countIfMerge(buys) AS buys, countIfMerge(sells) AS sells,
                sumMerge(vol_usd) AS vol_usd, sumIfMerge(buy_usd) AS buy_usd, sumIfMerge(sell_usd) AS sell_usd, uniqMerge(tokens) AS tokens
         FROM rh.wallet_hour GROUP BY actor, hour""")
+    await w("""CREATE TABLE IF NOT EXISTS rh.token_stats (
+        token String, symbol String, name String,
+        trades UInt64, buys UInt64, sells UInt64, vol_usd Float64, buy_usd Float64, sell_usd Float64,
+        traders UInt64, buyers UInt64, first_trade_ts DateTime, last_trade_ts DateTime,
+        price_usd Float64, first_price_usd Float64, ath_price_usd Float64, ath_ts DateTime,
+        supply Float64, mcap_usd Float64, ath_mcap_usd Float64, first_mcap_usd Float64, drawdown Float64, ath_multiple Float64,
+        vol_24h_usd Float64, trades_24h UInt64, buyers_24h UInt64, vol_7d_usd Float64,
+        holders UInt64, dev String, launchpad LowCardinality(String), launch_ts DateTime, graduated UInt8, graduated_ts DateTime,
+        venues Array(String), updated_at DateTime,
+        INDEX idx_dev dev TYPE bloom_filter GRANULARITY 2
+    ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY token""")
     print("  init ok", flush=True)
 
 
@@ -236,6 +252,41 @@ async def decimals() -> None:
     await w("OPTIMIZE TABLE rh.token_decimals FINAL")
     await w("SYSTEM RELOAD DICTIONARY rh.token_decimals_dict")
     print("  decimals:", await ch.scalar("SELECT count() FROM rh.token_decimals"), flush=True)
+
+
+async def symbols() -> None:
+    """symbol()/name() from the node for traded tokens not yet resolved (contracts.symbol is empty)."""
+    await w("""CREATE TABLE IF NOT EXISTS rh.token_symbols (token String, symbol String, name String)
+               ENGINE = ReplacingMergeTree ORDER BY token""")
+    toks = [r["token"] for r in await ch.q("SELECT DISTINCT token FROM rh.token_state WHERE token NOT IN (SELECT token FROM rh.token_symbols)", timeout=600)]
+    print(f"  symbols to resolve: {len(toks)}", flush=True)
+    rows = []
+    for i in range(0, len(toks), 300):
+        chunk = toks[i:i + 300]
+        batch = []
+        for j, t in enumerate(chunk):
+            batch.append({"jsonrpc": "2.0", "id": 2 * j, "method": "eth_call", "params": [{"to": t, "data": "0x95d89b41"}, "latest"]})
+            batch.append({"jsonrpc": "2.0", "id": 2 * j + 1, "method": "eth_call", "params": [{"to": t, "data": "0x06fdde03"}, "latest"]})
+        try:
+            async with httpx.AsyncClient(timeout=60) as c:
+                r = await c.post(node.NODE, json=batch)
+                res = {x["id"]: x.get("result") for x in r.json()}
+        except Exception:
+            res = {}
+        for j, t in enumerate(chunk):
+            sy = node._decode_str(res.get(2 * j) or "0x") or ""
+            nm = node._decode_str(res.get(2 * j + 1) or "0x") or ""
+            esc = lambda x: x.replace("\\", "\\\\").replace("'", "\\'")[:64]
+            rows.append(f"('{t}','{esc(sy)}','{esc(nm)}')")
+        if len(rows) >= 3000:
+            await w("INSERT INTO rh.token_symbols (token, symbol, name) VALUES " + ",".join(rows))
+            rows = []
+        if i % 30000 == 0:
+            print(f"    {i}/{len(toks)}", flush=True)
+    if rows:
+        await w("INSERT INTO rh.token_symbols (token, symbol, name) VALUES " + ",".join(rows))
+    await w("OPTIMIZE TABLE rh.token_symbols FINAL")
+    print("  token_symbols:", await ch.scalar("SELECT count() FROM rh.token_symbols"), flush=True)
 
 
 # ── trades ─────────────────────────────────────────────────────────────────
@@ -303,12 +354,15 @@ async def launches() -> None:
                         UNION ALL SELECT token1 AS token, pool, created_block FROM rh.dex_pools WHERE token1 NOT IN ('{QIN}'))
                   GROUP BY token),
       openpool AS (SELECT token, min(created_block) AS blk
-                   FROM (SELECT token0 AS token, created_block FROM rh.dex_pools WHERE (dex != 'uniswap-v4' OR hooks = '{ZERO}' OR hooks = '{PONS_HOOK}') AND token0 NOT IN ('{QIN}')
-                         UNION ALL SELECT token1 AS token, created_block FROM rh.dex_pools WHERE (dex != 'uniswap-v4' OR hooks = '{ZERO}' OR hooks = '{PONS_HOOK}') AND token1 NOT IN ('{QIN}'))
+                   FROM (SELECT token0 AS token, created_block FROM rh.dex_pools WHERE (dex != 'uniswap-v4' OR hooks NOT IN ('{hooks_in}')) AND token0 NOT IN ('{QIN}')
+                         UNION ALL SELECT token1 AS token, created_block FROM rh.dex_pools WHERE (dex != 'uniswap-v4' OR hooks NOT IN ('{hooks_in}')) AND token1 NOT IN ('{QIN}'))
                    GROUP BY token),
       creators AS (SELECT token, argMax(dev, block) AS dev FROM rh.launch_creators GROUP BY token),
       ctr AS (SELECT address, deployer, creation_block, creation_tx FROM rh.contracts FINAL WHERE is_token = 1),
-      ctx AS (SELECT c.address AS token, t.to_addr AS callee FROM ctr c INNER JOIN rh.transactions t ON t.hash = c.creation_tx AND t.block_number = c.creation_block)
+      -- creation-tx callee: hit transactions through its primary key (block) + hash, never a hash join over 600M rows
+      ctxt AS (SELECT t.hash AS creation_tx, t.to_addr AS callee FROM rh.transactions t
+               WHERE t.block_number IN (SELECT creation_block FROM ctr) AND t.hash IN (SELECT creation_tx FROM ctr)),
+      ctx AS (SELECT c.address AS token, x.callee AS callee FROM ctr c INNER JOIN ctxt x ON x.creation_tx = c.creation_tx)
     SELECT
       u.token,
       multiIf(cr.dev != '', cr.dev, ct.deployer != '', ct.deployer, '') AS dev,
@@ -333,6 +387,87 @@ async def launches() -> None:
     LEFT JOIN rh.blocks gb ON gb.number = op.blk
     WHERE u.token != ''""", timeout=3600)
     print("  launches:", await ch.q("SELECT launchpad, count() n, countIf(graduated) grad FROM rh.launches GROUP BY launchpad ORDER BY n DESC LIMIT 12"), flush=True)
+
+
+def stats_sql(where_tokens: str) -> str:
+    """token_stats rows for the tokens selected by `where_tokens` (SQL over `trades`
+    grouped by token). Prices are hourly VWAP (vol_usd / token_amount) so one dust
+    trade cannot set an ATH; ATH/first/last come from hours with ≥ $20 volume."""
+    dec = "dictGetOrDefault('rh.token_decimals_dict', 'decimals', tuple(h.token), 18)"
+    return f"""
+    INSERT INTO rh.token_stats
+    WITH
+      sel AS ({where_tokens}),
+      hrs AS (SELECT token, hour, sumMerge(vol_usd) AS v, sumMerge(vol_usd) / nullIf(sumMerge(tok_amt), 0) AS vwap,
+                     countMerge(trades) AS n, uniqIfMerge(buyers) AS b
+              FROM rh.token_hour WHERE token IN (SELECT token FROM sel) GROUP BY token, hour),
+      px AS (SELECT token, maxIf(vwap, v >= 20) AS ath, argMaxIf(hour, vwap, v >= 20) AS ath_hour,
+                    argMinIf(vwap, hour, v >= 20) AS first_px, argMaxIf(vwap, hour, v >= 5) AS last_px,
+                    sumIf(v, hour >= now() - INTERVAL 24 HOUR) AS v24, sumIf(n, hour >= now() - INTERVAL 24 HOUR) AS n24,
+                    sumIf(v, hour >= now() - INTERVAL 7 DAY) AS v7
+             FROM hrs GROUP BY token),
+      b24 AS (SELECT token, uniq(actor) AS buyers24 FROM rh.trades WHERE token IN (SELECT token FROM sel) AND side = 'buy' AND ts >= now() - INTERVAL 24 HOUR GROUP BY token),
+      st AS (SELECT token, countMerge(trades) AS trades, countIfMerge(buys) AS buys, countIfMerge(sells) AS sells,
+                    sumMerge(vol_usd) AS vol_usd, sumIfMerge(buy_usd) AS buy_usd, sumIfMerge(sell_usd) AS sell_usd,
+                    uniqMerge(traders) AS traders, uniqIfMerge(buyers) AS buyers, minMerge(first_ts) AS first_ts, maxMerge(last_ts) AS last_ts,
+                    argMaxMerge(last_price) AS last_trade_px, groupUniqArrayMerge(venues) AS venues
+             FROM rh.token_state WHERE token IN (SELECT token FROM sel) GROUP BY token)
+    SELECT h.token, ifNull(c.symbol, ''), ifNull(c.name, ''),
+           st.trades, st.buys, st.sells, st.vol_usd, st.buy_usd, st.sell_usd, st.traders, st.buyers, st.first_ts, st.last_ts,
+           if(px.last_px > 0, px.last_px, st.last_trade_px) AS price_usd, px.first_px, px.ath, px.ath_hour,
+           (sp.minted - sp.burned) / pow(10, {dec}) AS supply,
+           if(px.last_px > 0, px.last_px, st.last_trade_px) * (sp.minted - sp.burned) / pow(10, {dec}) AS mcap_usd,
+           px.ath * (sp.minted - sp.burned) / pow(10, {dec}) AS ath_mcap_usd,
+           px.first_px * (sp.minted - sp.burned) / pow(10, {dec}) AS first_mcap_usd,
+           if(px.ath > 0, 1 - if(px.last_px > 0, px.last_px, st.last_trade_px) / px.ath, 0) AS drawdown,
+           if(px.first_px > 0, px.ath / px.first_px, 0) AS ath_multiple,
+           px.v24, px.n24, ifNull(b24.buyers24, 0), px.v7,
+           ifNull(tm.holders, 0), ifNull(l.dev, ''), ifNull(l.launchpad, ''), ifNull(l.launch_ts, toDateTime(0)), ifNull(l.graduated, 0), ifNull(l.graduated_ts, toDateTime(0)),
+           st.venues, now()
+    FROM (SELECT token FROM sel) h
+    INNER JOIN st ON st.token = h.token
+    LEFT JOIN px ON px.token = h.token
+    LEFT JOIN b24 ON b24.token = h.token
+    LEFT JOIN rh.token_supply sp ON sp.token = h.token
+    LEFT JOIN rh.launches l ON l.token = h.token
+    LEFT JOIN rh.token_metrics tm ON tm.token = h.token
+    LEFT JOIN rh.token_symbols c ON c.token = h.token"""
+
+
+async def stats(full: bool = False, since_block: int | None = None) -> None:
+    """Materialize token_stats: all tokens (full) or only tokens traded since a block."""
+    if full:
+        sel = "SELECT DISTINCT token FROM rh.token_state"
+    else:
+        sel = f"SELECT DISTINCT token FROM rh.trades WHERE block > {since_block}"
+    t = time.time()
+    if full:
+        # in slices of the token key space to keep memory bounded
+        for i in range(16):
+            lo, hi = format(i, "x"), format(i + 1, "x")
+            cond = f"SELECT DISTINCT token FROM rh.token_state WHERE substring(token, 3, 1) >= '{lo}' AND substring(token, 3, 1) < '{hi}'" if i < 15 else \
+                   "SELECT DISTINCT token FROM rh.token_state WHERE substring(token, 3, 1) >= 'f'"
+            await w(stats_sql(cond), timeout=3600)
+            print(f"    stats slice {i + 1}/16 ({time.time() - t:.0f}s)", flush=True)
+    else:
+        await w(stats_sql(sel), timeout=600)
+    await w("OPTIMIZE TABLE rh.token_stats FINAL")
+    print(f"  token_stats: {await ch.scalar('SELECT count() FROM rh.token_stats')} rows ({time.time() - t:.0f}s)", flush=True)
+
+
+async def rebuild_hours() -> None:
+    """token_hour from trades (after the MV changed): full recompute."""
+    await w("TRUNCATE TABLE rh.token_hour")
+    await w("""INSERT INTO rh.token_hour
+        SELECT token, toStartOfHour(ts) AS hour,
+               countState() AS trades, countIfState(side = 'buy') AS buys, countIfState(side = 'sell') AS sells,
+               sumState(usd) AS vol_usd, sumIfState(usd, side = 'buy') AS buy_usd, sumIfState(usd, side = 'sell') AS sell_usd,
+               uniqState(actor) AS traders, uniqIfState(actor, side = 'buy') AS buyers,
+               maxState(price_usd) AS hi, minState(if(price_usd > 0, price_usd, inf)) AS lo,
+               argMinState(price_usd, ts) AS open, argMaxState(price_usd, ts) AS close,
+               sumState(token_amount) AS tok_amt
+        FROM rh.trades WHERE usd >= 1 GROUP BY token, hour""", timeout=7200)
+    print("  token_hour rebuilt:", await ch.scalar("SELECT count() FROM rh.token_hour"), flush=True)
 
 
 async def backfill_supply() -> None:
@@ -361,11 +496,20 @@ async def main() -> None:
         await backfill_supply()
     if "--backfill" in args:
         await backfill()
+    if "--symbols" in args:
+        await symbols()
     if "--launches" in args:
         await launches()
+    if "--hours" in args:
+        await rebuild_hours()
+    if "--stats" in args:
+        await stats(full=True)
     if "--incremental" in args:
+        since = int(await ch.scalar("SELECT max(block) FROM rh.trades") or 0)
         await decimals()
         await backfill(chunk=2_000_000)
+        await symbols()
+        await stats(full=False, since_block=since)
 
 
 if __name__ == "__main__":
