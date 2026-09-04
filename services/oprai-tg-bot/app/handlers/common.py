@@ -54,13 +54,14 @@ HELP = (
     "/copy &lt;wallet&gt; [eth] — copy a wallet's buys, within your limits\n"
     "/token &lt;address|symbol&gt; — on-chain X-ray: holders, whales,\n"
     "    concentration, launchpad, risk score\n"
-    "/credits — conversation credits left\n"
+    "/credits — questions left today\n"
+    "/subscribe — OPRAI Pro: a higher daily limit\n"
     "/help — this message\n\n"
     "<b>Just ask.</b> Send me a question — a token, your portfolio, a "
     "strategy — and I'll answer. In a group, mention me or reply to me.\n\n"
-    "Only questions use credits; trading commands never do. An admin can top "
-    "up a group's credits with $OPRAI (/topup). Actions always run from your "
-    "own wallet, confirmed privately."
+    "Only questions are metered; trading commands never are. /subscribe "
+    "raises the daily limit (an admin can do it for a group). Actions always "
+    "run from your own wallet, confirmed privately."
 )
 
 

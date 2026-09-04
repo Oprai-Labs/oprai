@@ -82,24 +82,49 @@ class Settings(BaseSettings):
     VAULT_ADDR: str = ""
     VAULT_TOKEN: str = ""
 
-    # ── Tokenomics / credits ─────────────────────────────────────────────────
-    # Credit top-ups are paid in $OPRAI. For now 100% goes to the dev/collection
-    # wallet; the burn split is intentionally left off (manual, off-bot) but the
-    # ratio hook stays configurable so it can be enabled later with no refactor.
+    # ── Wallets ──────────────────────────────────────────────────────────────
     OPRAI_TG_DEV_WALLET: str = "0xb0E580Cf95E2B045b99b31ddF3137D3D88d55b8E"
-    OPRAI_TG_BURN_BPS: int = 0  # basis points burned on top-up; 0 = no auto-burn
 
     # Free conversation allowance, refilled on a rolling window. A group gets
     # more than one person because the quota is shared by the whole room.
-    OPRAI_TG_FREE_USER_CREDITS: int = 25
-    OPRAI_TG_FREE_GROUP_CREDITS: int = 60
+    #
+    # Sized from what people actually do, not from a guess: across 110 active
+    # wallet-days the median day is 3 questions and the 90th percentile is 21.
+    # Ten a day leaves nine in ten days entirely free while bounding the tail —
+    # the old 25 was never reached by anyone, so the paywall did not exist.
+    OPRAI_TG_FREE_USER_CREDITS: int = 10
+    OPRAI_TG_FREE_GROUP_CREDITS: int = 25
     OPRAI_TG_FREE_WINDOW_HOURS: int = 24
 
-    # $OPRAI on Robinhood Chain — what a top-up is paid in. Verified on chain:
-    # symbol OPRAI, 18 decimals.
+    # $OPRAI on Robinhood Chain. Verified on chain: symbol OPRAI, 18 decimals.
+    # Not a payment asset — subscriptions are paid in ETH and the accumulated
+    # ETH is what buys $OPRAI back.
     OPRAI_TG_TOKEN_ADDRESS: str = "0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac"
-    OPRAI_TG_CREDITS_PER_OPRAI: int = 10
-    OPRAI_TG_MIN_TOPUP_OPRAI: int = 1
+
+    # USDG on Robinhood Chain — the anchor the live ETH price is read from.
+    # Its deepest pool holds $8.1M against $OPRAI's $29k, and a subscription
+    # must stay sellable even if our own token's pool thins out.
+    OPRAI_TG_STABLE_ADDRESS: str = "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
+
+    # ── Subscription ─────────────────────────────────────────────────────────
+    # Priced in DOLLARS, paid in ETH at the live rate. Revenue accumulates in
+    # its own wallet so that "what came in" and "what was spent buying back
+    # $OPRAI" are two numbers anyone can read off the chain — which is not
+    # true of a wallet that also pays for everything else.
+    OPRAI_TG_SUB_PRICE_USD: float = 9.99
+    OPRAI_TG_SUB_DAYS: int = 30
+    # A subscriber's daily ceiling. Not a budget — a runaway loop stopper. The
+    # busiest day any real wallet has ever had is 60 questions.
+    OPRAI_TG_SUB_DAILY_CREDITS: int = 200
+    # And the ceiling that actually bounds the bill. 200/day is 6,000 a month;
+    # at what a question costs that is hundreds of dollars against a $9.99
+    # subscription. The busiest month any real wallet has had is 213.
+    OPRAI_TG_SUB_MONTHLY_CREDITS: int = 1_000
+    # Falls back to the dev wallet until a dedicated address is set.
+    OPRAI_TG_TREASURY_WALLET: str = ""
+
+    def treasury_wallet(self) -> str:
+        return self.OPRAI_TG_TREASURY_WALLET or self.OPRAI_TG_DEV_WALLET
 
     # ── Server ───────────────────────────────────────────────────────────────
     PORT: int = 3055

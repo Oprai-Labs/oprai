@@ -28,25 +28,24 @@ from app.db import audit, upsert_tg_user
 from app.logging_config import log
 from app.services import auth as auth_svc
 from app.services import chat as chat_svc
-from app.services import credits, topups
+from app.services import credits, pricing, subscriptions
 
 router = Router(name="chat")
-
-_topups: dict[str, dict] = {}
 
 # How often the growing answer is edited into the message. Telegram throttles
 # edits, and a message that updates every token reads as a stutter.
 EDIT_INTERVAL_SECONDS = 1.6
 
 OUT_OF_CREDITS_PRIVATE = (
-    "You're out of conversation credits for now.\n\n"
-    "They refill every {hours}h. Commands like /swap, /send and /long keep "
-    "working — only asking OPRAI questions uses credits."
+    "That's your questions for today.\n\n"
+    "They refill every {hours}h, or /subscribe raises the daily limit. "
+    "Commands like /swap, /send and /long keep working either way — only "
+    "asking OPRAI questions is metered."
 )
 OUT_OF_CREDITS_GROUP = (
-    "This group is out of conversation credits.\n\n"
-    "They refill every {hours}h, or an admin can top the group up with $OPRAI "
-    "— see /topup. Trading commands keep working either way."
+    "That's this group's questions for today.\n\n"
+    "They refill every {hours}h, or an admin can /subscribe to raise the "
+    "daily limit. Trading commands keep working either way."
 )
 
 
@@ -70,150 +69,157 @@ def _strip_mention(text: str, username: str) -> str:
     return text.replace(f"@{username}", " ").strip()
 
 
-# ── credits ─────────────────────────────────────────────────────────────────
-@router.message(Command("credits"))
+# ── the subscription ────────────────────────────────────────────────────────
+_NO_PRICE = (
+    "I can't read a reliable ETH price right now, so I won't quote a "
+    "subscription — converting at a guessed rate would charge you the wrong "
+    "amount. Try again in a minute."
+)
+
+_PITCH = (
+    "<b>OPRAI Pro</b>\n\n"
+    "Questions to OPRAI use one credit each. You get <b>{free}</b> a day for "
+    "free; Pro raises that to <b>{pro}</b> a day for <b>${usd:,.2f}</b> a "
+    "month.\n\n"
+    "Token scans, /swap, /send, /long and every other command are free either "
+    "way — only asking OPRAI questions is metered.\n\n"
+    "Paid in ETH from your wallet at the live rate "
+    "(<code>${rate:,.2f}</code> per ETH)."
+)
+
+
+def _sub_keyboard(eth: float) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"✅ Subscribe · {_fmt_amount(eth)} ETH",
+                             callback_data="sub:go"),
+    ]])
+
+
+@router.message(Command("credits", "subscription", "sub"))
 async def credits_cmd(message: Message) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     scope_id, is_group = _scope(message)
     bal = await credits.balance(scope_id, is_group)
+    sub = await subscriptions.get(scope_id)
 
     where = "This group" if is_group else "You"
-    lines = [
-        f"<b>Conversation credits</b>\n",
-        f"{where} can ask <b>{bal.remaining}</b> more question"
-        f"{'' if bal.remaining == 1 else 's'}.",
-        f"  · {bal.free_left} free (refills every {settings.OPRAI_TG_FREE_WINDOW_HOURS}h)",
-    ]
+    lines = [f"<b>Credits</b>\n"]
+    if sub and sub.live:
+        lines += [
+            f"<b>Pro</b> — {sub.days_left} day"
+            f"{'' if sub.days_left == 1 else 's'} left.",
+            f"{where} can ask <b>{bal.remaining}</b> more today "
+            f"(of {bal.allowance} a day, {bal.month_left} left this month).",
+        ]
+    else:
+        lines += [
+            f"{where} can ask <b>{bal.remaining}</b> more today "
+            f"(of {bal.allowance} free).",
+            "",
+            f"<i>Pro raises that to {settings.OPRAI_TG_SUB_DAILY_CREDITS} a "
+            f"day — /subscribe</i>",
+        ]
     if bal.paid:
-        lines.append(f"  · {bal.paid} topped up (never expire)")
+        lines.append(f"  · {bal.paid} extra credits (never expire)")
     lines += [
         "",
-        "<i>Only questions to OPRAI use credits. Trading commands don't — "
-        "they already pay the normal trading fee.</i>",
+        "<i>Only questions to OPRAI use credits. Trading commands don't.</i>",
     ]
     await message.answer("\n".join(lines))
 
 
-@router.message(Command("topup"))
-async def topup_cmd(message: Message, command: CommandObject) -> None:
-    """Buy credits with $OPRAI, paid from the user's own bot wallet.
+@router.message(Command("subscribe", "topup", "pro"))
+async def subscribe_cmd(message: Message) -> None:
+    """Buy a month, paid in ETH from the user's own bot wallet.
 
-    The wallet is already ours to sign with, so there is no reason to make
-    someone leave, send a transfer by hand and wait for a human to notice the
-    hash. They name an amount, confirm, and the credits land when the transfer
-    confirms.
+    The wallet is already ours to sign with, so nobody has to leave the chat,
+    send a transfer by hand and wait for someone to notice the hash.
     """
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     scope_id, is_group = _scope(message)
-    rate = settings.OPRAI_TG_CREDITS_PER_OPRAI
-    minimum = settings.OPRAI_TG_MIN_TOPUP_OPRAI
 
     if is_group and not await _is_group_admin(message):
-        await message.answer(
-            "Only a group admin can top up this group's credits."
-        )
+        await message.answer("Only a group admin can subscribe this group.")
         return
 
-    amount = _parse_amount((command.args or "").strip())
-    if amount is None:
-        who = "this group" if is_group else "you"
-        await message.answer(
-            f"<b>Top up credits</b>\n\n"
-            f"<code>/topup &lt;amount&gt;</code> pays $OPRAI from your wallet and "
-            f"credits {who} at <b>{rate} questions per $OPRAI</b>.\n\n"
-            f"Example: <code>/topup 10</code> → {10 * rate} questions\n"
-            f"Minimum: {minimum} $OPRAI\n\n"
-            "<i>Credits are spent only on questions to OPRAI — trading "
-            "commands are never charged for.</i>"
-        )
-        return
-    if amount < minimum:
-        await message.answer(f"The minimum top-up is {minimum} $OPRAI.")
+    sub = await subscriptions.get(scope_id)
+    try:
+        eth, usd, rate = await subscriptions.cost()
+    except pricing.PriceUnavailable:
+        await message.answer(_NO_PRICE)
         return
 
-    granted = int(amount * rate)
-    if granted <= 0:
-        await message.answer("That amount is too small to buy a credit.")
-        return
-
-    pid = secrets.token_urlsafe(8)
-    _topups[pid] = {"telegram_id": user.id, "scope_id": scope_id,
-                    "is_group": is_group, "amount": amount, "credits": granted}
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(amount)} $OPRAI",
-                             callback_data=f"top:ok:{pid}"),
-        InlineKeyboardButton(text="Cancel", callback_data=f"top:no:{pid}"),
-    ]])
-    await message.answer(
-        f"<b>Top up {'this group' if is_group else 'your credits'}</b>\n\n"
-        f"Pay: <b>{_fmt_amount(amount)} $OPRAI</b> (plus gas)\n"
-        f"Get: <b>{granted}</b> questions\n\n"
-        "<i>Topped-up credits never expire.</i>",
-        reply_markup=kb,
-    )
+    text = _PITCH.format(free=credits.free_allowance(is_group),
+                         pro=settings.OPRAI_TG_SUB_DAILY_CREDITS,
+                         usd=usd, rate=rate)
+    if sub and sub.live:
+        text += (f"\n\n<i>Already Pro — {sub.days_left} days left. Paying "
+                 f"again adds a month to the end, it doesn't replace it.</i>")
+    await message.answer(text, reply_markup=_sub_keyboard(eth))
 
 
-@router.callback_query(F.data.startswith("top:"))
-async def topup_confirm(cb: CallbackQuery) -> None:
-    _, action, pid = cb.data.split(":", 2)
-    p = _topups.get(pid)
-    if not p:
-        await cb.answer("This top-up expired. Run /topup again.", show_alert=True)
+@router.callback_query(F.data == "sub:go")
+async def subscribe_confirm(cb: CallbackQuery) -> None:
+    is_group = cb.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    if is_group and not await _is_group_admin(cb.message, cb.from_user.id):
+        await cb.answer("Only a group admin can subscribe this group.",
+                        show_alert=True)
         return
-    if cb.from_user.id != p["telegram_id"]:
-        await cb.answer("This isn't your top-up.", show_alert=True)
-        return
-    if action == "no":
-        _topups.pop(pid, None)
-        await cb.answer("Cancelled")
-        await cb.message.edit_text("Cancelled — nothing was paid.")
+    scope_id = cb.message.chat.id if is_group else cb.from_user.id
+
+    # Quote at the moment of paying, not at the moment the message was posted:
+    # a button tapped an hour later must not charge an hour-old ETH price.
+    try:
+        eth, usd, _ = await subscriptions.cost()
+    except pricing.PriceUnavailable:
+        await cb.answer()
+        await cb.message.edit_text(_NO_PRICE)
         return
 
-    _topups.pop(pid, None)
     await cb.answer()
     await cb.message.edit_text("Paying…")
-
     try:
-        balance = await topups.pay(
-            p["telegram_id"], p["amount"],
-            on_sent=lambda: cb.message.edit_text("⏳ Paid — waiting for the transfer to confirm…"),
-            scope_id=p["scope_id"], is_group=p["is_group"], credits=p["credits"],
+        sub = await subscriptions.pay(
+            cb.from_user.id, scope_id=scope_id, is_group=is_group,
+            eth=eth, usd=usd,
+            on_sent=lambda: cb.message.edit_text(
+                "⏳ Paid — waiting for the transfer to confirm…"),
         )
-    except topups.TopupError as e:
-        log.warning("topup_failed", telegram_id=p["telegram_id"], error=str(e)[:200])
-        await audit(p["telegram_id"], "topup_failed", {"error": str(e)[:200]})
+    except subscriptions.SubscriptionError as e:
+        log.warning("subscribe_failed", telegram_id=cb.from_user.id,
+                    error=str(e)[:200])
+        await audit(cb.from_user.id, "subscribe_failed", {"error": str(e)[:200]})
         await cb.message.edit_text(f"❌ {e}")
         return
 
-    await audit(p["telegram_id"], "topup",
-                {"oprai": p["amount"], "credits": p["credits"], "group": p["is_group"]})
+    await audit(cb.from_user.id, "subscribe",
+                {"eth": eth, "usd": usd, "group": is_group,
+                 "months": sub.months})
     await cb.message.edit_text(
-        f"✅ <b>{p['credits']} credits added.</b>\n\n"
-        f"{'This group' if p['is_group'] else 'You'} can now ask "
-        f"<b>{balance.remaining}</b> questions."
+        f"✅ <b>OPRAI Pro is live.</b>\n\n"
+        f"{settings.OPRAI_TG_SUB_DAILY_CREDITS} questions a day, "
+        f"{sub.days_left} days left.\n\n"
+        f"<i>Thanks — this is what pays for the model.</i>"
     )
-
-
-def _parse_amount(text: str) -> float | None:
-    try:
-        value = float(Decimal(text.lstrip("$").replace(",", "")))
-    except (InvalidOperation, ValueError, ArithmeticError):
-        return None
-    return value if value > 0 else None
 
 
 def _fmt_amount(x: float) -> str:
     return f"{x:.4f}".rstrip("0").rstrip(".") or "0"
 
 
-async def _is_group_admin(message: Message) -> bool:
+async def _is_group_admin(message: Message, user_id: int | None = None) -> bool:
     """Telegram is the authority on who runs a room; asking it beats keeping
-    our own list that drifts the moment someone is promoted."""
+    our own list that drifts the moment someone is promoted.
+
+    `user_id` must be given whenever the message is not the person's own — a
+    button tap arrives on a message the BOT sent, so reading the sender off it
+    checks the bot's membership instead of the tapper's.
+    """
     try:
         member = await message.bot.get_chat_member(
-            message.chat.id, message.from_user.id
+            message.chat.id, user_id if user_id is not None else message.from_user.id
         )
     except Exception:  # noqa: BLE001 — an unreadable membership is not an admin
         return False

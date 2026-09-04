@@ -356,3 +356,67 @@ CREATE TABLE IF NOT EXISTS tg_inflight (
     started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (chat_id, message_id)
 );
+
+-- What a payment was actually made in, and what it was sold for.
+--
+-- An amount alone does not say what was received once more than one asset can
+-- pay. The USD figure is the price at the moment of sale, frozen: a later move
+-- in ETH must not rewrite what somebody paid for their month.
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'ETH';
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS usd NUMERIC;
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS rate_usd NUMERIC;
+
+-- A paid month.
+--
+-- One row per scope, extended rather than replaced: paying again while still
+-- subscribed adds to the end instead of throwing away what is left, so an
+-- early renewal never costs somebody days they already bought.
+--
+-- `expires_at` is the whole truth about whether a subscription is live. There
+-- is no "active" flag to drift out of step with it, and no job that has to run
+-- on time for a subscription to lapse — it lapses because the clock passes it.
+CREATE TABLE IF NOT EXISTS tg_subscriptions (
+    scope_id    BIGINT PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
+    is_group    BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    -- Lifetime totals, for deciding how much has come in to buy back with.
+    paid_wei    NUMERIC NOT NULL DEFAULT 0,
+    paid_usd    NUMERIC NOT NULL DEFAULT 0,
+    months      INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tg_subscriptions_live
+    ON tg_subscriptions (expires_at DESC);
+
+-- A payment we are about to make, written BEFORE it is signed.
+--
+-- The money leaves the wallet the moment the signer broadcasts. If the process
+-- died between the broadcast and recording it, the payment existed and we had
+-- no idea: no row, so the reconciler could never find it, and the person had
+-- paid for a month nobody would ever grant them. The row is now written first
+-- with a placeholder key and the block we were at, so a crash leaves evidence
+-- and the transaction can be found by scanning forward from there.
+--
+-- It doubles as the lock against paying twice: a scope with a payment already
+-- in flight cannot start another.
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS wallet TEXT;
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS from_block BIGINT;
+ALTER TABLE tg_topups DROP CONSTRAINT IF EXISTS tg_topups_status_check;
+ALTER TABLE tg_topups ADD CONSTRAINT tg_topups_status_check
+    CHECK (status IN ('sending', 'pending', 'credited', 'failed'));
+
+CREATE INDEX IF NOT EXISTS idx_tg_topups_inflight
+    ON tg_topups (scope_id) WHERE status IN ('sending', 'pending');
+
+-- A month's ceiling, alongside the day's.
+--
+-- A daily cap alone bounds nothing that matters: 200 a day is 6,000 a month,
+-- and at what a question costs us that is several hundred dollars against a
+-- ten dollar subscription. The month cap is what makes the price an actual
+-- bound on the cost. Neither is a budget anyone should feel — the busiest day
+-- ever seen is 60 questions and the busiest month 213.
+ALTER TABLE tg_credits ADD COLUMN IF NOT EXISTS month_used INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tg_credits ADD COLUMN IF NOT EXISTS month_start TIMESTAMPTZ NOT NULL DEFAULT now();

@@ -60,7 +60,7 @@ PROTOCOL_FILE_MAP: dict[str, list[str]] = {
     "lighter":      ["solana_action_lighter.txt", "solana_action_market_data.txt"],
     "lighter_perps": ["solana_action_lighter.txt", "solana_action_market_data.txt"],
     # Market data / analytics — open-ended wallet/token/NFT analysis intents
-    "market_data":     ["solana_action_market_data.txt"],
+    "market_data":     ["solana_action_market_data.txt", "solana_action_market_reports.txt"],
     "birdeye":         ["solana_action_market_data.txt"],
     "helius":          ["solana_action_market_data.txt"],
     "dexscreener":     ["solana_action_market_data.txt"],
@@ -118,6 +118,7 @@ class PromptLoader:
         "solana_action_sushi.txt",
         "solana_action_opensea.txt",
         "solana_action_market_data.txt",
+        "solana_action_market_reports.txt",
         "solana_action_knowledge.txt",
         "solana_action_strategy.txt",
     ]
@@ -200,6 +201,7 @@ class PromptLoader:
         protocols: list[str],
         intent: str | None = None,
         is_chitchat: bool = False,
+        wants_analysis: bool = False,
     ) -> str:
         """Return the smallest viable system prompt for this turn.
 
@@ -262,6 +264,18 @@ class PromptLoader:
                     # Unknown protocol — include core + queries as safe fallback
                     files_needed.update(_FALLBACK_FILES)
                     logger.debug("Unknown protocol '%s', using fallback files", proto)
+
+        # The composite-report formats are 11K tokens of layout rules for a
+        # Nansen-style wallet/token deep dive. They were riding along with
+        # market_data.txt on every turn that touched any protocol — 23% of a
+        # Robinhood prompt, unreachable on a turn that is lending or swapping,
+        # because the wallet-analysis path those reports belong to is gated on
+        # the same flag. Loading them on the turns that can actually produce
+        # one costs nothing and saves the rest.
+        if not wants_analysis:
+            files_needed.discard("solana_action_market_reports.txt")
+        elif "solana_action_market_data.txt" in files_needed:
+            files_needed.add("solana_action_market_reports.txt")
 
         # Build in canonical order
         parts = [

@@ -100,20 +100,21 @@ async def _watch_deposits(bot) -> None:
         except Exception as e:  # noqa: BLE001
             log.warning("deposit_watch_failed", error=str(e))
 
-        # A credit top-up whose receipt outlived its confirmation wait is a
-        # debt: the user paid and is owed credits. Settle it here rather than
-        # leaving it for someone to notice.
+        # A payment whose receipt outlived its confirmation wait is a debt:
+        # somebody paid and is owed a month. Settle it here rather than leaving
+        # it for a person to notice that money went out and nothing came back.
         try:
-            from app.services import topups
+            from app.services import subscriptions
 
-            for done in await topups.settle_pending():
+            for done in await subscriptions.settle_pending():
+                sub = done["subscription"]
                 await notify.send(
                     bot, done["telegram_id"],
-                    f"✅ <b>{done['credits']} credits added</b> — your "
-                    "payment confirmed.",
+                    f"✅ <b>OPRAI Pro is live</b> — your payment confirmed. "
+                    f"{sub.days_left} days left.",
                 )
         except Exception as e:  # noqa: BLE001
-            log.warning("topup_settle_failed", error=str(e))
+            log.warning("subscription_settle_failed", error=str(e))
 
         # A claim nobody came for shouldn't hang over the sender's wallet for
         # ever — close it and say so, since they were told to keep the funds.

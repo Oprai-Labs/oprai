@@ -222,7 +222,7 @@ async def test_the_tokens_the_bot_itself_spends_are_known():
 
     await init_pool()
     try:
-        assert await tok.resolve("OPRAI"), "/topup pays in a token we can't resolve"
+        assert await tok.resolve("OPRAI"), "our own token is unresolvable"
         assert await tok.resolve("USDe"), "Morpho collateral is unresolvable"
         oprai = (await tok.resolve("OPRAI"))[0]
         assert oprai["address"].lower() == settings.OPRAI_TG_TOKEN_ADDRESS.lower()
