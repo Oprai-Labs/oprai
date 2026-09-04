@@ -334,3 +334,10 @@ CREATE TABLE IF NOT EXISTS tg_balance_watch (
     wei         NUMERIC NOT NULL DEFAULT 0,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- A wallet's number is its creation order, and its name is the user's.
+--
+-- The list was sorted active-first, so switching wallets renumbered them:
+-- W1 became W2 and back again. A label that moves is worse than no label —
+-- it is the one thing someone uses to tell two addresses apart.
+ALTER TABLE tg_wallets ADD COLUMN IF NOT EXISTS label TEXT;

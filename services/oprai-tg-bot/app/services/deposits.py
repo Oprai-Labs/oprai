@@ -298,7 +298,21 @@ async def _token_meta(addresses: set[str]) -> dict[str, tuple[str, int]]:
             decimals = None
         if decimals is None or decimals > 36:
             continue  # can't read it honestly — skip rather than guess
-        out[addr] = (tokens._decode_symbol(s) or "tokens", decimals)
+        symbol = tokens._decode_symbol(s) or "tokens"
+        out[addr] = (symbol, decimals)
+        # Remember it. A token someone actually received is one they will want
+        # to search for by name later, and the registry only knew the lists we
+        # seeded it from — so anything newly launched, or any collateral a
+        # protocol added, was findable by address alone.
+        if symbol != "tokens":
+            await pool().execute(
+                """
+                INSERT INTO tg_token_registry (address, symbol, name, decimals, source)
+                VALUES ($1, $2, $2, $3, 'seen')
+                ON CONFLICT (address) DO NOTHING
+                """,
+                addr, symbol, decimals,
+            )
     return out
 
 

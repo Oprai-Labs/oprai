@@ -317,29 +317,57 @@ async def _show_wallets(cb: CallbackQuery) -> None:
         await _edit(cb, "You don't have a wallet yet.", menu.home_keyboard())
         return
 
-    lines = ["🔑 <b>Your wallets</b>", ""]
+    lines = ["👛 <b>Your wallets</b>", ""]
     pairs: list[tuple[str, str]] = []
     for i, r in enumerate(rows, start=1):
         active = r["archived_at"] is None
+        name = r["label"] or f"W{i}"
         lines.append(
-            f"{'✅' if active else '　'} <b>W{i}</b> <code>{r['address']}</code>"
+            f"{'✅' if active else '　'} <b>{name}</b> <code>{r['address']}</code>"
             f"{'' if active else ' · archived'}"
         )
-        label = f"{'✅ ' if active else ''}W{i}"
-        pairs.append((label, f"wal:pick:{r['address']}"))
+        pairs.append((f"{'✅ ' if active else ''}{name}", f"wal:pick:{r['address']}"))
 
-    lines += ["", "<i>Tap one to use it. Every wallet stays yours — archived "
-              "ones keep their key and can be brought back.</i>"]
-    keyboard = menu.grid(pairs, 5)
+    lines += ["", "<i>Tap one to use it. The number is the order you created "
+              "them and never moves; the tick is the one you're using. Every "
+              "wallet stays yours — archived ones keep their key.</i>"]
+    keyboard = menu.grid(pairs, 4)
     keyboard.inline_keyboard.append([
         menu.button("📤 Export key", "wal:export"),
         menu.button("📥 Import", "wal:import"),
     ])
     keyboard.inline_keyboard.append([
+        menu.button("✏️ Rename", "wal:rename"),
         menu.button("🆕 New wallet", "wal:new"),
-        menu.button(menu.ICONS["back"], "home:refresh"),
     ])
+    keyboard.inline_keyboard.append([menu.button(menu.ICONS["back"], "home:refresh")])
     await _edit(cb, "\n".join(lines), keyboard)
+
+
+@router.callback_query(F.data == "wal:rename")
+async def wallet_rename_pick(cb: CallbackQuery) -> None:
+    await cb.answer()
+    rows = await wallet_svc.list_wallets(cb.from_user.id)
+    pairs = [
+        ((r["label"] or f"W{i}"), f"wal:ren:{r['address']}")
+        for i, r in enumerate(rows, start=1)
+    ]
+    await _edit(cb, "✏️ <b>Rename which wallet?</b>", menu.grid(pairs, 4,
+                                                               back="menu:wallets"))
+
+
+@router.callback_query(F.data.startswith("wal:ren:"))
+async def wallet_rename_ask(cb: CallbackQuery) -> None:
+    address = cb.data.split(":", 2)[2]
+    await cb.answer()
+    expect(cb.from_user.id, "wallet_label", address=address)
+    await _edit(
+        cb,
+        f"✏️ <b>Rename</b>\n<code>{address}</code>\n\n"
+        "Send me the name — <i>Trading</i>, <i>Savings</i>, whatever helps you "
+        "tell them apart.\n\n<i>Send a dash to clear it and go back to the "
+        "number.</i>",
+    )
 
 
 @router.callback_query(F.data.startswith("wal:pick:"))
@@ -452,6 +480,25 @@ async def catch_expected_reply(message: Message) -> None:
 
         await send_cmd(message, _ArgString(
             f"{waiting['amount']} {waiting['symbol']} {text}"))
+        return
+
+    # ── wallets ─────────────────────────────────────────────────────────────
+    if kind == "wallet_label":
+        clear_expect(who)
+        label = None if text in ("-", "—") else text[:24]
+        renamed = await wallet_svc.rename(who, waiting["address"], label)
+        if not renamed:
+            await message.answer("That wallet isn't yours.")
+            return
+        rows = await wallet_svc.list_wallets(who)
+        lines = ["👛 <b>Your wallets</b>", ""]
+        for i, r in enumerate(rows, start=1):
+            active = r["archived_at"] is None
+            lines.append(
+                f"{'✅' if active else '　'} <b>{r['label'] or f'W{i}'}</b> "
+                f"<code>{r['address']}</code>"
+            )
+        await message.answer("\n".join(lines))
         return
 
     # ── launch ──────────────────────────────────────────────────────────────

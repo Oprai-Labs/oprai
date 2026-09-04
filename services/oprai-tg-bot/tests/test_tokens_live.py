@@ -97,3 +97,61 @@ async def test_erc20_transfer_is_built_against_the_token_contract(db):
             await evm.estimate_gas(addr, nvda["address"], 0, data)
     finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg_id)
+
+
+# ── finding a token ─────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_token_can_be_found_however_someone_names_it():
+    """Symbol, case, a dollar sign, part of the name, or the address — people
+    do all of these, and any one failing is a swap that can't be started."""
+    await init_pool()
+    try:
+        for query, expected in (
+            ("NVDA", "NVDA"), ("nvda", "NVDA"), ("$NVDA", "NVDA"),
+            ("nvidia", "NVDA"), ("tesla", "TSLA"),
+            ("USDe", "USDe"), ("syrupUSDG", "syrupUSDG"),
+            ("0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34", "USDe"),
+        ):
+            found = await tok.resolve(query)
+            assert found, f"{query!r} found nothing"
+            assert found[0]["symbol"] == expected, f"{query!r} -> {found[0]['symbol']}"
+    finally:
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_an_address_we_have_never_seen_is_read_from_the_chain():
+    """The registry is seeded from lists, so anything newly launched is
+    unknown to it. The chain always knows."""
+    await init_pool()
+    try:
+        # Morpho's singleton is a contract with no symbol(), so it must NOT
+        # come back as a token — an unreadable address is not a token.
+        assert not await tok.resolve("0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010")
+        # Nothing plausible either.
+        assert not await tok.resolve("zzzzz")
+    finally:
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_every_collateral_a_market_accepts_is_searchable_by_name():
+    """"Borrow against syrupUSDG" is how someone says it — by name, not by
+    address. Resolvable-by-address alone is not findable."""
+    import random
+
+    from app.db import upsert_tg_user
+    from app.services import auth as auth_svc
+    from app.services import morpho
+
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "collateral_search")
+    try:
+        jwt = await auth_svc.get_jwt(tg)
+        for market in await morpho.markets(jwt):
+            symbol = market["collateralSymbol"]
+            assert await tok.resolve(symbol), f"{symbol} is not searchable by name"
+    finally:
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()

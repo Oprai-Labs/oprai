@@ -141,3 +141,62 @@ async def test_importing_archives_rather_than_overwrites():
         await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+# ── a wallet's number belongs to the wallet ─────────────────────────────────
+@pytest.mark.asyncio
+async def test_the_numbering_does_not_move_when_you_switch_wallets():
+    """The list was sorted active-first, so switching renumbered them: W1
+    became W2 and back. The number is how someone tells two addresses apart —
+    a label that moves is worse than none."""
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "stable_numbers")
+    try:
+        first = await wallet_svc.get_or_create_wallet(tg)
+        second = await wallet_svc.new_wallet(tg)
+
+        def order():
+            return None
+
+        rows = await wallet_svc.list_wallets(tg)
+        assert rows[0]["address"] == first["address"], "the first wallet isn't W1"
+
+        await wallet_svc.activate(tg, first["address"])
+        rows = await wallet_svc.list_wallets(tg)
+        assert rows[0]["address"] == first["address"], "switching renumbered them"
+        assert rows[1]["address"] == second["address"]
+
+        await wallet_svc.activate(tg, second["address"])
+        rows = await wallet_svc.list_wallets(tg)
+        assert rows[0]["address"] == first["address"], "switching back renumbered them"
+        # Which one is in use is a separate fact from what it is called.
+        assert rows[1]["archived_at"] is None and rows[0]["archived_at"] is not None
+    finally:
+        await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_wallet_can_be_named_and_unnamed():
+    await init_pool()
+    tg = random.randint(10**10, 10**11)
+    await upsert_tg_user(tg, "naming")
+    try:
+        wallet = await wallet_svc.get_or_create_wallet(tg)
+        assert await wallet_svc.rename(tg, wallet["address"], "Trading")
+        assert (await wallet_svc.list_wallets(tg))[0]["label"] == "Trading"
+
+        # Clearing it falls back to the number rather than leaving a blank.
+        assert await wallet_svc.rename(tg, wallet["address"], None)
+        assert (await wallet_svc.list_wallets(tg))[0]["label"] is None
+
+        # Someone else's wallet is not theirs to rename.
+        assert not await wallet_svc.rename(
+            tg, "0x0000000000000000000000000000000000000001", "Nice try"
+        )
+    finally:
+        await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
+        await close_pool()

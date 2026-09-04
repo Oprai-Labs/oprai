@@ -35,6 +35,12 @@ BASE_ASSET_ADDRESSES = [
     "0x0bd7d308f8e1639fab988df18a8011f41eacad73",  # WETH
     "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",  # USDe — Sushi pair, Morpho collateral
     "0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac",  # OPRAI — credits are paid in it
+    # Morpho collateral. Resolvable by address without these (the chain is
+    # asked when the registry doesn't know), but not searchable by name —
+    # and "borrow against syrupUSDG" is how someone would say it.
+    "0x40858070814a57fdf33a613ae84fe0a8b4a874f7",  # syrupUSDG
+    "0xfed493f38c1aacb4ea4e6a11f8b9287849ee0096",  # mGLO
+    "0xde770c84fe66e063336b31737cfe9790f18c4087",  # spUSDG
 ]
 
 
