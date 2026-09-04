@@ -71,10 +71,10 @@ async def test_the_dollar_price_holds_when_the_token_moves(monkeypatch):
         return 0.0002
 
     monkeypatch.setattr(pricing, "oprai_usd", cheap)
-    oprai_before, usd_before, _ = await pricing.credits_cost_oprai(500)
+    oprai_before, usd_before, _ = await pricing.credits_cost(500, "OPRAI")
 
     monkeypatch.setattr(pricing, "oprai_usd", double)
-    oprai_after, usd_after, _ = await pricing.credits_cost_oprai(500)
+    oprai_after, usd_after, _ = await pricing.credits_cost(500, "OPRAI")
 
     assert usd_before == usd_after == pytest.approx(500 * settings.OPRAI_TG_CREDIT_PRICE_USD)
     assert oprai_after == pytest.approx(oprai_before / 2)
@@ -89,7 +89,7 @@ async def test_no_rate_means_no_sale(monkeypatch):
 
     monkeypatch.setattr(pricing, "oprai_usd", unavailable)
     with pytest.raises(pricing.PriceUnavailable):
-        await pricing.credits_cost_oprai(500)
+        await pricing.credits_cost(500, "OPRAI")
 
 
 @pytest.mark.asyncio
@@ -156,3 +156,60 @@ async def test_the_admin_check_reads_the_tapper_not_the_message_sender():
 
     await _is_group_admin(message, tapper_id)
     assert asked == [tapper_id], "membership was checked for the wrong account"
+
+
+# ── paying in ETH ───────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_pack_costs_the_same_dollars_in_either_asset(monkeypatch):
+    """ETH and $OPRAI are two ways to pay one price. If the dollar figure moved
+    with the asset, one of them would be a discount nobody decided to give."""
+    async def eth():
+        return 2457.04
+
+    async def oprai():
+        return 0.00009865
+
+    monkeypatch.setattr(pricing, "eth_usd", eth)
+    monkeypatch.setattr(pricing, "oprai_usd", oprai)
+
+    in_eth, usd_eth, _ = await pricing.credits_cost(500, "ETH")
+    in_oprai, usd_oprai, _ = await pricing.credits_cost(500, "OPRAI")
+
+    assert usd_eth == usd_oprai == pytest.approx(10.0)
+    assert in_eth == pytest.approx(10.0 / 2457.04)
+    assert in_oprai == pytest.approx(10.0 / 0.00009865)
+
+
+def test_the_native_price_comes_only_from_a_natively_quoted_pair():
+    """A pair quoted in a stablecoin says nothing about what ETH is worth, and
+    dividing its dollar price by its 'native' price yields a garbage rate."""
+    pairs = [
+        {"priceUsd": "1.0", "priceNative": "1.0", "liquidity": {"usd": 900_000},
+         "volume": {"h24": 1_000}, "quoteToken": {"symbol": "USDG"}},
+        {"priceUsd": "0.00009895", "priceNative": "0.00000004027",
+         "liquidity": {"usd": 28_870}, "volume": {"h24": 3_242},
+         "quoteToken": {"symbol": "ETH"}},
+    ]
+    best = None
+    for pair in pairs:
+        if pair["quoteToken"]["symbol"].upper() not in ("ETH", "WETH"):
+            continue
+        best = float(pair["priceUsd"]) / float(pair["priceNative"])
+    assert best == pytest.approx(2457.16, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_the_free_allowance_is_one_a_heavy_day_can_reach():
+    """The old 25/day was never hit by anyone in 110 active wallet-days, so
+    nothing was ever for sale. The number has to sit inside real usage."""
+    from app.services.credits import free_allowance
+
+    busiest_observed_day = 60
+    p90_day = 21
+    assert free_allowance(is_group=False) < p90_day, (
+        "a free tier above the 90th percentile day is never reached"
+    )
+    assert free_allowance(is_group=False) < busiest_observed_day
+    assert free_allowance(is_group=True) > free_allowance(is_group=False), (
+        "a room shares one balance, so it needs more than one person"
+    )

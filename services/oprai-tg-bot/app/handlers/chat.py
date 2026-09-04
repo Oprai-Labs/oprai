@@ -34,6 +34,10 @@ router = Router(name="chat")
 
 _topups: dict[str, dict] = {}
 
+# Which asset someone chose to pay in, until they choose otherwise. ETH is the
+# default: it is the gas token, so a wallet that can transact already holds it.
+_pay_in: dict[int, str] = {}
+
 # How often the growing answer is edited into the message. Telegram throttles
 # edits, and a message that updates every token reads as a stutter.
 EDIT_INTERVAL_SECONDS = 1.6
@@ -45,8 +49,8 @@ OUT_OF_CREDITS_PRIVATE = (
 )
 OUT_OF_CREDITS_GROUP = (
     "This group is out of conversation credits.\n\n"
-    "They refill every {hours}h, or an admin can top the group up with $OPRAI "
-    "— see /topup. Trading commands keep working either way."
+    "They refill every {hours}h, or an admin can top the group up — see "
+    "/topup. Trading commands keep working either way."
 )
 
 
@@ -97,7 +101,7 @@ async def credits_cmd(message: Message) -> None:
 
 @router.message(Command("topup"))
 async def topup_cmd(message: Message, command: CommandObject) -> None:
-    """Buy credits with $OPRAI, paid from the user's own bot wallet.
+    """Buy credits, paid from the user's own bot wallet.
 
     The wallet is already ours to sign with, so there is no reason to make
     someone leave, send a transfer by hand and wait for a human to notice the
@@ -114,33 +118,35 @@ async def topup_cmd(message: Message, command: CommandObject) -> None:
         )
         return
 
+    currency = _pay_in.get(user.id, "ETH")
     wanted = _parse_credits((command.args or "").strip())
     if wanted is None:
-        await _show_packs(message, is_group)
+        await _show_packs(message, is_group, currency)
         return
     if wanted < settings.OPRAI_TG_MIN_TOPUP_CREDITS:
         await message.answer(
             f"The smallest top-up is {settings.OPRAI_TG_MIN_TOPUP_CREDITS} credits."
         )
         return
-    await _offer_pack(message, scope_id, is_group, user.id, wanted)
+    await _offer_pack(message, scope_id, is_group, user.id, wanted, currency)
 
 
-def _price_line(credits: int, oprai: float, usd: float) -> str:
-    return (f"<b>{credits:,}</b> credits · <b>${usd:,.2f}</b> "
-            f"· ≈ {_fmt_amount(oprai)} $OPRAI")
+_NO_PRICE = (
+    "I can't read a reliable price right now, so I won't quote a top-up — "
+    "converting at a guessed rate would charge you the wrong amount. Try "
+    "again in a minute."
+)
 
 
-async def _show_packs(message: Message, is_group: bool) -> None:
+async def _show_packs(message: Message, is_group: bool,
+                      currency: str = "ETH") -> None:
     """The menu. Packs are priced in dollars and converted at the live rate,
     so the dollar figure is the promise and the token amount follows it."""
+    in_eth = currency.upper() == "ETH"
     try:
-        rate = await pricing.oprai_usd()
+        rate = await (pricing.eth_usd() if in_eth else pricing.oprai_usd())
     except pricing.PriceUnavailable:
-        await message.answer(
-            "I can't read the $OPRAI price right now, so I can't quote a "
-            "top-up. Try again in a minute."
-        )
+        await message.answer(_NO_PRICE)
         return
 
     rows = []
@@ -150,49 +156,56 @@ async def _show_packs(message: Message, is_group: bool) -> None:
             text=f"{size:,} credits · ${usd:,.0f}",
             callback_data=f"top:pack:{size}",
         )])
+    rows.append([InlineKeyboardButton(
+        text="Pay in $OPRAI instead" if in_eth else "Pay in ETH instead",
+        callback_data="top:cur:OPRAI" if in_eth else "top:cur:ETH",
+    )])
 
     who = "this group" if is_group else "you"
     await message.answer(
         f"<b>Credits</b>\n\n"
         f"Questions to OPRAI cost <b>1 credit</b> each. Token scans, /swap, "
         f"/send and every other command stay free.\n\n"
-        f"Paid in $OPRAI from your wallet, priced in dollars at the live rate "
-        f"(<code>${rate:.8f}</code> per $OPRAI). Credits never expire, and "
-        f"they land in {who}.\n\n"
+        f"Paid in {'ETH' if in_eth else '$OPRAI'} from your wallet, priced in "
+        f"dollars at the live rate "
+        f"(<code>{f'${rate:,.2f}' if in_eth else f'${rate:.8f}'}</code> per "
+        f"{'ETH' if in_eth else '$OPRAI'}). Credits never expire, and they "
+        f"land in {who}.\n\n"
         f"<i>Or name your own: <code>/topup 300</code></i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
 
 async def _offer_pack(message: Message, scope_id: int, is_group: bool,
-                      telegram_id: int, credits_wanted: int) -> None:
+                      telegram_id: int, credits_wanted: int,
+                      currency: str = "ETH") -> None:
     """Quote one pack and hold the quote behind a confirm button.
 
     The rate is fixed at the moment of quoting and carried through to the
     payment, so the amount on the button is the amount that leaves the wallet.
     """
     try:
-        oprai, usd, rate = await pricing.credits_cost_oprai(credits_wanted)
+        amount, usd, rate = await pricing.credits_cost(credits_wanted, currency)
     except pricing.PriceUnavailable:
-        await message.answer(
-            "I can't read the $OPRAI price right now, so I can't quote a "
-            "top-up. Try again in a minute."
-        )
+        await message.answer(_NO_PRICE)
         return
 
     pid = secrets.token_urlsafe(8)
     _topups[pid] = {"telegram_id": telegram_id, "scope_id": scope_id,
-                    "is_group": is_group, "amount": oprai,
+                    "is_group": is_group, "amount": amount, "currency": currency,
                     "credits": credits_wanted, "usd": usd, "rate": rate}
+    label = "ETH" if currency == "ETH" else "$OPRAI"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(oprai)} $OPRAI",
+        InlineKeyboardButton(text=f"✅ Pay {_fmt_amount(amount)} {label}",
                              callback_data=f"top:ok:{pid}"),
         InlineKeyboardButton(text="Cancel", callback_data=f"top:no:{pid}"),
     ]])
+    rate_shown = f"${rate:,.2f}" if currency == "ETH" else f"${rate:.8f}"
     await message.answer(
         f"<b>Top up {'this group' if is_group else 'your credits'}</b>\n\n"
-        f"{_price_line(credits_wanted, oprai, usd)}\n\n"
-        f"Rate: <code>${rate:.8f}</code> per $OPRAI (plus gas)\n\n"
+        f"<b>{credits_wanted:,}</b> credits · <b>${usd:,.2f}</b> "
+        f"· {_fmt_amount(amount)} {label}\n\n"
+        f"Rate: <code>{rate_shown}</code> per {label} (plus gas)\n\n"
         "<i>Credits never expire.</i>",
         reply_markup=kb,
     )
@@ -204,6 +217,13 @@ async def topup_confirm(cb: CallbackQuery) -> None:
 
     # A pack button opens the quote for that size — the button in the menu is
     # a choice, not a payment, and the amount is only fixed on the next screen.
+    if action == "cur":
+        await cb.answer()
+        _pay_in[cb.from_user.id] = "OPRAI" if pid.upper() == "OPRAI" else "ETH"
+        is_group = cb.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+        await _show_packs(cb.message, is_group, _pay_in[cb.from_user.id])
+        return
+
     if action == "pack":
         if not pid.isdigit():
             await cb.answer()
@@ -216,7 +236,7 @@ async def topup_confirm(cb: CallbackQuery) -> None:
             return
         scope_id = cb.message.chat.id if is_group else cb.from_user.id
         await _offer_pack(cb.message, scope_id, is_group, cb.from_user.id,
-                          int(pid))
+                          int(pid), _pay_in.get(cb.from_user.id, "ETH"))
         return
 
     p = _topups.get(pid)
@@ -241,6 +261,8 @@ async def topup_confirm(cb: CallbackQuery) -> None:
             p["telegram_id"], p["amount"],
             on_sent=lambda: cb.message.edit_text("⏳ Paid — waiting for the transfer to confirm…"),
             scope_id=p["scope_id"], is_group=p["is_group"], credits=p["credits"],
+            currency=p.get("currency", "ETH"), usd=p.get("usd"),
+            rate=p.get("rate"),
         )
     except topups.TopupError as e:
         log.warning("topup_failed", telegram_id=p["telegram_id"], error=str(e)[:200])
@@ -249,7 +271,8 @@ async def topup_confirm(cb: CallbackQuery) -> None:
         return
 
     await audit(p["telegram_id"], "topup",
-                {"oprai": p["amount"], "credits": p["credits"],
+                {"amount": p["amount"], "currency": p.get("currency"),
+                 "credits": p["credits"],
                  "usd": p.get("usd"), "rate": p.get("rate"),
                  "group": p["is_group"]})
     await cb.message.edit_text(

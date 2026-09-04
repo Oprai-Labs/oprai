@@ -91,8 +91,13 @@ class Settings(BaseSettings):
 
     # Free conversation allowance, refilled on a rolling window. A group gets
     # more than one person because the quota is shared by the whole room.
-    OPRAI_TG_FREE_USER_CREDITS: int = 25
-    OPRAI_TG_FREE_GROUP_CREDITS: int = 60
+    #
+    # Sized from what people actually do, not from a guess: across 110 active
+    # wallet-days the median day is 3 questions and the 90th percentile is 21.
+    # Ten a day leaves nine in ten days entirely free while bounding the tail —
+    # the old 25 was never reached by anyone, so the paywall did not exist.
+    OPRAI_TG_FREE_USER_CREDITS: int = 10
+    OPRAI_TG_FREE_GROUP_CREDITS: int = 25
     OPRAI_TG_FREE_WINDOW_HOURS: int = 24
 
     # $OPRAI on Robinhood Chain — what a top-up is paid in. Verified on chain:

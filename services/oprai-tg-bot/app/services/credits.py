@@ -155,7 +155,9 @@ async def refund(scope_id: int, telegram_id: int, amount: int = 1,
 
 
 async def record_payment(scope_id: int, is_group: bool, telegram_id: int,
-                         tx_hash: str, oprai_wei: int, amount: int) -> bool:
+                         tx_hash: str, paid_wei: int, amount: int,
+                         *, currency: str = "ETH", usd: float | None = None,
+                         rate: float | None = None) -> bool:
     """Claim a payment's transaction hash before it is credited.
 
     Returns False when the hash is already known — the payment was seen by
@@ -164,12 +166,15 @@ async def record_payment(scope_id: int, is_group: bool, telegram_id: int,
     row = await pool().fetchrow(
         """
         INSERT INTO tg_topups
-            (tx_hash, scope_id, telegram_id, oprai_wei, credits, status)
-        VALUES ($1, $2, $3, $4::numeric, $5, 'pending')
+            (tx_hash, scope_id, telegram_id, oprai_wei, credits, status,
+             currency, usd, rate_usd)
+        VALUES ($1, $2, $3, $4::numeric, $5, 'pending', $6, $7::numeric, $8::numeric)
         ON CONFLICT (tx_hash) DO NOTHING
         RETURNING tx_hash
         """,
-        tx_hash.lower(), scope_id, telegram_id, str(oprai_wei), amount,
+        tx_hash.lower(), scope_id, telegram_id, str(paid_wei), amount,
+        currency.upper(), None if usd is None else str(usd),
+        None if rate is None else str(rate),
     )
     return row is not None
 
@@ -187,7 +192,7 @@ async def settle_payment(tx_hash: str, *, succeeded: bool) -> Balance | None:
         UPDATE tg_topups
            SET status = $2, updated_at = now()
          WHERE tx_hash = $1 AND status = 'pending'
-        RETURNING scope_id, telegram_id, credits, oprai_wei
+        RETURNING scope_id, telegram_id, credits, oprai_wei, currency, usd
         """,
         tx_hash.lower(), "credited" if succeeded else "failed",
     )
@@ -197,7 +202,9 @@ async def settle_payment(tx_hash: str, *, succeeded: bool) -> Balance | None:
     is_group = row["scope_id"] < 0  # Telegram group ids are negative
     return await grant(
         row["scope_id"], is_group, int(row["credits"]), row["telegram_id"],
-        "topup", {"tx": tx_hash.lower(), "oprai_wei": str(row["oprai_wei"])},
+        "topup", {"tx": tx_hash.lower(), "paid_wei": str(row["oprai_wei"]),
+                  "currency": row["currency"],
+                  "usd": None if row["usd"] is None else float(row["usd"])},
     )
 
 

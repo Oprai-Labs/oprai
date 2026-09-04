@@ -356,3 +356,13 @@ CREATE TABLE IF NOT EXISTS tg_inflight (
     started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (chat_id, message_id)
 );
+
+-- What a top-up was actually paid in, and what it was sold for.
+--
+-- Payments started in $OPRAI and are now taken in ETH, so an amount alone no
+-- longer says what was received: 0.004 of one asset is not 0.004 of another.
+-- The USD figure is the price the pack was sold at, frozen at the moment of
+-- sale — a later move in either asset must not rewrite what someone paid.
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'OPRAI';
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS usd NUMERIC;
+ALTER TABLE tg_topups ADD COLUMN IF NOT EXISTS rate_usd NUMERIC;
