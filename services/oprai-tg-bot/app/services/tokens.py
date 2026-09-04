@@ -26,9 +26,15 @@ SEL_BALANCE_OF = "0x70a08231"
 
 # Non-stock assets people actually hold on Robinhood Chain. Addresses are
 # verified on-chain at sync (symbol() must answer) before they are stored.
+# A token the bot OFFERS but cannot resolve is a dead end: the swap menu
+# listed USDe and the swap then failed with "I don't know a token called
+# USDe". Anything reachable through Sushi, held as Morpho collateral, or
+# spendable in the bot belongs here.
 BASE_ASSET_ADDRESSES = [
     "0x5fc5360d0400a0fd4f2af552add042d716f1d168",  # USDG — 6 decimals, not 18
     "0x0bd7d308f8e1639fab988df18a8011f41eacad73",  # WETH
+    "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",  # USDe — Sushi pair, Morpho collateral
+    "0xd98e1e5a25702930b2fc92c15f3fef6d2987b5ac",  # OPRAI — credits are paid in it
 ]
 
 

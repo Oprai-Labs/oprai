@@ -185,3 +185,46 @@ def test_every_menu_the_flows_open_has_a_reply_branch():
     reply_source = inspect.getsource(flows.catch_expected_reply)
     for kind in asked:
         assert f'"{kind}"' in reply_source, f"nothing catches the answer to {kind}"
+
+
+# ── never offer what you cannot deliver ─────────────────────────────────────
+@pytest.mark.asyncio
+async def test_every_token_the_menu_suggests_can_actually_be_resolved():
+    """The buy menu listed USDe, and picking it failed with "I don't know a
+    token called USDe" — the suggestion list and the token registry had
+    drifted apart. A choice that fails two taps later is worse than not
+    offering it."""
+    from app.db import close_pool, init_pool
+    from app.services import tokens as tok
+
+    await init_pool()
+    try:
+        missing = []
+        for symbol in menu.COMMON_TARGETS:
+            if symbol.upper() == "ETH":
+                continue  # native, never in the registry
+            if not await tok.resolve(symbol):
+                missing.append(symbol)
+        assert not missing, (
+            "offered but unresolvable: " + ", ".join(missing)
+        )
+    finally:
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_the_tokens_the_bot_itself_spends_are_known():
+    """Credits are paid in OPRAI and Morpho takes USDe as collateral — a
+    command that names a token the registry has never heard of cannot run."""
+    from app.config import settings
+    from app.db import close_pool, init_pool
+    from app.services import tokens as tok
+
+    await init_pool()
+    try:
+        assert await tok.resolve("OPRAI"), "/topup pays in a token we can't resolve"
+        assert await tok.resolve("USDe"), "Morpho collateral is unresolvable"
+        oprai = (await tok.resolve("OPRAI"))[0]
+        assert oprai["address"].lower() == settings.OPRAI_TG_TOKEN_ADDRESS.lower()
+    finally:
+        await close_pool()
