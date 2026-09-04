@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import time
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
@@ -43,6 +45,12 @@ router = Router(name="wallet")
 EXPORT_VISIBLE_SECONDS = 90
 
 _pending_export: dict[str, dict] = {}
+
+# Who tapped "Import" and is expected to paste a key next, and until when.
+# Pressing a button that then demands a typed command is a button that did
+# nothing; after the tap the next thing they send IS the key.
+_awaiting_import: dict[int, float] = {}
+IMPORT_WINDOW_SECONDS = 300
 
 
 def _wallet_kb() -> InlineKeyboardMarkup:
@@ -282,12 +290,19 @@ async def wallet_button(cb: CallbackQuery) -> None:
     elif what == "list":
         await _list_wallets(message)
     elif what == "import":
+        if message.chat.type != ChatType.PRIVATE:
+            await message.answer(
+                "🔒 Import only works in a private chat — never paste a key in "
+                "a group. DM me and press it there."
+            )
+            return
+        _awaiting_import[cb.from_user.id] = time.monotonic() + IMPORT_WINDOW_SECONDS
         await message.answer(
-            "📥 <b>Import a wallet</b>\n\n"
-            "Send me:\n<code>/wallet import 0xYOUR_PRIVATE_KEY</code>\n\n"
-            "<i>Only here, never in a group. Your current wallet is archived "
-            "rather than replaced, so nothing in it is lost — and delete your "
-            "message afterwards, since Telegram keeps it otherwise.</i>"
+            "📥 <b>Paste your private key</b>\n\n"
+            "Just send it as your next message — no command needed.\n\n"
+            "<i>Your current wallet is archived rather than replaced, so "
+            "nothing in it is lost. I'll try to delete your message; if "
+            "Telegram won't let me, delete it yourself.</i>"
         )
     elif what == "new":
         await message.answer(
@@ -297,3 +312,58 @@ async def wallet_button(cb: CallbackQuery) -> None:
             "funds don't move by themselves.\n\n"
             "Send <code>/wallet new</code> to go ahead.",
         )
+
+
+def _looks_like_a_key(text: str) -> bool:
+    """A 32-byte hex secret, with or without the 0x."""
+    t = text.strip().removeprefix("0x")
+    return len(t) == 64 and all(c in "0123456789abcdefABCDEF" for c in t)
+
+
+@router.message(F.text & F.chat.type.in_({"private"}))
+async def catch_pasted_key(message: Message) -> None:
+    """The key someone pastes after tapping Import.
+
+    Registered on the wallet router, which sits before chat's catch-all — so a
+    pasted key is imported rather than sent to the model as a question. Anything
+    that isn't a key, or arrives without the tap, falls through untouched.
+    """
+    user = message.from_user
+    until = _awaiting_import.get(user.id)
+    if until is None or time.monotonic() > until:
+        _awaiting_import.pop(user.id, None)
+        raise SkipHandler
+    if not _looks_like_a_key(message.text or ""):
+        raise SkipHandler
+
+    _awaiting_import.pop(user.id, None)
+    secret = (message.text or "").strip()
+
+    # Take the key off their screen first. Telegram usually refuses to let a
+    # bot delete someone else's message, so this is best effort and the reply
+    # says so rather than implying it is gone.
+    deleted = True
+    try:
+        await message.delete()
+    except Exception:  # noqa: BLE001
+        deleted = False
+
+    try:
+        row = await wallet_svc.import_wallet(user.id, secret)
+    except (SignerError, ValueError) as e:
+        log.warning("wallet_import_failed", telegram_id=user.id, error=str(e))
+        await message.answer(f"⚠️ That key didn't work: {e}")
+        return
+
+    await audit(user.id, "wallet_import", {"address": row["address"]})
+    tail = "" if deleted else (
+        "\n\n⚠️ <i>I couldn't delete your message — delete it yourself so the "
+        "key isn't left in this chat.</i>"
+    )
+    await private_answer(
+        message,
+        f"✅ <b>Imported.</b>\n<code>{row['address']}</code>\n\n"
+        "<i>This is your wallet now; the previous one is archived and still "
+        "exportable.</i>" + tail,
+        reply_markup=_wallet_kb(),
+    )

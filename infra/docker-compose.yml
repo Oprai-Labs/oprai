@@ -666,6 +666,11 @@ services:
     environment:
       OPRAI_TELEGRAM_BOT_TOKEN: ${OPRAI_TELEGRAM_BOT_TOKEN:?OPRAI_TELEGRAM_BOT_TOKEN is required}
       OPRAI_TG_BOT_USERNAME: ${OPRAI_TG_BOT_USERNAME:-Oprai_Labs_Bot}
+      # The SIWE message names a domain and auth-service prefix-checks it
+      # against its own APP_DOMAIN. Reading the same variable is what keeps
+      # them from drifting: they disagreed once and every sign-in 400'd with
+      # "Message domain not recognized".
+      OPRAI_TG_APP_DOMAIN: ${APP_DOMAIN:-app.oprai.xyz}
       DATABASE_URL: postgresql://postgres:${DB_SUPERPASS:?DB_SUPERPASS is required}@postgres:5432/${DB_SUPERDB:-oprai}
       DB_SCHEMA: tg_schema
       GATEWAY_URL: http://gateway-go:3001
