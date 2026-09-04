@@ -152,3 +152,74 @@ def test_the_address_is_pulled_out_of_the_sentence():
 
     assert wants_a_look(f"{ADDR} analiz et") == ADDR
     assert wants_a_look(f"  analyse   {ADDR}  ") == ADDR
+
+
+# ── a blip is not an outage ─────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_dropped_connection_is_retried_once():
+    """A connection reset — a redeploy on either side, a dead keep-alive —
+    became "the on-chain index isn't answering" in front of someone whose
+    question we answer in five seconds."""
+    import httpx
+
+    from app.services import signals_client as sc
+
+    calls = {"n": 0}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.ConnectError("connection reset")
+            return httpx.Response(200, json={"status": "ok"})
+
+    original = sc.httpx.AsyncClient
+    sc.httpx.AsyncClient = _Client
+    try:
+        out = await sc.SignalsClient()._get("/token/0xabc")
+        assert out == {"status": "ok"}
+        assert calls["n"] == 2, "the blip was not retried"
+    finally:
+        sc.httpx.AsyncClient = original
+
+
+@pytest.mark.asyncio
+async def test_the_index_saying_no_is_not_retried():
+    """A 500 is the index answering, not a blip — hammering it helps nobody."""
+    import httpx
+
+    from app.services import signals_client as sc
+
+    calls = {"n": 0}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, **kwargs):
+            calls["n"] += 1
+            return httpx.Response(500, text="boom")
+
+    original = sc.httpx.AsyncClient
+    sc.httpx.AsyncClient = _Client
+    try:
+        with pytest.raises(sc.SignalsError):
+            await sc.SignalsClient()._get("/token/0xabc")
+        assert calls["n"] == 1, "a real error was retried"
+    finally:
+        sc.httpx.AsyncClient = original
