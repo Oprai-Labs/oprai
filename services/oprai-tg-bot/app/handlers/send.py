@@ -18,7 +18,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.db import audit, pool, upsert_tg_user
 from app.handlers.privacy import private_answer
 from app.logging_config import log
-from app.services import evm
+from app.services import claims, evm
 from app.services import portfolio as pf
 from app.services import tokens as tok
 from app.services import wallet as wallet_svc
@@ -57,13 +57,18 @@ async def _resolve_recipient(token: str) -> tuple[str | None, str]:
         return t, t
     if t.startswith("@"):
         uname = t[1:]
-        row = await pool().fetchrow(
+        rows = await pool().fetch(
             "SELECT w.address FROM tg_wallets w JOIN tg_users u USING (telegram_id) "
             "WHERE lower(u.username) = lower($1) AND w.chain = 'evm'",
             uname,
         )
-        if row:
-            return row["address"], f"{t} ({row['address'][:10]}…)"
+        # A handle is unique at any moment, and upsert_tg_user releases it from
+        # the previous owner — but this is money, so a second match is refused
+        # rather than picked between.
+        if len(rows) > 1:
+            return None, t
+        if rows:
+            return rows[0]["address"], f"{t} ({rows[0]['address'][:10]}…)"
         return None, t
     return None, t
 
@@ -98,6 +103,12 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
 
     to, label = await _resolve_recipient(recipient_ref)
     if not to:
+        # A handle with no wallet behind it is the common case, not an error:
+        # the person simply hasn't used the bot. Telegram won't let us tell
+        # them, so we hand the sender a link to forward instead of a dead end.
+        if recipient_ref.startswith("@"):
+            await _offer_claim(message, recipient_ref, amount_str, token_ref)
+            return
         await message.answer(
             f"I couldn't resolve <b>{label}</b>. Give me a 0x address, or a "
             "@username of someone who has already started this bot."
@@ -187,6 +198,59 @@ async def send_cmd(message: Message, command: CommandObject) -> None:
         f"Network fee (max): {_fmt_eth(gas_cost)} ETH\n"
         f"ETH after: ~{_fmt_eth(balance - native_needed)} ETH",
         reply_markup=_confirm_kb(pid),
+    )
+
+
+# ── sending to someone who hasn't used the bot ──────────────────────────────
+async def _offer_claim(message: Message, handle: str, amount_str: str,
+                       token_ref: str) -> None:
+    """Turn a dead end into a link the sender can forward.
+
+    Telegram will not let a bot message someone first, so the recipient cannot
+    be told anything by us — the sender is the only channel to them. Nothing
+    moves until they claim: the funds stay in the sender's wallet, which means
+    a claim can fail because they were spent, and that is said up front rather
+    than discovered later.
+    """
+    user = message.from_user
+    symbol = token_ref.upper().lstrip("$")
+
+    if symbol == "ETH":
+        decimals, address = 18, None
+    else:
+        matches = await tok.resolve(token_ref)
+        exact = [m for m in matches if m["symbol"].upper() == symbol]
+        if not (exact or matches):
+            await message.answer(
+                f"I don't know a token called <b>{token_ref}</b> on Robinhood Chain."
+            )
+            return
+        t = (exact or matches)[0]
+        symbol, decimals, address = t["symbol"], t["decimals"], t["address"]
+
+    try:
+        amount_base = int(Decimal(amount_str) * (10 ** decimals))
+    except (InvalidOperation, ArithmeticError):
+        await message.answer("That amount doesn't look right.")
+        return
+    if amount_base <= 0:
+        await message.answer(f"{amount_str} is below {symbol}'s smallest unit.")
+        return
+
+    _, link = await claims.create(
+        from_telegram_id=user.id, to_username=handle, symbol=symbol,
+        amount_base=amount_base, decimals=decimals, token_address=address,
+    )
+    await audit(user.id, "claim_created", {"to": handle, "symbol": symbol})
+    await private_answer(
+        message,
+        f"<b>{handle}</b> hasn't used me yet, so there's no wallet to send to.\n\n"
+        f"Forward them this link and I'll deliver <b>{amount_str} {symbol}</b> "
+        f"the moment they open it:\n\n{link}\n\n"
+        f"<i>Only {handle} can claim it. Nothing leaves your wallet until they "
+        f"do — so keep the {symbol} there. Expires in "
+        f"{claims.CLAIM_TTL_DAYS} days.</i>",
+        disable_web_page_preview=True,
     )
 
 

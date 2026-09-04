@@ -42,7 +42,25 @@ def pool() -> asyncpg.Pool:
 async def upsert_tg_user(
     telegram_id: int, username: str | None
 ) -> asyncpg.Record:
-    """Ensure a tg_users row exists; return it. Idempotent per telegram_id."""
+    """Ensure a tg_users row exists; return it. Idempotent per telegram_id.
+
+    A Telegram handle belongs to exactly one account at a time, but people
+    rename and the freed handle can be taken by someone else. Our stored copy
+    doesn't know that: the old owner's row keeps the handle until they next
+    speak, and then two rows claim it. `/send 5 NVDA @handle` would resolve to
+    whichever came back first — the money going to the person who used to own
+    the name.
+
+    So seeing a handle now is proof that nobody else holds it: every other row
+    releases it in the same statement that claims it here.
+    """
+    if username:
+        await pool().execute(
+            "UPDATE tg_users SET username = NULL "
+            "WHERE lower(username) = lower($1) AND telegram_id <> $2",
+            username,
+            telegram_id,
+        )
     return await pool().fetchrow(
         """
         INSERT INTO tg_users (telegram_id, username)

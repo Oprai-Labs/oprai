@@ -110,6 +110,22 @@ async def _watch_deposits(bot) -> None:
         except Exception as e:  # noqa: BLE001
             log.warning("topup_settle_failed", error=str(e))
 
+        # A claim nobody came for shouldn't hang over the sender's wallet for
+        # ever — close it and say so, since they were told to keep the funds.
+        try:
+            from app.services import claims
+
+            for gone in await claims.expire_stale():
+                amount = claims.display(int(gone["amount_base"]), gone["decimals"])
+                await notify.send(
+                    bot, gone["from_telegram_id"],
+                    f"⌛ @{gone['to_username']} never claimed your {amount} "
+                    f"{gone['symbol']}, so that link has expired. The funds "
+                    "never left your wallet.",
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("claim_expiry_failed", error=str(e))
+
         await asyncio.sleep(DEPOSIT_POLL_SECONDS)
 
 

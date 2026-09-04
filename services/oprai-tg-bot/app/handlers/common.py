@@ -14,6 +14,7 @@ from aiogram.types import Message
 
 from app.db import audit, upsert_tg_user
 from app.logging_config import log
+from app.handlers import claim
 from app.services import linking
 
 router = Router(name="common")
@@ -63,6 +64,13 @@ async def start_with_token(message: Message, command: CommandObject) -> None:
     user = message.from_user
     await upsert_tg_user(user.id, user.username)
     token = (command.args or "").strip()
+
+    # A claim link is the only way someone can be told money is waiting for
+    # them — Telegram won't let a bot message a stranger first.
+    if token.startswith("claim_"):
+        await claim.handle_claim(message, token[len("claim_"):])
+        return
+
     account_id = await linking.consume_link_token(token, user.id) if token else None
     await audit(
         user.id,

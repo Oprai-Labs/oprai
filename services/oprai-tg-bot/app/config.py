@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     # Same token auth-service already uses to HMAC-verify Login Widget payloads,
     # so the bot and the account-linking widget share one identity.
     OPRAI_TELEGRAM_BOT_TOKEN: str = ""
+    # Needed to build deep links (account linking, claimable transfers).
+    OPRAI_TG_BOT_USERNAME: str = "Oprai_Labs_Bot"
     # Dev uses long-polling. Set a webhook URL in prod (Faz 4).
     OPRAI_TG_WEBHOOK_URL: str = ""
     OPRAI_TG_WEBHOOK_SECRET: str = ""
