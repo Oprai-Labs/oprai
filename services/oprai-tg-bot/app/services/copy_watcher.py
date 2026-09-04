@@ -48,14 +48,24 @@ async def resolve_buy(c: httpx.AsyncClient, node: str, tx: dict) -> tuple[str, f
 
 
 async def watch_buys(node: str, get_wallets, on_buy, poll_ms: int = 400,
-                     max_block_span: int = 20) -> None:
+                     max_block_span: int = 20, fallback: str | None = None) -> None:
     """Watch the node head; call on_buy(wallet, token, eth_spent, tx_hash) for each
     buy by a copy-tracked wallet. `get_wallets` returns the live lowercased set (so
-    a user enabling/disabling copy takes effect next block). Self-heals forever."""
+    a user enabling/disabling copy takes effect next block). Self-heals forever.
+
+    `fallback` is used while the primary node isn't answering. Our own node
+    stops serving RPC for an hour at a time while it prunes, and at a 400ms
+    poll that produced nine thousand identical warnings an hour and no copy
+    trades — the loudest possible way to be silently broken.
+    """
     log.info("copy_watcher_start", node=node, poll_ms=poll_ms)
     last: int | None = None
+    nodes = [node] + ([fallback] if fallback and fallback != node else [])
+    index = 0
+    quiet_until = 0.0
     async with httpx.AsyncClient(timeout=8.0) as c:
         while True:
+            node = nodes[index]
             try:
                 head = int(await _rpc(c, node, "eth_blockNumber", []), 16)
                 if last is None:
@@ -75,6 +85,18 @@ async def watch_buys(node: str, get_wallets, on_buy, poll_ms: int = 400,
                                 token, eth = hit
                                 await on_buy(tx["from"].lower(), token, eth, tx["hash"])
                 last = head
+                index = 0  # the primary answered; go back to it
             except Exception as e:  # never die
-                log.warning("copy_watcher_error", error=str(e)[:160])
+                if len(nodes) > 1:
+                    index = (index + 1) % len(nodes)
+                # A failing node at a 400ms poll writes a warning twice a
+                # second. Say it once a minute: the same line nine thousand
+                # times is not more information, it is less.
+                now = asyncio.get_event_loop().time()
+                if now >= quiet_until:
+                    log.warning("copy_watcher_error", error=str(e)[:160],
+                                node=node, next_node=nodes[index])
+                    quiet_until = now + 60
+                # And back off, rather than hammering something that is down.
+                await asyncio.sleep(2.0)
             await asyncio.sleep(poll_ms / 1000)

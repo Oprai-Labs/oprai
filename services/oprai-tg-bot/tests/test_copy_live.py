@@ -172,3 +172,44 @@ async def test_an_unfunded_copy_is_refused_before_signing():
         await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+# ── when the node it watches goes quiet ─────────────────────────────────────
+@pytest.mark.asyncio
+async def test_the_watcher_moves_to_the_fallback_and_stops_shouting(monkeypatch):
+    """Our node stops serving RPC for an hour while it prunes. At a 400ms poll
+    that produced ~9,000 identical warnings an hour and zero copy trades — the
+    loudest possible way to be silently broken."""
+    import asyncio as _asyncio
+
+    import httpx
+
+    from app.services import copy_watcher
+
+    tried: list[str] = []
+    warnings: list[dict] = []
+
+    async def fake_rpc(c, node, method, params):
+        tried.append(node)
+        if "rh-nitro" in node:
+            raise httpx.ConnectError("All connection attempts failed")
+        if method == "eth_blockNumber":
+            raise SystemExit  # one clean pass, then stop the loop
+        return None
+
+    monkeypatch.setattr(copy_watcher, "_rpc", fake_rpc)
+    monkeypatch.setattr(copy_watcher.log, "warning",
+                        lambda ev, **kw: warnings.append({"event": ev, **kw}))
+
+    async def run():
+        await copy_watcher.watch_buys(
+            "http://rh-nitro:8547", lambda: set(), lambda *a: None,
+            poll_ms=1, fallback="https://rpc.mainnet.chain.robinhood.com",
+        )
+
+    with pytest.raises(SystemExit):
+        await run()
+
+    assert any("rh-nitro" in n for n in tried), "the primary was never tried"
+    assert any("robinhood.com" in n for n in tried), "it never moved to the fallback"
+    assert len(warnings) <= 2, f"the failing node was logged {len(warnings)} times"

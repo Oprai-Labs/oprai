@@ -194,7 +194,8 @@ async def _run_copy_trading(bot) -> None:
             await asyncio.sleep(LEADER_REFRESH_SECONDS)
 
     asyncio.create_task(refresh())
-    await watch_buys(settings.robinhood_rpc(), lambda: leaders, engine.on_buy)
+    await watch_buys(settings.robinhood_rpc(), lambda: leaders, engine.on_buy,
+                     fallback=settings.OPRAI_TG_RPC_FALLBACK)
 
 
 async def _keep_token_registry_fresh() -> None:
