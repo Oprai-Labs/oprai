@@ -7,6 +7,8 @@ and turns the results into Telegram alerts. Internal service, X-Internal-Api-Key
 gated, reached over the docker network (rh-chain-intel-api:3160)."""
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 try:  # importable standalone (tests) even without the bot's settings machinery
@@ -32,15 +34,33 @@ class SignalsClient:
         return {"X-Internal-Api-Key": self._key} if self._key else {}
 
     async def _get(self, path: str, params: dict | None = None) -> dict:
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as c:
-                r = await c.get(f"{self._base}{path}", headers=self._headers(),
-                                params=params or {})
-        except httpx.HTTPError as e:
-            raise SignalsError(f"chain-intel unreachable: {e}") from e
-        if r.status_code != 200:
-            raise SignalsError(f"chain-intel {path} → {r.status_code}: {r.text[:200]}")
-        return r.json()
+        """One retry on a transport failure.
+
+        A connection reset — a redeploy on either side, a dropped keep-alive —
+        is not the index being down, but it read that way: a single failed call
+        became "the on-chain index isn't answering" in front of someone who had
+        asked a question we can answer in five seconds. The retry costs a
+        fraction of a second and turns a blip back into an answer. A 500 is not
+        retried: that one really is the index saying no.
+        """
+        last: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as c:
+                    r = await c.get(f"{self._base}{path}", headers=self._headers(),
+                                    params=params or {})
+            except httpx.HTTPError as e:
+                last = e
+                if attempt == 0:
+                    await asyncio.sleep(0.4)
+                    continue
+                raise SignalsError(f"chain-intel unreachable: {e}") from e
+            if r.status_code != 200:
+                raise SignalsError(
+                    f"chain-intel {path} → {r.status_code}: {r.text[:200]}"
+                )
+            return r.json()
+        raise SignalsError(f"chain-intel unreachable: {last}")
 
     async def tip(self) -> int:
         """Current index cursor ceiling — seed a subscription's since_block here."""
