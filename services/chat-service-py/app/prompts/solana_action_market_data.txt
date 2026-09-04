@@ -698,6 +698,12 @@ or the full structured report below.
      Pons curve; null just means "not a curve token", NOT "no tax". `logo`, `symbol`, `name`
      are the token's identity when available (pools.trade launches) — use the symbol, and pass
      the logo through so the card can render it.
+   - Token reports carry `dev_history` (from the dev's other launches): `tokens`, `by_launchpad`,
+     `graduated` / `graduation_rate`, `hit_100k` / `hit_100k_rate`, `hit_1m`, `runners_10x`, `dead`,
+     `median_ath_mcap_usd`, `best_ath_mcap_usd`, first/last launch. Always give this track record
+     in a token analysis ("this dev launched 59 tokens on Pons, 21 graduated (36%), 4 passed $100K,
+     1 passed $1M, best $2.8M") — it is the strongest single signal on a new launch. For Pons the
+     dev IS known (the launch tx sender), never say the dev is hidden behind the launchpad.
    - A wallet's money is not only what its address holds. `portfolio_total_usd` =
      `wallet_held_usd` (tokens + native ETH in the address) + `protocol_usd` (what sits inside
      protocols, read from the node). Always break the total down: list `by_protocol` (e.g.
@@ -916,7 +922,7 @@ Quantitative and specific. Example: "Concentrated diamondhand collector — 78% 
 ### `rh_sql` — schema of the clean Robinhood-Chain analytics tables (ClickHouse SQL)
 Use these tables ONLY (raw logs/transfers are not exposed). Addresses lowercase. Quote assets: ETH `0x0000000000000000000000000000000000000000`, WETH `0x0bd7d308f8e1639fab988df18a8011f41eacad73`, USDG `0x5fc5360d0400a0fd4f2af552add042d716f1d168`, USDe `0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34`. Amounts are human units; `usd` = quote-side USD at trade time (0 = unpriced → filter `usd > 0` for money questions). ~10 blocks/s; windows via `now() - INTERVAL n DAY/HOUR`. Alias aggregates with NEW names (never a column's name). Always add LIMIT.
 - `trades` (one row per swap leg touching a non-quote token; actor = real wallet even behind a bundler): `ts, block, tx_hash, actor, relayed, side('buy'|'sell'), token, token_amount, quote, quote_amount, usd, price_usd, venue('uniswap-v4'|'uniswap-v3'|'uniswap-v2'|'pons-curve'), pool, hook`. Fast filters: `actor=`, `token=`, `ts` range.
-- `launches` (one per launched token): `token, dev ('' when only a relayer is visible, e.g. Pons), dev_source, launchpad (Pons | Doppler (Bankr / LONG / Zora launches) | Clanker | letscash.fun | Klik | Flaunch | o1 Launchpad | PAIR (pair.fund) | lunch.fun | Livo | pmav.fun | Bags | Bow | StonkBroker | direct pool | unknown), launchpad_source, launch_ts, launch_block, curve, hook, first_pool, graduated (1 = migrated to an open pool), graduated_ts`.
+- `launches` (one per launched token): `token, dev (the launch tx sender — Pons, Doppler, Clanker… all indexed; '' only when unknown), dev_source, launchpad (Pons | Doppler (Bankr / LONG / Zora launches) | Clanker | letscash.fun | Klik | Flaunch | o1 Launchpad | PAIR (pair.fund) | lunch.fun | Livo | pmav.fun | Bags | Bow | StonkBroker | direct pool | unknown), launchpad_source, launch_ts, launch_block, curve, hook, first_pool, graduated (1 = migrated to an open pool), graduated_ts`.
 - `token_stats` (one per token, materialized every few minutes — THE table for token questions, cohorts, dev/launchpad stats; ms): `token, symbol, name, trades, buys, sells, vol_usd, buy_usd, sell_usd, traders, buyers, first_trade_ts, last_trade_ts, price_usd (latest hourly VWAP), first_price_usd, ath_price_usd (max hourly VWAP), ath_ts, supply, mcap_usd, ath_mcap_usd, first_mcap_usd, drawdown (1 − price/ath), ath_multiple (ath/first), vol_24h_usd, trades_24h, buyers_24h, vol_7d_usd, holders, dev, launchpad, launch_ts, graduated, graduated_ts, venues`. Fast filters: `token=`, `dev=`, `launchpad=`, `launch_ts>`.
 - `token_state_v` (same per-token numbers as a LIVE view, ~1 s unless filtered by token; use only when the last few minutes matter).
 - `wallet_state_v` (one per wallet, live): `wallet, trades, buys, sells, vol_usd, buy_usd, sell_usd, tokens, first_trade_ts, last_trade_ts, venues, relayed_trades`.
