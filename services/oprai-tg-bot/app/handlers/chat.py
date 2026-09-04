@@ -302,6 +302,21 @@ async def _answer(message: Message, question: str) -> None:
     await audit(user.id, "chat_answered",
                 {"chars": len(answer.text), "group": is_group})
 
+    # An instruction gets carried out, not described back. If we can run what
+    # the model decided, the person sees the confirmation card they were
+    # asking for; only when we can't do we fall back to naming the command.
+    if answer.actions:
+        try:
+            if await _run_action(message, answer.actions[0]):
+                if answer.text.strip():
+                    await placeholder.edit_text(chat_svc.to_telegram_html(answer.text))
+                else:
+                    await placeholder.delete()
+                return
+        except Exception as e:  # noqa: BLE001 — fall back rather than lose the turn
+            log.warning("chat_action_failed", telegram_id=user.id,
+                        kind=answer.actions[0].get("type"), error=str(e)[:200])
+
     html = chat_svc.to_telegram_html(answer.text)
     if answer.actions:
         html += "\n\n" + _action_hint(answer.actions[0])
@@ -316,9 +331,120 @@ async def _answer(message: Message, question: str) -> None:
         await message.answer(extra)
 
 
-# Commands the bot really has, mapped from what the model wanted to do. The
-# assistant explains; execution stays in the commands, where the confirmation
-# card and the balance checks live.
+def _args_for(action: dict) -> tuple[str, str] | None:
+    """Turn what the model decided into a command this bot can run.
+
+    Saying "buy 0.01 NVDA" is an instruction, not a question — the model
+    answers it by emitting an action and no prose. Rendering that as a
+    suggestion to type a command would be handing the work back for no reason;
+    we have the parameters, so we run the same flow the command would, which is
+    where the confirmation card and the balance checks already live.
+
+    -> (handler key, argument string), or None when we can't run it faithfully.
+    """
+    kind = str(action.get("type") or "").lower()
+    p = action.get("params") or {}
+
+    def first(*names, default=""):
+        for n in names:
+            v = p.get(n)
+            if v not in (None, ""):
+                return str(v)
+        return default
+
+    if kind in ("swap", "sushi_swap", "uniswap_swap", "relay_bridge",
+                "cross_chain_swap"):
+        amount = first("amount", "amountIn", "inputAmount")
+        # Each venue names these differently — Sushi says tokenIn/tokenOut,
+        # Relay says originCurrency/destinationCurrency. Missing one meant the
+        # action was understood and then quietly dropped.
+        sell = first("tokenIn", "fromToken", "inputToken", "originCurrency", "from")
+        buy = first("tokenOut", "toToken", "outputToken", "destinationCurrency", "to")
+        if amount and sell and buy:
+            return "swap", f"{amount} {sell} {buy}"
+        return None
+
+    if kind in ("transfer", "send", "evm_transfer"):
+        amount = first("amount")
+        token = first("token", "symbol", "mint", default="ETH")
+        to = first("to", "recipient", "toAddress", "destination")
+        if amount and to:
+            return "send", f"{amount} {token} {to}"
+        return None
+
+    if kind == "lighter_open":
+        symbol = first("symbol", "market")
+        collateral = first("collateralUsd", "collateral", "amount")
+        leverage = first("leverage", default="")
+        side = first("side", default="long").lower()
+        if symbol and collateral:
+            args = f"{symbol} {collateral}" + (f" {leverage}" if leverage else "")
+            return ("long" if side != "short" else "short"), args
+        return None
+
+    if kind == "lighter_close":
+        symbol = first("symbol", "market")
+        return ("close", symbol) if symbol else None
+
+    if kind in ("morpho_supply", "lend"):
+        amount = first("amount", "amountBaseUnits")
+        return ("lend", amount) if amount else None
+
+    if kind in ("morpho_borrow", "borrow"):
+        amount = first("borrowAmount", "amount")
+        return ("borrow", amount) if amount else None
+
+    if kind in ("pools_launch", "pons_launch", "launch", "token_launch"):
+        symbol = first("tokenSymbol", "symbol", "ticker")
+        name = first("tokenName", "name")
+        return ("launch", f"{symbol} {name}") if symbol and name else None
+
+    return None
+
+
+# Which handler runs each command, and whether it takes a CommandObject.
+_HANDLERS = {
+    "swap": ("swap", "swap_cmd"),
+    "send": ("send", "send_cmd"),
+    "long": ("perps", "open_cmd"),
+    "short": ("perps", "open_cmd"),
+    "close": ("perps", "close_cmd"),
+    "lend": ("lend", "lend_router"),
+    "borrow": ("lend", "lend_router"),
+    "launch": ("launch", "launch_cmd"),
+}
+
+
+async def _run_action(message: Message, action: dict) -> bool:
+    """Run what the model asked for. Returns whether anything ran."""
+    mapped = _args_for(action)
+    if mapped is None:
+        return False
+    command, args = mapped
+    module_name, func_name = _HANDLERS[command]
+
+    # /long, /short, /lend and friends read the verb out of message.text, so
+    # the message has to look like the command that was meant.
+    faithful = message.model_copy(update={"text": f"/{command} {args}"}).as_(message.bot)
+    module = __import__(f"app.handlers.{module_name}", fromlist=[func_name])
+    await audit(message.from_user.id, "chat_action",
+                {"type": action.get("type"), "command": command})
+    await getattr(module, func_name)(faithful, _Args(args))
+    return True
+
+
+class _Args:
+    """A stand-in for aiogram's CommandObject carrying just the arguments."""
+
+    def __init__(self, args: str):
+        self.args = args
+        self.command = None
+        self.prefix = "/"
+        self.mention = None
+        self.magic_result = None
+
+
+# What to say when we cannot run it faithfully — the command that would.
 _ACTION_COMMANDS = {
     "swap": "/swap &lt;amount&gt; &lt;from&gt; &lt;to&gt;",
     "transfer": "/send &lt;amount&gt; &lt;token&gt; &lt;address&gt;",

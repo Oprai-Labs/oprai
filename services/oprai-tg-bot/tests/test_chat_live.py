@@ -213,3 +213,69 @@ async def test_a_question_gets_a_real_answer_and_a_thread():
         await pool().execute("DELETE FROM tg_chat_sessions WHERE scope_id = $1", tg)
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+# ── instructions, not just questions ────────────────────────────────────────
+def test_an_action_only_answer_is_not_a_failure():
+    """"buy 0.01 NVDA" is an instruction. The model answers it by emitting an
+    action and no prose — which used to be read as "no answer" and thrown
+    away, with the person told to rephrase the thing that had worked."""
+    answer = chat_svc.Answer(raw="")
+    answer.actions.append({"type": "lighter_open", "params": {"symbol": "NVDA"}})
+    assert not answer.text.strip()
+    # stream() only raises when there is neither text nor an action.
+    import inspect
+
+    source = inspect.getsource(chat_svc.stream)
+    assert "not answer.actions" in source, (
+        "an action-only answer is still treated as a failure"
+    )
+
+
+@pytest.mark.parametrize(
+    "action, expected",
+    [
+        ({"type": "lighter_open",
+          "params": {"symbol": "NVDA", "side": "long", "collateralUsd": "0.01"}},
+         ("long", "NVDA 0.01")),
+        ({"type": "lighter_open",
+          "params": {"symbol": "TSLA", "side": "short", "collateralUsd": "50",
+                     "leverage": "5"}},
+         ("short", "TSLA 50 5")),
+        ({"type": "swap",
+          "params": {"amount": "0.05", "fromToken": "ETH", "toToken": "NVDA"}},
+         ("swap", "0.05 ETH NVDA")),
+        # Sushi names them tokenIn/tokenOut; missing that meant a swap the
+        # model had understood was silently dropped.
+        ({"type": "sushi_swap",
+          "params": {"tokenIn": "ETH", "tokenOut": "USDG", "amount": "0.01"}},
+         ("swap", "0.01 ETH USDG")),
+        ({"type": "morpho_supply", "params": {"amount": "10", "loanSymbol": "USDG"}},
+         ("lend", "10")),
+        ({"type": "transfer",
+          "params": {"amount": "5", "token": "USDG", "to": "0xabc"}},
+         ("send", "5 USDG 0xabc")),
+    ],
+)
+def test_what_the_model_decided_becomes_a_command_we_can_run(action, expected):
+    from app.handlers.chat import _args_for
+
+    assert _args_for(action) == expected
+
+
+def test_an_action_we_cannot_run_faithfully_is_declined():
+    """Half a swap is worse than none: running with a guessed token spends
+    someone's money on something they didn't ask for."""
+    from app.handlers.chat import _args_for
+
+    assert _args_for({"type": "swap", "params": {"amount": "1"}}) is None
+    assert _args_for({"type": "transfer", "params": {"amount": "1"}}) is None
+    assert _args_for({"type": "something_new", "params": {}}) is None
+
+
+def test_every_command_the_mapper_emits_has_a_handler():
+    from app.handlers.chat import _HANDLERS
+
+    for command, (module_name, func_name) in _HANDLERS.items():
+        module = __import__(f"app.handlers.{module_name}", fromlist=[func_name])
+        assert hasattr(module, func_name), f"/{command} -> {module_name}.{func_name}"
