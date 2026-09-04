@@ -198,6 +198,44 @@ async def simulate_sell(token: str, usd: float = Query(10.0, gt=0, le=100000),
     return await decode.simulate_sell(token, usd)
 
 
+# ── Flexible analytics: SQL over the clean tables, behind the gate ────────────
+from pydantic import BaseModel
+
+
+class SqlBody(BaseModel):
+    sql: str
+    limit: int = 200
+    timeout_s: float = 3.0
+    allow_async: bool = False
+
+
+@app.post("/analytics/sql")
+async def analytics_sql(body: SqlBody, x_internal_api_key: str | None = Header(None)):
+    """Run one read-only SELECT over the modelled tables (allowlist, LIMIT and time
+    limit enforced, cost-gated). Returns rows + the SQL that ran + rows read + ms."""
+    _gate(x_internal_api_key)
+    from . import analytics
+    try:
+        return await analytics.query(body.sql, body.limit, body.timeout_s, body.allow_async)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/analytics/schema")
+async def analytics_schema(x_internal_api_key: str | None = Header(None)):
+    """The contract for query authors (LLM or human): tables, columns, metric definitions, examples."""
+    _gate(x_internal_api_key)
+    from . import analytics
+    return analytics.SCHEMA
+
+
+@app.get("/analytics/job/{job_id}")
+async def analytics_job(job_id: str, x_internal_api_key: str | None = Header(None)):
+    _gate(x_internal_api_key)
+    from . import analytics
+    return analytics.job(job_id)
+
+
 @app.get("/wallet/{wallet}/smart-profile")
 async def wallet_smart_profile(wallet: str, x_internal_api_key: str | None = Header(None)):
     """WHY a wallet is (or isn't) smart — rank, PnL, win rate, tokens; EOA check."""
