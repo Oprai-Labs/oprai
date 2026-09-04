@@ -28,6 +28,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
 
 from app.db import audit, upsert_tg_user
+from app.handlers.home import as_person
 from app.handlers.privacy import private_answer
 from app.logging_config import log
 from app.services import wallet as wallet_svc
@@ -44,6 +45,20 @@ EXPORT_VISIBLE_SECONDS = 90
 _pending_export: dict[str, dict] = {}
 
 
+def _wallet_kb() -> InlineKeyboardMarkup:
+    """The things you can do to a wallet, on the wallet.
+
+    These existed as `/wallet export` and friends and nobody found them — a
+    subcommand you have to already know about is a feature that isn't there.
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Export key", callback_data="wal:export"),
+         InlineKeyboardButton(text="📥 Import a wallet", callback_data="wal:import")],
+        [InlineKeyboardButton(text="🆕 New wallet", callback_data="wal:new"),
+         InlineKeyboardButton(text="📋 My wallets", callback_data="wal:list")],
+    ])
+
+
 def _export_kb(pid: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="I understand — show the key",
@@ -56,9 +71,11 @@ def _fmt(address: str) -> str:
     return (
         "<b>Your OPRAI wallet</b> · Robinhood Chain\n\n"
         f"<code>{address}</code>\n\n"
-        "<i>Custodial &amp; recoverable. This is the same address on every EVM "
-        "chain — send ETH here on Robinhood Chain to start, or send it on Base "
-        "or Ethereum and bring it over with /bridge.</i>"
+        "<i>The same address on every EVM chain — send ETH here on Robinhood "
+        "Chain to start, or send it on Base or Ethereum and bring it over with "
+        "/bridge.</i>\n\n"
+        "<i>The key is yours: export it any time and import it into MetaMask "
+        "or anywhere else.</i>"
     )
 
 
@@ -114,7 +131,7 @@ async def wallet_cmd(message: Message, command: CommandObject) -> None:
     await audit(user.id, "wallet_show", {})
     # A wallet address in a group ties someone's Telegram identity to an
     # on-chain one, permanently and for everyone reading.
-    await private_answer(message, _fmt(address))
+    await private_answer(message, _fmt(address), reply_markup=_wallet_kb())
 
 
 async def _new_wallet(message: Message) -> None:
@@ -246,3 +263,37 @@ async def _erase_later(msg) -> None:
         )
     except Exception as e:  # noqa: BLE001 — a failed edit must not raise into the loop
         log.warning("wallet_export_erase_failed", error=str(e))
+
+
+@router.callback_query(F.data.startswith("wal:"))
+async def wallet_button(cb: CallbackQuery) -> None:
+    """The wallet card's own buttons.
+
+    A callback's message was sent by us, so `from_user` is the bot — repointed
+    here (as a copy; the model is frozen), or every one of these would act on
+    the bot's own wallet.
+    """
+    what = cb.data.split(":", 1)[1]
+    await cb.answer()
+    message = as_person(cb)
+
+    if what == "export":
+        await _offer_export(message, None)
+    elif what == "list":
+        await _list_wallets(message)
+    elif what == "import":
+        await message.answer(
+            "📥 <b>Import a wallet</b>\n\n"
+            "Send me:\n<code>/wallet import 0xYOUR_PRIVATE_KEY</code>\n\n"
+            "<i>Only here, never in a group. Your current wallet is archived "
+            "rather than replaced, so nothing in it is lost — and delete your "
+            "message afterwards, since Telegram keeps it otherwise.</i>"
+        )
+    elif what == "new":
+        await message.answer(
+            "🆕 <b>A fresh wallet?</b>\n\n"
+            "Your current one is archived, not deleted: its key stays yours, "
+            "it stays exportable, and anything in it is safe where it is — but "
+            "funds don't move by themselves.\n\n"
+            "Send <code>/wallet new</code> to go ahead.",
+        )

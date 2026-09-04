@@ -74,3 +74,71 @@ async def test_the_card_leads_with_the_balance_and_names_the_wallet():
         await pool().execute("DELETE FROM tg_wallets WHERE telegram_id = $1", tg)
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+# ── the wallet card's own buttons ───────────────────────────────────────────
+def test_the_wallet_card_offers_what_you_can_do_to_a_wallet():
+    """Export and import existed as subcommands and went unnoticed — a
+    subcommand you have to already know about is a feature that isn't there."""
+    from app.handlers.wallet import _wallet_kb
+
+    labels = " ".join(
+        b.text.lower() for row in _wallet_kb().inline_keyboard for b in row
+    )
+    for expected in ("export", "import", "new", "wallets"):
+        assert expected in labels, f"no way to {expected} from the wallet card"
+
+
+def test_every_wallet_button_is_handled():
+    import inspect
+
+    from app.handlers import wallet as wallet_handler
+    from app.handlers.wallet import _wallet_kb
+
+    source = inspect.getsource(wallet_handler.wallet_button)
+    for row in _wallet_kb().inline_keyboard:
+        for button in row:
+            what = button.callback_data.split(":", 1)[1]
+            assert f'"{what}"' in source, f"{button.text} ({what}) does nothing"
+
+
+def test_a_button_acts_for_the_person_not_the_bot():
+    """A callback's message was sent by the bot, so from_user is the bot — every
+    button would otherwise act on the bot's own wallet.
+
+    And the fix has to be a COPY: aiogram's models are frozen, so assigning to
+    from_user raises a ValidationError that escapes the handler and stops the
+    bot processing updates at all. That shipped once."""
+    import inspect
+
+    from app.handlers import home
+    from app.handlers.wallet import wallet_button
+
+    for func in (home.home_button, wallet_button):
+        source = inspect.getsource(func)
+        assert "as_person(cb)" in source, f"{func.__name__} keeps the bot as the user"
+        assert "from_user =" not in source, (
+            f"{func.__name__} assigns to a frozen model — this takes the bot down"
+        )
+
+
+def test_repointing_a_message_does_not_mutate_a_frozen_model():
+    """The real check: run it. A frozen-model assignment raises here rather
+    than in production, where it stopped every update."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from aiogram.types import Chat, Message, User
+
+    from app.handlers.home import as_person
+
+    bot_user = User(id=999, is_bot=True, first_name="Bot")
+    person = User(id=42, is_bot=False, first_name="Real", username="real")
+    message = Message(message_id=1, date=datetime.now(),
+                      chat=Chat(id=-100, type="supergroup"),
+                      from_user=bot_user, text="the home card")
+    cb = SimpleNamespace(message=message, from_user=person, bot=None)
+
+    out = as_person(cb)
+    assert out.from_user.id == 42
+    assert message.from_user.id == 999, "the original was mutated"
