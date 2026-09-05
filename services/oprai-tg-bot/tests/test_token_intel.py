@@ -223,3 +223,67 @@ async def test_the_index_saying_no_is_not_retried():
         assert calls["n"] == 1, "a real error was retried"
     finally:
         sc.httpx.AsyncClient = original
+
+
+# ── what the card must never say ────────────────────────────────────────────
+def test_a_score_built_from_nothing_is_not_called_low_risk():
+    """SLINK had fallen from tens of millions and the card said "6/100 — low",
+    because our index had seen none of its trades: no venue, no volume, no
+    ATH, no flow. The score was real; what it was made of was holders and
+    supply. Saying "low" there is worse than saying nothing."""
+    from app.handlers.intel import render
+
+    blind = {"facts": {"risk_score": 6, "risk_label": "LOW", "holders": 26622,
+                       "venues": [], "swaps_24h": 0, "volume_24h_usd": 0.0}}
+    card = render(blind, "SLINK", "0xfa89ed9d12bf74add8253ddfaa426c4d8a0fa603")
+    assert "low" not in card.lower(), card
+    assert "unscored" in card.lower(), card
+    assert "no trade history" in card.lower(), card
+
+
+def test_a_score_with_real_trade_data_still_reads_normally():
+    from app.handlers.intel import render
+
+    seen = {"facts": {"risk_score": 6, "venues": ["uniswap"], "swaps_24h": 4210,
+                      "volume_24h_usd": 80_230_000.0, "holders": 26622}}
+    card = render(seen, "SLINK", "0xfa89")
+    assert "Risk 6/100" in card and "low" in card.lower()
+
+
+def test_the_fall_from_the_high_is_stated_plainly():
+    """The single most important line on the card for a token that has round-
+    tripped, and it was not on it at all."""
+    from app.handlers.intel import render
+
+    report = {"facts": {"risk_score": 40, "venues": ["uniswap"], "swaps_24h": 10,
+                        "volume_24h_usd": 1.0,
+                        "drawdown_from_ath": 93.4, "ath_mcap_usd": 80_000_000}}
+    card = render(report, "SLINK", "0xfa89")
+    assert "Down 93% from its high" in card, card
+    assert "80" in card, "the peak it fell from is not shown"
+
+
+def test_smart_money_selling_does_not_read_like_smart_money_buying():
+    """Reporting only the holder count let a token they were dumping look
+    exactly like one they were accumulating."""
+    from app.handlers.intel import render
+
+    base = {"risk_score": 20, "venues": ["uniswap"], "swaps_24h": 10,
+            "volume_24h_usd": 1.0, "smart_money_holders": 101,
+            "smart_money_holding_pct": 0.9}
+    selling = render({"facts": {**base, "smart_money_net_usd": -250_000,
+                                "smart_money_sellers": 44}}, "X", "0xa")
+    buying = render({"facts": {**base, "smart_money_net_usd": 250_000}}, "X", "0xa")
+
+    assert "net SELLING" in selling and "44 selling" in selling, selling
+    assert "net buying" in buying, buying
+    assert selling != buying
+
+
+def test_the_days_move_sits_next_to_the_price():
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 20, "venues": ["u"], "swaps_24h": 1,
+                             "volume_24h_usd": 1.0}}, "X", "0xa",
+                  market={"price": "0.001", "change_24h": -71.4})
+    assert "71.4%" in card and "▼" in card, card

@@ -99,19 +99,45 @@ def render(report: dict, symbol: str | None, address: str,
     score = facts.get("risk_score")
     lines = []
 
-    if score is not None:
+    # A score built without price history, volume or flow is not a low risk;
+    # it is a blind spot. This token had fallen from tens of millions and the
+    # card still said "6/100 — low", because the index had seen none of its
+    # trades: no venue, no volume, no ATH, no smart-money flow. Say what the
+    # score is made of, and stop calling it low when it is made of nothing.
+    blind = _index_saw_no_trading(facts)
+    if score is not None and not blind:
         mark, word = _band(float(score))
         lines.append(f"{mark} <b>Risk {score}/100</b> — {word}")
+    elif score is not None:
+        lines.append(
+            f"⚠️ <b>Risk unscored</b> — our index has no trade history for this "
+            f"token, so holders and supply are all it could weigh."
+        )
     name = symbol or facts.get("symbol") or "Token"
     lines.insert(0, f"🔬 <b>{name}</b> · Robinhood Chain")
     lines.append("")
 
     market = market or {}
-    for label, key in (("Price", "price"), ("Market cap", "mcap"),
-                       ("Liquidity", "liquidity"), ("24h volume", "volume")):
+    price = _usd(market.get("price")) or _kpi(report, "Price")
+    if price:
+        lines.append(f"• Price: <b>{price}</b>{_move(market)}")
+    for label, key in (("Market cap", "mcap"), ("Liquidity", "liquidity"),
+                       ("24h volume", "volume")):
         value = _usd(market.get(key)) or _kpi(report, label)
         if value:
             lines.append(f"• {label}: <b>{value}</b>")
+
+    # How far it is off its high, when the index knows. A token 90% down from
+    # its peak is the single most important thing on this card.
+    fall = facts.get("drawdown_from_ath")
+    ath = facts.get("ath_mcap_usd")
+    if fall is not None:
+        peak = f" (peak {_usd(ath)})" if ath else ""
+        lines.append(f"• <b>Down {float(fall):.0f}% from its high</b>{peak}")
+
+    buys, sells = market.get("buys_24h"), market.get("sells_24h")
+    if buys is not None and sells is not None and (buys or sells):
+        lines.append(f"• Trades 24h: {buys:,} buys · {sells:,} sells")
 
     holders = _kpi(report, "Holders")
     age = _kpi(report, "Age (days)")
@@ -139,16 +165,54 @@ def render(report: dict, symbol: str | None, address: str,
     if launchpad:
         lines.append(f"• Launched via <b>{launchpad}</b>")
 
+    # Who is holding is half the question; the other half is what they have
+    # been doing. Reporting only the holder count let a token where smart
+    # money was selling read exactly like one where it was buying.
     smart = facts.get("smart_money_holders")
     if smart:
-        lines.append(
-            f"• Smart money: <b>{smart}</b> wallets"
-            + (f", {facts['smart_money_holding_pct']}% of supply"
-               if facts.get("smart_money_holding_pct") else "")
-        )
+        line = f"• Smart money: <b>{smart}</b> wallets"
+        if facts.get("smart_money_holding_pct"):
+            line += f", {facts['smart_money_holding_pct']}% of supply"
+        lines.append(line)
+        net = facts.get("smart_money_net_usd")
+        sellers = facts.get("smart_money_sellers")
+        if net:
+            way = "net buying" if float(net) > 0 else "net SELLING"
+            lines.append(f"  └ {way} {_usd(abs(float(net)))}"
+                         + (f" · {sellers} selling" if sellers else ""))
+        elif sellers:
+            lines.append(f"  └ {sellers} of them selling")
 
     lines += ["", f"<code>{address}</code>"]
     return "\n".join(lines)
+
+
+def _index_saw_no_trading(facts: dict) -> bool:
+    """Did our index see this token trade at all?
+
+    When it has no venue and no swaps, every price-derived signal it produces
+    is absent rather than reassuring — and the risk score is then built from
+    holders and supply alone.
+    """
+    keys = ("venues", "swaps_24h", "volume_24h_usd")
+    if not any(k in facts for k in keys):
+        # An older report shape that never carried these. Absence of the
+        # fields is not evidence of absence of trading, so leave the score be.
+        return False
+    return (
+        not (facts.get("venues") or [])
+        and not facts.get("swaps_24h")
+        and not float(facts.get("volume_24h_usd") or 0)
+    )
+
+
+def _move(market: dict) -> str:
+    """The day's move, next to the price it belongs to."""
+    day = market.get("change_24h")
+    if day is None:
+        return ""
+    arrow = "▲" if day >= 0 else "▼"
+    return f"  {arrow} {abs(day):.1f}% (24h)"
 
 
 def _keyboard(address: str, symbol: str | None) -> InlineKeyboardMarkup:
@@ -185,12 +249,29 @@ async def _market(address: str) -> dict:
     if not on_chain:
         return {}
     best = max(on_chain, key=lambda p: float((p.get("liquidity") or {}).get("usd") or 0))
+    change = best.get("priceChange") or {}
     return {
         "price": best.get("priceUsd"),
         "mcap": best.get("marketCap") or best.get("fdv"),
         "liquidity": (best.get("liquidity") or {}).get("usd"),
         "volume": (best.get("volume") or {}).get("h24"),
+        # What the token has actually been doing. A report that lists a market
+        # cap and calls the token low-risk, while the price is down two thirds
+        # on the day, is describing a different token than the one being asked
+        # about.
+        "change_1h": _num(change.get("h1")),
+        "change_6h": _num(change.get("h6")),
+        "change_24h": _num(change.get("h24")),
+        "buys_24h": ((best.get("txns") or {}).get("h24") or {}).get("buys"),
+        "sells_24h": ((best.get("txns") or {}).get("h24") or {}).get("sells"),
     }
+
+
+def _num(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _usd(value) -> str | None:
