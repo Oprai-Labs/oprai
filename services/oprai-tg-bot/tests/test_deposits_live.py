@@ -225,3 +225,57 @@ async def test_a_baseline_belongs_to_an_address_not_a_person():
     finally:
         await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", tg)
         await close_pool()
+
+
+# ── a reading from the past is not a deposit ────────────────────────────────
+@pytest.mark.asyncio
+async def test_a_stale_reading_is_never_announced_as_a_deposit(monkeypatch):
+    """This one reached real people twice. Our node came back from maintenance
+    380,000 blocks behind and answered with the balance a wallet held that far
+    back; the watcher compared amounts, saw an increase, and said money had
+    arrived. It had not — that money had been spent hours earlier."""
+    from app.services import deposits
+
+    telegram_id = random.randint(10**10, 10**11)
+    address = "0xB4890b8a421Ed236006EF2E7f6db4dDCa96D405F"
+
+    await init_pool()
+    try:
+        await upsert_tg_user(telegram_id, f"stale_{telegram_id}")
+        # What we already know: the current balance, read at the chain head.
+        await pool().execute(
+            "INSERT INTO tg_balance_watch (address, telegram_id, wei, block) "
+            "VALUES ($1, $2, $3::numeric, $4) ON CONFLICT (address) DO UPDATE "
+            "SET wei = EXCLUDED.wei, block = EXCLUDED.block",
+            address.lower(), telegram_id, str(580176536305711), 54_890_000,
+        )
+
+        async def wallets():
+            return [(telegram_id, address)]
+
+        # A node 380k blocks behind, reporting the far larger old balance.
+        async def stale_head(method, params=None, chain_id=None):
+            return hex(54_505_022)
+
+        async def stale_balance(reqs, chain_id=None):
+            return [hex(10_019_275_592_043_007)]
+
+        monkeypatch.setattr(deposits, "_wallets", wallets)
+        monkeypatch.setattr(deposits.evm, "rpc", stale_head)
+        monkeypatch.setattr(deposits.evm, "rpc_batch", stale_balance)
+
+        found = await deposits.check_native()
+        assert found == [], f"a stale reading was announced as a deposit: {found}"
+
+        kept = await pool().fetchval(
+            "SELECT wei FROM tg_balance_watch WHERE address = $1", address.lower()
+        )
+        assert int(kept) == 580176536305711, (
+            "the stale reading overwrote what we knew, so the next fresh read "
+            "would announce the difference all over again"
+        )
+    finally:
+        await pool().execute("DELETE FROM tg_balance_watch WHERE address = $1",
+                             address.lower())
+        await pool().execute("DELETE FROM tg_users WHERE telegram_id = $1", telegram_id)
+        await close_pool()

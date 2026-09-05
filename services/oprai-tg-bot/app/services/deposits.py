@@ -69,10 +69,23 @@ async def _wallets() -> list[tuple[int, str]]:
 
 # ── native ETH ──────────────────────────────────────────────────────────────
 async def check_native() -> list[Deposit]:
-    """Compare every wallet's balance with what we last saw."""
+    """Compare every wallet's balance with what we last saw.
+
+    Every reading carries the height it was taken at. A node that has fallen
+    behind answers with the balance a wallet held that far back, and comparing
+    amounts alone cannot tell that apart from money arriving — ours came back
+    from maintenance 380,000 blocks behind, and the difference was announced
+    twice as a deposit that never happened. A reading from below the height we
+    have already seen is not news; it is the past, and it is dropped.
+    """
     wallets = await _wallets()
     if not wallets:
         return []
+
+    try:
+        head = evm.to_int(await evm.rpc("eth_blockNumber", []))
+    except evm.EvmError:
+        return []  # without a height we cannot tell fresh from stale
 
     balances = await evm.rpc_batch(
         [("eth_getBalance", [addr, "latest"]) for _, addr in wallets]
@@ -80,39 +93,43 @@ async def check_native() -> list[Deposit]:
     # Keyed by address: a person can hold several wallets, and comparing one
     # address's balance against another's is how a wallet switch became a
     # phantom deposit.
-    known = {
-        r["address"].lower(): int(r["wei"])
-        for r in await pool().fetch("SELECT address, wei FROM tg_balance_watch")
-    }
+    rows = await pool().fetch("SELECT address, wei, block FROM tg_balance_watch")
+    known = {r["address"].lower(): int(r["wei"]) for r in rows}
+    seen_at = {r["address"].lower(): int(r["block"] or 0) for r in rows}
 
     deposits: list[Deposit] = []
-    updates: list[tuple[str, int, str]] = []
+    updates: list[tuple[str, int, str, int]] = []
     for (telegram_id, address), raw in zip(wallets, balances):
         if raw is None:
             continue  # a failed read is not a balance change
         now = evm.to_int(raw)
+        if head < seen_at.get(address.lower(), 0):
+            continue  # an older view of the chain than we already had
         before = known.get(address.lower())
         if before is None:
             # First sighting: record the baseline, never announce it — the money
             # may have been there for weeks.
-            updates.append((address.lower(), telegram_id, str(now)))
+            updates.append((address.lower(), telegram_id, str(now), head))
             continue
         if now > before:
             deposits.append(Deposit(telegram_id, now - before, 18, "ETH"))
         if now != before:
-            updates.append((address.lower(), telegram_id, str(now)))
+            updates.append((address.lower(), telegram_id, str(now), head))
 
-    for address, telegram_id, wei in updates:
+    for address, telegram_id, wei, block in updates:
         await pool().execute(
             """
-            INSERT INTO tg_balance_watch (address, telegram_id, wei)
-            VALUES ($1, $2, $3::numeric)
+            INSERT INTO tg_balance_watch (address, telegram_id, wei, block)
+            VALUES ($1, $2, $3::numeric, $4)
             ON CONFLICT (address)
-            DO UPDATE SET wei = EXCLUDED.wei, updated_at = now()
+            DO UPDATE SET wei = EXCLUDED.wei, block = EXCLUDED.block,
+                          updated_at = now()
+             WHERE tg_balance_watch.block <= EXCLUDED.block
             """,
             address,
             telegram_id,
             wei,
+            block,
         )
     return deposits
 
