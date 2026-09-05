@@ -287,3 +287,33 @@ def test_the_days_move_sits_next_to_the_price():
                              "volume_24h_usd": 1.0}}, "X", "0xa",
                   market={"price": "0.001", "change_24h": -71.4})
     assert "71.4%" in card and "▼" in card, card
+
+
+def test_a_young_tokens_24h_gain_does_not_hide_what_it_is_doing_now():
+    """SLINK showed "+1656% (24h)" while everyone who had bought that morning
+    was down by half: the window reached back to its first hours. The short
+    windows say whether you are catching a falling knife; the long one has to
+    say what it actually spans."""
+    from app.handlers.intel import render
+
+    card = render(
+        {"facts": {"risk_score": 20, "venues": ["u"], "swaps_24h": 1,
+                   "volume_24h_usd": 1.0, "age_days": 1}},
+        "SLINK", "0xa",
+        market={"price": "0.0005", "change_1h": -8.2, "change_6h": -41.0,
+                "change_24h": 1656.0},
+    )
+    assert "▼8.2% 1h" in card and "▼41.0% 6h" in card, card
+    assert card.index("1h") < card.index("24h"), "the flattering number leads"
+    assert "reaches back to launch" in card, card
+
+
+def test_an_older_token_is_not_labelled_that_way():
+    from app.handlers.intel import render
+
+    card = render(
+        {"facts": {"risk_score": 20, "venues": ["u"], "swaps_24h": 1,
+                   "volume_24h_usd": 1.0, "age_days": 35}},
+        "X", "0xa", market={"price": "1", "change_24h": 4.0},
+    )
+    assert "reaches back to launch" not in card

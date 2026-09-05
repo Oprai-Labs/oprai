@@ -120,7 +120,11 @@ def render(report: dict, symbol: str | None, address: str,
     market = market or {}
     price = _usd(market.get("price")) or _kpi(report, "Price")
     if price:
-        lines.append(f"• Price: <b>{price}</b>{_move(market)}")
+        try:
+            age = float(facts.get("age_days")) if facts.get("age_days") is not None else None
+        except (TypeError, ValueError):
+            age = None
+        lines.append(f"• Price: <b>{price}</b>{_move(market, age)}")
     for label, key in (("Market cap", "mcap"), ("Liquidity", "liquidity"),
                        ("24h volume", "volume")):
         value = _usd(market.get(key)) or _kpi(report, label)
@@ -206,13 +210,31 @@ def _index_saw_no_trading(facts: dict) -> bool:
     )
 
 
-def _move(market: dict) -> str:
-    """The day's move, next to the price it belongs to."""
-    day = market.get("change_24h")
-    if day is None:
+def _move(market: dict, age_days: float | None = None) -> str:
+    """What the price has been doing, over windows that mean something.
+
+    A day-old token's 24-hour change is measured from its first hours, so it
+    reads as a spectacular gain no matter what has happened since: SLINK
+    showed "+1656% (24h)" while everyone who bought that morning was down by
+    half. The shorter windows are what tell you whether you are catching a
+    falling knife, so they are shown first and the long one is labelled for
+    what it actually spans.
+    """
+    def part(value, label):
+        if value is None:
+            return None
+        return f"{'▲' if value >= 0 else '▼'}{abs(value):.1f}% {label}"
+
+    bits = [b for b in (part(market.get("change_1h"), "1h"),
+                        part(market.get("change_6h"), "6h"),
+                        part(market.get("change_24h"), "24h")) if b]
+    if not bits:
         return ""
-    arrow = "▲" if day >= 0 else "▼"
-    return f"  {arrow} {abs(day):.1f}% (24h)"
+    line = "  " + " · ".join(bits)
+    # Younger than the window it is being measured over.
+    if age_days is not None and age_days <= 1 and market.get("change_24h") is not None:
+        line += "\n  <i>(24h reaches back to launch)</i>"
+    return line
 
 
 def _keyboard(address: str, symbol: str | None) -> InlineKeyboardMarkup:
