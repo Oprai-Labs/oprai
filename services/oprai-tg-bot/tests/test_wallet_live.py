@@ -328,3 +328,75 @@ async def test_a_long_outage_is_two_log_lines_not_thousands(monkeypatch):
     assert lines == ["rpc_using_fallback", "rpc_primary_recovered"], (
         "coming back to our own node went unrecorded"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_node_that_answers_but_is_behind_is_not_used(monkeypatch):
+    """Our node came back from pruning 390,000 blocks behind and started
+    serving again. Every balance read was then stale, and as it caught up each
+    wallet's balance would rise again and be announced as money arriving.
+    Answering is not the same as being right."""
+    import httpx
+
+    from app.services import evm
+
+    used: list[str] = []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def post(self, url, json=None):
+            if json.get("method") == "eth_blockNumber":
+                head = 54_486_198 if "rh-nitro" in url else 54_876_457
+                return httpx.Response(200, json={"result": hex(head)})
+            used.append(url)
+            return httpx.Response(200, json={"result": "0x1"})
+
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_OVERRIDE", "http://rh-nitro:8547")
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_FALLBACK",
+                        "https://rpc.mainnet.chain.robinhood.com")
+    monkeypatch.setattr(evm, "_lag_checked_at", 0.0)
+    monkeypatch.setattr(evm, "_primary_stale", False)
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    await evm.rpc("eth_getBalance", ["0xabc", "latest"])
+    assert used and "robinhood.com" in used[0], (
+        f"a node 390k blocks behind was still asked for a balance: {used}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_node_at_the_head_is_preferred(monkeypatch):
+    """The whole point of running our own node. Once it catches up it must be
+    used again, without anyone touching a config."""
+    import httpx
+
+    from app.services import evm
+
+    used: list[str] = []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+        async def post(self, url, json=None):
+            if json.get("method") == "eth_blockNumber":
+                head = 54_876_450 if "rh-nitro" in url else 54_876_457
+                return httpx.Response(200, json={"result": hex(head)})
+            used.append(url)
+            return httpx.Response(200, json={"result": "0x1"})
+
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_OVERRIDE", "http://rh-nitro:8547")
+    monkeypatch.setattr(evm.settings, "OPRAI_TG_RPC_FALLBACK",
+                        "https://rpc.mainnet.chain.robinhood.com")
+    monkeypatch.setattr(evm, "_lag_checked_at", 0.0)
+    monkeypatch.setattr(evm, "_primary_stale", True)
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    await evm.rpc("eth_getBalance", ["0xabc", "latest"])
+    assert used and "rh-nitro" in used[0], (
+        f"a healthy node seven blocks behind was skipped: {used}"
+    )

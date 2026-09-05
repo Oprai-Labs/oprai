@@ -71,6 +71,65 @@ def _note_primary_ok() -> None:
         log.info("rpc_primary_recovered")
 
 
+# A node that answers is not the same as a node that is right. Ours came back
+# from an hour of pruning 390,000 blocks behind the chain and started serving
+# again, so every balance read was stale — and as it caught up, each wallet's
+# balance would rise again and be announced as money arriving. Liveness is not
+# correctness: the primary has to be at the head, not merely reachable.
+_MAX_LAG_BLOCKS = 200
+_LAG_CHECK_SECONDS = 60
+_primary_stale = False
+_lag_checked_at = 0.0
+
+
+async def _head(url: str) -> int | None:
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as c:
+            r = await c.post(url, json={"jsonrpc": "2.0", "id": 1,
+                                        "method": "eth_blockNumber", "params": []})
+        if r.status_code != 200:
+            return None
+        return int(r.json().get("result") or "0x0", 16)
+    except (httpx.HTTPError, ValueError, TypeError, KeyError):
+        return None
+
+
+async def _primary_is_stale(primary: str, fallback: str) -> bool:
+    """Is our own node far enough behind that its answers are wrong?
+
+    Checked once a minute rather than per call: the question is whether a node
+    is syncing, and that does not change between two reads a second apart.
+    """
+    global _primary_stale, _lag_checked_at
+
+    now = time.monotonic()
+    if now - _lag_checked_at < _LAG_CHECK_SECONDS:
+        return _primary_stale
+    _lag_checked_at = now
+
+    mine, theirs = await _head(primary), await _head(fallback)
+    if mine is None or theirs is None:
+        return _primary_stale  # can't tell — keep the last verdict
+    lag = theirs - mine
+    was, _primary_stale = _primary_stale, lag > _MAX_LAG_BLOCKS
+    if _primary_stale != was:
+        if _primary_stale:
+            log.warning("primary_node_stale", lag_blocks=lag, using=fallback)
+        else:
+            log.info("primary_node_caught_up", lag_blocks=lag)
+    return _primary_stale
+
+
+async def _ordered_urls(chain_id: int) -> list[str]:
+    """Endpoints best-first, with a stale primary demoted behind the fallback."""
+    urls = rpc_urls(chain_id)
+    if len(urls) < 2:
+        return urls
+    if await _primary_is_stale(urls[0], urls[1]):
+        return [urls[1], urls[0]]
+    return urls
+
+
 def _why(e: Exception) -> str:
     """Never report an empty reason.
 
@@ -88,7 +147,7 @@ async def rpc(method: str, params: list | None = None, chain_id: int = CHAIN_ID)
     # One retry on a transport failure: a dropped keep-alive or a node
     # restarting is a blip, and treating it as an outage stops a whole polling
     # cycle for something that costs half a second to ride out.
-    urls = rpc_urls(chain_id)
+    urls = await _ordered_urls(chain_id)
 
     r = None
     for index, url in enumerate(urls):
@@ -131,7 +190,7 @@ async def rpc_batch(reqs: list[tuple[str, list]], chain_id: int = CHAIN_ID) -> l
     ]
     # Public RPCs rate-limit batches; back off and retry rather than losing the
     # whole sync. Our own node (prod ROBINHOOD_RPC) doesn't hit this.
-    urls = rpc_urls(chain_id)
+    urls = await _ordered_urls(chain_id)
     r = None
     unreachable: Exception | None = None
     for index, url in enumerate(urls):
