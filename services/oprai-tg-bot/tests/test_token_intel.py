@@ -317,3 +317,44 @@ def test_an_older_token_is_not_labelled_that_way():
         "X", "0xa", market={"price": "1", "change_24h": 4.0},
     )
     assert "reaches back to launch" not in card
+
+
+def test_a_handful_of_trades_is_not_enough_to_score():
+    """Once pool discovery was fixed the index started returning venues and
+    volume for SLINK — and a market cap of minus $0.0005, because 35 swaps is
+    not a market and the price derived from them is wrong. Having data is not
+    the same as having enough of it."""
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 6, "venues": [{"dex": "uniswap-v4"}],
+                             "swaps_24h": 35, "volume_24h_usd": 3863.38,
+                             "ath_mcap_usd": -0.00048,
+                             "drawdown_from_ath": 0.015}}, "SLINK", "0xa")
+    assert "unscored" in card.lower(), card
+    assert "35 trades" in card, card
+    assert "from its high" not in card, "an impossible high was still shown"
+
+
+def test_a_real_market_is_scored_and_its_drawdown_shown():
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 12, "venues": [{"dex": "uniswap-v4"}],
+                             "swaps_24h": 46134, "volume_24h_usd": 9_000_000.0,
+                             "ath_mcap_usd": 296_955_250,
+                             "drawdown_from_ath": 15.6}}, "CASHCAT", "0xb")
+    assert "Risk 12/100" in card
+    assert "Down 16% from its high" in card, card
+    assert "$296.96M" in card or "$297" in card, card
+
+
+def test_a_negative_high_is_never_printed():
+    """The index returns these for thinly-traded tokens. Rendering one would
+    put "Down 81% from its high (-$93.5K)" on the card."""
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 30, "venues": [{"dex": "u"}],
+                             "swaps_24h": 5000, "volume_24h_usd": 1e6,
+                             "ath_mcap_usd": -93_546.78,
+                             "drawdown_from_ath": 0.807}}, "OPRAI", "0xc")
+    assert "from its high" not in card, card
+    assert "-$" not in card, card

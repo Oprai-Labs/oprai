@@ -109,9 +109,12 @@ def render(report: dict, symbol: str | None, address: str,
         mark, word = _band(float(score))
         lines.append(f"{mark} <b>Risk {score}/100</b> — {word}")
     elif score is not None:
+        swaps = facts.get("swaps_24h") or 0
+        why = ("has no trade history for this token"
+               if not swaps else f"has only seen {swaps} trades in a day")
         lines.append(
-            f"⚠️ <b>Risk unscored</b> — our index has no trade history for this "
-            f"token, so holders and supply are all it could weigh."
+            f"⚠️ <b>Risk unscored</b> — our index {why}, so holders and supply "
+            f"are all it could weigh."
         )
     name = symbol or facts.get("symbol") or "Token"
     lines.insert(0, f"🔬 <b>{name}</b> · Robinhood Chain")
@@ -135,6 +138,13 @@ def render(report: dict, symbol: str | None, address: str,
     # its peak is the single most important thing on this card.
     fall = facts.get("drawdown_from_ath")
     ath = facts.get("ath_mcap_usd")
+    # An impossible high is not a high. A negative market cap means the price
+    # behind it is wrong, and every figure derived from it with it.
+    try:
+        if ath is not None and float(ath) <= 0:
+            fall = ath = None
+    except (TypeError, ValueError):
+        fall = ath = None
     if fall is not None:
         peak = f" (peak {_usd(ath)})" if ath else ""
         lines.append(f"• <b>Down {float(fall):.0f}% from its high</b>{peak}")
@@ -191,6 +201,12 @@ def render(report: dict, symbol: str | None, address: str,
     return "\n".join(lines)
 
 
+# Below this, a day's trading is too small a sample for anything derived from
+# price to mean much. CASHCAT at 46,000 swaps prices correctly; OPRAI at 31
+# comes back negative.
+MIN_SWAPS_TO_SCORE = 250
+
+
 def _index_saw_no_trading(facts: dict) -> bool:
     """Did our index see this token trade at all?
 
@@ -203,11 +219,20 @@ def _index_saw_no_trading(facts: dict) -> bool:
         # An older report shape that never carried these. Absence of the
         # fields is not evidence of absence of trading, so leave the score be.
         return False
-    return (
-        not (facts.get("venues") or [])
-        and not facts.get("swaps_24h")
-        and not float(facts.get("volume_24h_usd") or 0)
-    )
+    if (not (facts.get("venues") or [])
+            and not facts.get("swaps_24h")
+            and not float(facts.get("volume_24h_usd") or 0)):
+        return True
+    # A handful of swaps is not a market. The index derives price — and from
+    # it market cap, high and drawdown — off these, and on thin samples it
+    # returns figures that are plainly impossible: our own token came back
+    # with a market cap of minus eighteen thousand dollars. A score resting on
+    # that is not worth presenting as one.
+    try:
+        thin = int(facts.get("swaps_24h") or 0) < MIN_SWAPS_TO_SCORE
+    except (TypeError, ValueError):
+        thin = False
+    return thin
 
 
 def _move(market: dict, age_days: float | None = None) -> str:
