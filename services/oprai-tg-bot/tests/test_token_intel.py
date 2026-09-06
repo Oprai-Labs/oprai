@@ -358,3 +358,42 @@ def test_a_negative_high_is_never_printed():
                              "drawdown_from_ath": 0.807}}, "OPRAI", "0xc")
     assert "from its high" not in card, card
     assert "-$" not in card, card
+
+
+def test_a_green_badge_never_sits_next_to_a_collapsing_price():
+    """SLINK read "🟢 Risk 6/100 — low" directly above "▼70.7% 24h". The score
+    measures how a token is built — holders, supply, developer — and says
+    nothing about price; presenting it as "risk" let one answer be read as the
+    other."""
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 6, "venues": [{"dex": "u"}],
+                             "swaps_24h": 4405, "volume_24h_usd": 1_280_000.0}},
+                  "SLINK", "0xa",
+                  market={"price": "0.0003", "change_1h": -16.4,
+                          "change_6h": -16.1, "change_24h": -70.7})
+    assert "🟢" not in card, card
+    assert "Down 71% on the day" in card, card
+    assert "Structure 6/100" in card and "not price" in card, card
+
+
+def test_a_steep_six_hour_fall_leads_even_when_the_day_looks_fine():
+    """The day can be flat while the last hours are a cliff — that is exactly
+    when someone is about to buy the top."""
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 10, "venues": [{"dex": "u"}],
+                             "swaps_24h": 5000, "volume_24h_usd": 1e6}},
+                  "X", "0xa",
+                  market={"price": "1", "change_6h": -38.0, "change_24h": 5.0})
+    assert "Falling now — down 38% in 6 hours" in card, card
+
+
+def test_a_calm_token_keeps_its_ordinary_badge():
+    from app.handlers.intel import render
+
+    card = render({"facts": {"risk_score": 6, "venues": [{"dex": "u"}],
+                             "swaps_24h": 5000, "volume_24h_usd": 1e6}},
+                  "X", "0xa", market={"price": "1", "change_24h": 3.1})
+    assert "Risk 6/100" in card and "low" in card.lower()
+    assert "Structure" not in card

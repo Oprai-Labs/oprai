@@ -107,7 +107,20 @@ def render(report: dict, symbol: str | None, address: str,
     blind = _index_saw_no_trading(facts)
     if score is not None and not blind:
         mark, word = _band(float(score))
-        lines.append(f"{mark} <b>Risk {score}/100</b> — {word}")
+        # The score measures how the token is BUILT — holders, supply, the
+        # developer. It says nothing about what the price has been doing, so a
+        # token down 70% on the day still scored 6/100 and the card put a green
+        # dot next to it. The two are different questions and the answer to one
+        # must not be read as the answer to the other.
+        crash = _crashing(market or {})
+        if crash:
+            lines.append(f"🔴 <b>{crash}</b>")
+            # No colour here: a green dot is a verdict, and this line is not
+            # the one being asked about.
+            lines.append(f"　Structure {score}/100 — {word} "
+                         f"<i>(holders and supply only, not price)</i>")
+        else:
+            lines.append(f"{mark} <b>Risk {score}/100</b> — {word}")
     elif score is not None:
         swaps = facts.get("swaps_24h") or 0
         why = ("has no trade history for this token"
@@ -233,6 +246,23 @@ def _index_saw_no_trading(facts: dict) -> bool:
     except (TypeError, ValueError):
         thin = False
     return thin
+
+
+# A fall this steep in a day is the headline, whatever the structure score
+# says. Below it, the day's move is shown on the price line and speaks for
+# itself.
+CRASH_24H_PCT = -40.0
+CRASH_6H_PCT = -25.0
+
+
+def _crashing(market: dict) -> str | None:
+    """The one-line verdict on price, when price is the story."""
+    day, six = market.get("change_24h"), market.get("change_6h")
+    if six is not None and six <= CRASH_6H_PCT:
+        return f"Falling now — down {abs(six):.0f}% in 6 hours"
+    if day is not None and day <= CRASH_24H_PCT:
+        return f"Down {abs(day):.0f}% on the day"
+    return None
 
 
 def _move(market: dict, age_days: float | None = None) -> str:
